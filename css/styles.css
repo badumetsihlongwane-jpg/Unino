@@ -530,10 +530,18 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 }
 .post-image {
   width: 100%;
-  max-height: 500px;
-  object-fit: cover;
+  max-height: 600px;
+  object-fit: contain;
   cursor: pointer;
   background: var(--bg-tertiary);
+  display: block;
+}
+.post-image-wrap {
+  margin: 4px 16px 8px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  line-height: 0;
 }
 .post-actions {
   display: flex;
@@ -1544,4 +1552,208 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
   .users-grid { grid-template-columns: repeat(3, 1fr); }
   .listings-grid { grid-template-columns: repeat(3, 1fr); }
   .notif-dropdown { right: auto; left: 50%; transform: translateX(50%); }
+}
+
+/* ══════════════════════════════════════════
+   NEW FEATURES — v2
+   ══════════════════════════════════════════ */
+
+/* ── Status Dots ───────────────────────── */
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.study { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+.status-dot.offline { background: var(--text-tertiary); }
+
+.status-indicator {
+  position: absolute;
+  bottom: 2px; right: 2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-secondary);
+}
+.status-indicator.online { background: var(--green); }
+.status-indicator.study { background: var(--orange); }
+
+.profile-status-dot {
+  position: absolute;
+  bottom: 4px; right: 4px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--bg-primary);
+}
+.profile-status-dot.online { background: var(--green); }
+.profile-status-dot.study { background: var(--orange); }
+
+/* ── Status Pill (Feed) ────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 100px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--text-secondary);
+}
+.status-pill:hover { border-color: var(--accent); }
+
+/* ── Feed Welcome Banner ───────────────── */
+.feed-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.feed-welcome-text {
+  display: flex;
+  flex-direction: column;
+}
+.feed-greeting {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.feed-name {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+/* ── Suggestions Row ───────────────────── */
+.suggestions-row {
+  padding: 16px 0 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.section-header {
+  padding: 0 16px 12px;
+}
+.section-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.suggestions-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 0 16px 12px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+}
+.suggestions-scroll::-webkit-scrollbar { display: none; }
+
+.suggestion-card {
+  flex-shrink: 0;
+  width: 130px;
+  padding: 16px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  scroll-snap-align: start;
+}
+.suggestion-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+.suggestion-name {
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggestion-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Trending Tags ─────────────────────── */
+.trending-section {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.trending-chips {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.trending-chips::-webkit-scrollbar { display: none; }
+.trending-label {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.hashtag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hashtag-chip small {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+/* ── Hashtag links in post text ────────── */
+.hashtag {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.hashtag:hover {
+  text-decoration: underline;
+}
+
+/* ── Hashtag Hint ──────────────────────── */
+.hashtag-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 6px 0;
+}
+
+/* ── Feed Loader ───────────────────────── */
+.feed-loader {
+  display: flex;
+  justify-content: center;
+  padding: 32px;
+}
+
+/* ── User Card Avatar Wrap ─────────────── */
+.user-card-avatar-wrap {
+  position: relative;
+  display: inline-block;
+  margin: 0 auto 8px;
+}
+
+/* ── Listing Image (marketplace) ───────── */
+.listing-card .listing-image {
+  border-radius: 0;
+}
+
+/* ── Profile Avatar Wrapper fix ────────── */
+.profile-avatar-wrapper {
+  position: relative;
+  display: inline-block;
 }
