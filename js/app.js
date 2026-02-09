@@ -1,1070 +1,1589 @@
-// ============================================
-// UNINO — Main Application Engine
-// Full SPA: Home, Around, Academic, Hustle, Chat, Profile
-// ============================================
-
-const App = {
-  // ============================
-  // STATE
-  // ============================
-  state: {
-    currentPage: 'home',
-    user: null,
-    privacyMode: 'online',
-    theme: 'dark',
-    aroundView: 'map',
-    aroundFilter: 'all',
-    hustleCategory: 'all',
-    hustleSearch: '',
-    academicTab: 'courses',
-    messageTab: 'dm',
-    activeChat: null,
-    notificationsOpen: false,
-    savedListings: new Set(),
-    rsvpEvents: new Set(['e6']), // User already RSVP'd to their own event
-    friendRequests: {},
-  },
-
-  // ============================
-  // INITIALIZATION
-  // ============================
-  init() {
-    this.state.user = MockData.currentUser;
-    const saved = localStorage.getItem('unino-theme');
-    if (saved) {
-      this.state.theme = saved;
-      document.documentElement.setAttribute('data-theme', saved);
-    }
-    // Pre-fill friend request states from connections
-    MockData.connections.forEach(c => {
-      this.state.friendRequests[c.userId] = c.status;
-    });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { this.closeModal(); this.closeChat(); this.closeNotifications(); }
-    });
-  },
-
-  // ============================
-  // AUTH
-  // ============================
-  login() {
-    const btn = document.querySelector('#auth-screen .btn-primary');
-    if (btn) { btn.textContent = 'Logging in…'; btn.disabled = true; }
-    setTimeout(() => {
-      document.getElementById('auth-screen').classList.remove('active');
-      document.getElementById('app-shell').classList.add('active');
-      this.navigate('home');
-      this.renderNotifications();
-      this.showToast('Welcome back, Alex! 👋');
-    }, 700);
-  },
-  showSignup() {
-    document.getElementById('login-form').classList.remove('active');
-    document.getElementById('signup-form').classList.add('active');
-  },
-  showLogin() {
-    document.getElementById('signup-form').classList.remove('active');
-    document.getElementById('login-form').classList.add('active');
-  },
-  logout() {
-    document.getElementById('app-shell').classList.remove('active');
-    document.getElementById('auth-screen').classList.add('active');
-    const b = document.querySelector('#login-form .btn-primary');
-    if (b) { b.textContent = 'Log In'; b.disabled = false; }
-  },
-
-  // ============================
-  // NAVIGATION
-  // ============================
-  navigate(page) {
-    this.state.currentPage = page;
-    this.closeNotifications();
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-    const el = document.getElementById('app-content');
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(8px)';
-    setTimeout(() => {
-      switch (page) {
-        case 'home':     el.innerHTML = this.renderHome(); break;
-        case 'around':   el.innerHTML = this.renderAround(); break;
-        case 'academic': el.innerHTML = this.renderAcademic(); break;
-        case 'hustle':   el.innerHTML = this.renderHustle(); break;
-        case 'messages': el.innerHTML = this.renderMessages(); break;
-        case 'profile':  el.innerHTML = this.renderProfile(); break;
-      }
-      el.scrollTop = 0;
-      el.style.opacity = '1';
-      el.style.transform = 'translateY(0)';
-    }, 120);
-  },
-
-  // ============================
-  // HELPERS
-  // ============================
-  getGreeting() {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good morning! Ready to conquer some classes?';
-    if (h < 17) return 'Good afternoon! How\'s the grind going?';
-    return 'Good evening! Time for some study or chill?';
-  },
-  formatTime(iso) {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  },
-  formatDate(iso) {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  },
-  relativeTime(iso) {
-    const diff = Date.now() - new Date(iso).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return 'Just now';
-    if (m < 60) return m + 'm ago';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h ago';
-    return Math.floor(h / 24) + 'd ago';
-  },
-  categoryIcon(cat) {
-    const m = { textbook: '📚', service: '🛠️', furniture: '🪑', electronics: '📱', other: '📦' };
-    return m[cat] || '📦';
-  },
-  courseIcon(code) {
-    if (code.startsWith('CS'))   return { emoji: '💻', cls: 'cs' };
-    if (code.startsWith('MATH')) return { emoji: '📐', cls: 'math' };
-    if (code.startsWith('ENG'))  return { emoji: '✏️', cls: 'eng' };
-    if (code.startsWith('PHIL')) return { emoji: '🤔', cls: 'phil' };
-    return { emoji: '📖', cls: 'cs' };
-  },
-
-  // ============================
-  // NOTIFICATIONS
-  // ============================
-  toggleNotifications() {
-    this.state.notificationsOpen = !this.state.notificationsOpen;
-    const panel = document.getElementById('notifications-panel');
-    panel.classList.toggle('active', this.state.notificationsOpen);
-    if (this.state.notificationsOpen) this.renderNotifications();
-  },
-  closeNotifications() {
-    this.state.notificationsOpen = false;
-    const p = document.getElementById('notifications-panel');
-    if (p) p.classList.remove('active');
-  },
-  renderNotifications() {
-    const icons = { friend_request: '👤', message: '💬', event: '📅', achievement: '🏆', marketplace: '🛍️' };
-    const cls   = { friend_request: 'friend', message: 'message', event: 'event', achievement: 'achievement', marketplace: 'marketplace' };
-    const list = document.getElementById('notif-list');
-    if (!list) return;
-    list.innerHTML = MockData.notifications.map(n => `
-      <div class="notif-item ${n.read ? '' : 'unread'}">
-        <div class="notif-icon ${cls[n.type]}">${icons[n.type]}</div>
-        <div class="notif-content">
-          <div class="notif-text"><strong>${n.from}</strong> ${n.message}</div>
-          <div class="notif-time">${n.time}</div>
-        </div>
-      </div>
-    `).join('');
-  },
-  clearNotifications() {
-    MockData.notifications.forEach(n => n.read = true);
-    document.getElementById('notif-badge').style.display = 'none';
-    this.renderNotifications();
-    this.showToast('All notifications cleared ✓');
-  },
-
-  // ============================
-  // TOAST
-  // ============================
-  showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('active');
-    setTimeout(() => t.classList.remove('active'), 2800);
-  },
-
-  // ============================
-  // PRIVACY MODE
-  // ============================
-  setPrivacyMode(mode) {
-    this.state.privacyMode = mode;
-    this.state.user.privacyMode = mode;
-    if (this.state.currentPage === 'home') this.navigate('home');
-    else if (this.state.currentPage === 'around') this.navigate('around');
-    const labels = { online: 'You\'re visible to nearby students', study: 'Study Mode — only study buddies see you', offline: 'You\'re hidden from the map' };
-    this.showToast(labels[mode]);
-  },
-
-  // ============================
-  // HOME PAGE
-  // ============================
-  renderHome() {
-    const u = this.state.user;
-    const online = MockData.users.filter(x => x.privacyMode !== 'offline').length;
-    const todayEv = MockData.events.filter(e => {
-      const d = new Date(e.startTime);
-      return d.getMonth() === 1 && d.getDate() === 10;
-    }).length;
-    const unread = MockData.conversations.reduce((s, c) => s + c.unread, 0);
-
-    return `
-      <div class="status-bar">
-        <div class="status-toggle">
-          <button class="status-option ${this.state.privacyMode === 'online' ? 'active' : ''}" onclick="App.setPrivacyMode('online')">🟢 Online</button>
-          <button class="status-option ${this.state.privacyMode === 'study' ? 'active study' : ''}" onclick="App.setPrivacyMode('study')">📖 Study</button>
-          <button class="status-option ${this.state.privacyMode === 'offline' ? 'active offline' : ''}" onclick="App.setPrivacyMode('offline')">⚫ Off</button>
-        </div>
-        <div class="streak-badge">🔥 ${u.studyStreakDays} days</div>
-      </div>
-
-      <div class="page-section">
-        <div class="welcome-banner animate-in">
-          <div class="welcome-left">
-            <h2>Hey, ${u.firstName}! 👋</h2>
-            <p>${this.getGreeting()}</p>
-          </div>
-          <div class="karma-pill"><span class="karma-num">${u.karmaPoints}</span><span class="karma-lbl">Karma ✨</span></div>
-        </div>
-      </div>
-
-      <div class="quick-stats">
-        <div class="stat-card animate-in" onclick="App.navigate('around')" style="cursor:pointer">
-          <div class="stat-number">${online}</div><div class="stat-label">Nearby</div>
-        </div>
-        <div class="stat-card animate-in" onclick="App.navigate('messages')" style="cursor:pointer">
-          <div class="stat-number">${unread}</div><div class="stat-label">Unread</div>
-        </div>
-        <div class="stat-card animate-in" style="cursor:pointer">
-          <div class="stat-number">${todayEv}</div><div class="stat-label">Events</div>
-        </div>
-      </div>
-
-      <div class="page-section">
-        <div class="section-header">
-          <div><h3 class="section-title">Campus Pulse 🎯</h3><p class="section-subtitle">Upcoming events near you</p></div>
-          <button class="text-btn" onclick="App.showAllEvents()">See All</button>
-        </div>
-        <div class="events-scroll">${MockData.events.map(e => this.renderEventCard(e)).join('')}</div>
-      </div>
-
-      <div class="page-section">
-        <div class="section-header">
-          <div><h3 class="section-title">People You May Know 👥</h3><p class="section-subtitle">Based on your courses</p></div>
-        </div>
-        <div class="suggested-scroll">${MockData.users.filter(x => x.privacyMode !== 'offline').slice(0, 6).map(x => this.renderSuggestedCard(x)).join('')}</div>
-      </div>
-
-      <div class="page-section">
-        <div class="section-header"><h3 class="section-title">Activity Feed 📡</h3></div>
-        ${this.renderActivityFeed()}
-      </div>
-    `;
-  },
-
-  renderEventCard(ev) {
-    const t = this.formatTime(ev.startTime);
-    const going = this.state.rsvpEvents.has(ev.id);
-    return `
-      <div class="event-card animate-in" onclick="App.openEventDetail('${ev.id}')">
-        <span class="event-type-badge ${ev.type}">${ev.type.replace('_', ' ')}</span>
-        <h4>${ev.title}</h4>
-        <div class="event-meta">
-          <div class="event-meta-row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            ${t}
-          </div>
-          <div class="event-meta-row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            ${ev.location}
-          </div>
-        </div>
-        <div class="event-footer">
-          <div class="event-attendees-mini">
-            <div class="mini-avatar">${ev.creatorAvatar}</div>
-            <div class="mini-avatar">+${Math.max(ev.attendees - 1, 0)}</div>
-            <span class="attendee-count">${ev.attendees}/${ev.maxAttendees}</span>
-          </div>
-          <button class="rsvp-btn ${going ? 'going' : ''}" onclick="event.stopPropagation(); App.toggleRSVP('${ev.id}')">
-            ${going ? '✓ Going' : 'RSVP'}
-          </button>
-        </div>
-      </div>`;
-  },
-
-  renderSuggestedCard(u) {
-    const st = this.state.friendRequests[u.id];
-    let action;
-    if (st === 'accepted') action = '<span class="suggested-badge connected">✓ Friends</span>';
-    else if (st === 'pending') action = '<span class="suggested-badge pending">Pending</span>';
-    else action = `<button class="btn-outline-accent btn-small" onclick="event.stopPropagation(); App.sendFriendRequest('${u.id}')">+ Add</button>`;
-    return `
-      <div class="suggested-card animate-in" onclick="App.openUserProfile('${u.id}')">
-        <div class="user-avatar ${u.privacyMode === 'online' ? 'gradient' : ''}">${u.avatar}<span class="avatar-status ${u.privacyMode}"></span></div>
-        <div class="suggested-name">${u.firstName} ${u.lastName.charAt(0)}.</div>
-        <div class="suggested-major">${u.major}</div>
-        ${action}
-      </div>`;
-  },
-
-  renderActivityFeed() {
-    const acts = [
-      { icon: '🏆', text: '<strong>Priya Rao</strong> earned "Study Streak 21" badge', time: '2h ago', c: 'success' },
-      { icon: '📚', text: '<strong>David Chen</strong> shared notes in MATH301', time: '3h ago', c: 'info' },
-      { icon: '🛍️', text: '<strong>Emma Lee</strong> listed "Logo Design Package"', time: '5h ago', c: 'accent' },
-      { icon: '📅', text: '<strong>Mike Thompson</strong> created "Startup Pitch Night"', time: '6h ago', c: 'warning' },
-      { icon: '🤝', text: '<strong>Nina Patel</strong> and <strong>David Chen</strong> connected', time: '8h ago', c: 'success' },
-    ];
-    return `<div class="activity-feed">${acts.map((a, i) => `
-      <div class="activity-item animate-in" style="animation-delay:${i * 0.05}s">
-        <div class="activity-icon ${a.c}">${a.icon}</div>
-        <div class="activity-content"><p>${a.text}</p><span class="activity-time">${a.time}</span></div>
-      </div>`).join('')}</div>`;
-  },
-
-  // ============================
-  // WHO'S AROUND
-  // ============================
-  renderAround() {
-    const users = MockData.users.filter(u => {
-      if (u.privacyMode === 'offline') return false;
-      const f = this.state.aroundFilter;
-      if (f === 'all') return true;
-      if (f === 'buddy') return u.status === 'Looking for Study Buddy';
-      if (f === 'free') return u.status === 'Free Now';
-      if (f === 'cs') return u.major === 'Computer Science';
-      return true;
-    });
-
-    return `
-      <div class="around-header">
-        <div class="flex items-center justify-between">
-          <h3 class="section-title">Who's Around 📍</h3>
-          <span class="privacy-pill ${this.state.privacyMode}">${this.state.privacyMode === 'online' ? '🟢 Visible' : this.state.privacyMode === 'study' ? '📖 Study' : '⚫ Hidden'}</span>
-        </div>
-        <div class="view-toggle">
-          <button class="view-toggle-btn ${this.state.aroundView === 'map' ? 'active' : ''}" onclick="App.setAroundView('map')">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg> Map
-          </button>
-          <button class="view-toggle-btn ${this.state.aroundView === 'list' ? 'active' : ''}" onclick="App.setAroundView('list')">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> List
-          </button>
-        </div>
-        <div class="filter-chips">
-          ${['all','buddy','free','cs'].map(f => {
-            const labels = { all: '👥 All', buddy: '🔍 Study Buddy', free: '✅ Free Now', cs: '💻 CS Major' };
-            return `<button class="filter-chip ${this.state.aroundFilter === f ? 'active' : ''}" onclick="App.setAroundFilter('${f}')">${labels[f]}</button>`;
-          }).join('')}
-        </div>
-      </div>
-      ${this.state.aroundView === 'map' ? this.renderCampusMap(users) : ''}
-      <div class="user-list" ${this.state.aroundView === 'map' ? 'style="padding-top:0"' : ''}>
-        ${this.state.aroundView === 'map' ? `<div class="section-header" style="padding:16px 0 8px"><h3 class="section-title" style="font-size:16px">Closest to You</h3></div>` : ''}
-        ${(this.state.aroundView === 'map' ? users.sort((a, b) => a.distance - b.distance).slice(0, 4) : users.sort((a, b) => a.distance - b.distance)).map(u => this.renderUserCard(u)).join('')}
-        ${users.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">👻</div><h3>Nobody matching filters</h3><p>Try broadening your search</p></div>' : ''}
-      </div>`;
-  },
-
-  renderCampusMap(users) {
-    const buildings = [
-      { name: '📚 Library', x: 32, y: 12 },
-      { name: '☕ Coffee Shop', x: 68, y: 14 },
-      { name: '🏛️ Student Center', x: 50, y: 32 },
-      { name: '💻 CS Building', x: 18, y: 48 },
-      { name: '⚙️ Engineering Lab', x: 14, y: 72 },
-      { name: '📐 Math Lab', x: 44, y: 62 },
-      { name: '🎨 Art Building', x: 75, y: 55 },
-      { name: '🧠 Psych Building', x: 68, y: 78 },
-      { name: '🧪 Chem Lab', x: 30, y: 82 },
-      { name: '🌳 Quad', x: 50, y: 46 },
-    ];
-    const positions = {
-      u2: { x: 52, y: 28 }, u3: { x: 35, y: 15 }, u4: { x: 70, y: 17 },
-      u5: { x: 70, y: 75 }, u6: { x: 77, y: 52 }, u7: { x: 46, y: 59 },
-      u8: { x: 16, y: 69 }, u10: { x: 32, y: 79 },
-    };
-    const markers = users.map(u => {
-      const p = positions[u.id];
-      if (!p) return '';
-      const cls = u.status === 'Looking for Study Buddy' ? 'buddy' : u.privacyMode === 'study' ? 'study' : 'online';
-      return `<div class="map-marker ${cls}" style="left:${p.x}%;top:${p.y}%" onclick="App.openUserProfile('${u.id}')" title="${u.firstName} – ${u.status}">${u.avatar}</div>`;
-    }).join('');
-
-    return `
-      <div class="map-container">
-        <div class="map-grid"></div>
-        <div class="map-paths"></div>
-        ${buildings.map(b => `<div class="map-building" style="left:${b.x}%;top:${b.y}%">${b.name}</div>`).join('')}
-        <div class="map-marker-you" style="left:48%;top:44%" title="You are here"></div>
-        ${markers}
-      </div>
-      <div style="text-align:center;padding:8px;font-size:11px;color:var(--text-tertiary)">
-        🔵 You&nbsp;&nbsp;&nbsp;🟣 Online&nbsp;&nbsp;&nbsp;🟡 Study&nbsp;&nbsp;&nbsp;🟢 Buddy
-      </div>`;
-  },
-
-  renderUserCard(u) {
-    const cls = u.status === 'Looking for Study Buddy' ? 'buddy' : u.status === 'Study Mode' ? 'study' : 'free';
-    const lbl = u.status === 'Looking for Study Buddy' ? '🔍 Buddy' : u.status === 'Study Mode' ? '📖 Study' : '✅ Free';
-    return `
-      <div class="user-card animate-in" onclick="App.openUserProfile('${u.id}')">
-        <div class="user-avatar">${u.avatar}<span class="avatar-status ${u.privacyMode}"></span></div>
-        <div class="user-info">
-          <div class="user-name">${u.firstName} ${u.lastName}</div>
-          <div class="user-detail">${u.major} · ${u.location || 'Unknown'}</div>
-          <div class="user-meta"><span class="user-tag ${cls}">${lbl}</span></div>
-        </div>
-        <div class="user-distance">${u.distance}m</div>
-      </div>`;
-  },
-
-  setAroundView(v) { this.state.aroundView = v; this.navigate('around'); },
-  setAroundFilter(f) { this.state.aroundFilter = f; this.navigate('around'); },
-
-  // ============================
-  // ACADEMIC HUB
-  // ============================
-  renderAcademic() {
-    const tab = this.state.academicTab;
-    return `
-      <div class="tab-bar">
-        <button class="tab-btn ${tab === 'courses' ? 'active' : ''}" onclick="App.setAcademicTab('courses')">📖 Courses</button>
-        <button class="tab-btn ${tab === 'circles' ? 'active' : ''}" onclick="App.setAcademicTab('circles')">⭕ Circles</button>
-        <button class="tab-btn ${tab === 'schedule' ? 'active' : ''}" onclick="App.setAcademicTab('schedule')">📅 Schedule</button>
-      </div>
-      <div class="page-section">
-        ${tab === 'courses' ? this.renderCourses() : tab === 'circles' ? this.renderCircles() : this.renderSchedule()}
-      </div>`;
-  },
-
-  renderCourses() {
-    return `
-      <div class="section-header"><h3 class="section-title">My Courses</h3><span class="text-btn">Spring 2026</span></div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${MockData.courses.map(c => {
-          const ic = this.courseIcon(c.code);
-          return `
-            <div class="course-card animate-in" onclick="App.openCourseRoom('${c.id}')">
-              <div class="course-icon ${ic.cls}">${ic.emoji}</div>
-              <div class="course-info">
-                <div class="course-code">${c.code}</div>
-                <div class="course-name">${c.name}</div>
-                <div class="course-meta">${c.instructor} · ${c.members} students</div>
-              </div>
-              ${c.unread > 0 ? `<div class="course-unread">${c.unread}</div>` : ''}
-            </div>`;
-        }).join('')}
-      </div>`;
-  },
-
-  renderCircles() {
-    return `
-      <div class="section-header">
-        <div><h3 class="section-title">Assignment Circles</h3><p class="section-subtitle">Temporary study groups</p></div>
-        <button class="btn-outline-accent btn-small" onclick="App.showCreateCircle()">+ New</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${MockData.assignmentCircles.map(ac => {
-          const members = ac.members.map(mid => {
-            const mu = mid === 'u1' ? MockData.currentUser : MockData.users.find(x => x.id === mid);
-            return mu ? (mu.avatar || mu.firstName.charAt(0) + mu.lastName.charAt(0)) : '?';
-          });
-          const daysLeft = Math.max(0, Math.floor((new Date(ac.dueDate) - new Date('2026-02-09')) / 86400000));
-          return `
-            <div class="circle-card animate-in" onclick="App.openCircleChat('${ac.id}')">
-              <div class="circle-header">
-                <span class="circle-course-badge">${ac.courseCode}</span>
-                <span class="circle-due">${daysLeft === 0 ? '⚠️ Due today' : `📅 ${daysLeft}d left`}</span>
-              </div>
-              <h4>${ac.name}</h4>
-              <div class="circle-footer">
-                <div class="circle-members">${members.map(m => `<div class="mini-avatar">${m}</div>`).join('')}</div>
-                <span class="circle-messages">💬 ${ac.messages} messages</span>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>`;
-  },
-
-  renderSchedule() {
-    const slots = [
-      { time: '9:00 – 10:30 AM', course: 'CS201 — Data Structures', room: 'CS Building Room 101', friends: ['Priya R.', 'David C.'] },
-      { time: '11:00 AM – 12:30 PM', course: 'MATH301 — Linear Algebra', room: 'Math Lab 204', friends: ['David C.', 'Nina P.'] },
-      { time: '2:00 – 3:30 PM', course: 'CS301 — Operating Systems', room: 'CS Building Room 303', friends: ['Priya R.'] },
-      { time: '4:00 – 5:00 PM', course: 'PHIL101 — Intro to Philosophy', room: 'Humanities 110', friends: [] },
-    ];
-    const freeOverlaps = [
-      { time: '12:30 – 2:00 PM', label: 'Lunch Break', friends: ['Sarah J.', 'Priya R.', 'David C.'] },
-      { time: '5:00 – 6:00 PM', label: 'Free Hour', friends: ['Nina P.', 'James W.'] },
-    ];
-    return `
-      <div class="section-header"><h3 class="section-title">Today's Schedule</h3><span class="text-btn">Feb 10</span></div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${slots.map(s => `
-          <div class="schedule-card animate-in">
-            <div class="schedule-time">${s.time}</div>
-            <h4>${s.course}</h4>
-            <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">📍 ${s.room}</div>
-            ${s.friends.length ? `<div class="schedule-friends">👥 ${s.friends.join(', ')} also enrolled</div>` : ''}
-          </div>`).join('')}
-      </div>
-
-      <div class="section-header" style="margin-top:24px">
-        <div><h3 class="section-title">Free Time Overlaps ☕</h3><p class="section-subtitle">Friends free at the same time</p></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${freeOverlaps.map(f => `
-          <div class="schedule-card overlap animate-in">
-            <div class="schedule-time" style="color:var(--success)">${f.time}</div>
-            <h4>${f.label}</h4>
-            <div class="schedule-friends">👥 ${f.friends.join(', ')}</div>
-            <button class="btn-outline-accent btn-small" style="margin-top:8px" onclick="App.showToast('Invite sent! 🎉')">Invite to hang</button>
-          </div>`).join('')}
-      </div>`;
-  },
-
-  setAcademicTab(t) { this.state.academicTab = t; this.navigate('academic'); },
-
-  // ============================
-  // THE HUSTLE (MARKETPLACE)
-  // ============================
-  renderHustle() {
-    const cats = ['all', 'textbook', 'service', 'furniture', 'electronics', 'other'];
-    const catLabels = { all: '🔥 All', textbook: '📚 Books', service: '🛠️ Services', furniture: '🪑 Furniture', electronics: '📱 Tech', other: '📦 Other' };
-    let listings = MockData.listings;
-    if (this.state.hustleCategory !== 'all') listings = listings.filter(l => l.category === this.state.hustleCategory);
-    if (this.state.hustleSearch) {
-      const q = this.state.hustleSearch.toLowerCase();
-      listings = listings.filter(l => l.title.toLowerCase().includes(q) || l.description.toLowerCase().includes(q));
-    }
-
-    return `
-      <div class="hustle-header">
-        <div class="section-header" style="margin-bottom:0"><h3 class="section-title">The Hustle 💰</h3></div>
-        <div class="search-bar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" placeholder="Search listings…" value="${this.state.hustleSearch}" oninput="App.hustleSearch(this.value)">
-        </div>
-        <div class="category-tabs">
-          ${cats.map(c => `<button class="category-tab ${this.state.hustleCategory === c ? 'active' : ''}" onclick="App.setHustleCategory('${c}')">${catLabels[c]}</button>`).join('')}
-        </div>
-      </div>
-
-      <div class="listing-grid">
-        ${listings.map(l => `
-          <div class="listing-card animate-in" onclick="App.openListingDetail('${l.id}')">
-            <div class="listing-image"><span class="listing-category-icon">${this.categoryIcon(l.category)}</span>
-              ${this.state.savedListings.has(l.id) ? '<div class="listing-saved-badge">♥</div>' : ''}
-            </div>
-            <div class="listing-body">
-              <div class="listing-title">${l.title}</div>
-              <div class="listing-price">$${l.price.toFixed(2)}</div>
-              <div class="listing-seller">
-                <div class="listing-seller-avatar">${l.sellerAvatar}</div>
-                <span class="listing-seller-name">${l.sellerName}</span>
-                <span class="listing-seller-rating">★ ${l.sellerRating}</span>
-              </div>
-            </div>
-          </div>`).join('')}
-        ${listings.length === 0 ? '<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🔍</div><h3>No listings found</h3><p>Try different keywords or category</p></div>' : ''}
-      </div>
-      <button class="fab" onclick="App.openCreateListing()" aria-label="Create listing">+</button>`;
-  },
-
-  setHustleCategory(c) { this.state.hustleCategory = c; this.navigate('hustle'); },
-  hustleSearch(v) { this.state.hustleSearch = v; this.navigate('hustle'); },
-
-  // ============================
-  // MESSAGES
-  // ============================
-  renderMessages() {
-    const tab = this.state.messageTab;
-    const convos = MockData.conversations.filter(c => tab === 'dm' ? c.type === 'dm' : c.type !== 'dm');
-
-    return `
-      <div class="messages-header">
-        <h3 class="section-title">Messages 💬</h3>
-        <div class="msg-tabs">
-          <button class="msg-tab ${tab === 'dm' ? 'active' : ''}" onclick="App.setMessageTab('dm')">Direct</button>
-          <button class="msg-tab ${tab === 'course' ? 'active' : ''}" onclick="App.setMessageTab('course')">Rooms</button>
-        </div>
-      </div>
-      <div class="conversation-list">
-        ${convos.map(c => {
-          const isCourse = c.type !== 'dm';
-          return `
-            <div class="conversation-item animate-in" onclick="App.openChat('${c.id}')">
-              <div class="conv-avatar ${isCourse ? 'course' : ''}">${c.avatar}</div>
-              <div class="conv-content">
-                <div class="conv-name">${c.name}</div>
-                <div class="conv-last-msg">${c.lastMessage}</div>
-              </div>
-              <div class="conv-meta">
-                <span class="conv-time">${this.relativeTime(c.lastMessageTime)}</span>
-                ${c.unread > 0 ? `<span class="conv-unread">${c.unread}</span>` : ''}
-              </div>
-            </div>`;
-        }).join('')}
-        ${convos.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">💬</div><h3>No conversations yet</h3><p>Start chatting with classmates!</p></div>' : ''}
-      </div>`;
-  },
-
-  setMessageTab(t) { this.state.messageTab = t; this.navigate('messages'); },
-
-  // ============================
-  // CHAT VIEW
-  // ============================
-  openChat(convId) {
-    const conv = MockData.conversations.find(c => c.id === convId);
-    if (!conv) return;
-    this.state.activeChat = conv;
-    conv.unread = 0;
-    const badge = document.getElementById('msg-badge');
-    const total = MockData.conversations.reduce((s, c) => s + c.unread, 0);
-    if (badge) { badge.textContent = total; badge.style.display = total > 0 ? 'flex' : 'none'; }
-
-    document.getElementById('chat-avatar').textContent = conv.avatar;
-    document.getElementById('chat-name').textContent = conv.name;
-    document.getElementById('chat-status').textContent = conv.type === 'dm' ? 'Online' : `${conv.participantIds.length} members`;
-
-    const messagesEl = document.getElementById('chat-messages');
-    messagesEl.innerHTML = conv.messages.map(m => {
-      const isMine = m.senderId === 'u1';
-      return `
-        <div class="message-bubble ${isMine ? 'sent' : 'received'}">
-          ${!isMine && conv.type !== 'dm' ? `<div class="message-sender">${m.senderName}</div>` : ''}
-          ${m.content}
-          <div class="message-time">${this.formatTime(m.time)}</div>
-        </div>`;
-    }).join('');
-
-    document.getElementById('chat-view').classList.add('active');
-    document.getElementById('chat-input').value = '';
-    setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 50);
-  },
-  closeChat() {
-    document.getElementById('chat-view').classList.remove('active');
-    this.state.activeChat = null;
-  },
-  sendMessage() {
-    const input = document.getElementById('chat-input');
-    const text = input.value.trim();
-    if (!text || !this.state.activeChat) return;
-    const now = new Date().toISOString();
-    const msg = { id: 'm' + Date.now(), senderId: 'u1', senderName: 'You', content: text, time: now };
-    this.state.activeChat.messages.push(msg);
-    this.state.activeChat.lastMessage = text;
-    this.state.activeChat.lastMessageTime = now;
-
-    const el = document.getElementById('chat-messages');
-    el.innerHTML += `
-      <div class="message-bubble sent" style="animation:fadeInUp 0.2s ease">
-        ${text}
-        <div class="message-time">${this.formatTime(now)}</div>
-      </div>`;
-    input.value = '';
-    el.scrollTop = el.scrollHeight;
-
-    // Simulate typing + reply
-    setTimeout(() => {
-      const replies = [
-        'That sounds great! 🙌', 'I agree, let\'s do it!', 'Sure, I\'ll be there 👍',
-        'Haha nice 😂', 'Sounds good to me!', 'Let me check and get back to you',
-        'Perfect, thanks!', 'Oh interesting, tell me more!', 'Can\'t wait! 🎉',
-      ];
-      const reply = replies[Math.floor(Math.random() * replies.length)];
-      const replyTime = new Date().toISOString();
-      const replyMsg = { id: 'm' + Date.now(), senderId: this.state.activeChat.participantIds.find(p => p !== 'u1') || 'u2', senderName: this.state.activeChat.name.split(' ')[0], content: reply, time: replyTime };
-      this.state.activeChat.messages.push(replyMsg);
-      el.innerHTML += `
-        <div class="message-bubble received" style="animation:fadeInUp 0.2s ease">
-          ${this.state.activeChat.type !== 'dm' ? `<div class="message-sender">${replyMsg.senderName}</div>` : ''}
-          ${reply}
-          <div class="message-time">${this.formatTime(replyTime)}</div>
-        </div>`;
-      el.scrollTop = el.scrollHeight;
-    }, 1200 + Math.random() * 1500);
-  },
-
-  // ============================
-  // PROFILE
-  // ============================
-  renderProfile() {
-    const u = this.state.user;
-    const friendCount = MockData.connections.filter(c => c.status === 'accepted').length;
-    const myListings = MockData.listings.filter(l => l.sellerId === 'u1');
-
-    return `
-      <div class="profile-header">
-        <div class="profile-avatar">${u.avatar}</div>
-        <div class="profile-name">${u.firstName} ${u.lastName}</div>
-        <div class="profile-handle">@${u.username}</div>
-        <div class="profile-bio">${u.bio}</div>
-        <div class="profile-stats">
-          <div class="profile-stat"><div class="profile-stat-num">${friendCount}</div><div class="profile-stat-label">Friends</div></div>
-          <div class="profile-stat"><div class="profile-stat-num">${u.karmaPoints}</div><div class="profile-stat-label">Karma</div></div>
-          <div class="profile-stat"><div class="profile-stat-num">${u.studyStreakDays}</div><div class="profile-stat-label">🔥 Streak</div></div>
-        </div>
-        <div class="profile-actions">
-          <button class="btn-secondary btn-small" onclick="App.showEditProfile()">✏️ Edit</button>
-          <button class="btn-secondary btn-small" onclick="App.showStorefront()">🏪 Storefront</button>
-        </div>
-      </div>
-
-      <div class="profile-section">
-        <h3>Achievements 🏆</h3>
-        <div class="achievements-grid">
-          ${MockData.achievements.map(a => `
-            <div class="achievement-item ${a.earned ? '' : 'locked'} animate-in">
-              <div class="achievement-icon">${a.icon}</div>
-              <div class="achievement-name">${a.name}</div>
-            </div>`).join('')}
-        </div>
-      </div>
-
-      <div class="profile-section">
-        <h3>My Courses 📖</h3>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          ${MockData.courses.map(c => `<span class="filter-chip active">${c.code}</span>`).join('')}
-        </div>
-      </div>
-
-      <div class="profile-section">
-        <h3>Settings ⚙️</h3>
-        <div class="settings-list">
-          <div class="settings-item" onclick="App.toggleTheme()">
-            <div class="settings-item-left">
-              <div class="settings-icon">🌙</div>
-              <div class="settings-item-text"><h4>Dark Mode</h4><p>Toggle light/dark theme</p></div>
-            </div>
-            <div class="toggle-switch ${this.state.theme === 'dark' ? 'active' : ''}" id="theme-toggle"></div>
-          </div>
-          <div class="settings-item">
-            <div class="settings-item-left">
-              <div class="settings-icon">📍</div>
-              <div class="settings-item-text"><h4>Location Sharing</h4><p>Allow others to see you on the map</p></div>
-            </div>
-            <div class="toggle-switch ${this.state.user.locationSharing ? 'active' : ''}" onclick="App.toggleLocation(this)"></div>
-          </div>
-          <div class="settings-item">
-            <div class="settings-item-left">
-              <div class="settings-icon">🔔</div>
-              <div class="settings-item-text"><h4>Notifications</h4><p>Push & in-app alerts</p></div>
-            </div>
-            <div class="toggle-switch active"></div>
-          </div>
-          <div class="settings-item" onclick="App.logout()">
-            <div class="settings-item-left">
-              <div class="settings-icon">🚪</div>
-              <div class="settings-item-text"><h4 style="color:var(--danger)">Log Out</h4><p>Sign out of your account</p></div>
-            </div>
-          </div>
-        </div>
-      </div>`;
-  },
-
-  // ============================
-  // MODALS
-  // ============================
-  openModal(title, bodyHTML) {
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-body').innerHTML = bodyHTML;
-    document.getElementById('modal-overlay').classList.add('active');
-  },
-  closeModal() {
-    document.getElementById('modal-overlay').classList.remove('active');
-  },
-
-  // -- Listing Detail
-  openListingDetail(id) {
-    const l = MockData.listings.find(x => x.id === id);
-    if (!l) return;
-    const saved = this.state.savedListings.has(id);
-    this.openModal(l.title, `
-      <div class="detail-image">${this.categoryIcon(l.category)}</div>
-      <div class="detail-title">${l.title}</div>
-      <div class="detail-price">$${l.price.toFixed(2)}</div>
-      <div class="detail-description">${l.description}</div>
-      <div class="detail-seller" onclick="App.closeModal(); App.openUserProfile('${l.sellerId}')">
-        <div class="user-avatar gradient">${l.sellerAvatar}</div>
-        <div class="detail-seller-info">
-          <h4>${l.sellerName}</h4>
-          <p>★ ${l.sellerRating} · ${l.views} views</p>
-        </div>
-        <button class="btn-outline-accent btn-small">View</button>
-      </div>
-      <div class="detail-actions">
-        <button class="btn-primary" onclick="App.closeModal(); App.messageSeller('${l.sellerId}')">💬 Message Seller</button>
-        <button class="btn-secondary" onclick="App.toggleSaveListing('${l.id}')">
-          ${saved ? '♥ Saved' : '♡ Save'}
-        </button>
-      </div>
-      <div class="detail-views">👁 ${l.views} views · Listed ${this.formatDate(l.createdAt)}</div>
-    `);
-  },
-
-  // -- Create Listing
-  openCreateListing() {
-    this.openModal('New Listing', `
-      <div class="create-form">
-        <div class="image-upload-area" onclick="App.showToast('Image upload — coming soon!')">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-          <span style="font-size:13px">Tap to add photos</span>
-        </div>
-        <div class="form-group">
-          <label>Title</label>
-          <input type="text" id="new-listing-title" placeholder="What are you selling?">
-        </div>
-        <div class="form-group">
-          <label>Description</label>
-          <textarea id="new-listing-desc" placeholder="Describe your item or service…" rows="3" style="resize:vertical"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Category</label>
-          <select id="new-listing-cat">
-            <option value="textbook">📚 Textbook</option>
-            <option value="service">🛠️ Service</option>
-            <option value="furniture">🪑 Furniture</option>
-            <option value="electronics">📱 Electronics</option>
-            <option value="other">📦 Other</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Price ($)</label>
-          <input type="number" id="new-listing-price" placeholder="0.00" min="0" step="0.01">
-        </div>
-        <button class="btn-primary btn-full" onclick="App.submitListing()">🚀 Publish Listing</button>
-      </div>
-    `);
-  },
-
-  submitListing() {
-    const title = document.getElementById('new-listing-title')?.value?.trim();
-    const desc  = document.getElementById('new-listing-desc')?.value?.trim();
-    const cat   = document.getElementById('new-listing-cat')?.value;
-    const price = parseFloat(document.getElementById('new-listing-price')?.value);
-    if (!title || !price) { this.showToast('Please fill in title and price'); return; }
-    MockData.listings.unshift({
-      id: 'l' + Date.now(), sellerId: 'u1', title, description: desc || '', category: cat,
-      price, images: [], status: 'active', views: 0, createdAt: new Date().toISOString().split('T')[0],
-      sellerName: 'Alex K.', sellerAvatar: 'AK', sellerRating: 4.8,
-    });
-    this.closeModal();
-    this.navigate('hustle');
-    this.showToast('Listing published! 🎉');
-  },
-
-  // -- User Profile
-  openUserProfile(uid) {
-    const u = MockData.users.find(x => x.id === uid);
-    if (!u) return;
-    const st = this.state.friendRequests[uid];
-    const shared = MockData.courses.filter(c => u.courses && u.courses.some(uc => c.code === uc));
-    let actionBtn;
-    if (st === 'accepted') actionBtn = '<button class="btn-secondary btn-small" disabled>✓ Friends</button>';
-    else if (st === 'pending') actionBtn = '<button class="btn-secondary btn-small" disabled>⏳ Pending</button>';
-    else actionBtn = `<button class="btn-primary btn-small" onclick="App.sendFriendRequest('${uid}')">👋 Add Friend</button>`;
-
-    this.openModal(`${u.firstName} ${u.lastName}`, `
-      <div class="user-profile-modal">
-        <div class="profile-avatar" style="background:var(--gradient-1);margin:0 auto 12px">${u.avatar}</div>
-        <div class="profile-name">${u.firstName} ${u.lastName}</div>
-        <div class="profile-handle">@${u.username}</div>
-        <div class="profile-bio" style="margin-top:6px">${u.bio}</div>
-        <div class="user-tags">
-          <span class="filter-chip active">${u.major}</span>
-          <span class="filter-chip">${u.status}</span>
-          ${u.location ? `<span class="filter-chip">📍 ${u.location}</span>` : ''}
-        </div>
-        <div class="profile-stats" style="margin-top:16px">
-          <div class="profile-stat"><div class="profile-stat-num">${u.karmaPoints}</div><div class="profile-stat-label">Karma</div></div>
-          <div class="profile-stat"><div class="profile-stat-num">${u.studyStreakDays}</div><div class="profile-stat-label">🔥 Streak</div></div>
-          <div class="profile-stat"><div class="profile-stat-num">${u.distance || '?'}m</div><div class="profile-stat-label">Away</div></div>
-        </div>
-        ${shared.length ? `<div style="margin-top:16px"><h4 style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Shared Courses</h4><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${shared.map(c => `<span class="filter-chip active">${c.code}</span>`).join('')}</div></div>` : ''}
-        <div class="profile-action-btns" style="margin-top:16px;display:flex;gap:10px">
-          ${actionBtn}
-          <button class="btn-primary btn-small" onclick="App.closeModal(); App.messageSeller('${uid}')">💬 Message</button>
-        </div>
-      </div>
-    `);
-  },
-
-  // -- Event Detail
-  openEventDetail(eid) {
-    const ev = MockData.events.find(x => x.id === eid);
-    if (!ev) return;
-    const going = this.state.rsvpEvents.has(eid);
-    this.openModal(ev.title, `
-      <span class="event-type-badge ${ev.type}" style="margin-bottom:12px;display:inline-flex">${ev.type.replace('_', ' ')}</span>
-      <p style="color:var(--text-secondary);margin:12px 0">${ev.description}</p>
-      <div style="display:flex;flex-direction:column;gap:8px;margin:16px 0">
-        <div class="event-meta-row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${this.formatTime(ev.startTime)} – ${this.formatTime(ev.endTime)}</div>
-        <div class="event-meta-row"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> ${ev.location}</div>
-        <div class="event-meta-row">👥 ${ev.attendees} / ${ev.maxAttendees} attending</div>
-        <div class="event-meta-row">📅 Organized by ${ev.creatorName}</div>
-      </div>
-      <div class="detail-actions">
-        <button class="btn-primary btn-full" onclick="App.toggleRSVP('${eid}')" id="modal-rsvp-btn">
-          ${going ? '✓ You\'re Going!' : '🎯 RSVP — I\'m Going'}
-        </button>
-      </div>
-    `);
-  },
-
-  // -- Course Room (opens chat)
-  openCourseRoom(cid) {
-    const course = MockData.courses.find(c => c.id === cid);
-    if (!course) return;
-    const conv = MockData.conversations.find(c => c.name.includes(course.code));
-    if (conv) this.openChat(conv.id);
-    else this.showToast(`Opening ${course.code} room… (demo)`);
-  },
-  openCircleChat(acid) {
-    const ac = MockData.assignmentCircles.find(a => a.id === acid);
-    if (!ac) return;
-    this.showToast(`Opening "${ac.name}" circle chat… (demo)`);
-  },
-
-  // ============================
-  // ACTIONS
-  // ============================
-  toggleRSVP(eid) {
-    const ev = MockData.events.find(e => e.id === eid);
-    if (!ev) return;
-    if (this.state.rsvpEvents.has(eid)) {
-      this.state.rsvpEvents.delete(eid);
-      ev.attendees = Math.max(0, ev.attendees - 1);
-      this.showToast('RSVP cancelled');
-    } else {
-      this.state.rsvpEvents.add(eid);
-      ev.attendees++;
-      this.showToast('You\'re going! 🎉');
-    }
-    // Re-render the current view
-    if (this.state.currentPage === 'home') this.navigate('home');
-    const btn = document.getElementById('modal-rsvp-btn');
-    if (btn) btn.innerHTML = this.state.rsvpEvents.has(eid) ? '✓ You\'re Going!' : '🎯 RSVP — I\'m Going';
-  },
-
-  sendFriendRequest(uid) {
-    this.state.friendRequests[uid] = 'pending';
-    const u = MockData.users.find(x => x.id === uid);
-    this.showToast(`Friend request sent to ${u ? u.firstName : 'user'}! 👋`);
-    if (this.state.currentPage === 'home') this.navigate('home');
-  },
-
-  toggleSaveListing(lid) {
-    if (this.state.savedListings.has(lid)) {
-      this.state.savedListings.delete(lid);
-      this.showToast('Removed from saved');
-    } else {
-      this.state.savedListings.add(lid);
-      this.showToast('Saved! ♥');
-    }
-    this.closeModal();
-    if (this.state.currentPage === 'hustle') this.navigate('hustle');
-  },
-
-  messageSeller(uid) {
-    const u = uid === 'u1' ? MockData.currentUser : MockData.users.find(x => x.id === uid);
-    if (!u) return;
-    const existing = MockData.conversations.find(c => c.type === 'dm' && c.participantIds.includes(uid));
-    if (existing) { this.openChat(existing.id); return; }
-    // Create new conversation
-    const newConv = {
-      id: 'conv' + Date.now(), type: 'dm', name: `${u.firstName} ${u.lastName}`,
-      participantIds: ['u1', uid], avatar: u.avatar, lastMessage: '', lastMessageTime: new Date().toISOString(),
-      unread: 0, messages: [],
-    };
-    MockData.conversations.unshift(newConv);
-    this.openChat(newConv.id);
-  },
-
-  toggleTheme() {
-    this.state.theme = this.state.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', this.state.theme);
-    localStorage.setItem('unino-theme', this.state.theme);
-    const toggle = document.getElementById('theme-toggle');
-    if (toggle) toggle.classList.toggle('active', this.state.theme === 'dark');
-    this.showToast(`${this.state.theme === 'dark' ? '🌙 Dark' : '☀️ Light'} mode activated`);
-  },
-
-  toggleLocation(el) {
-    this.state.user.locationSharing = !this.state.user.locationSharing;
-    if (el) el.classList.toggle('active', this.state.user.locationSharing);
-    this.showToast(this.state.user.locationSharing ? 'Location sharing ON 📍' : 'Location sharing OFF');
-  },
-
-  showAllEvents() {
-    const evHTML = MockData.events.map(ev => {
-      const going = this.state.rsvpEvents.has(ev.id);
-      return `
-        <div class="event-card" style="min-width:auto;margin-bottom:10px" onclick="App.closeModal(); App.openEventDetail('${ev.id}')">
-          <span class="event-type-badge ${ev.type}">${ev.type.replace('_', ' ')}</span>
-          <h4>${ev.title}</h4>
-          <div class="event-meta">
-            <div class="event-meta-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${this.formatTime(ev.startTime)}</div>
-            <div class="event-meta-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> ${ev.location}</div>
-          </div>
-          <div class="event-footer">
-            <span class="attendee-count">${ev.attendees}/${ev.maxAttendees}</span>
-            <button class="rsvp-btn ${going ? 'going' : ''}" onclick="event.stopPropagation(); App.toggleRSVP('${ev.id}')">${going ? '✓ Going' : 'RSVP'}</button>
-          </div>
-        </div>`;
-    }).join('');
-    this.openModal('All Events 📅', `<div class="create-form">${evHTML}</div>`);
-  },
-
-  showCreateCircle() {
-    this.openModal('New Assignment Circle', `
-      <div class="create-form">
-        <div class="form-group"><label>Course</label>
-          <select>${MockData.courses.map(c => `<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label>Assignment Name</label><input type="text" placeholder="e.g. Problem Set 6"></div>
-        <div class="form-group"><label>Due Date</label><input type="date" value="2026-02-20"></div>
-        <button class="btn-primary btn-full" onclick="App.closeModal(); App.showToast('Circle created! 🎉')">Create Circle</button>
-      </div>
-    `);
-  },
-
-  showEditProfile() {
-    const u = this.state.user;
-    this.openModal('Edit Profile', `
-      <div class="create-form">
-        <div class="form-group"><label>First Name</label><input type="text" value="${u.firstName}"></div>
-        <div class="form-group"><label>Last Name</label><input type="text" value="${u.lastName}"></div>
-        <div class="form-group"><label>Bio</label><textarea rows="2">${u.bio}</textarea></div>
-        <div class="form-group"><label>Major</label><input type="text" value="${u.major}"></div>
-        <button class="btn-primary btn-full" onclick="App.closeModal(); App.showToast('Profile updated! ✨')">Save Changes</button>
-      </div>
-    `);
-  },
-
-  showStorefront() {
-    const myListings = MockData.listings.filter(l => l.sellerId === 'u1');
-    this.openModal('My Storefront 🏪', `
-      <div class="storefront-header" style="padding:0;border:none;margin-bottom:16px">
-        <div class="storefront-banner">Alex's Tech Shop</div>
-        <div class="storefront-stats">
-          <div class="storefront-stat"><div class="storefront-stat-num">${myListings.length}</div><div class="storefront-stat-label">Listings</div></div>
-          <div class="storefront-stat"><div class="storefront-stat-num">★ 4.8</div><div class="storefront-stat-label">Rating</div></div>
-          <div class="storefront-stat"><div class="storefront-stat-num">12</div><div class="storefront-stat-label">Sales</div></div>
-        </div>
-      </div>
-      ${myListings.length > 0 ? myListings.map(l => `
-        <div class="course-card" style="margin-bottom:8px">
-          <div class="course-icon cs">${this.categoryIcon(l.category)}</div>
-          <div class="course-info">
-            <div class="course-name">${l.title}</div>
-            <div class="course-meta">$${l.price.toFixed(2)} · ${l.views} views</div>
-          </div>
-        </div>`).join('') : '<div class="empty-state"><div class="empty-state-icon">🏪</div><h3>No listings yet</h3><p>Start selling to build your storefront!</p></div>'}
-      <button class="btn-primary btn-full" style="margin-top:12px" onclick="App.closeModal(); App.openCreateListing()">+ Add Listing</button>
-    `);
-  },
-
-  initMapInteractions() { /* placeholder for future map click handlers */ },
+/* ══════════════════════════════════════════════════════
+ *  UNINO — Complete Application Engine
+ *  Firebase Auth + Firestore (No Storage — base64 images)
+ * ══════════════════════════════════════════════════════ */
+
+// ─── State ────────────────────────────────────────────
+const state = {
+  user: null,           // Firebase User object
+  profile: null,        // Firestore user doc
+  currentPage: 'feed',
+  posts: [],
+  listings: [],
+  conversations: [],
+  users: [],
+  totalUsers: 0,
+  unsubscribers: [],    // Firestore listeners to clean up
 };
 
-// ============================
-// BOOT
-// ============================
-document.addEventListener('DOMContentLoaded', () => App.init());
+// ─── Helpers ──────────────────────────────────────────
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+const AVATAR_COLORS = [
+  '#6C5CE7', '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
+  '#EC4899', '#8B5CF6', '#06B6D4', '#F97316', '#14B8A6'
+];
+
+function getAvatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+
+function avatarHTML(name, photoURL, sizeClass = 'avatar-sm') {
+  const color = getAvatarColor(name);
+  if (photoURL) {
+    return `<div class="${sizeClass}" style="background:${color}"><img src="${photoURL}" alt="${name}" onerror="this.remove()"></div>`;
+  }
+  return `<div class="${sizeClass}" style="background:${color}">${getInitials(name)}</div>`;
+}
+
+function timeAgo(timestamp) {
+  if (!timestamp) return '';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const diff = Date.now() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return mins + 'm';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h';
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return days + 'd';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return '';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+function showToast(msg) {
+  const toast = $('#toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+function compressImage(file, maxWidth = 800, quality = 0.7) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ratio = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressAvatar(file) {
+  return compressImage(file, 200, 0.6);
+}
+
+// ─── Screen Manager ───────────────────────────────────
+function showScreen(id) {
+  $$('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+// ─── Theme Toggle ─────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('unino-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  $('#theme-toggle')?.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('unino-theme', next);
+  });
+}
+
+// ─── User Count (Realtime) ────────────────────────────
+function listenUserCount() {
+  const ref = db.collection('stats').doc('global');
+  // Initialize if doesn't exist
+  ref.get().then(snap => {
+    if (!snap.exists) ref.set({ totalUsers: 0 });
+  });
+  const unsub = ref.onSnapshot(snap => {
+    if (snap.exists) {
+      state.totalUsers = snap.data().totalUsers || 0;
+      updateUserCountUI();
+    }
+  });
+  state.unsubscribers.push(unsub);
+}
+
+function updateUserCountUI() {
+  const count = state.totalUsers;
+  const el1 = $('#auth-count-num');
+  const el2 = $('#header-count');
+  if (el1) el1.textContent = count;
+  if (el2) el2.textContent = count;
+}
+
+// ─── Auth ─────────────────────────────────────────────
+function initAuth() {
+  // Toggle login/signup forms
+  $('#show-signup-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#login-form').classList.remove('active');
+    $('#signup-form').classList.add('active');
+  });
+  $('#show-login-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#signup-form').classList.remove('active');
+    $('#login-form').classList.add('active');
+  });
+
+  // Login
+  $('#login-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#login-btn');
+    const email = $('#login-email').value.trim();
+    const pass = $('#login-password').value;
+    if (!email || !pass) return showToast('Fill in all fields');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner"></span>';
+    try {
+      await auth.signInWithEmailAndPassword(email, pass);
+    } catch (err) {
+      showToast(friendlyError(err.code));
+      btn.disabled = false;
+      btn.textContent = 'Log In';
+    }
+  });
+
+  // Signup
+  $('#signup-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#signup-btn');
+    const fname = $('#signup-fname').value.trim();
+    const lname = $('#signup-lname').value.trim();
+    const email = $('#signup-email').value.trim();
+    const pass = $('#signup-password').value;
+    const uni = $('#signup-university').value;
+    const major = $('#signup-major').value;
+    const year = $('#signup-year').value;
+
+    if (!fname || !lname || !email || !pass || !uni || !major) {
+      return showToast('Please fill in all required fields');
+    }
+    if (pass.length < 6) return showToast('Password must be 6+ characters');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner"></span>';
+    try {
+      const cred = await auth.createUserWithEmailAndPassword(email, pass);
+      const uid = cred.user.uid;
+      const displayName = fname + ' ' + lname;
+
+      // Create user profile in Firestore
+      await db.collection('users').doc(uid).set({
+        displayName,
+        firstName: fname,
+        lastName: lname,
+        email,
+        university: uni,
+        major,
+        year: year || '',
+        bio: '',
+        photoURL: '',
+        joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        postsCount: 0,
+        friendsCount: 0,
+      });
+
+      // Increment global user count
+      await db.collection('stats').doc('global').set({
+        totalUsers: firebase.firestore.FieldValue.increment(1)
+      }, { merge: true });
+
+      await cred.user.updateProfile({ displayName });
+    } catch (err) {
+      showToast(friendlyError(err.code));
+      btn.disabled = false;
+      btn.textContent = 'Create Account';
+    }
+  });
+
+  // Auth state listener
+  auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      state.user = user;
+      // Fetch profile
+      const doc = await db.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        state.profile = { id: doc.id, ...doc.data() };
+      } else {
+        // Profile might not be created yet (race condition)
+        state.profile = {
+          id: user.uid,
+          displayName: user.displayName || user.email,
+          email: user.email,
+          photoURL: '',
+          university: '',
+          major: '',
+          bio: '',
+        };
+      }
+      enterApp();
+    } else {
+      state.user = null;
+      state.profile = null;
+      cleanupListeners();
+      showScreen('auth-screen');
+    }
+  });
+}
+
+function friendlyError(code) {
+  const map = {
+    'auth/user-not-found': 'No account with that email',
+    'auth/wrong-password': 'Incorrect password',
+    'auth/email-already-in-use': 'Email already registered',
+    'auth/weak-password': 'Password too weak (6+ chars)',
+    'auth/invalid-email': 'Invalid email address',
+    'auth/too-many-requests': 'Too many attempts. Try later',
+    'auth/invalid-credential': 'Invalid email or password',
+  };
+  return map[code] || 'Something went wrong. Try again.';
+}
+
+// ─── Enter App ────────────────────────────────────────
+function enterApp() {
+  showScreen('app-shell');
+  updateHeaderAvatar();
+  listenUserCount();
+  navigateTo('feed');
+  initNavigation();
+  initHeaderActions();
+}
+
+function updateHeaderAvatar() {
+  const el = $('#header-avatar');
+  if (!el || !state.profile) return;
+  const name = state.profile.displayName || '';
+  const photo = state.profile.photoURL || '';
+  if (photo) {
+    el.innerHTML = `<img src="${photo}" alt="">`;
+  } else {
+    el.textContent = getInitials(name);
+  }
+  el.style.background = photo ? 'none' : getAvatarColor(name);
+  el.onclick = () => showProfile(state.user.uid);
+}
+
+// ─── Navigation ───────────────────────────────────────
+function initNavigation() {
+  $$('#bottom-nav .nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const page = btn.dataset.page;
+      if (page === 'create') {
+        openCreatePostModal();
+        return;
+      }
+      navigateTo(page);
+    });
+  });
+}
+
+function navigateTo(page) {
+  state.currentPage = page;
+  $$('#bottom-nav .nav-item').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+
+  // Cleanup old page listeners
+  cleanupListeners();
+
+  const content = $('#app-content');
+  content.scrollTop = 0;
+
+  switch (page) {
+    case 'feed': renderFeed(); break;
+    case 'explore': renderExplore(); break;
+    case 'hustle': renderHustle(); break;
+    case 'messages': renderMessages(); break;
+    default: renderFeed();
+  }
+}
+
+function cleanupListeners() {
+  state.unsubscribers.forEach(fn => fn());
+  state.unsubscribers = [];
+}
+
+function initHeaderActions() {
+  // Notifications
+  let notifOpen = false;
+  $('#notif-btn')?.addEventListener('click', () => {
+    const existing = document.querySelector('.notif-dropdown');
+    if (existing) { existing.remove(); notifOpen = false; return; }
+    notifOpen = true;
+    const dropdown = document.createElement('div');
+    dropdown.className = 'notif-dropdown';
+    dropdown.innerHTML = `
+      <div class="notif-dropdown-header"><h3>Notifications</h3></div>
+      <div style="padding: 32px 16px; text-align: center; color: var(--text-tertiary); font-size: 14px;">
+        No new notifications
+      </div>
+    `;
+    $('#app-header').appendChild(dropdown);
+    setTimeout(() => {
+      document.addEventListener('click', function closeNotif(e) {
+        if (!dropdown.contains(e.target) && e.target !== $('#notif-btn')) {
+          dropdown.remove();
+          notifOpen = false;
+          document.removeEventListener('click', closeNotif);
+        }
+      });
+    }, 10);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  FEED PAGE
+// ══════════════════════════════════════════════════════
+function renderFeed() {
+  const content = $('#app-content');
+  content.innerHTML = `
+    <div class="feed-page">
+      <div class="create-post-prompt" id="feed-create-prompt">
+        ${avatarHTML(state.profile?.displayName, state.profile?.photoURL, 'avatar-md')}
+        <span class="placeholder-text">What\'s on your mind?</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      </div>
+      <div id="feed-posts">
+        <div class="empty-state" id="feed-loading">
+          <div class="inline-spinner" style="width:32px;height:32px;border-width:3px;color:var(--accent)"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  $('#feed-create-prompt')?.addEventListener('click', openCreatePostModal);
+  listenPosts();
+}
+
+function listenPosts() {
+  const unsub = db.collection('posts')
+    .orderBy('createdAt', 'desc')
+    .limit(50)
+    .onSnapshot(snap => {
+      state.posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderPostsList();
+    }, err => {
+      console.error('Posts listener error:', err);
+      $('#feed-posts').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📝</div>
+          <h3>No posts yet</h3>
+          <p>Be the first to share something with your campus!</p>
+        </div>
+      `;
+    });
+  state.unsubscribers.push(unsub);
+}
+
+function renderPostsList() {
+  const container = $('#feed-posts');
+  if (!container) return;
+
+  if (state.posts.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">📝</div>
+        <h3>No posts yet</h3>
+        <p>Be the first to share something with your campus!</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = state.posts.map(post => postCardHTML(post)).join('');
+  attachPostListeners();
+}
+
+function postCardHTML(post) {
+  const isOwn = post.authorId === state.user?.uid;
+  const liked = post.likedBy && post.likedBy.includes(state.user?.uid);
+  const likeCount = post.likesCount || 0;
+  const commentCount = post.commentsCount || 0;
+
+  return `
+    <div class="post-card" data-post-id="${post.id}">
+      <div class="post-header">
+        ${avatarHTML(post.authorName, post.authorPhoto, 'avatar-md')}
+        <div class="post-header-info">
+          <div class="post-author-name" data-uid="${post.authorId}">${escapeHTML(post.authorName)}</div>
+          <div class="post-meta">${post.authorUni || ''} · ${timeAgo(post.createdAt)}</div>
+        </div>
+        ${isOwn ? `<button class="icon-btn post-more-btn" data-post-id="${post.id}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        </button>` : ''}
+      </div>
+      ${post.content ? `<div class="post-content">${escapeHTML(post.content)}</div>` : ''}
+      ${post.imageURL ? `<img class="post-image" src="${post.imageURL}" alt="Post image" data-full="${post.imageURL}">` : ''}
+      <div class="post-stats">
+        <span class="like-count-${post.id}">${likeCount ? likeCount + ' like' + (likeCount > 1 ? 's' : '') : ''}</span>
+        <span class="comment-count-btn" data-post-id="${post.id}">${commentCount ? commentCount + ' comment' + (commentCount > 1 ? 's' : '') : ''}</span>
+      </div>
+      <div class="post-actions">
+        <button class="post-action like-btn ${liked ? 'liked' : ''}" data-post-id="${post.id}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span>${liked ? 'Liked' : 'Like'}</span>
+        </button>
+        <button class="post-action comment-btn" data-post-id="${post.id}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Comment</span>
+        </button>
+      </div>
+      <div class="comments-section" id="comments-${post.id}" style="display:none"></div>
+    </div>
+  `;
+}
+
+function attachPostListeners() {
+  // Like buttons
+  $$('.like-btn').forEach(btn => {
+    btn.addEventListener('click', () => toggleLike(btn.dataset.postId));
+  });
+
+  // Comment buttons
+  $$('.comment-btn, .comment-count-btn').forEach(btn => {
+    btn.addEventListener('click', () => toggleComments(btn.dataset.postId));
+  });
+
+  // Post images — open viewer
+  $$('.post-image').forEach(img => {
+    img.addEventListener('click', () => openImageViewer(img.dataset.full));
+  });
+
+  // Author name → profile
+  $$('.post-author-name').forEach(el => {
+    el.addEventListener('click', () => showProfile(el.dataset.uid));
+  });
+
+  // Post more options (delete)
+  $$('.post-more-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showPostOptions(btn.dataset.postId);
+    });
+  });
+}
+
+// ─── Like ─────────────────────────────────────────────
+async function toggleLike(postId) {
+  const uid = state.user.uid;
+  const postRef = db.collection('posts').doc(postId);
+
+  try {
+    const doc = await postRef.get();
+    if (!doc.exists) return;
+    const data = doc.data();
+    const likedBy = data.likedBy || [];
+    const isLiked = likedBy.includes(uid);
+
+    await postRef.update({
+      likedBy: isLiked
+        ? firebase.firestore.FieldValue.arrayRemove(uid)
+        : firebase.firestore.FieldValue.arrayUnion(uid),
+      likesCount: firebase.firestore.FieldValue.increment(isLiked ? -1 : 1)
+    });
+  } catch (err) {
+    console.error('Like error:', err);
+  }
+}
+
+// ─── Comments ─────────────────────────────────────────
+async function toggleComments(postId) {
+  const section = $(`#comments-${postId}`);
+  if (!section) return;
+
+  if (section.style.display === 'none') {
+    section.style.display = 'block';
+    section.innerHTML = '<div style="padding:12px;text-align:center"><span class="inline-spinner"></span></div>';
+    loadComments(postId);
+  } else {
+    section.style.display = 'none';
+  }
+}
+
+async function loadComments(postId) {
+  const section = $(`#comments-${postId}`);
+  if (!section) return;
+
+  try {
+    const snap = await db.collection('posts').doc(postId)
+      .collection('comments')
+      .orderBy('createdAt', 'asc')
+      .limit(20)
+      .get();
+
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    section.innerHTML = `
+      ${comments.map(c => `
+        <div class="comment-item">
+          ${avatarHTML(c.authorName, c.authorPhoto, 'avatar-sm')}
+          <div class="comment-body">
+            <span class="comment-author" data-uid="${c.authorId}">${escapeHTML(c.authorName)}</span>
+            <div class="comment-text">${escapeHTML(c.content)}</div>
+            <div class="comment-time">${timeAgo(c.createdAt)}</div>
+          </div>
+        </div>
+      `).join('')}
+      <div class="comment-input-row">
+        <input type="text" placeholder="Write a comment..." id="comment-input-${postId}">
+        <button onclick="submitComment('${postId}')">Post</button>
+      </div>
+    `;
+
+    // Enter key to submit
+    $(`#comment-input-${postId}`)?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitComment(postId);
+    });
+
+    // Click author name to show profile
+    section.querySelectorAll('.comment-author').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => showProfile(el.dataset.uid));
+    });
+  } catch (err) {
+    section.innerHTML = '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">Could not load comments</p>';
+  }
+}
+
+async function submitComment(postId) {
+  const input = $(`#comment-input-${postId}`);
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  try {
+    await db.collection('posts').doc(postId).collection('comments').add({
+      content: text,
+      authorId: state.user.uid,
+      authorName: state.profile.displayName,
+      authorPhoto: state.profile.photoURL || '',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection('posts').doc(postId).update({
+      commentsCount: firebase.firestore.FieldValue.increment(1)
+    });
+    loadComments(postId);
+  } catch (err) {
+    showToast('Could not post comment');
+  }
+}
+
+// ─── Post Options (Delete) ────────────────────────────
+function showPostOptions(postId) {
+  openModal(`
+    <div style="padding:20px">
+      <h3 style="margin-bottom:16px">Post Options</h3>
+      <button class="btn-danger btn-full" id="delete-post-btn" style="margin-bottom:8px">Delete Post</button>
+      <button class="btn-ghost btn-full" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+  $('#delete-post-btn')?.addEventListener('click', async () => {
+    try {
+      await db.collection('posts').doc(postId).delete();
+      await db.collection('users').doc(state.user.uid).update({
+        postsCount: firebase.firestore.FieldValue.increment(-1)
+      });
+      showToast('Post deleted');
+      closeModal();
+    } catch (err) {
+      showToast('Could not delete post');
+    }
+  });
+}
+
+// ─── Create Post Modal ────────────────────────────────
+function openCreatePostModal() {
+  let pendingImage = '';
+
+  openModal(`
+    <div class="create-post-form">
+      <h2>Create Post</h2>
+      <div class="create-post-top">
+        ${avatarHTML(state.profile?.displayName, state.profile?.photoURL, 'avatar-md')}
+        <div>
+          <strong>${escapeHTML(state.profile?.displayName)}</strong>
+          <div style="font-size:12px;color:var(--text-secondary)">${state.profile?.university || ''}</div>
+        </div>
+      </div>
+      <textarea id="new-post-text" placeholder="What's happening on campus?" maxlength="1000"></textarea>
+      <div class="image-preview-container" id="post-image-preview">
+        <img src="" alt="Preview" id="post-preview-img">
+        <button class="image-preview-remove" id="post-remove-img">&times;</button>
+      </div>
+      <div class="create-post-bottom">
+        <div class="attach-row">
+          <label class="attach-btn" for="post-image-upload">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            Photo
+          </label>
+          <input type="file" id="post-image-upload" accept="image/*" hidden>
+        </div>
+        <button class="btn-primary" id="submit-post-btn">Post</button>
+      </div>
+    </div>
+  `);
+
+  $('#post-image-upload')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { showToast('Image too large (max 5MB)'); return; }
+    pendingImage = await compressImage(file, 800, 0.7);
+    $('#post-preview-img').src = pendingImage;
+    $('#post-image-preview').style.display = 'block';
+  });
+
+  $('#post-remove-img')?.addEventListener('click', () => {
+    pendingImage = '';
+    $('#post-image-preview').style.display = 'none';
+    $('#post-image-upload').value = '';
+  });
+
+  $('#submit-post-btn')?.addEventListener('click', async () => {
+    const text = $('#new-post-text').value.trim();
+    if (!text && !pendingImage) return showToast('Write something or add a photo');
+
+    const btn = $('#submit-post-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner"></span>';
+
+    try {
+      await db.collection('posts').add({
+        content: text,
+        imageURL: pendingImage || '',
+        authorId: state.user.uid,
+        authorName: state.profile.displayName,
+        authorPhoto: state.profile.photoURL || '',
+        authorUni: state.profile.university || '',
+        likesCount: 0,
+        commentsCount: 0,
+        likedBy: [],
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      await db.collection('users').doc(state.user.uid).update({
+        postsCount: firebase.firestore.FieldValue.increment(1)
+      });
+
+      showToast('Posted!');
+      closeModal();
+    } catch (err) {
+      console.error('Post error:', err);
+      showToast('Could not create post');
+      btn.disabled = false;
+      btn.textContent = 'Post';
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  EXPLORE PAGE
+// ══════════════════════════════════════════════════════
+function renderExplore() {
+  const content = $('#app-content');
+  content.innerHTML = `
+    <div class="explore-page">
+      <div class="search-bar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Search students..." id="explore-search">
+      </div>
+      <div class="filter-chips" id="explore-filters">
+        <span class="chip active" data-filter="all">All Students</span>
+        <span class="chip" data-filter="Computer Science">CS</span>
+        <span class="chip" data-filter="Engineering">Engineering</span>
+        <span class="chip" data-filter="Business / Commerce">Business</span>
+        <span class="chip" data-filter="Law">Law</span>
+        <span class="chip" data-filter="Medicine / Health Sciences">Medicine</span>
+        <span class="chip" data-filter="Arts & Design">Arts</span>
+      </div>
+      <div class="users-grid" id="explore-users">
+        <div style="grid-column:1/-1;text-align:center;padding:32px"><span class="inline-spinner" style="width:32px;height:32px;border-width:3px;color:var(--accent)"></span></div>
+      </div>
+    </div>
+  `;
+
+  loadExploreUsers();
+
+  // Search
+  let searchTimeout;
+  $('#explore-search')?.addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => filterExploreUsers(e.target.value.trim()), 300);
+  });
+
+  // Filter chips
+  $$('#explore-filters .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      $$('#explore-filters .chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      filterExploreUsers($('#explore-search')?.value || '', chip.dataset.filter);
+    });
+  });
+}
+
+async function loadExploreUsers() {
+  try {
+    const snap = await db.collection('users')
+      .orderBy('joinedAt', 'desc')
+      .limit(50)
+      .get();
+    state.users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    displayExploreUsers(state.users.filter(u => u.id !== state.user?.uid));
+  } catch (err) {
+    console.error('Load users error:', err);
+    $('#explore-users').innerHTML = `
+      <div style="grid-column:1/-1" class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <h3>No students found</h3>
+        <p>Invite your friends to join Unino!</p>
+      </div>
+    `;
+  }
+}
+
+function filterExploreUsers(query, majorFilter = 'all') {
+  let filtered = state.users.filter(u => u.id !== state.user?.uid);
+  if (query) {
+    const q = query.toLowerCase();
+    filtered = filtered.filter(u =>
+      (u.displayName || '').toLowerCase().includes(q) ||
+      (u.university || '').toLowerCase().includes(q) ||
+      (u.major || '').toLowerCase().includes(q)
+    );
+  }
+  if (majorFilter && majorFilter !== 'all') {
+    filtered = filtered.filter(u => u.major === majorFilter);
+  }
+  displayExploreUsers(filtered);
+}
+
+function displayExploreUsers(users) {
+  const container = $('#explore-users');
+  if (!container) return;
+
+  if (users.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column:1/-1" class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <h3>No students found</h3>
+        <p>Try a different search or filter</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = users.map(u => `
+    <div class="user-card" data-uid="${u.id}">
+      ${avatarHTML(u.displayName, u.photoURL, 'avatar-lg')}
+      <div class="user-card-name">${escapeHTML(u.displayName)}</div>
+      <div class="user-card-uni">${escapeHTML(u.university || '')}</div>
+      ${u.major ? `<div class="user-card-major">${escapeHTML(u.major)}</div>` : ''}
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.user-card').forEach(card => {
+    card.addEventListener('click', () => showProfile(card.dataset.uid));
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  HUSTLE (MARKETPLACE) PAGE
+// ══════════════════════════════════════════════════════
+function renderHustle() {
+  const content = $('#app-content');
+  content.innerHTML = `
+    <div class="hustle-page">
+      <div class="hustle-header">
+        <h2>💰 The Hustle</h2>
+        <button class="btn-primary" id="create-listing-btn" style="padding:10px 16px;font-size:13px">+ Sell</button>
+      </div>
+      <div class="search-bar" style="margin-bottom:12px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Search marketplace..." id="hustle-search">
+      </div>
+      <div class="category-tabs" id="hustle-categories">
+        <span class="chip active" data-cat="all">All</span>
+        <span class="chip" data-cat="textbook">📚 Textbooks</span>
+        <span class="chip" data-cat="electronics">💻 Electronics</span>
+        <span class="chip" data-cat="furniture">🪑 Furniture</span>
+        <span class="chip" data-cat="service">🛠️ Services</span>
+        <span class="chip" data-cat="tutoring">📖 Tutoring</span>
+        <span class="chip" data-cat="other">🏷️ Other</span>
+      </div>
+      <div class="listings-grid" id="listings-container">
+        <div style="grid-column:1/-1;text-align:center;padding:32px"><span class="inline-spinner" style="width:32px;height:32px;border-width:3px;color:var(--accent)"></span></div>
+      </div>
+    </div>
+  `;
+
+  loadListings();
+  $('#create-listing-btn')?.addEventListener('click', openCreateListingModal);
+
+  // Search
+  let searchTimeout;
+  $('#hustle-search')?.addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => filterListings(e.target.value.trim()), 300);
+  });
+
+  // Category tabs
+  $$('#hustle-categories .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      $$('#hustle-categories .chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      filterListings($('#hustle-search')?.value || '', chip.dataset.cat);
+    });
+  });
+}
+
+async function loadListings() {
+  try {
+    const snap = await db.collection('listings')
+      .where('status', '==', 'active')
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+    state.listings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    displayListings(state.listings);
+  } catch (err) {
+    console.error('Listings error:', err);
+    $('#listings-container').innerHTML = `
+      <div style="grid-column:1/-1" class="empty-state">
+        <div class="empty-state-icon">🏪</div>
+        <h3>Marketplace is empty</h3>
+        <p>Be the first to list something for sale!</p>
+      </div>
+    `;
+  }
+}
+
+function filterListings(query, category = 'all') {
+  let filtered = [...state.listings];
+  if (query) {
+    const q = query.toLowerCase();
+    filtered = filtered.filter(l =>
+      (l.title || '').toLowerCase().includes(q) ||
+      (l.description || '').toLowerCase().includes(q)
+    );
+  }
+  if (category && category !== 'all') {
+    filtered = filtered.filter(l => l.category === category);
+  }
+  displayListings(filtered);
+}
+
+function displayListings(listings) {
+  const container = $('#listings-container');
+  if (!container) return;
+
+  if (listings.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column:1/-1" class="empty-state">
+        <div class="empty-state-icon">🏪</div>
+        <h3>Nothing here yet</h3>
+        <p>Try a different search or list something yourself!</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = listings.map(l => `
+    <div class="listing-card" data-listing-id="${l.id}">
+      ${l.imageURL
+        ? `<img class="listing-image" src="${l.imageURL}" alt="${escapeHTML(l.title)}">`
+        : `<div class="listing-image" style="display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--bg-tertiary)">${getCategoryEmoji(l.category)}</div>`
+      }
+      <div class="listing-info">
+        <div class="listing-title">${escapeHTML(l.title)}</div>
+        <div class="listing-price">R${Number(l.price || 0).toLocaleString()}</div>
+        <div class="listing-seller">
+          ${avatarHTML(l.sellerName, l.sellerPhoto, 'avatar-sm')}
+          ${escapeHTML(l.sellerName || 'Unknown')}
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.listing-card').forEach(card => {
+    card.addEventListener('click', () => showListingDetail(card.dataset.listingId));
+  });
+}
+
+function getCategoryEmoji(cat) {
+  const map = { textbook: '📚', electronics: '💻', furniture: '🪑', service: '🛠️', tutoring: '📖', other: '🏷️' };
+  return map[cat] || '🏷️';
+}
+
+function showListingDetail(listingId) {
+  const listing = state.listings.find(l => l.id === listingId);
+  if (!listing) return;
+  const isOwn = listing.sellerId === state.user?.uid;
+
+  openModal(`
+    <div class="listing-detail">
+      ${listing.imageURL
+        ? `<img class="listing-detail-image" src="${listing.imageURL}" alt="">`
+        : `<div class="listing-detail-image" style="display:flex;align-items:center;justify-content:center;font-size:80px">${getCategoryEmoji(listing.category)}</div>`
+      }
+      <div class="listing-detail-title">${escapeHTML(listing.title)}</div>
+      <div class="listing-detail-price">R${Number(listing.price || 0).toLocaleString()}</div>
+      <div class="listing-detail-desc">${escapeHTML(listing.description || 'No description')}</div>
+      <div class="listing-detail-seller" data-uid="${listing.sellerId}">
+        ${avatarHTML(listing.sellerName, listing.sellerPhoto, 'avatar-md')}
+        <div class="listing-detail-seller-info">
+          <div class="listing-detail-seller-name">${escapeHTML(listing.sellerName)}</div>
+          <div class="listing-detail-seller-uni">${escapeHTML(listing.sellerUni || '')}</div>
+        </div>
+      </div>
+      ${isOwn
+        ? `<button class="btn-danger btn-full" id="delete-listing-btn">Remove Listing</button>`
+        : `<button class="btn-primary btn-full" id="message-seller-btn">Message Seller</button>`
+      }
+    </div>
+  `);
+
+  // Seller profile click
+  document.querySelector('.listing-detail-seller')?.addEventListener('click', () => {
+    closeModal();
+    showProfile(listing.sellerId);
+  });
+
+  // Message seller
+  $('#message-seller-btn')?.addEventListener('click', () => {
+    closeModal();
+    startConversation(listing.sellerId, listing.sellerName, listing.sellerPhoto);
+  });
+
+  // Delete listing
+  $('#delete-listing-btn')?.addEventListener('click', async () => {
+    try {
+      await db.collection('listings').doc(listingId).delete();
+      showToast('Listing removed');
+      closeModal();
+      loadListings();
+    } catch (err) {
+      showToast('Could not delete listing');
+    }
+  });
+}
+
+function openCreateListingModal() {
+  let pendingImage = '';
+
+  openModal(`
+    <div class="create-listing-form">
+      <h2>Sell Something</h2>
+      <div class="form-group">
+        <label>Title *</label>
+        <input type="text" id="listing-title" placeholder="What are you selling?" maxlength="100">
+      </div>
+      <div class="form-group">
+        <label>Price (ZAR) *</label>
+        <input type="number" id="listing-price" placeholder="0" min="0" step="1">
+      </div>
+      <div class="form-group">
+        <label>Category *</label>
+        <select id="listing-category">
+          <option value="">Select category</option>
+          <option value="textbook">📚 Textbook</option>
+          <option value="electronics">💻 Electronics</option>
+          <option value="furniture">🪑 Furniture</option>
+          <option value="service">🛠️ Service</option>
+          <option value="tutoring">📖 Tutoring</option>
+          <option value="other">🏷️ Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="listing-desc" placeholder="Describe your item or service..." rows="3" style="resize:vertical"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Photo</label>
+        <div class="image-preview-container" id="listing-image-preview">
+          <img src="" alt="Preview" id="listing-preview-img">
+          <button class="image-preview-remove" id="listing-remove-img">&times;</button>
+        </div>
+        <label class="attach-btn" for="listing-image-upload" style="display:inline-flex;margin-top:8px">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Add Photo
+        </label>
+        <input type="file" id="listing-image-upload" accept="image/*" hidden>
+      </div>
+      <button class="btn-primary btn-full" id="submit-listing-btn" style="margin-top:8px">List for Sale</button>
+    </div>
+  `);
+
+  $('#listing-image-upload')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { showToast('Image too large (max 5MB)'); return; }
+    pendingImage = await compressImage(file, 600, 0.7);
+    $('#listing-preview-img').src = pendingImage;
+    $('#listing-image-preview').style.display = 'block';
+  });
+
+  $('#listing-remove-img')?.addEventListener('click', () => {
+    pendingImage = '';
+    $('#listing-image-preview').style.display = 'none';
+  });
+
+  $('#submit-listing-btn')?.addEventListener('click', async () => {
+    const title = $('#listing-title').value.trim();
+    const price = parseFloat($('#listing-price').value) || 0;
+    const category = $('#listing-category').value;
+    const desc = $('#listing-desc').value.trim();
+
+    if (!title || !category) return showToast('Title and category are required');
+
+    const btn = $('#submit-listing-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner"></span>';
+
+    try {
+      await db.collection('listings').add({
+        title,
+        price,
+        category,
+        description: desc,
+        imageURL: pendingImage || '',
+        sellerId: state.user.uid,
+        sellerName: state.profile.displayName,
+        sellerPhoto: state.profile.photoURL || '',
+        sellerUni: state.profile.university || '',
+        status: 'active',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      showToast('Listed!');
+      closeModal();
+      loadListings();
+    } catch (err) {
+      showToast('Could not create listing');
+      btn.disabled = false;
+      btn.textContent = 'List for Sale';
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  MESSAGES PAGE
+// ══════════════════════════════════════════════════════
+function renderMessages() {
+  const content = $('#app-content');
+  content.innerHTML = `
+    <div class="messages-page">
+      <div class="messages-header">
+        <h2>Messages</h2>
+      </div>
+      <div id="convo-list">
+        <div style="text-align:center;padding:32px"><span class="inline-spinner" style="width:32px;height:32px;border-width:3px;color:var(--accent)"></span></div>
+      </div>
+    </div>
+  `;
+
+  listenConversations();
+}
+
+function listenConversations() {
+  const uid = state.user?.uid;
+  if (!uid) return;
+
+  const unsub = db.collection('conversations')
+    .where('participants', 'array-contains', uid)
+    .orderBy('lastMessageAt', 'desc')
+    .limit(30)
+    .onSnapshot(snap => {
+      state.conversations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      displayConversations();
+    }, err => {
+      console.error('Conversations error:', err);
+      displayConversations();
+    });
+  state.unsubscribers.push(unsub);
+}
+
+function displayConversations() {
+  const container = $('#convo-list');
+  if (!container) return;
+
+  if (state.conversations.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">💬</div>
+        <h3>No messages yet</h3>
+        <p>Start a conversation from someone\'s profile or a marketplace listing</p>
+      </div>
+    `;
+    return;
+  }
+
+  const uid = state.user.uid;
+  container.innerHTML = `<div class="convo-list">${
+    state.conversations.map(c => {
+      // Get the other participant's info
+      const otherName = c.participantNames?.[uid === c.participants?.[0] ? 1 : 0] || 'User';
+      const otherPhoto = c.participantPhotos?.[uid === c.participants?.[0] ? 1 : 0] || '';
+      const unread = c.unreadCount?.[uid] || 0;
+
+      return `
+        <div class="convo-item" data-convo-id="${c.id}">
+          ${avatarHTML(otherName, otherPhoto, 'avatar-md')}
+          <div class="convo-info">
+            <div class="convo-name">${escapeHTML(otherName)}</div>
+            <div class="convo-last-msg">${escapeHTML(c.lastMessage || 'No messages yet')}</div>
+          </div>
+          <div class="convo-right">
+            <div class="convo-time">${timeAgo(c.lastMessageAt)}</div>
+            ${unread > 0 ? `<div class="convo-unread">${unread}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('')
+  }</div>`;
+
+  container.querySelectorAll('.convo-item').forEach(item => {
+    item.addEventListener('click', () => openChat(item.dataset.convoId));
+  });
+
+  // Update chat badge
+  const totalUnread = state.conversations.reduce((sum, c) => sum + (c.unreadCount?.[state.user.uid] || 0), 0);
+  const badge = $('#chat-badge');
+  if (badge) badge.textContent = totalUnread > 0 ? totalUnread : '';
+}
+
+// ─── Start Conversation ───────────────────────────────
+async function startConversation(otherUid, otherName, otherPhoto) {
+  const uid = state.user.uid;
+  if (otherUid === uid) return showToast('That\'s your own profile!');
+
+  // Check if conversation already exists
+  try {
+    const snap = await db.collection('conversations')
+      .where('participants', 'array-contains', uid)
+      .get();
+
+    const existing = snap.docs.find(d => {
+      const data = d.data();
+      return data.participants?.includes(otherUid);
+    });
+
+    if (existing) {
+      openChat(existing.id);
+      return;
+    }
+
+    // Create new conversation
+    const convoRef = await db.collection('conversations').add({
+      participants: [uid, otherUid],
+      participantNames: [state.profile.displayName, otherName],
+      participantPhotos: [state.profile.photoURL || '', otherPhoto || ''],
+      lastMessage: '',
+      lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+      unreadCount: { [uid]: 0, [otherUid]: 0 },
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    openChat(convoRef.id);
+  } catch (err) {
+    console.error('Start conversation error:', err);
+    showToast('Could not start conversation');
+  }
+}
+
+// ─── Chat View ────────────────────────────────────────
+let chatUnsub = null;
+
+function openChat(convoId) {
+  const convo = state.conversations.find(c => c.id === convoId);
+  const uid = state.user.uid;
+
+  // Determine other participant
+  let otherName = 'User';
+  let otherPhoto = '';
+  if (convo) {
+    const idx = convo.participants?.[0] === uid ? 1 : 0;
+    otherName = convo.participantNames?.[idx] || 'User';
+    otherPhoto = convo.participantPhotos?.[idx] || '';
+  }
+
+  // Show chat screen
+  showScreen('chat-view');
+  $('#chat-name').textContent = otherName;
+  $('#chat-status').textContent = 'Online';
+  const chatAvatarEl = $('#chat-avatar');
+  chatAvatarEl.outerHTML = avatarHTML(otherName, otherPhoto, 'avatar-sm');
+
+  // Clear old messages
+  const msgContainer = $('#chat-messages');
+  msgContainer.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner" style="width:28px;height:28px;border-width:2px;color:var(--accent)"></span></div>';
+
+  // Mark as read
+  db.collection('conversations').doc(convoId).update({
+    [`unreadCount.${uid}`]: 0
+  }).catch(() => {});
+
+  // Listen to messages
+  if (chatUnsub) chatUnsub();
+  chatUnsub = db.collection('conversations').doc(convoId)
+    .collection('messages')
+    .orderBy('createdAt', 'asc')
+    .limit(100)
+    .onSnapshot(snap => {
+      const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderChatMessages(messages);
+    });
+
+  // Back button
+  $('#chat-back-btn').onclick = () => {
+    if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+    showScreen('app-shell');
+  };
+
+  // Send message
+  const input = $('#chat-input');
+  const sendBtn = $('#chat-send-btn');
+
+  const sendMessage = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    try {
+      await db.collection('conversations').doc(convoId).collection('messages').add({
+        text,
+        senderId: uid,
+        senderName: state.profile.displayName,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Get other user ID for unread count
+      const otherUid = convo?.participants?.find(p => p !== uid) || '';
+
+      await db.collection('conversations').doc(convoId).update({
+        lastMessage: text,
+        lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+        [`unreadCount.${otherUid}`]: firebase.firestore.FieldValue.increment(1)
+      });
+    } catch (err) {
+      showToast('Message failed to send');
+    }
+  };
+
+  sendBtn.onclick = sendMessage;
+  input.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+
+  // Image upload in chat
+  $('#chat-img-input').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const dataURL = await compressImage(file, 500, 0.6);
+    try {
+      const otherUid = convo?.participants?.find(p => p !== uid) || '';
+      await db.collection('conversations').doc(convoId).collection('messages').add({
+        text: '',
+        imageURL: dataURL,
+        senderId: uid,
+        senderName: state.profile.displayName,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      await db.collection('conversations').doc(convoId).update({
+        lastMessage: '📷 Photo',
+        lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+        [`unreadCount.${otherUid}`]: firebase.firestore.FieldValue.increment(1)
+      });
+    } catch (err) {
+      showToast('Image failed to send');
+    }
+  };
+}
+
+function renderChatMessages(messages) {
+  const container = $('#chat-messages');
+  if (!container) return;
+  const uid = state.user.uid;
+
+  if (messages.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:14px">Say hello! 👋</div>';
+    return;
+  }
+
+  container.innerHTML = messages.map(m => {
+    const isSent = m.senderId === uid;
+    return `
+      <div class="msg-bubble ${isSent ? 'msg-sent' : 'msg-received'}">
+        ${m.imageURL ? `<img class="msg-image" src="${m.imageURL}" alt="Photo" onclick="openImageViewer('${m.imageURL}')">` : ''}
+        ${m.text ? escapeHTML(m.text) : ''}
+        <div class="msg-time">${formatTime(m.createdAt)}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════
+//  PROFILE VIEW
+// ══════════════════════════════════════════════════════
+async function showProfile(uid) {
+  showScreen('profile-view');
+  const profileContent = $('#profile-content');
+  profileContent.innerHTML = '<div style="text-align:center;padding:48px"><span class="inline-spinner" style="width:32px;height:32px;border-width:3px;color:var(--accent)"></span></div>';
+
+  const isOwnProfile = uid === state.user?.uid;
+
+  try {
+    let profile;
+    if (isOwnProfile && state.profile) {
+      profile = state.profile;
+    } else {
+      const doc = await db.collection('users').doc(uid).get();
+      if (!doc.exists) { profileContent.innerHTML = '<div class="empty-state"><h3>User not found</h3></div>'; return; }
+      profile = { id: doc.id, ...doc.data() };
+    }
+
+    // Count posts for this user
+    const postsSnap = await db.collection('posts')
+      .where('authorId', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .limit(20)
+      .get();
+    const userPosts = postsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    $('#profile-top-name').textContent = profile.displayName || '';
+
+    profileContent.innerHTML = `
+      <div class="profile-banner"></div>
+      <div class="profile-avatar-wrapper">
+        <div class="profile-avatar-large" style="background:${getAvatarColor(profile.displayName)}">
+          ${profile.photoURL
+            ? `<img src="${profile.photoURL}" alt="" onerror="this.remove()">`
+            : getInitials(profile.displayName)
+          }
+        </div>
+      </div>
+      <div class="profile-info">
+        <div class="profile-name">${escapeHTML(profile.displayName)}</div>
+        <div class="profile-uni">${escapeHTML(profile.university || '')} ${profile.year ? '· ' + escapeHTML(profile.year) : ''}</div>
+        ${profile.major ? `<div class="profile-major-pill">${escapeHTML(profile.major)}</div>` : ''}
+        ${profile.bio ? `<div class="profile-bio">${escapeHTML(profile.bio)}</div>` : ''}
+        <div class="profile-stats-row">
+          <div class="profile-stat"><div class="profile-stat-num">${userPosts.length}</div><div class="profile-stat-label">Posts</div></div>
+          <div class="profile-stat"><div class="profile-stat-num">${profile.friendsCount || 0}</div><div class="profile-stat-label">Friends</div></div>
+        </div>
+        <div class="profile-actions">
+          ${isOwnProfile
+            ? `<button class="btn-primary" id="edit-profile-btn">Edit Profile</button>
+               <button class="btn-outline" id="logout-btn" style="color:var(--red);border-color:var(--red)">Log Out</button>`
+            : `<button class="btn-primary" id="dm-profile-btn">Message</button>`
+          }
+        </div>
+      </div>
+      <div class="profile-posts-header">${isOwnProfile ? 'Your' : escapeHTML(profile.firstName || 'Their')} Posts</div>
+      <div id="profile-posts-list">
+        ${userPosts.length === 0
+          ? '<div class="empty-state" style="padding:24px"><p style="color:var(--text-tertiary)">No posts yet</p></div>'
+          : userPosts.map(p => postCardHTML(p)).join('')
+        }
+      </div>
+    `;
+
+    // Attach listeners
+    if (isOwnProfile) {
+      $('#edit-profile-btn')?.addEventListener('click', openEditProfileModal);
+      $('#logout-btn')?.addEventListener('click', () => {
+        auth.signOut();
+        showScreen('auth-screen');
+      });
+    } else {
+      $('#dm-profile-btn')?.addEventListener('click', () => {
+        showScreen('app-shell');
+        startConversation(uid, profile.displayName, profile.photoURL || '');
+      });
+    }
+
+    // Post interactions within profile
+    attachPostListeners();
+
+  } catch (err) {
+    console.error('Profile error:', err);
+    profileContent.innerHTML = '<div class="empty-state"><h3>Could not load profile</h3></div>';
+  }
+
+  // Back button
+  $('#profile-back-btn').onclick = () => showScreen('app-shell');
+}
+
+// ─── Edit Profile ─────────────────────────────────────
+function openEditProfileModal() {
+  const p = state.profile;
+  let newPhotoData = '';
+
+  openModal(`
+    <div class="edit-profile-form">
+      <h2>Edit Profile</h2>
+      <div class="avatar-upload">
+        <div class="avatar-upload-preview" id="edit-avatar-preview" style="background:${getAvatarColor(p.displayName)}">
+          ${p.photoURL ? `<img src="${p.photoURL}" alt="">` : getInitials(p.displayName)}
+        </div>
+        <div>
+          <label class="btn-outline" for="edit-avatar-upload" style="cursor:pointer;display:inline-block">Change Photo</label>
+          <input type="file" id="edit-avatar-upload" accept="image/*" hidden>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Max 2MB, will be compressed</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Display Name</label>
+        <input type="text" id="edit-name" value="${escapeHTML(p.displayName || '')}" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>Bio</label>
+        <textarea id="edit-bio" rows="3" maxlength="200" style="resize:vertical">${escapeHTML(p.bio || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label>University</label>
+        <input type="text" id="edit-uni" value="${escapeHTML(p.university || '')}">
+      </div>
+      <div class="form-group">
+        <label>Major</label>
+        <input type="text" id="edit-major" value="${escapeHTML(p.major || '')}">
+      </div>
+      <button class="btn-primary btn-full" id="save-profile-btn" style="margin-top:8px">Save Changes</button>
+    </div>
+  `);
+
+  $('#edit-avatar-upload')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { showToast('Image too large'); return; }
+    newPhotoData = await compressAvatar(file);
+    $('#edit-avatar-preview').innerHTML = `<img src="${newPhotoData}" alt="">`;
+  });
+
+  $('#save-profile-btn')?.addEventListener('click', async () => {
+    const btn = $('#save-profile-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner"></span>';
+
+    const updates = {
+      displayName: $('#edit-name').value.trim() || p.displayName,
+      bio: $('#edit-bio').value.trim(),
+      university: $('#edit-uni').value.trim(),
+      major: $('#edit-major').value.trim(),
+    };
+
+    if (newPhotoData) {
+      updates.photoURL = newPhotoData;
+    }
+
+    try {
+      await db.collection('users').doc(state.user.uid).update(updates);
+      // Update local state
+      Object.assign(state.profile, updates);
+      updateHeaderAvatar();
+      showToast('Profile updated!');
+      closeModal();
+      showProfile(state.user.uid);
+    } catch (err) {
+      showToast('Could not save profile');
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  MODAL & IMAGE VIEWER
+// ══════════════════════════════════════════════════════
+function openModal(html) {
+  const overlay = $('#modal-overlay');
+  const body = $('#modal-body');
+  body.innerHTML = html;
+  overlay.style.display = 'flex';
+  overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+}
+
+function closeModal() {
+  const overlay = $('#modal-overlay');
+  overlay.style.display = 'none';
+  $('#modal-body').innerHTML = '';
+}
+
+function openImageViewer(src) {
+  const viewer = $('#image-viewer');
+  $('#image-viewer-img').src = src;
+  viewer.style.display = 'flex';
+}
+
+function initImageViewer() {
+  $('#image-viewer-close')?.addEventListener('click', () => {
+    $('#image-viewer').style.display = 'none';
+  });
+  $('#image-viewer')?.addEventListener('click', (e) => {
+    if (e.target === $('#image-viewer')) $('#image-viewer').style.display = 'none';
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  INITIALIZATION
+// ══════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  initImageViewer();
+  initAuth();
+  listenUserCount();
+
+  // Hide loading screen after a moment
+  setTimeout(() => {
+    const loading = $('#loading-screen');
+    if (loading.classList.contains('active') && !$('#app-shell').classList.contains('active')) {
+      // Auth hasn't resolved yet, show auth screen
+      // (auth.onAuthStateChanged will show correct screen)
+    }
+  }, 3000);
+
+  // Fallback: if auth doesn't respond in 4s, show auth screen
+  setTimeout(() => {
+    if ($('#loading-screen').classList.contains('active')) {
+      showScreen('auth-screen');
+    }
+  }, 4000);
+});
+
+// Make functions available globally for inline onclick handlers
+window.submitComment = submitComment;
+window.closeModal = closeModal;
+window.openImageViewer = openImageViewer;
