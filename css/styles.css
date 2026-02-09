@@ -1420,6 +1420,7 @@ img { max-width: 100%; display: block; }
   color: var(--text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.3;
@@ -2358,4 +2359,284 @@ img { max-width: 100%; display: block; }
 .storefront-stat-label {
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+/* ============================================
+   ENHANCED COMPONENTS (Home, Activity, etc.)
+   ============================================ */
+
+/* Welcome Banner */
+.welcome-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  background: var(--gradient-1);
+  border-radius: var(--radius-lg);
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcome-banner::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 200px;
+  height: 200px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 50%;
+}
+
+.welcome-banner::after {
+  content: '';
+  position: absolute;
+  bottom: -40%;
+  left: 10%;
+  width: 120px;
+  height: 120px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 50%;
+}
+
+.welcome-left h2 {
+  font-size: 20px;
+  font-weight: 800;
+  position: relative;
+  z-index: 1;
+}
+
+.welcome-left p {
+  font-size: 13px;
+  opacity: 0.85;
+  margin-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.karma-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,0.18);
+  backdrop-filter: blur(10px);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  position: relative;
+  z-index: 1;
+}
+
+.karma-num {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.karma-lbl {
+  font-size: 11px;
+  opacity: 0.85;
+  font-weight: 600;
+}
+
+/* Privacy Pill */
+.privacy-pill {
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.privacy-pill.online {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.privacy-pill.study {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.privacy-pill.offline {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+/* Suggested Connections Scroll */
+.suggested-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.suggested-scroll::-webkit-scrollbar { height: 0; }
+
+.suggested-card {
+  min-width: 130px;
+  max-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: var(--transition);
+  text-align: center;
+}
+
+.suggested-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.suggested-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.suggested-major {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.suggested-badge {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.suggested-badge.connected {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.suggested-badge.pending {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+/* Activity Feed */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  transition: var(--transition);
+}
+
+.activity-item:hover {
+  background: var(--bg-hover);
+}
+
+.activity-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.activity-icon.success { background: var(--success-light); }
+.activity-icon.info    { background: var(--info-light); }
+.activity-icon.accent  { background: var(--accent-light); }
+.activity-icon.warning { background: var(--warning-light); }
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-content p {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.activity-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* Schedule Overlap Highlight */
+.schedule-card.overlap {
+  border-color: var(--success);
+  background: var(--success-light);
+}
+
+/* Listing Saved Badge */
+.listing-saved-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Map Paths – subtle connecting lines */
+.map-paths {
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image:
+    radial-gradient(circle at 50% 45%, var(--accent) 0, transparent 45%),
+    radial-gradient(circle at 30% 80%, var(--info) 0, transparent 30%);
+}
+
+/* Page transition */
+.app-content {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+/* Ripple on stat cards */
+.stat-card:active {
+  transform: scale(0.97);
+}
+
+/* Smooth hover on event cards */
+.event-card:active {
+  transform: scale(0.98);
+}
+
+/* Keyboard focus rings */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Extra small avatar helper */
+.user-avatar.sm {
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
 }
