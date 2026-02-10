@@ -38,6 +38,19 @@
  *        allow read: if true;
  *        allow write: if request.auth != null;
  *      }
+ *      match /stories/{storyId} {
+ *        allow read: if request.auth != null;
+ *        allow create: if request.auth != null;
+ *        allow update: if request.auth != null;
+ *      }
+ *      match /groups/{groupId} {
+ *        allow read: if request.auth != null;
+ *        allow create: if request.auth != null;
+ *        allow update: if request.auth != null;
+ *      }
+ *      match /groups/{groupId}/messages/{msgId} {
+ *        allow read, write: if request.auth != null;
+ *      }
  *    }
  *  }
  */

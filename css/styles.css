@@ -2709,3 +2709,393 @@ input, select, textarea, button {
 .msg-sent .msg-image {
   margin-left: auto;
 }
+
+/* ══════════════════════════════════════════════════
+   STORY VIEWER OVERLAY
+   ══════════════════════════════════════════════════ */
+.story-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: #000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.story-viewer-overlay[style*="display: flex"],
+.story-viewer-overlay[style*="display:flex"] {
+  display: flex !important;
+}
+
+.story-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  z-index: 310;
+}
+.story-progress-seg {
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.story-progress-seg .story-progress-fill {
+  width: 0;
+  height: 100%;
+  background: #fff;
+  border-radius: 3px;
+}
+.story-progress-seg.done .story-progress-fill { width: 100%; }
+.story-progress-seg.active .story-progress-fill {
+  animation: storyProgress 5s linear forwards;
+}
+
+@keyframes storyProgress {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+.story-viewer-header {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 310;
+}
+.story-viewer-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+}
+.story-viewer-user b { font-size: 14px; }
+.story-viewer-user small { font-size: 11px; opacity: 0.7; }
+
+.story-close-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+
+.story-viewer-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.story-full-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.story-text-display {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  padding: 40px 24px;
+  line-height: 1.4;
+  max-width: 320px;
+  word-wrap: break-word;
+}
+
+.story-caption {
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #fff;
+  font-size: 15px;
+  padding: 12px 20px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.6));
+}
+
+.story-viewer-nav {
+  position: absolute;
+  inset: 80px 0 40px;
+  display: flex;
+  z-index: 305;
+}
+.story-nav-prev,
+.story-nav-next {
+  flex: 1;
+  cursor: pointer;
+}
+
+/* Story item states */
+.story-item.has-unseen .story-avatar {
+  background: var(--gradient);
+}
+.story-item.seen .story-avatar {
+  background: var(--border);
+}
+.story-item.no-story .story-avatar {
+  background: var(--bg-tertiary);
+  padding: 2px;
+}
+
+/* ══════════════════════════════════════════════════
+   STORY CREATOR MODAL
+   ══════════════════════════════════════════════════ */
+.story-creator {
+  padding: 0;
+}
+.story-type-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.story-type-tab {
+  flex: 1;
+  padding: 10px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+}
+.story-type-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.story-type-content {
+  display: none;
+}
+.story-type-content.active {
+  display: block;
+}
+.story-text-preview {
+  border-radius: var(--radius-lg);
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.story-text-preview textarea {
+  width: 100%;
+  height: 120px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  resize: none;
+  outline: none;
+}
+.story-text-preview textarea::placeholder {
+  color: rgba(255,255,255,0.6);
+}
+.story-bg-picker {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.bg-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.bg-dot:hover {
+  transform: scale(1.15);
+  border-color: rgba(255,255,255,0.4);
+}
+.story-photo-drop {
+  border-radius: var(--radius-lg);
+  min-height: 200px;
+  background: var(--bg-tertiary);
+  border: 2px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════
+   MESSAGE TABS (DM / Groups)
+   ══════════════════════════════════════════════════ */
+.msg-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.msg-tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition);
+  text-align: center;
+}
+.msg-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Group avatar icon */
+.group-avatar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background: var(--accent-light);
+  border-radius: var(--radius-full);
+}
+
+/* Group chat sender name */
+.gchat-sender {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+/* Group header info */
+.group-header-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-icon {
+  font-size: 28px;
+}
+
+/* ══════════════════════════════════════════════════
+   UI POLISH & ENHANCEMENTS
+   ══════════════════════════════════════════════════ */
+
+/* Smoother card hover */
+.post-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.post-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Better discover cards */
+.discover-card {
+  transition: transform 0.2s ease;
+}
+.discover-card:hover {
+  transform: translateY(-3px);
+}
+
+/* NWU purple accent enhancements */
+.nav-btn.active svg {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+.nav-btn.active span {
+  color: var(--accent);
+}
+
+/* Pulse animation for online dot */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,186,136,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(0,186,136,0); }
+}
+.online-dot {
+  animation: pulse-glow 2s ease infinite;
+}
+
+/* Better convo-item hover */
+.convo-item {
+  transition: background var(--transition);
+}
+.convo-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Prompt action + button styling */
+.prompt-action {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-light);
+  border-radius: var(--radius-full);
+}
+
+/* Stories row scrollbar hidden */
+.stories-row {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Chat bar polish */
+.chat-bar input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Modal animation */
+.modal-bg {
+  transition: opacity 0.2s ease;
+}
+.modal-sheet {
+  animation: slideUp 0.25s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Welcome banner NWU style */
+.welcome-banner {
+  border-left: 4px solid var(--accent);
+}
+
+/* Header glow effect */
+#hdr {
+  box-shadow: 0 1px 8px rgba(108, 92, 231, 0.08);
+}
+
+/* Bottom nav glow for active */
+.nav-btn.nav-plus .plus-circle {
+  box-shadow: 0 4px 14px var(--accent-glow);
+}

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>Unino — Your Campus, Connected</title>
-  <meta name="description" content="University social app: feed, study groups, marketplace, messaging & more.">
+  <title>Unino — NWU Campus, Connected</title>
+  <meta name="description" content="NWU campus social app: feed, stories, study groups, marketplace, messaging & more.">
   <meta name="theme-color" content="#6C5CE7">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,7 +28,7 @@
     <div class="auth-hero">
       <div class="auth-emoji">🎓</div>
       <h1>Unino</h1>
-      <p>Your Campus, Connected</p>
+      <p>NWU Campus, Connected</p>
       <div class="online-pill"><span class="dot green"></span><span id="auth-count">0</span> students online</div>
     </div>
     <form id="login-form" class="auth-form active" autocomplete="off">
@@ -46,13 +46,7 @@
       <input type="password" id="s-pass" placeholder="Password (6+ chars)" required>
       <select id="s-uni" required>
         <option value="">Select university…</option>
-        <option>University of Cape Town</option><option>Wits University</option>
-        <option>Stellenbosch University</option><option>University of Pretoria</option>
-        <option>University of Johannesburg</option><option>UKZN</option>
-        <option>Rhodes University</option><option>NWU</option><option>TUT</option>
-        <option>CPUT</option><option>Unisa</option><option>UFS</option>
-        <option>Nelson Mandela University</option><option>DUT</option>
-        <option>Vaal University of Technology</option>
+        <option selected>NWU</option>
       </select>
       <select id="s-major" required>
         <option value="">Select major…</option>
@@ -147,6 +141,19 @@
   </div>
 </div>
 
+<!-- ══ GROUP CHAT VIEW ══ -->
+<div id="group-chat-view" class="screen">
+  <header class="sub-hdr">
+    <button class="icon-btn" id="gchat-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <div class="sub-hdr-info" id="gchat-hdr-info"></div>
+  </header>
+  <div id="gchat-msgs" class="chat-msgs"></div>
+  <div class="chat-bar">
+    <input type="text" id="gchat-input" placeholder="Message group…" autocomplete="off">
+    <button class="send-btn" id="gchat-send"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+  </div>
+</div>
+
 <!-- ══ PROFILE VIEW ══ -->
 <div id="profile-view" class="screen">
   <header class="sub-hdr">
@@ -156,6 +163,33 @@
   </header>
   <div id="prof-body"></div>
 </div>
+
+<!-- ══ SETTINGS VIEW ══ -->
+<div id="settings-view" class="screen">
+  <header class="sub-hdr">
+    <button class="icon-btn" id="settings-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <h3>Settings</h3>
+    <div style="width:40px"></div>
+  </header>
+  <div id="settings-body"></div>
+</div>
+
+<!-- ══ STORY VIEWER ══ -->
+<div id="story-viewer" class="story-viewer-overlay" style="display:none">
+  <div class="story-progress-bar" id="story-progress-bar"></div>
+  <div class="story-viewer-header">
+    <div class="story-viewer-user" id="story-viewer-user"></div>
+    <button class="story-close-btn" id="story-close">&times;</button>
+  </div>
+  <div class="story-viewer-content" id="story-viewer-content"></div>
+  <div class="story-viewer-nav">
+    <div class="story-nav-prev" id="story-prev"></div>
+    <div class="story-nav-next" id="story-next"></div>
+  </div>
+</div>
+
+<!-- ══ NOTIFICATION DROPDOWN ══ -->
+<div id="notif-dropdown" class="notif-dropdown" style="display:none"></div>
 
 <!-- ══ MODAL ══ -->
 <div id="modal-bg" class="modal-bg" style="display:none">

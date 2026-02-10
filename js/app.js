@@ -257,7 +257,7 @@ function renderFeed() {
       <div class="welcome-banner">
         <div class="welcome-text">
           <h2>Hey, ${esc(p.firstName || p.displayName?.split(' ')[0])} 👋</h2>
-          <p>${esc(p.university || 'Your Campus')}</p>
+          <p>${esc(p.university || 'NWU Campus')}</p>
         </div>
         <div class="welcome-stat">
           <span class="dot green"></span> <span id="feed-online">0</span> online
@@ -265,9 +265,9 @@ function renderFeed() {
       </div>
 
       <div class="stories-row" id="stories-row">
-        <div class="story-item add-story" onclick="openCreateModal()">
+        <div class="story-item add-story" onclick="openStoryCreator()">
           <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
-          <div class="story-name">Post</div>
+          <div class="story-name">Story</div>
         </div>
       </div>
 
@@ -284,7 +284,7 @@ function renderFeed() {
       <div class="create-post-prompt" onclick="openCreateModal()">
         ${avatar(p.displayName, p.photoURL, 'avatar-md')}
         <div class="placeholder-text">What's on your mind?</div>
-        <div class="prompt-actions"><span class="prompt-action">📷</span></div>
+        <div class="prompt-actions"><span class="prompt-action">+</span></div>
       </div>
 
       <div id="feed-posts">
@@ -304,7 +304,7 @@ function renderFeed() {
   });
 
   loadDiscoverPeople();
-  loadOnlineFriends();
+  loadStories();
 
   // Live count
   db.collection('stats').doc('global').onSnapshot(doc => {
@@ -386,13 +386,55 @@ function loadDiscoverEvents() {
   `).join('')}</div>`;
 }
 
-// ─── Online Friends → Stories Row ────────────────
-function loadOnlineFriends() {
+// ─── Stories System ──────────────────────────────
+function loadStories() {
+  const row = $('#stories-row'); if (!row) return;
+  // Clear all but the add-story button
+  row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').limit(30)
+    .get().then(snap => {
+      // Group stories by author
+      const byUser = {};
+      snap.docs.forEach(d => {
+        const s = { id: d.id, ...d.data() };
+        if (!byUser[s.authorId]) byUser[s.authorId] = [];
+        byUser[s.authorId].push(s);
+      });
+      // Put current user first if they have stories
+      const uid = state.user.uid;
+      const ordered = [];
+      if (byUser[uid]) { ordered.push({ uid, stories: byUser[uid] }); delete byUser[uid]; }
+      Object.keys(byUser).forEach(k => ordered.push({ uid: k, stories: byUser[k] }));
+
+      ordered.forEach(group => {
+        const s = group.stories[0];
+        const isMe = group.uid === uid;
+        const name = isMe ? 'You' : esc(s.authorFirstName || s.authorName?.split(' ')[0] || '?');
+        const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
+        row.insertAdjacentHTML('beforeend', `
+          <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="viewStory('${group.uid}')">
+            <div class="story-avatar"><div class="story-avatar-inner">
+              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="">` : initials(s.authorName)}
+            </div></div>
+            <div class="story-name">${name}</div>
+          </div>
+        `);
+      });
+
+      // Also load online users who don't have stories
+      loadOnlineFriends(Object.keys(byUser).concat(ordered.map(o => o.uid)));
+    }).catch(() => loadOnlineFriends([]));
+}
+
+function loadOnlineFriends(excludeIds = []) {
   const row = $('#stories-row'); if (!row) return;
   db.collection('users').where('status', '==', 'online').limit(15).get().then(snap => {
-    const users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== state.user.uid);
+    const users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => u.id !== state.user.uid && !excludeIds.includes(u.id));
     row.insertAdjacentHTML('beforeend', users.map(u => `
-      <div class="story-item" onclick="openProfile('${u.id}')">
+      <div class="story-item no-story" onclick="openProfile('${u.id}')">
         <div class="story-avatar"><div class="story-avatar-inner">
           ${u.photoURL ? `<img src="${u.photoURL}" alt="">` : initials(u.displayName)}
         </div></div>
@@ -400,6 +442,183 @@ function loadOnlineFriends() {
       </div>
     `).join(''));
   }).catch(() => {});
+}
+
+function openStoryCreator() {
+  let pendingImg = null;
+  let bgColor = '#6C5CE7';
+  const bgOptions = ['#6C5CE7','#A855F7','#7C3AED','#D946EF','#FF6B6B','#00BA88','#3B82F6','#FF9F43'];
+  openModal(`
+    <div class="modal-header"><h2>Create Story</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="story-creator">
+        <div class="story-type-tabs">
+          <button class="story-type-tab active" data-st="text">Text</button>
+          <button class="story-type-tab" data-st="photo">Photo</button>
+        </div>
+        <div id="story-text-creator" class="story-type-content active">
+          <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
+            <textarea id="story-text-input" placeholder="Type your story..." maxlength="200"></textarea>
+          </div>
+          <div class="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
+        </div>
+        <div id="story-photo-creator" class="story-type-content">
+          <div id="story-photo-preview" class="story-photo-drop">
+            <label style="cursor:pointer;text-align:center">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <p style="color:var(--text-secondary);font-size:13px;margin-top:8px">Tap to add photo</p>
+              <input type="file" hidden accept="image/*" id="story-photo-file">
+            </label>
+          </div>
+          <input type="text" id="story-photo-caption" placeholder="Add a caption..." style="margin-top:12px">
+        </div>
+        <button class="btn-primary btn-full" id="story-submit" style="margin-top:16px">Share Story</button>
+      </div>
+    </div>
+  `);
+  window._storyBg = bgColor;
+  $$('.story-type-tab').forEach(tab => {
+    tab.onclick = () => {
+      $$('.story-type-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      $$('.story-type-content').forEach(c => c.classList.remove('active'));
+      const target = tab.dataset.st === 'text' ? '#story-text-creator' : '#story-photo-creator';
+      $(target)?.classList.add('active');
+    };
+  });
+  $('#story-photo-file').onchange = async e => {
+    if (e.target.files[0]) {
+      pendingImg = await compress(e.target.files[0], 600, 0.65);
+      const prev = $('#story-photo-preview');
+      prev.innerHTML = `<img src="${pendingImg}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
+    }
+  };
+  $('#story-submit').onclick = async () => {
+    const activeTab = document.querySelector('.story-type-tab.active')?.dataset.st;
+    const p = state.profile;
+    let storyData = {
+      authorId: state.user.uid,
+      authorName: p.displayName,
+      authorFirstName: p.firstName || p.displayName?.split(' ')[0],
+      authorPhoto: p.photoURL || null,
+      createdAt: FieldVal.serverTimestamp(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      viewedBy: []
+    };
+    if (activeTab === 'text') {
+      const text = $('#story-text-input')?.value.trim();
+      if (!text) return toast('Type something!');
+      storyData.type = 'text';
+      storyData.text = text;
+      storyData.bgColor = window._storyBg || '#6C5CE7';
+    } else {
+      if (!pendingImg) return toast('Add a photo!');
+      storyData.type = 'photo';
+      storyData.imageURL = pendingImg;
+      storyData.caption = $('#story-photo-caption')?.value.trim() || '';
+    }
+    closeModal(); toast('Posting story...');
+    try {
+      await db.collection('stories').add(storyData);
+      toast('Story shared!');
+      loadStories();
+    } catch (e) { toast('Failed'); console.error(e); }
+  };
+}
+
+let storyViewerData = { groups: [], currentGroup: 0, currentStory: 0, timer: null };
+
+async function viewStory(userId) {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  try {
+    const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').get();
+    const byUser = {};
+    snap.docs.forEach(d => {
+      const s = { id: d.id, ...d.data() };
+      if (!byUser[s.authorId]) byUser[s.authorId] = [];
+      byUser[s.authorId].push(s);
+    });
+    const groups = Object.keys(byUser).map(uid => ({ uid, stories: byUser[uid] }));
+    const startIdx = groups.findIndex(g => g.uid === userId);
+    if (startIdx === -1) return toast('No stories');
+
+    storyViewerData = { groups, currentGroup: startIdx, currentStory: 0, timer: null };
+    showStoryFrame();
+  } catch (e) { console.error(e); toast('Could not load stories'); }
+}
+
+function showStoryFrame() {
+  const { groups, currentGroup, currentStory } = storyViewerData;
+  if (currentGroup >= groups.length) return closeStoryViewer();
+  const group = groups[currentGroup];
+  if (currentStory >= group.stories.length) {
+    storyViewerData.currentGroup++;
+    storyViewerData.currentStory = 0;
+    return showStoryFrame();
+  }
+  const story = group.stories[currentStory];
+  const viewer = $('#story-viewer');
+  viewer.style.display = 'flex';
+
+  // Progress bar
+  const bar = $('#story-progress-bar');
+  bar.innerHTML = group.stories.map((_, i) =>
+    `<div class="story-progress-seg ${i < currentStory ? 'done' : i === currentStory ? 'active' : ''}"><div class="story-progress-fill"></div></div>`
+  ).join('');
+
+  // Header
+  const hdr = $('#story-viewer-user');
+  hdr.innerHTML = `
+    ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
+    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}</small></div>
+  `;
+
+  // Content
+  const content = $('#story-viewer-content');
+  if (story.type === 'photo') {
+    content.innerHTML = `
+      <img src="${story.imageURL}" class="story-full-img">
+      ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
+    `;
+    content.style.background = '#000';
+  } else {
+    content.innerHTML = `<div class="story-text-display">${esc(story.text)}</div>`;
+    content.style.background = story.bgColor || '#6C5CE7';
+  }
+
+  // Mark as viewed
+  if (!(story.viewedBy || []).includes(state.user.uid)) {
+    db.collection('stories').doc(story.id).update({ viewedBy: FieldVal.arrayUnion(state.user.uid) }).catch(() => {});
+  }
+
+  // Auto-advance timer
+  clearTimeout(storyViewerData.timer);
+  storyViewerData.timer = setTimeout(() => advanceStory(1), 5000);
+
+  // Navigation
+  $('#story-prev').onclick = () => advanceStory(-1);
+  $('#story-next').onclick = () => advanceStory(1);
+  $('#story-close').onclick = closeStoryViewer;
+}
+
+function advanceStory(dir) {
+  clearTimeout(storyViewerData.timer);
+  if (dir > 0) {
+    storyViewerData.currentStory++;
+  } else {
+    storyViewerData.currentStory--;
+    if (storyViewerData.currentStory < 0) {
+      storyViewerData.currentGroup--;
+      if (storyViewerData.currentGroup < 0) return closeStoryViewer();
+      storyViewerData.currentStory = storyViewerData.groups[storyViewerData.currentGroup].stories.length - 1;
+    }
+  }
+  showStoryFrame();
+}
+
+function closeStoryViewer() {
+  clearTimeout(storyViewerData.timer);
+  $('#story-viewer').style.display = 'none';
 }
 
 // ─── Render Posts ────────────────────────────────
@@ -514,7 +733,7 @@ function openCreateModal() {
         ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
         <div>
           <div style="font-weight:600">${esc(state.profile.displayName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'Public')}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
@@ -886,18 +1105,184 @@ function openProductDetail(itemId) {
   `);
 }
 
+// ══════════════════════════════════════════════════
+//  GROUP CHAT
+// ══════════════════════════════════════════════════
+function openCreateGroup() {
+  openModal(`
+    <div class="modal-header"><h2>New Group</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Group Name</label><input type="text" id="grp-name" placeholder="e.g. MAT101 Study Group"></div>
+      <div class="form-group"><label>Description</label><input type="text" id="grp-desc" placeholder="What's this group for?"></div>
+      <div class="form-group"><label>Type</label>
+        <select id="grp-type"><option value="study">📚 Study Group</option><option value="social">🎉 Social</option><option value="project">💻 Project</option><option value="module">🧩 Module</option></select>
+      </div>
+      <button class="btn-primary btn-full" id="grp-create-btn">Create Group</button>
+    </div>
+  `);
+  $('#grp-create-btn').onclick = async () => {
+    const name = $('#grp-name')?.value.trim();
+    const desc = $('#grp-desc')?.value.trim() || '';
+    const type = $('#grp-type')?.value || 'study';
+    if (!name) return toast('Name required');
+    closeModal(); toast('Creating group...');
+    try {
+      await db.collection('groups').add({
+        name, description: desc, type,
+        createdBy: state.user.uid,
+        members: [state.user.uid],
+        memberNames: { [state.user.uid]: state.profile.displayName },
+        memberPhotos: { [state.user.uid]: state.profile.photoURL || '' },
+        lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
+        createdAt: FieldVal.serverTimestamp()
+      });
+      toast('Group created!');
+      navigate('chat');
+    } catch (e) { toast('Failed'); console.error(e); }
+  };
+}
+
+let gchatUnsub = null;
+
+async function openGroupChat(groupId) {
+  try {
+    const gDoc = await db.collection('groups').doc(groupId).get();
+    if (!gDoc.exists) return toast('Group not found');
+    const group = gDoc.data();
+    const uid = state.user.uid;
+
+    showScreen('group-chat-view');
+    $('#gchat-hdr-info').innerHTML = `
+      <div class="group-header-info">
+        <div class="group-icon">${group.type === 'study' ? '📚' : group.type === 'project' ? '💻' : group.type === 'module' ? '🧩' : '🎉'}</div>
+        <div><h3 style="font-size:15px;font-weight:700">${esc(group.name)}</h3>
+        <small style="color:var(--text-secondary)">${(group.members || []).length} members</small></div>
+      </div>
+    `;
+
+    if (gchatUnsub) gchatUnsub();
+    const msgs = $('#gchat-msgs');
+    gchatUnsub = db.collection('groups').doc(groupId)
+      .collection('messages').orderBy('createdAt','asc').limit(100)
+      .onSnapshot(snap => {
+        const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (!messages.length) {
+          msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+        } else {
+          msgs.innerHTML = messages.map(m => {
+            const isMe = m.senderId === uid;
+            return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
+              ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+              ${m.imageURL ? `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">` : ''}
+              ${m.text ? esc(m.text) : ''}
+              <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+            </div>`;
+          }).join('');
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+      });
+
+    const sendGMsg = async () => {
+      const input = $('#gchat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      try {
+        await db.collection('groups').doc(groupId).collection('messages').add({
+          text, senderId: uid, senderName: state.profile.displayName,
+          senderPhoto: state.profile.photoURL || null,
+          createdAt: FieldVal.serverTimestamp()
+        });
+        await db.collection('groups').doc(groupId).update({
+          lastMessage: text, updatedAt: FieldVal.serverTimestamp()
+        });
+      } catch (e) { console.error(e); }
+    };
+    $('#gchat-send').onclick = sendGMsg;
+    $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
+    $('#gchat-back').onclick = () => {
+      if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
+      showScreen('app'); navigate('chat');
+    };
+  } catch (e) { console.error(e); toast('Could not open group'); }
+}
+
+async function joinGroup(groupId) {
+  try {
+    const uid = state.user.uid;
+    await db.collection('groups').doc(groupId).update({
+      members: FieldVal.arrayUnion(uid),
+      [`memberNames.${uid}`]: state.profile.displayName,
+      [`memberPhotos.${uid}`]: state.profile.photoURL || ''
+    });
+    toast('Joined group!');
+    openGroupChat(groupId);
+  } catch (e) { toast('Failed to join'); console.error(e); }
+}
+
 function renderMessages() {
   const c = $('#content');
   c.innerHTML = `
     <div class="messages-page">
       <div class="messages-header"><h2>Messages</h2></div>
-      <div class="convo-list" id="convo-list">
-        <div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div>
+      <div class="msg-tabs">
+        <button class="msg-tab active" data-mt="dm">Direct</button>
+        <button class="msg-tab" data-mt="groups">Groups</button>
+      </div>
+      <div id="msg-tab-content">
+        <div class="convo-list" id="convo-list">
+          <div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div>
+        </div>
       </div>
     </div>
   `;
+  $$('.msg-tab').forEach(tab => {
+    tab.onclick = () => {
+      $$('.msg-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      if (tab.dataset.mt === 'dm') loadDMList();
+      else loadGroupList();
+    };
+  });
+  loadDMList();
+}
+
+function loadGroupList() {
+  const container = $('#msg-tab-content'); if (!container) return;
+  container.innerHTML = `<div style="padding:12px 16px"><button class="btn-primary btn-full" onclick="openCreateGroup()">+ New Group</button></div><div class="convo-list" id="group-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
+  db.collection('groups').orderBy('updatedAt','desc').limit(30).get().then(snap => {
+    const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const el = $('#group-list');
+    if (!groups.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👥</div><h3>No groups yet</h3><p>Create one to get started!</p></div>';
+      return;
+    }
+    const uid = state.user.uid;
+    el.innerHTML = groups.map(g => {
+      const isMember = (g.members || []).includes(uid);
+      const emoji = g.type === 'study' ? '📚' : g.type === 'project' ? '💻' : g.type === 'module' ? '🧩' : '🎉';
+      return `
+        <div class="convo-item" onclick="${isMember ? `openGroupChat('${g.id}')` : `joinGroup('${g.id}')`}">
+          <div class="convo-avatar"><div class="avatar-md group-avatar-icon">${emoji}</div></div>
+          <div class="convo-info">
+            <div class="convo-name">${esc(g.name)}</div>
+            <div class="convo-last-msg">${isMember ? esc(g.lastMessage || 'No messages yet') : '<em>Tap to join</em>'}</div>
+          </div>
+          <div class="convo-right">
+            <div class="convo-time">${timeAgo(g.updatedAt)}</div>
+            <div style="font-size:11px;color:var(--text-tertiary)">${(g.members||[]).length} members</div>
+          </div>
+        </div>`;
+    }).join('');
+  }).catch(e => { console.error(e); });
+}
+
+function loadDMList() {
+  const container = $('#msg-tab-content'); if (!container) return;
+  container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   // KEY FIX: No .orderBy() — sort client-side to avoid Firestore index requirement
+  unsub(); // clear old listeners before adding new
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
     .onSnapshot(snap => {
@@ -1280,6 +1665,8 @@ document.addEventListener('DOMContentLoaded', () => {
     navigate, openProfile, openCreateModal, openSellModal,
     toggleLike, openComments, postComment, viewImage,
     startChat, openChat, closeModal, editProfile, doLogout, toast,
-    showPostOptions, confirmDeletePost, deletePost, openProductDetail
+    showPostOptions, confirmDeletePost, deletePost, openProductDetail,
+    openStoryCreator, viewStory, closeStoryViewer, advanceStory,
+    openCreateGroup, openGroupChat, joinGroup, loadStories
   });
 });
