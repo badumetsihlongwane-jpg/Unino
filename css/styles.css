@@ -120,7 +120,14 @@ input, select, textarea, button {
   display: flex;
 }
 
-/* ── Loading Screen ────────────────────────────────────── */
+/* ── Splash / Loading Screen ───────────────────────────── */
+#splash {
+  background: var(--bg-primary);
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
 #loading-screen {
   background: var(--bg-primary);
   align-items: center;
@@ -128,14 +135,26 @@ input, select, textarea, button {
   z-index: 200;
 }
 
+.splash-inner,
 .loading-content {
   text-align: center;
 }
 
+.splash-logo,
 .loading-logo {
   font-size: 72px;
   margin-bottom: 16px;
   animation: bounce 1s ease infinite;
+}
+
+.splash-title {
+  font-size: 32px;
+  font-weight: 900;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 24px;
 }
 
 .loading-content h2 {
@@ -167,7 +186,8 @@ input, select, textarea, button {
   overflow-y: auto;
 }
 
-.auth-container {
+.auth-container,
+.auth-wrap {
   width: 100%;
   max-width: 400px;
 }
@@ -177,7 +197,8 @@ input, select, textarea, button {
   margin-bottom: 32px;
 }
 
-.auth-logo {
+.auth-logo,
+.auth-emoji {
   font-size: 64px;
   margin-bottom: 8px;
 }
@@ -191,12 +212,28 @@ input, select, textarea, button {
   background-clip: text;
 }
 
+.auth-hero h1 {
+  font-size: 36px;
+  font-weight: 900;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.auth-hero p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-top: 4px;
+}
+
 .auth-tagline {
   color: var(--text-secondary);
   font-size: 15px;
   margin-top: 4px;
 }
 
+.online-pill,
 .user-count-pill {
   display: inline-flex;
   align-items: center;
@@ -251,22 +288,61 @@ input, select, textarea, button {
   color: var(--text-tertiary);
 }
 
-.input-row {
+.input-row,
+.row2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
 
-.auth-switch {
+.auth-switch,
+.switch-text {
   text-align: center;
   font-size: 14px;
   color: var(--text-secondary);
   margin-top: 8px;
 }
 
-.auth-switch a {
+.auth-switch a,
+.switch-text a {
   font-weight: 600;
 }
+
+/* Utility: Dot */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.green { background: var(--green); }
+.dot.green.sm { width: 6px; height: 6px; }
+.dot.orange { background: var(--orange); }
+.dot.gray { background: var(--text-tertiary); }
+
+/* Utility: btn-accent = btn-primary alias */
+.btn-accent {
+  background: var(--gradient);
+  color: #fff;
+  border: none;
+  padding: 14px 24px;
+  border-radius: var(--radius);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+}
+.btn-accent:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+.btn-accent:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+.w100 { width: 100%; }
 
 /* ── Buttons ───────────────────────────────────────────── */
 .btn-primary {
@@ -411,7 +487,8 @@ input, select, textarea, button {
 }
 
 /* ── App Header ────────────────────────────────────────── */
-#app-header {
+#app-header,
+#hdr {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -425,13 +502,15 @@ input, select, textarea, button {
   flex-shrink: 0;
 }
 
-.header-left {
+.header-left,
+.hdr-l {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.header-logo {
+.header-logo,
+.hdr-logo {
   font-size: 20px;
   font-weight: 900;
   display: flex;
@@ -439,7 +518,8 @@ input, select, textarea, button {
   gap: 6px;
 }
 
-.header-logo span {
+.header-logo span,
+.hdr-logo b {
   background: var(--gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -486,7 +566,8 @@ input, select, textarea, button {
 }
 
 /* Live Count */
-.live-pill {
+.live-pill,
+.live-count {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -498,13 +579,15 @@ input, select, textarea, button {
   border-radius: 100px;
 }
 
-.header-right {
+.header-right,
+.hdr-r {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.header-avatar {
+.header-avatar,
+.hdr-avatar {
   width: 34px;
   height: 34px;
   border-radius: var(--radius-full);
@@ -531,13 +614,28 @@ input, select, textarea, button {
 }
 
 /* Theme Toggle */
-[data-theme="dark"] .icon-sun { display: block; }
-[data-theme="dark"] .icon-moon { display: none; }
-[data-theme="light"] .icon-sun { display: none; }
-[data-theme="light"] .icon-moon { display: block; }
+[data-theme="dark"] .icon-sun,
+[data-theme="dark"] .ic-sun { display: block; }
+[data-theme="dark"] .icon-moon,
+[data-theme="dark"] .ic-moon { display: none; }
+[data-theme="light"] .icon-sun,
+[data-theme="light"] .ic-sun { display: none; }
+[data-theme="light"] .icon-moon,
+[data-theme="light"] .ic-moon { display: block; }
+
+.badge-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--red);
+  border-radius: 50%;
+}
 
 /* ── Bottom Navigation ─────────────────────────────────── */
-#bottom-nav {
+#bottom-nav,
+#nav {
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -548,7 +646,8 @@ input, select, textarea, button {
   flex-shrink: 0;
 }
 
-.nav-item {
+.nav-item,
+.nav-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -565,28 +664,34 @@ input, select, textarea, button {
   transition: all var(--transition);
 }
 
-.nav-item svg {
+.nav-item svg,
+.nav-btn svg {
   width: 24px;
   height: 24px;
   transition: all var(--transition);
 }
 
 .nav-item:hover,
-.nav-item.active {
+.nav-item.active,
+.nav-btn:hover,
+.nav-btn.active {
   color: var(--accent);
 }
 
-.nav-item.active svg {
+.nav-item.active svg,
+.nav-btn.active svg {
   stroke: var(--accent);
 }
 
 /* Create Button */
-.nav-create {
+.nav-create,
+.nav-plus {
   position: relative;
   top: -12px;
 }
 
-.create-btn-wrap {
+.create-btn-wrap,
+.plus-circle {
   width: 52px;
   height: 52px;
   display: flex;
@@ -599,7 +704,8 @@ input, select, textarea, button {
   transition: all var(--transition);
 }
 
-.nav-create:hover .create-btn-wrap {
+.nav-create:hover .create-btn-wrap,
+.nav-plus:hover .plus-circle {
   transform: scale(1.08);
   box-shadow: 0 6px 20px var(--accent-glow);
 }
@@ -626,7 +732,8 @@ input, select, textarea, button {
 }
 
 /* ── Main Content ──────────────────────────────────────── */
-#app-content {
+#app-content,
+#content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1272,6 +1379,37 @@ input, select, textarea, button {
   z-index: 60;
 }
 
+/* Sub-Header (Chat & Profile back bars) */
+.sub-hdr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  height: var(--header-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sub-hdr h3 {
+  font-size: 16px;
+  font-weight: 700;
+  flex: 1;
+  text-align: center;
+}
+
+.sub-hdr-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.sub-hdr-info h3 {
+  text-align: left;
+}
+
 .chat-header {
   display: flex;
   align-items: center;
@@ -1302,7 +1440,8 @@ input, select, textarea, button {
   font-weight: 500;
 }
 
-.chat-messages {
+.chat-messages,
+#chat-msgs {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
@@ -1359,7 +1498,8 @@ input, select, textarea, button {
   margin-bottom: 4px;
 }
 
-.chat-input-bar {
+.chat-input-bar,
+.chat-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1369,7 +1509,8 @@ input, select, textarea, button {
   flex-shrink: 0;
 }
 
-.chat-input-bar input[type="text"] {
+.chat-input-bar input[type="text"],
+.chat-bar input[type="text"] {
   flex: 1;
   padding: 12px 18px;
   background: var(--bg-tertiary);
@@ -1521,7 +1662,8 @@ input, select, textarea, button {
   font-weight: 700;
 }
 
-#profile-content {
+#profile-content,
+#prof-body {
   flex: 1;
   overflow-y: auto;
 }
@@ -1732,7 +1874,8 @@ input, select, textarea, button {
 }
 
 /* ── Modal ─────────────────────────────────────────────── */
-.modal-overlay {
+.modal-overlay,
+.modal-bg {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -1754,7 +1897,8 @@ input, select, textarea, button {
   animation: slideUp 0.3s ease;
 }
 
-.modal-handle {
+.modal-handle,
+.modal-bar {
   width: 40px;
   height: 4px;
   background: var(--border);
@@ -1780,7 +1924,8 @@ input, select, textarea, button {
 }
 
 /* ── Image Viewer ──────────────────────────────────────── */
-.image-viewer {
+.image-viewer,
+.img-view {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.95);
@@ -1791,14 +1936,16 @@ input, select, textarea, button {
   animation: fadeIn 0.2s ease;
 }
 
-.image-viewer img {
+.image-viewer img,
+.img-view img {
   max-width: 95%;
   max-height: 90vh;
   object-fit: contain;
   border-radius: var(--radius);
 }
 
-.image-viewer-close {
+.image-viewer-close,
+.img-close {
   position: absolute;
   top: 16px;
   right: 16px;
@@ -1808,6 +1955,11 @@ input, select, textarea, button {
   color: #fff;
   font-size: 28px;
   border-radius: var(--radius-full);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ── Toast ─────────────────────────────────────────────── */
