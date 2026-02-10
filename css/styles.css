@@ -1374,7 +1374,8 @@ input, select, textarea, button {
 }
 
 /* ── Chat View ─────────────────────────────────────────── */
-#chat-view {
+#chat-view,
+#group-chat-view {
   background: var(--bg-primary);
   z-index: 60;
 }
@@ -3098,4 +3099,198 @@ input, select, textarea, button {
 /* Bottom nav glow for active */
 .nav-btn.nav-plus .plus-circle {
   box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+/* ══════════════════════════════════════════════════
+   ASSIGNMENT GROUPS
+   ══════════════════════════════════════════════════ */
+.asg-page {
+  padding-bottom: 16px;
+}
+
+.asg-filter-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.asg-filter-row::-webkit-scrollbar { display: none; }
+
+.asg-card {
+  margin: 0 16px 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.asg-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transform: translateY(-1px);
+}
+.asg-card.is-member {
+  border-left: 4px solid var(--accent);
+}
+.asg-card.is-archived {
+  opacity: 0.6;
+}
+
+.asg-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.asg-card-module {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 4px 10px;
+  border-radius: 100px;
+}
+
+.asg-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+.asg-badge.open {
+  background: var(--green-light);
+  color: var(--green);
+}
+.asg-badge.full {
+  background: var(--orange-light);
+  color: var(--orange);
+}
+.asg-badge.locked {
+  background: var(--red-light);
+  color: var(--red);
+}
+.asg-badge.archived {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+.asg-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.asg-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.asg-card-members {
+  display: flex;
+  align-items: center;
+  gap: -6px;
+  margin-bottom: 6px;
+}
+.asg-card-members .avatar-sm {
+  margin-right: -6px;
+  border: 2px solid var(--bg-secondary);
+}
+.asg-more {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+
+.asg-conflict {
+  font-size: 12px;
+  color: var(--orange);
+  background: var(--orange-light);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  margin-top: 6px;
+}
+
+.asg-card-host {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
+/* Assignment Detail Modal */
+.asg-detail {
+  padding: 0 !important;
+}
+.asg-detail-title {
+  font-size: 20px;
+  font-weight: 800;
+  padding: 16px 16px 4px;
+}
+.asg-detail-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 0 16px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.asg-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.asg-section h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.asg-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.asg-member:last-child { border-bottom: none; }
+.asg-member.conflict {
+  background: var(--orange-light);
+  margin: 0 -16px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+}
+.asg-member.pending {
+  justify-content: space-between;
+}
+.asg-member-info { flex: 1; }
+.asg-member-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.asg-host-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 2px 6px;
+  border-radius: 100px;
+  margin-left: 6px;
+}
+.asg-member-warn {
+  font-size: 11px;
+  color: var(--orange);
+}
+
+.asg-actions {
+  padding: 16px;
 }
