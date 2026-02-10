@@ -6,7 +6,7 @@
  * ══════════════════════════════════════════════════════ */
 
 // ─── State ───────────────────────────────────────
-const state = { user: null, profile: null, page: 'feed', status: 'online', unsubs: [] };
+const state = { user: null, profile: null, page: 'feed', status: 'online', unsubs: [], lastMsgTab: 'dm' };
 
 // ─── Shortcuts ───────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -190,6 +190,7 @@ function friendlyErr(code) {
 // ══════════════════════════════════════════════════
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); navigate('feed');
+  listenForNotifications();
 }
 
 function setupHeader() {
@@ -314,7 +315,18 @@ function renderFeed() {
 
   // Real-time posts
   const u = db.collection('posts').orderBy('createdAt', 'desc').limit(50)
-    .onSnapshot(snap => { renderPosts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); });
+    .onSnapshot(snap => {
+      const myFriends = state.profile.friends || [];
+      const uid = state.user.uid;
+      const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Filter: show public posts, own posts, and friends-only posts from friends
+      const visible = allPosts.filter(post => {
+        if (post.authorId === uid) return true;
+        if (post.visibility === 'friends') return myFriends.includes(post.authorId);
+        return true; // public or no visibility set
+      });
+      renderPosts(visible);
+    });
   state.unsubs.push(u);
 }
 
@@ -350,6 +362,7 @@ function loadDiscoverPeople() {
         : u.university === myUni ? '📍 Same campus'
         : u.university ? `🎓 ${esc(u.university)}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
+      const isFriend = (state.profile.friends || []).includes(u.id);
       return `
         <div class="discover-card" onclick="openProfile('${u.id}')">
           <div class="discover-card-avatar">
@@ -359,7 +372,7 @@ function loadDiscoverPeople() {
           <div class="discover-card-name">${esc(u.displayName)}</div>
           <div class="discover-card-meta">${esc(u.major || 'Student')}</div>
           ${tag ? `<div class="discover-card-tag">${tag}</div>` : ''}
-          <button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')">Message</button>
+          <button class="discover-card-btn" onclick="event.stopPropagation();${isFriend ? `startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')` : `sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')`}">${isFriend ? 'Message' : 'Add Friend'}</button>
         </div>`;
     }).join('')}</div>`;
   }).catch(() => { el.innerHTML = '<div class="discover-empty"><p>Could not load</p></div>'; });
@@ -397,8 +410,11 @@ function loadStories() {
     .get().then(snap => {
       // Group stories by author
       const byUser = {};
+      const myFriends = state.profile.friends || [];
       snap.docs.forEach(d => {
         const s = { id: d.id, ...d.data() };
+        // Only show own stories and friends' stories
+        if (s.authorId !== state.user.uid && !myFriends.includes(s.authorId)) return;
         if (!byUser[s.authorId]) byUser[s.authorId] = [];
         byUser[s.authorId].push(s);
       });
@@ -637,7 +653,7 @@ function renderPosts(posts) {
           <div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>
           <div class="post-header-info">
             <div class="post-author-name" onclick="openProfile('${post.authorId}')">${esc(post.authorName)}</div>
-            <div class="post-meta">${esc(post.authorUni || '')} · ${timeAgo(post.createdAt)}</div>
+            <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : '🌍 '}${esc(post.authorUni || '')} · ${timeAgo(post.createdAt)}</div>
           </div>
         </div>
         <div class="post-content">${formatContent(post.content)}</div>
@@ -741,7 +757,13 @@ function openCreateModal() {
         <img src="" alt=""><button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none'">&times;</button>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-        <label class="add-photo-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label class="add-photo-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
+          <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
+            <option value="public">🌍 Public</option>
+            <option value="friends">👫 Friends</option>
+          </select>
+        </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
     </div>
@@ -752,12 +774,14 @@ function openCreateModal() {
   $('#create-submit').onclick = async () => {
     const text = $('#create-text').value.trim();
     if (!text && !pendingImg) return toast('Post cannot be empty');
+    const visibility = $('#create-visibility')?.value || 'public';
     closeModal(); toast('Posting...');
     try {
       await db.collection('posts').add({
         content: text, imageURL: pendingImg || null,
         authorId: state.user.uid, authorName: state.profile.displayName,
         authorPhoto: state.profile.photoURL || null, authorUni: state.profile.university || '',
+        visibility,
         createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
       });
       toast('Posted!');
@@ -1093,9 +1117,9 @@ function openProductDetail(itemId) {
         <span>📅 ${timeAgo(item.createdAt)}</span>
       </div>
       <div style="display:flex;gap:12px;margin-top:16px">
-        <button class="btn-primary" style="flex:1" onclick="closeModal();startChat('${item.sellerId}','${esc(item.sellerName)}','')">
+        <button class="btn-primary" style="flex:1" onclick="closeModal();${(state.profile.friends || []).includes(item.sellerId) || item.sellerId === state.user.uid ? `startChat('${item.sellerId}','${esc(item.sellerName)}','')` : `sendFriendRequest('${item.sellerId}','${esc(item.sellerName)}','');toast('Add seller as friend first')`}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          Contact Seller
+          ${(state.profile.friends || []).includes(item.sellerId) ? 'Contact Seller' : 'Add Seller First'}
         </button>
         <button class="btn-outline" style="flex:1" onclick="closeModal();openProfile('${item.sellerId}')">
           View Profile
@@ -1206,7 +1230,8 @@ async function openGroupChat(groupId, collection = 'groups') {
     $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
-      showScreen('app'); navigate('chat');
+      showScreen('app');
+      navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open group'); }
 }
@@ -1245,12 +1270,16 @@ function renderMessages() {
     tab.onclick = () => {
       $$('.msg-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
+      state.lastMsgTab = tab.dataset.mt;
       if (tab.dataset.mt === 'dm') loadDMList();
       else if (tab.dataset.mt === 'groups') loadGroupList();
       else loadAssignmentGroups();
     };
   });
-  loadDMList();
+  // Restore last active tab
+  const restoreTab = state.lastMsgTab || 'dm';
+  const tabBtn = document.querySelector(`.msg-tab[data-mt="${restoreTab}"]`);
+  if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
 }
 
 function loadGroupList() {
@@ -1701,6 +1730,137 @@ function openAsgChat(groupId) {
   openGroupChat(groupId, 'assignmentGroups');
 }
 
+// ══════════════════════════════════════════════════
+//  FRIEND REQUEST SYSTEM
+// ══════════════════════════════════════════════════
+async function sendFriendRequest(toUid, toName, toPhoto) {
+  if (toUid === state.user.uid) return toast("That's you!");
+  const myFriends = state.profile.friends || [];
+  if (myFriends.includes(toUid)) return toast('Already friends!');
+  try {
+    // Check if already sent
+    const theirDoc = await db.collection('users').doc(toUid).get();
+    const theirData = theirDoc.data();
+    const theirRequests = theirData.friendRequests || [];
+    if (theirRequests.some(r => r.uid === state.user.uid)) return toast('Request already sent');
+    // Check if they sent US a request (auto-accept)
+    const myRequests = state.profile.friendRequests || [];
+    if (myRequests.some(r => r.uid === toUid)) {
+      return acceptFriendRequest(toUid, toName, toPhoto);
+    }
+    // Add request to their profile
+    await db.collection('users').doc(toUid).update({
+      friendRequests: FieldVal.arrayUnion({
+        uid: state.user.uid,
+        name: state.profile.displayName,
+        photo: state.profile.photoURL || '',
+        timestamp: Date.now()
+      })
+    });
+    // Track on our side
+    await db.collection('users').doc(state.user.uid).update({
+      sentRequests: FieldVal.arrayUnion(toUid)
+    });
+    state.profile.sentRequests = [...(state.profile.sentRequests || []), toUid];
+    toast('Friend request sent!');
+  } catch (e) { toast('Failed to send request'); console.error(e); }
+}
+
+async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
+  const uid = state.user.uid;
+  try {
+    // Add to both friends arrays
+    await db.collection('users').doc(uid).update({
+      friends: FieldVal.arrayUnion(fromUid),
+      friendRequests: (state.profile.friendRequests || []).filter(r => r.uid !== fromUid)
+    });
+    await db.collection('users').doc(fromUid).update({
+      friends: FieldVal.arrayUnion(uid),
+      sentRequests: FieldVal.arrayRemove(uid)
+    });
+    // Update local state
+    state.profile.friends = [...(state.profile.friends || []), fromUid];
+    state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
+    toast(`You and ${fromName} are now friends!`);
+    loadNotifications(); // refresh notification dropdown
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function rejectFriendRequest(fromUid) {
+  const uid = state.user.uid;
+  try {
+    await db.collection('users').doc(uid).update({
+      friendRequests: (state.profile.friendRequests || []).filter(r => r.uid !== fromUid)
+    });
+    await db.collection('users').doc(fromUid).update({
+      sentRequests: FieldVal.arrayRemove(uid)
+    });
+    state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
+    toast('Request declined');
+    loadNotifications();
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function unfriend(targetUid) {
+  const uid = state.user.uid;
+  try {
+    await db.collection('users').doc(uid).update({ friends: FieldVal.arrayRemove(targetUid) });
+    await db.collection('users').doc(targetUid).update({ friends: FieldVal.arrayRemove(uid) });
+    state.profile.friends = (state.profile.friends || []).filter(f => f !== targetUid);
+    toast('Unfriended');
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+// ══════════════════════════════════════════════════
+//  NOTIFICATIONS — Friend request accept/reject
+// ══════════════════════════════════════════════════
+let notifUnsub = null;
+
+function listenForNotifications() {
+  if (notifUnsub) notifUnsub();
+  notifUnsub = db.collection('users').doc(state.user.uid).onSnapshot(doc => {
+    if (!doc.exists) return;
+    const data = doc.data();
+    // Sync local profile
+    state.profile.friends = data.friends || [];
+    state.profile.friendRequests = data.friendRequests || [];
+    state.profile.sentRequests = data.sentRequests || [];
+    // Update badge
+    const requests = data.friendRequests || [];
+    const dot = $('#notif-dot');
+    if (dot) dot.style.display = requests.length > 0 ? 'block' : 'none';
+  });
+}
+
+function loadNotifications() {
+  const dd = $('#notif-dropdown');
+  const requests = state.profile.friendRequests || [];
+  if (!requests.length) {
+    dd.innerHTML = `
+      <div class="notif-header"><h3>Notifications</h3></div>
+      <div style="padding:32px;text-align:center;color:var(--text-tertiary)">
+        <div style="font-size:32px;margin-bottom:8px">🔔</div>
+        <p>No new notifications</p>
+      </div>`;
+    return;
+  }
+  dd.innerHTML = `
+    <div class="notif-header"><h3>Friend Requests</h3><span style="background:var(--accent);color:#fff;padding:2px 8px;border-radius:100px;font-size:12px;font-weight:700">${requests.length}</span></div>
+    ${requests.map(r => `
+      <div class="notif-item unread">
+        ${avatar(r.name, r.photo, 'avatar-md')}
+        <div class="notif-content">
+          <div class="notif-text"><strong>${esc(r.name)}</strong> sent you a friend request</div>
+          <div class="notif-actions">
+            <button class="btn-primary btn-sm" onclick="event.stopPropagation();acceptFriendRequest('${r.uid}','${esc(r.name)}','${r.photo || ''}')">Accept</button>
+            <button class="btn-outline btn-sm" onclick="event.stopPropagation();rejectFriendRequest('${r.uid}')">Decline</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
 // ─── DM List ─────────────────────────────────────
 function loadDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
@@ -1831,13 +1991,17 @@ async function openChat(convoId) {
     // Back button
     $('#chat-back').onclick = () => {
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
-      showScreen('app'); navigate('chat');
+      showScreen('app');
+      navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open chat'); }
 }
 
 async function startChat(uid, name, photo) {
   if (uid === state.user.uid) return toast("That's you!");
+  // Friends-only gate
+  const myFriends = state.profile.friends || [];
+  if (!myFriends.includes(uid)) return toast('Add as friend first to message');
   try {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     const existing = snap.docs.find(d => d.data().participants.includes(uid));
@@ -1912,8 +2076,26 @@ async function openProfile(uid) {
           ${isMe
             ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
-            : `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>
-               <button class="btn-outline" onclick="toast('Friend request sent!')">Add Friend</button>`}
+            : (() => {
+                const isFriend = (state.profile.friends || []).includes(uid);
+                const isPending = (state.profile.sentRequests || []).includes(uid);
+                const theyRequested = (state.profile.friendRequests || []).some(r => r.uid === uid);
+                let friendBtn = '';
+                if (isFriend) {
+                  friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Add Friend';this.className='btn-outline'">✓ Friends</button>`;
+                } else if (theyRequested) {
+                  friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
+                } else if (isPending) {
+                  friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
+                } else {
+                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}');this.textContent='Pending…';this.disabled=true;this.style.opacity='0.6'">Add Friend</button>`;
+                }
+                const isFriendForChat = isFriend;
+                const msgBtn = isFriendForChat
+                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
+                  : `<button class="btn-outline" disabled style="opacity:0.5" title="Add as friend first">🔒 Message</button>`;
+                return `${msgBtn}\n               ${friendBtn}`;
+              })()}
         </div>
       </div>
 
@@ -2082,8 +2264,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // Image viewer close
   $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; });
 
-  // Notifications placeholder
-  $('#notif-btn')?.addEventListener('click', () => toast('No new notifications'));
+  // Notifications dropdown toggle
+  $('#notif-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dd = $('#notif-dropdown');
+    if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+    loadNotifications();
+    dd.style.display = 'block';
+    // Close on outside click
+    const closeDD = (ev) => {
+      if (!dd.contains(ev.target) && ev.target !== $('#notif-btn') && !$('#notif-btn').contains(ev.target)) {
+        dd.style.display = 'none';
+        document.removeEventListener('click', closeDD);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeDD), 10);
+  });
 
   // Expose globals for inline onclick
   Object.assign(window, {
@@ -2096,6 +2292,8 @@ document.addEventListener('DOMContentLoaded', () => {
     openCreateAssignmentGroup, openAssignmentDetail, joinAsg, requestJoinAsg,
     approveAsgRequest, rejectAsgRequest, removeFromAsg, leaveAsg,
     toggleAsgLock, archiveAsg, doArchiveAsg, autoFillAsg,
-    openAsgPreferences, openAsgChat, loadAssignmentGroups
+    openAsgPreferences, openAsgChat, loadAssignmentGroups,
+    sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
+    loadNotifications
   });
 });

@@ -1442,6 +1442,7 @@ input, select, textarea, button {
 }
 
 .chat-messages,
+.chat-msgs,
 #chat-msgs {
   flex: 1;
   overflow-y: auto;
