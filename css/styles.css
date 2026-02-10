@@ -3733,10 +3733,4 @@ input, select, textarea, button {
   box-shadow: 0 6px 24px var(--accent-glow);
 }
 
-.post-menu-btn {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.post-card:hover .post-menu-btn {
-  opacity: 0.5;
-}
+.post-more-btn {\n  color: var(--text-tertiary);\n  transition: color 0.2s;\n}\n.post-more-btn:hover {\n  color: var(--text-primary);\n}

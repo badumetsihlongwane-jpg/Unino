@@ -90,13 +90,26 @@ async function uploadToR2(file, folder = '') {
   const path = folder ? `${uid}/${folder}/${ts}_${rand}_${safeName}` : `${uid}/${ts}_${rand}_${safeName}`;
   const url = R2_BASE + path;
   try {
-    await fetch(url, { method: 'PUT', body: file });
+    const resp = await fetch(url, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      mode: 'cors'
+    });
+    if (!resp.ok) {
+      console.error('R2 upload status:', resp.status, resp.statusText);
+      throw new Error('R2 status ' + resp.status);
+    }
     return url;
   } catch (e) {
-    console.error('R2 upload failed:', e);
-    toast('Upload failed, using local fallback');
-    // Fallback to base64 for images
-    if (file.type.startsWith('image/')) return await compress(file);
+    console.error('R2 upload failed:', e.message || e);
+    // Fallback to base64 for images only
+    if (file.type.startsWith('image/')) {
+      console.log('R2 blocked (CORS?), falling back to base64');
+      return await compress(file);
+    }
+    // For video/audio — no base64 fallback possible
+    toast('Media upload failed — update your R2 worker (see worker/r2-worker.js)');
     return null;
   }
 }
@@ -335,7 +348,7 @@ function renderFeed() {
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
       <button class="reels-fab" onclick="openReelsViewer()" title="Watch Reels">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="#fff" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none" stroke="#fff" stroke-width="2"/></svg>
       </button>
     </div>
   `;
@@ -714,7 +727,7 @@ function renderPosts(posts) {
             <div class="post-author-name" onclick="openProfile('${post.authorId}')">${esc(post.authorName)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : '🌍 '}${esc(post.authorUni || '')} · ${timeAgo(post.createdAt)}</div>
           </div>
-          ${post.authorId === state.user.uid ? `<button class="icon-btn post-menu-btn" onclick="event.stopPropagation()" title="Options" style="margin-left:auto;opacity:0.5;font-size:18px">⋯</button>` : ''}
+          ${post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
         ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
@@ -936,7 +949,7 @@ function openCreateModal() {
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
         <div style="display:flex;align-items:center;gap:8px">
           <label class="add-photo-btn" title="Photo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
-          <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
+          <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7" fill="var(--accent)"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
