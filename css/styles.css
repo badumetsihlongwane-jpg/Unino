@@ -933,14 +933,22 @@ input, select, textarea, button {
 /* Post Card */
 .post-card {
   background: var(--bg-secondary);
-  border-bottom: 8px solid var(--bg-primary);
+  border-radius: 16px;
+  margin: 8px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.post-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.06);
 }
 
 .post-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 14px 16px 8px;
 }
 
 .post-header-info {
@@ -994,8 +1002,8 @@ input, select, textarea, button {
   text-decoration: underline;
 }
 
-/* Post Image Container */
-.post-image-wrap {
+/* Post Image / Video Container */
+.post-image-wrap, .post-media-wrap {
   position: relative;
   overflow: hidden;
   background: var(--bg-tertiary);
@@ -1009,9 +1017,54 @@ input, select, textarea, button {
   display: block;
 }
 
+.post-video-wrap {
+  position: relative;
+  cursor: pointer;
+}
+
+.post-video {
+  width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
+.post-video-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.post-video-overlay:hover {
+  background: rgba(0,0,0,0.35);
+}
+
+.play-btn-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255,255,255,0.3);
+}
+
+/* Post Engagement area */
+.post-engagement {
+  padding: 0 16px 8px;
+}
+
 /* Post Actions */
 .post-stats {
-  padding: 8px 16px;
+  padding: 8px 0 4px;
   font-size: 13px;
   color: var(--text-secondary);
   display: flex;
@@ -1019,18 +1072,17 @@ input, select, textarea, button {
   gap: 16px;
 }
 
-.post-stats span {
-  cursor: pointer;
-}
-
-.post-stats span:hover {
-  color: var(--text-primary);
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .post-actions {
   display: flex;
-  padding: 4px 8px;
+  padding: 4px 0;
   border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
 .post-action {
@@ -2709,8 +2761,8 @@ input, select, textarea, button {
 }
 
 /* ── Purple Enhancement Touches ── */
-.post-card { transition: border-left 0.2s ease; border-left: 3px solid transparent; }
-.post-card:hover { border-left-color: var(--accent); }
+.post-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.post-card:hover { transform: translateY(-1px); }
 .user-card:hover { box-shadow: 0 4px 16px var(--accent-glow); }
 .convo-item { transition: all var(--transition); border-left: 3px solid transparent; }
 .convo-item:hover { border-left-color: var(--accent); }
@@ -3524,4 +3576,167 @@ input, select, textarea, button {
   display: flex;
   gap: 8px;
   color: var(--text-tertiary);
+}
+
+/* ═══ VOICE RECORDING ═══ */
+.voice-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+.voice-btn:hover {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.voice-recorder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  animation: voiceFadeIn 0.2s ease;
+}
+@keyframes voiceFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.voice-rec-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--red);
+}
+
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: recPulse 1s infinite;
+}
+@keyframes recPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.voice-cancel-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.voice-send-btn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 6px 20px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Voice message bubble */
+.voice-msg-bubble {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  min-width: 160px;
+}
+
+.voice-play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.voice-wave {
+  flex: 1;
+  height: 20px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent) 0px,
+    var(--accent) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+  border-radius: 4px;
+  opacity: 0.4;
+  min-width: 60px;
+}
+
+.voice-dur {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ═══ MEDIA PREVIEW (Create Post) ═══ */
+.media-preview {
+  position: relative;
+  margin: 8px 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+/* ═══ REELS FEED BUTTON ═══ */
+.reels-fab {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  z-index: 100;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.reels-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 24px var(--accent-glow);
+}
+
+.post-menu-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.post-card:hover .post-menu-btn {
+  opacity: 0.5;
 }

@@ -74,6 +74,49 @@ function compress(file, max = 800, q = 0.7) {
   });
 }
 
+// ─── R2 Cloud Media Storage ──────────────────────
+const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
+
+/**
+ * Upload a file to R2. Returns the public URL.
+ * Path: /Images/{userId}/{timestamp}_{random}_{filename}
+ * This scopes files per user to prevent data leaks.
+ */
+async function uploadToR2(file, folder = '') {
+  const uid = state.user?.uid || 'anon';
+  const ts = Date.now();
+  const rand = Math.random().toString(36).slice(2, 8);
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = folder ? `${uid}/${folder}/${ts}_${rand}_${safeName}` : `${uid}/${ts}_${rand}_${safeName}`;
+  const url = R2_BASE + path;
+  try {
+    await fetch(url, { method: 'PUT', body: file });
+    return url;
+  } catch (e) {
+    console.error('R2 upload failed:', e);
+    toast('Upload failed, using local fallback');
+    // Fallback to base64 for images
+    if (file.type.startsWith('image/')) return await compress(file);
+    return null;
+  }
+}
+
+/** Quick local preview (for showing before upload finishes) */
+function localPreview(file) {
+  return URL.createObjectURL(file);
+}
+
+/** Check if a file is a video */
+function isVideo(file) {
+  return file && file.type && file.type.startsWith('video/');
+}
+
+/** Check if a URL points to a video */
+function isVideoURL(url) {
+  if (!url) return false;
+  return /\.(mp4|webm|mov|avi|mkv)([?#]|$)/i.test(url) || url.includes('/videos/');
+}
+
 function formatContent(text) {
   if (!text) return '';
   return esc(text).replace(/#(\w+)/g, '<span class="hashtag">#$1</span>');
@@ -291,6 +334,9 @@ function renderFeed() {
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
+      <button class="reels-fab" onclick="openReelsViewer()" title="Watch Reels">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      </button>
     </div>
   `;
 
@@ -512,9 +558,9 @@ function openStoryCreator() {
   });
   $('#story-photo-file').onchange = async e => {
     if (e.target.files[0]) {
-      pendingImg = await compress(e.target.files[0], 600, 0.65);
+      window._storyFile = e.target.files[0];
       const prev = $('#story-photo-preview');
-      prev.innerHTML = `<img src="${pendingImg}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
+      prev.innerHTML = `<img src="${localPreview(e.target.files[0])}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
     }
   };
   $('#story-submit').onclick = async () => {
@@ -536,12 +582,14 @@ function openStoryCreator() {
       storyData.text = text;
       storyData.bgColor = window._storyBg || '#6C5CE7';
     } else {
-      if (!pendingImg) return toast('Add a photo!');
+      if (!window._storyFile) return toast('Add a photo!');
       storyData.type = 'photo';
-      storyData.imageURL = pendingImg;
       storyData.caption = $('#story-photo-caption')?.value.trim() || '';
+      closeModal(); toast('Uploading story...');
+      storyData.imageURL = await uploadToR2(window._storyFile, 'stories');
     }
-    closeModal(); toast('Posting story...');
+    if (document.querySelector('.modal-overlay')) closeModal();
+    toast('Posting story...');
     try {
       await db.collection('stories').add(storyData);
       toast('Story shared!');
@@ -655,6 +703,9 @@ function renderPosts(posts) {
   el.innerHTML = posts.map(post => {
     const liked = (post.likes || []).includes(state.user.uid);
     const lc = (post.likes || []).length, cc = post.commentsCount || 0;
+    const hasVideo = post.videoURL || (post.mediaType === 'video');
+    const hasImage = post.imageURL && !hasVideo;
+    const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
     return `
       <div class="post-card">
         <div class="post-header">
@@ -663,29 +714,84 @@ function renderPosts(posts) {
             <div class="post-author-name" onclick="openProfile('${post.authorId}')">${esc(post.authorName)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : '🌍 '}${esc(post.authorUni || '')} · ${timeAgo(post.createdAt)}</div>
           </div>
+          ${post.authorId === state.user.uid ? `<button class="icon-btn post-menu-btn" onclick="event.stopPropagation()" title="Options" style="margin-left:auto;opacity:0.5;font-size:18px">⋯</button>` : ''}
         </div>
-        <div class="post-content">${formatContent(post.content)}</div>
-        ${post.imageURL ? `<div class="post-image-wrap"><img src="${post.imageURL}" class="post-image" loading="lazy" onclick="viewImage('${post.imageURL}')"></div>` : ''}
-        <div class="post-stats">
-          ${lc ? `<span>${lc} like${lc > 1 ? 's' : ''}</span>` : ''}
-          ${cc ? `<span>${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
-        </div>
-        <div class="post-actions">
-          <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            ${lc || 'Like'}
-          </button>
-          <button class="post-action" onclick="openComments('${post.id}')">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            ${cc || 'Comment'}
-          </button>
-          <button class="post-action" onclick="toast('Link copied!')">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            Share
-          </button>
+        ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
+        ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
+        ${hasVideo ? `<div class="post-media-wrap post-video-wrap">
+          <video src="${mediaURL}" class="post-video" preload="metadata" playsinline onclick="this.paused?this.play():this.pause()"></video>
+          <div class="post-video-overlay" onclick="this.style.display='none';this.parentElement.querySelector('video').play()">
+            <div class="play-btn-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+          </div>
+        </div>` : ''}
+        <div class="post-engagement">
+          <div class="post-stats">
+            ${lc ? `<span class="stat-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> ${lc}</span>` : ''}
+            ${cc ? `<span class="stat-item">${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
+          </div>
+          <div class="post-actions">
+            <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              ${lc || 'Like'}
+            </button>
+            <button class="post-action" onclick="openComments('${post.id}')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              ${cc || 'Comment'}
+            </button>
+            <button class="post-action" onclick="toast('Link copied!')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+              Share
+            </button>
+          </div>
         </div>
       </div>`;
   }).join('');
+}
+
+// ─── Reels Viewer (Fullscreen video swipe) ─────────
+function openReelsViewer() {
+  // Gather all video posts
+  const videoPosts = (state.posts || []).filter(p => p.videoURL || p.mediaType === 'video');
+  if (!videoPosts.length) return toast('No reels yet — post a video to start!');
+  let idx = 0;
+  function renderReel() {
+    const p = videoPosts[idx];
+    const url = p.videoURL || p.imageURL;
+    return `
+    <div id="reels-viewer" style="position:fixed;inset:0;z-index:10000;background:#000;display:flex;flex-direction:column">
+      <div style="position:absolute;top:16px;left:16px;right:16px;z-index:2;display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
+          <span style="color:#fff;font-weight:600;font-size:14px">${esc(p.authorName)}</span>
+        </div>
+        <button onclick="document.getElementById('reels-viewer').remove()" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer">&times;</button>
+      </div>
+      <video id="reel-video" src="${url}" style="flex:1;width:100%;height:100%;object-fit:contain" autoplay playsinline loop></video>
+      <div style="position:absolute;bottom:40px;left:16px;right:16px;z-index:2">
+        ${p.content ? `<p style="color:#fff;margin:0 0 12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);font-size:14px">${esc(p.content)}</p>` : ''}
+        <div style="display:flex;gap:24px">
+          <button onclick="toggleLike('${p.id}')" style="background:none;border:none;color:#fff;display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'none'}" stroke="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            ${(p.likes||[]).length || ''}
+          </button>
+          <button onclick="document.getElementById('reels-viewer').remove();openComments('${p.id}')" style="background:none;border:none;color:#fff;display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;justify-content:space-between;padding:0 8px;z-index:2">
+        <button onclick="reelNav(-1)" style="background:rgba(0,0,0,0.3);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx===0?'visibility:hidden':''}">‹</button>
+        <button onclick="reelNav(1)" style="background:rgba(0,0,0,0.3);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx>=videoPosts.length-1?'visibility:hidden':''}">›</button>
+      </div>
+      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.5);font-size:12px;z-index:2">${idx+1} / ${videoPosts.length}</div>
+    </div>`;
+  }
+  window.reelNav = (dir) => {
+    idx = Math.max(0, Math.min(videoPosts.length - 1, idx + dir));
+    document.getElementById('reels-viewer').outerHTML = renderReel();
+    document.getElementById('reel-video')?.play();
+  };
+  document.body.insertAdjacentHTML('beforeend', renderReel());
 }
 
 // ─── Like ────────────────────────────────────────
@@ -809,7 +915,9 @@ function viewImage(url) { const v = $('#img-view'); if (!v) return; $('#img-full
 
 // ─── Create Post ─────────────────────────────────
 function openCreateModal() {
-  let pendingImg = null;
+  let pendingFile = null; // File object
+  let pendingPreview = null; // local blob URL for preview
+  let pendingIsVideo = false;
   openModal(`
     <div class="modal-header"><h2>Create Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
@@ -821,12 +929,14 @@ function openCreateModal() {
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
-      <div id="create-preview" class="image-preview" style="display:none">
-        <img src="" alt=""><button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none'">&times;</button>
+      <div id="create-preview" class="media-preview" style="display:none">
+        <div id="create-preview-content"></div>
+        <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFile=null">&times;</button>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
         <div style="display:flex;align-items:center;gap:8px">
-          <label class="add-photo-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
+          <label class="add-photo-btn" title="Photo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
+          <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
@@ -836,17 +946,37 @@ function openCreateModal() {
       </div>
     </div>
   `);
-  $('#create-file').onchange = async e => {
-    if (e.target.files[0]) { pendingImg = await compress(e.target.files[0]); $('#create-preview img').src = pendingImg; $('#create-preview').style.display = 'block'; }
+  const handleFile = (file) => {
+    pendingFile = file;
+    pendingIsVideo = isVideo(file);
+    pendingPreview = localPreview(file);
+    const pc = $('#create-preview-content');
+    if (pendingIsVideo) {
+      pc.innerHTML = `<video src="${pendingPreview}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
+    } else {
+      pc.innerHTML = `<img src="${pendingPreview}" style="width:100%;max-height:200px;object-fit:cover;border-radius:var(--radius)">`;
+    }
+    $('#create-preview').style.display = 'block';
   };
+  $('#create-file').onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
+  $('#create-video-file').onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
   $('#create-submit').onclick = async () => {
     const text = $('#create-text').value.trim();
-    if (!text && !pendingImg) return toast('Post cannot be empty');
+    if (!text && !pendingFile) return toast('Post cannot be empty');
     const visibility = $('#create-visibility')?.value || 'public';
-    closeModal(); toast('Posting...');
+    closeModal(); toast('Uploading...');
     try {
+      let mediaURL = null;
+      let mediaType = 'text';
+      if (pendingFile) {
+        const folder = pendingIsVideo ? 'videos' : 'images';
+        mediaURL = await uploadToR2(pendingFile, folder);
+        mediaType = pendingIsVideo ? 'video' : 'image';
+      }
       await db.collection('posts').add({
-        content: text, imageURL: pendingImg || null,
+        content: text, imageURL: mediaType === 'image' ? mediaURL : null,
+        videoURL: mediaType === 'video' ? mediaURL : null,
+        mediaType,
         authorId: state.user.uid, authorName: state.profile.displayName,
         authorPhoto: state.profile.photoURL || null, authorUni: state.profile.university || '',
         visibility,
@@ -1372,15 +1502,17 @@ function openSellModal() {
     </div>
   `);
   $('#sell-file').onchange = async e => {
-    if (e.target.files[0]) { pendingImg = await compress(e.target.files[0]); $('#sell-preview img').src = pendingImg; $('#sell-preview').style.display = 'block'; }
+    if (e.target.files[0]) { window._sellFile = e.target.files[0]; $('#sell-preview img').src = localPreview(e.target.files[0]); $('#sell-preview').style.display = 'block'; }
   };
   $('#sell-submit').onclick = async () => {
     const title = $('#sell-title').value.trim(), price = $('#sell-price').value.trim();
     if (!title || !price) return toast('Title and price required');
-    closeModal(); toast('Listing...');
+    closeModal(); toast('Uploading...');
     try {
+      let sellImgURL = null;
+      if (window._sellFile) { sellImgURL = await uploadToR2(window._sellFile, 'listings'); }
       await db.collection('listings').add({
-        title, price, category: $('#sell-cat').value, imageURL: pendingImg || null,
+        title, price, category: $('#sell-cat').value, imageURL: sellImgURL,
         sellerId: state.user.uid, sellerName: state.profile.displayName,
         status: 'active', createdAt: FieldVal.serverTimestamp()
       });
@@ -1498,10 +1630,13 @@ async function openGroupChat(groupId, collection = 'groups') {
         } else {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
+            let content = '';
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" preload="metadata"></audio><button class="voice-play-btn" onclick="const a=this.parentElement.querySelector('audio');if(a.paused){a.play();this.textContent='⏸'}else{a.pause();this.textContent='▶'}">▶</button><div class="voice-wave"></div><span class="voice-dur">Voice</span></div>`;
+            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-              ${m.imageURL ? `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">` : ''}
-              ${m.text ? esc(m.text) : ''}
+              ${content}
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
             </div>`;
           }).join('');
@@ -1512,16 +1647,25 @@ async function openGroupChat(groupId, collection = 'groups') {
     const sendGMsg = async () => {
       const input = $('#gchat-input');
       const text = input.value.trim();
-      if (!text) return;
+      // Support voice messages
+      let audioURL = null;
+      if (window._gchatVoiceBlob) {
+        const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        audioURL = await uploadToR2(af, 'voice');
+        window._gchatVoiceBlob = null;
+      }
+      if (!text && !audioURL) return;
       input.value = '';
       try {
         await db.collection(collection).doc(groupId).collection('messages').add({
-          text, senderId: uid, senderName: state.profile.displayName,
+          text: text || '', audioURL: audioURL || null,
+          senderId: uid, senderName: state.profile.displayName,
           senderPhoto: state.profile.photoURL || null,
           createdAt: FieldVal.serverTimestamp()
         });
+        const lastMsg = audioURL ? '🎤 Voice' : text;
         await db.collection(collection).doc(groupId).update({
-          lastMessage: text, updatedAt: FieldVal.serverTimestamp()
+          lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp()
         });
       } catch (e) { console.error(e); }
     };
@@ -2258,6 +2402,7 @@ async function openChat(convoId) {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" preload="metadata"></audio><button class="voice-play-btn" onclick="const a=this.parentElement.querySelector('audio');if(a.paused){a.play();this.textContent='⏸'}else{a.pause();this.textContent='▶'}">▶</button><div class="voice-wave"></div><span class="voice-dur">Voice</span></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;
@@ -2272,17 +2417,31 @@ async function openChat(convoId) {
 
     const sendMsg = async () => {
       const text = input.value.trim();
-      const img = chatPendingImg;
-      if (!text && !img) return;
-      input.value = ''; chatPendingImg = null;
+      let img = chatPendingImg;
+      const chatFile = window._chatFile || null;
+      if (!text && !img && !window._chatVoiceBlob) return;
+      input.value = ''; chatPendingImg = null; window._chatFile = null;
       const preview = $('#chat-img-preview'); if (preview) preview.style.display = 'none';
       try {
+        // Upload image to R2 if file exists
+        let imageURL = null;
+        if (chatFile) { imageURL = await uploadToR2(chatFile, 'chat-images'); }
+        // Upload voice to R2
+        let audioURL = null;
+        if (window._chatVoiceBlob) {
+          const af = new File([window._chatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+          audioURL = await uploadToR2(af, 'voice');
+          window._chatVoiceBlob = null;
+          const vrec = $('#voice-recorder'); if (vrec) vrec.style.display = 'none';
+        }
         await db.collection('conversations').doc(convoId).collection('messages').add({
-          text: text || '', imageURL: img || null, senderId: uid, createdAt: FieldVal.serverTimestamp()
+          text: text || '', imageURL: imageURL || null, audioURL: audioURL || null,
+          senderId: uid, createdAt: FieldVal.serverTimestamp()
         });
         const otherUid = convo.participants.find(p => p !== uid);
+        const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
         await db.collection('conversations').doc(convoId).set({
-          lastMessage: img ? (text || '📷 Photo') : text, updatedAt: FieldVal.serverTimestamp(),
+          lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
         }, { merge: true });
       } catch (e) { console.error(e); }
@@ -2295,7 +2454,8 @@ async function openChat(convoId) {
     if (chatFileInput) {
       chatFileInput.onchange = async e => {
         if (e.target.files[0]) {
-          chatPendingImg = await compress(e.target.files[0], 600, 0.6);
+          window._chatFile = e.target.files[0];
+          chatPendingImg = localPreview(e.target.files[0]);
           const preview = $('#chat-img-preview');
           if (preview) { preview.querySelector('img').src = chatPendingImg; preview.style.display = 'block'; }
         }
@@ -2528,9 +2688,9 @@ function editProfile() {
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
-  let newPhoto = null;
+  let newPhoto = null; let newPhotoFile = null;
   $('#edit-photo').onchange = async e => {
-    if (e.target.files[0]) { newPhoto = await compress(e.target.files[0], 400, 0.6); toast('Photo ready'); }
+    if (e.target.files[0]) { newPhotoFile = e.target.files[0]; newPhoto = 'pending'; toast('Photo selected'); }
   };
   $('#edit-save').onclick = async () => {
     const name = $('#edit-name').value.trim();
@@ -2540,7 +2700,7 @@ function editProfile() {
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
     const updates = { displayName: name, bio, modules };
-    if (newPhoto) updates.photoURL = newPhoto;
+    if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
@@ -2548,6 +2708,67 @@ function editProfile() {
       setupHeader(); toast('Profile updated!'); openProfile(state.user.uid);
     } catch (e) { toast('Failed'); console.error(e); }
   };
+}
+
+// ─── Voice Recording ─────────────────────────────
+let _voiceRecorder = null;
+let _voiceChunks = [];
+let _voiceInterval = null;
+let _voiceStartTime = 0;
+let _voiceContext = ''; // '' for DM, 'gchat' for group
+
+function startVoiceRecord(ctx = '') {
+  _voiceContext = ctx;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    _voiceRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    _voiceChunks = [];
+    _voiceRecorder.ondataavailable = e => { if (e.data.size > 0) _voiceChunks.push(e.data); };
+    _voiceRecorder.start();
+    _voiceStartTime = Date.now();
+    const timerId = ctx ? 'gchat-voice-timer' : 'voice-timer';
+    const recId = ctx ? 'gchat-voice-recorder' : 'voice-recorder';
+    const el = document.getElementById(recId);
+    if (el) el.style.display = 'flex';
+    _voiceInterval = setInterval(() => {
+      const secs = Math.floor((Date.now() - _voiceStartTime) / 1000);
+      const m = Math.floor(secs / 60), s = secs % 60;
+      const te = document.getElementById(timerId);
+      if (te) te.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+    }, 500);
+  }).catch(() => toast('Microphone access denied'));
+}
+
+function cancelVoiceRecord(ctx = '') {
+  if (_voiceRecorder && _voiceRecorder.state !== 'inactive') {
+    _voiceRecorder.stop();
+    _voiceRecorder.stream.getTracks().forEach(t => t.stop());
+  }
+  _voiceRecorder = null; _voiceChunks = [];
+  clearInterval(_voiceInterval);
+  const recId = ctx ? 'gchat-voice-recorder' : 'voice-recorder';
+  const el = document.getElementById(recId);
+  if (el) el.style.display = 'none';
+}
+
+function stopVoiceAndSend(ctx = '') {
+  if (!_voiceRecorder) return;
+  _voiceRecorder.onstop = () => {
+    const blob = new Blob(_voiceChunks, { type: 'audio/webm' });
+    _voiceRecorder.stream.getTracks().forEach(t => t.stop());
+    _voiceRecorder = null; _voiceChunks = [];
+    clearInterval(_voiceInterval);
+    const recId = ctx ? 'gchat-voice-recorder' : 'voice-recorder';
+    const el = document.getElementById(recId);
+    if (el) el.style.display = 'none';
+    if (ctx === 'gchat') {
+      window._gchatVoiceBlob = blob;
+      document.getElementById('gchat-send')?.click();
+    } else {
+      window._chatVoiceBlob = blob;
+      document.getElementById('chat-send')?.click();
+    }
+  };
+  _voiceRecorder.stop();
 }
 
 function doLogout() { auth.signOut().then(() => window.location.reload()); }
@@ -2609,6 +2830,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
-    openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing
+    openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
+    startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer, reelNav
   });
 });

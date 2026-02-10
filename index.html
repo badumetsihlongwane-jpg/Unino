@@ -131,12 +131,21 @@
     <img src="" alt="">
     <button class="image-preview-remove" onclick="document.getElementById('chat-img-preview').style.display='none'">&times;</button>
   </div>
+  <div id="voice-recorder" class="voice-recorder" style="display:none">
+    <div class="voice-rec-indicator">
+      <span class="rec-dot"></span>
+      <span id="voice-timer">0:00</span>
+    </div>
+    <button class="voice-cancel-btn" onclick="cancelVoiceRecord()">Cancel</button>
+    <button class="voice-send-btn" onclick="stopVoiceAndSend()">Send</button>
+  </div>
   <div class="chat-bar">
     <label class="add-photo-btn chat-attach-btn">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <input type="file" hidden accept="image/*" id="chat-file-input">
+      <input type="file" hidden accept="image/*,video/*" id="chat-file-input">
     </label>
     <input type="text" id="chat-input" placeholder="Message…" autocomplete="off">
+    <button class="voice-btn" id="chat-voice-btn" onclick="startVoiceRecord()" title="Voice message"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="1" width="6" height="11" rx="3" ry="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
     <button class="send-btn" id="chat-send"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
   </div>
 </div>
@@ -148,8 +157,17 @@
     <div class="sub-hdr-info" id="gchat-hdr-info"></div>
   </header>
   <div id="gchat-msgs" class="chat-msgs"></div>
+  <div id="gchat-voice-recorder" class="voice-recorder" style="display:none">
+    <div class="voice-rec-indicator">
+      <span class="rec-dot"></span>
+      <span id="gchat-voice-timer">0:00</span>
+    </div>
+    <button class="voice-cancel-btn" onclick="cancelVoiceRecord('gchat')">Cancel</button>
+    <button class="voice-send-btn" onclick="stopVoiceAndSend('gchat')">Send</button>
+  </div>
   <div class="chat-bar">
     <input type="text" id="gchat-input" placeholder="Message group…" autocomplete="off">
+    <button class="voice-btn" id="gchat-voice-btn" onclick="startVoiceRecord('gchat')" title="Voice message"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="1" width="6" height="11" rx="3" ry="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
     <button class="send-btn" id="gchat-send"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
   </div>
 </div>
