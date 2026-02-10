@@ -1020,10 +1020,13 @@ input, select, textarea, button {
 .post-video-wrap {
   position: relative;
   cursor: pointer;
+  min-height: 200px;
+  background: #000;
 }
 
 .post-video {
   width: 100%;
+  min-height: 200px;
   max-height: 500px;
   object-fit: contain;
   display: block;
@@ -3661,7 +3664,13 @@ input, select, textarea, button {
   align-items: center;
   gap: 8px;
   padding: 6px 4px;
-  min-width: 160px;
+  min-width: 200px;
+}
+
+.voice-msg-bubble audio {
+  width: 100%;
+  min-width: 180px;
+  height: 40px;
 }
 
 .voice-play-btn {
@@ -3736,6 +3745,11 @@ input, select, textarea, button {
 .post-more-btn {
   color: var(--text-tertiary);
   transition: color 0.2s;
+  min-width: 40px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .post-more-btn:hover {
   color: var(--text-primary);

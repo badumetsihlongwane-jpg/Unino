@@ -732,7 +732,11 @@ function renderPosts(posts) {
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
         ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasVideo ? `<div class="post-media-wrap post-video-wrap">
-          <video src="${mediaURL}" class="post-video" preload="metadata" playsinline controls></video>
+          <video class="post-video" preload="auto" playsinline controls>
+            <source src="${mediaURL}" type="video/mp4">
+            <source src="${mediaURL}" type="video/webm">
+            Your browser does not support video.
+          </video>
         </div>` : ''}
         <div class="post-engagement">
           <div class="post-stats">
@@ -1641,7 +1645,7 @@ async function openGroupChat(groupId, collection = 'groups') {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" controls preload="metadata" style="height:36px;max-width:200px"></audio></div>`;
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"><source src="${m.audioURL}" type="audio/ogg">Audio not supported</audio></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
@@ -2412,7 +2416,7 @@ async function openChat(convoId) {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" controls preload="metadata" style="height:36px;max-width:200px"></audio></div>`;
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"><source src="${m.audioURL}" type="audio/ogg">Audio not supported</audio></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;
