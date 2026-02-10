@@ -465,8 +465,8 @@ async function openComments(postId) {
   } catch (e) { console.error(e); }
   openModal(`
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body">
-      <div id="comments-container">
+    <div class="modal-body" style="display:flex;flex-direction:column;max-height:60vh;padding:0">
+      <div id="comments-container" style="flex:1;overflow-y:auto;padding:16px">
         ${comments.length ? comments.map(c => `
           <div class="comment-item">
             ${avatar(c.authorName, c.authorPhoto, 'avatar-sm')}
@@ -478,12 +478,14 @@ async function openComments(postId) {
           </div>
         `).join('') : '<p style="color:var(--text-tertiary);text-align:center;padding:16px">No comments yet</p>'}
       </div>
-      <div class="comment-input-wrap">
+      <div class="comment-input-wrap" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
         <input type="text" id="comment-input" placeholder="Write a comment...">
         <button onclick="postComment('${postId}')">Post</button>
       </div>
     </div>
   `);
+  // scroll to bottom of comments
+  const cc = $('#comments-container'); if (cc) cc.scrollTop = cc.scrollHeight;
 }
 
 async function postComment(postId) {
@@ -520,7 +522,7 @@ function openCreateModal() {
         <img src="" alt=""><button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none'">&times;</button>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-        <label style="cursor:pointer;color:var(--accent);font-size:20px">📷<input type="file" hidden accept="image/*" id="create-file"></label>
+        <label class="add-photo-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
     </div>
@@ -799,7 +801,7 @@ async function loadListings(cat = 'all') {
       return;
     }
     grid.innerHTML = items.map(item => `
-      <div class="listing-card" onclick="openProfile('${item.sellerId}')">
+      <div class="listing-card" onclick="openProductDetail('${item.id}')">
         ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy">` : '<div class="listing-placeholder">📦</div>'}
         <div class="listing-info">
           <div class="listing-price">R${esc(String(item.price))}</div>
@@ -808,6 +810,9 @@ async function loadListings(cat = 'all') {
         </div>
       </div>
     `).join('');
+    // store items for detail view
+    window._hustleItems = {};
+    items.forEach(i => window._hustleItems[i.id] = i);
   } catch (e) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>Error loading</h3></div>'; }
 }
 
@@ -845,6 +850,42 @@ function openSellModal() {
 // ══════════════════════════════════════════════════
 //  MESSAGES — Fixed: no orderBy = no composite index
 // ══════════════════════════════════════════════════
+
+// ─── Product Detail Popup ──────────────────
+function openProductDetail(itemId) {
+  const item = (window._hustleItems || {})[itemId];
+  if (!item) return toast('Product not found');
+  openModal(`
+    <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      ${item.imageURL ? `<div style="border-radius:var(--radius);overflow:hidden;margin-bottom:16px"><img src="${item.imageURL}" style="width:100%;max-height:280px;object-fit:cover;cursor:pointer" onclick="viewImage('${item.imageURL}')"></div>` : ''}
+      <div style="font-size:24px;font-weight:800;color:var(--accent);margin-bottom:4px">R${esc(String(item.price))}</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(item.title)}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        ${avatar(item.sellerName, null, 'avatar-sm')}
+        <div>
+          <div style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Seller</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary)">
+        <span>📁 ${esc(item.category || 'Other')}</span>
+        <span>·</span>
+        <span>📅 ${timeAgo(item.createdAt)}</span>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:16px">
+        <button class="btn-primary" style="flex:1" onclick="closeModal();startChat('${item.sellerId}','${esc(item.sellerName)}','')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Contact Seller
+        </button>
+        <button class="btn-outline" style="flex:1" onclick="closeModal();openProfile('${item.sellerId}')">
+          View Profile
+        </button>
+      </div>
+    </div>
+  `);
+}
+
 function renderMessages() {
   const c = $('#content');
   c.innerHTML = `
@@ -932,30 +973,50 @@ async function openChat(convoId) {
         } else {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
-            return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${esc(m.text)}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;
+            let content = '';
+            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.text) content += esc(m.text);
+            return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;
           }).join('');
           msgs.scrollTop = msgs.scrollHeight;
         }
       });
 
-    // Send message
+    // Send message + image
     const input = $('#chat-input');
+    let chatPendingImg = null;
+
     const sendMsg = async () => {
-      const text = input.value.trim(); if (!text) return;
-      input.value = '';
+      const text = input.value.trim();
+      const img = chatPendingImg;
+      if (!text && !img) return;
+      input.value = ''; chatPendingImg = null;
+      const preview = $('#chat-img-preview'); if (preview) preview.style.display = 'none';
       try {
         await db.collection('conversations').doc(convoId).collection('messages').add({
-          text, senderId: uid, createdAt: FieldVal.serverTimestamp()
+          text: text || '', imageURL: img || null, senderId: uid, createdAt: FieldVal.serverTimestamp()
         });
         const otherUid = convo.participants.find(p => p !== uid);
         await db.collection('conversations').doc(convoId).set({
-          lastMessage: text, updatedAt: FieldVal.serverTimestamp(),
+          lastMessage: img ? (text || '📷 Photo') : text, updatedAt: FieldVal.serverTimestamp(),
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
         }, { merge: true });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
     input.onkeydown = e => { if (e.key === 'Enter') sendMsg(); };
+
+    // Wire image upload button in chat
+    const chatFileInput = $('#chat-file-input');
+    if (chatFileInput) {
+      chatFileInput.onchange = async e => {
+        if (e.target.files[0]) {
+          chatPendingImg = await compress(e.target.files[0], 600, 0.6);
+          const preview = $('#chat-img-preview');
+          if (preview) { preview.querySelector('img').src = chatPendingImg; preview.style.display = 'block'; }
+        }
+      };
+    }
 
     // Back button
     $('#chat-back').onclick = () => {
@@ -1072,6 +1133,7 @@ async function openProfile(uid) {
 
 function renderProfilePosts(posts, user) {
   if (!posts.length) return '<div class="empty-state"><h3>No posts yet</h3></div>';
+  const isMe = user.id === state.user.uid;
   return `<div class="profile-posts">${posts.map(p => `
     <div class="post-card">
       <div class="post-header">
@@ -1080,6 +1142,9 @@ function renderProfilePosts(posts, user) {
           <div class="post-author-name">${esc(user.displayName)}</div>
           <div class="post-meta">${timeAgo(p.createdAt)}</div>
         </div>
+        ${isMe ? `<button class="icon-btn" onclick="showPostOptions('${p.id}')" style="margin-left:auto">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        </button>` : ''}
       </div>
       <div class="post-content">${formatContent(p.content)}</div>
       ${p.imageURL ? `<div class="post-image-wrap"><img src="${p.imageURL}" class="post-image" onclick="viewImage('${p.imageURL}')"></div>` : ''}
@@ -1089,6 +1154,45 @@ function renderProfilePosts(posts, user) {
       </div>
     </div>
   `).join('')}</div>`;
+}
+
+// ─── iOS-style Post Options (Delete) ─────────────
+function showPostOptions(postId) {
+  openModal(`
+    <div class="modal-body" style="padding:8px 0">
+      <button class="ios-action-btn" onclick="confirmDeletePost('${postId}')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        <span style="color:var(--red)">Delete Post</span>
+      </button>
+      <div style="height:1px;background:var(--border);margin:4px 16px"></div>
+      <button class="ios-action-btn" onclick="closeModal()">
+        <span>Cancel</span>
+      </button>
+    </div>
+  `);
+}
+
+async function confirmDeletePost(postId) {
+  closeModal();
+  openModal(`
+    <div class="modal-body" style="text-align:center;padding:24px">
+      <h3 style="margin-bottom:8px">Delete this post?</h3>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:20px">This can't be undone.</p>
+      <div style="display:flex;gap:12px;justify-content:center">
+        <button class="btn-secondary" onclick="closeModal()" style="flex:1">Cancel</button>
+        <button class="btn-danger" onclick="deletePost('${postId}')" style="flex:1;border-radius:var(--radius)">Delete</button>
+      </div>
+    </div>
+  `);
+}
+
+async function deletePost(postId) {
+  closeModal();
+  try {
+    await db.collection('posts').doc(postId).delete();
+    toast('Post deleted');
+    openProfile(state.user.uid);
+  } catch (e) { toast('Failed to delete'); console.error(e); }
 }
 
 function renderProfileAbout(user) {
@@ -1175,6 +1279,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
     toggleLike, openComments, postComment, viewImage,
-    startChat, openChat, closeModal, editProfile, doLogout, toast
+    startChat, openChat, closeModal, editProfile, doLogout, toast,
+    showPostOptions, confirmDeletePost, deletePost, openProductDetail
   });
 });

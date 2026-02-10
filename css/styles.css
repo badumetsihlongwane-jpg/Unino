@@ -2649,3 +2649,63 @@ input, select, textarea, button {
 .listing-card:hover { box-shadow: 0 4px 16px var(--accent-glow); }
 .hdr-avatar:hover { transform: scale(1.05); box-shadow: 0 0 12px var(--accent-glow); }
 .profile-cover { background: var(--gradient-deep); }
+
+/* \u2500\u2500 iOS Action Sheet \u2500\u2500 */
+.ios-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 20px;
+  background: none;
+  border: none;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.ios-action-btn:hover { background: var(--bg-tertiary); }
+
+/* \u2500\u2500 Add Photo Button (+ icon) \u2500\u2500 */
+.add-photo-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-light);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.add-photo-btn:hover { background: var(--accent-glow); }
+
+/* \u2500\u2500 Chat Image Preview \u2500\u2500 */
+.chat-img-preview {
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+.chat-img-preview img {
+  max-height: 120px;
+  border-radius: var(--radius);
+}
+.chat-attach-btn {
+  width: 36px;
+  height: 36px;
+}
+
+/* \u2500\u2500 Message Image \u2500\u2500 */
+.msg-image {
+  max-width: 220px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-bottom: 4px;
+  display: block;
+}
+.msg-sent .msg-image {
+  margin-left: auto;
+}
