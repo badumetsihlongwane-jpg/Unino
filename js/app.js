@@ -381,22 +381,30 @@ function loadDiscoverPeople() {
 // ─── Discover: Events tab ────────────────────────
 function loadDiscoverEvents() {
   const el = $('#discover-content'); if (!el) return;
-  const events = [
-    { title: 'Study Jam Session', emoji: '📚', when: 'Tomorrow, 6 PM', where: 'Library', gradient: 'linear-gradient(135deg,#6C5CE7,#A855F7)' },
-    { title: 'Career Fair 2026', emoji: '💼', when: 'Feb 15', where: 'Main Hall', gradient: 'linear-gradient(135deg,#7C3AED,#C084FC)' },
-    { title: 'Pool Tournament', emoji: '🎱', when: 'Fri, 4 PM', where: 'Student Center', gradient: 'linear-gradient(135deg,#8B5CF6,#D946EF)' },
-    { title: 'Welcome Mixer', emoji: '🎉', when: 'Sat, 7 PM', where: 'Amphitheatre', gradient: 'linear-gradient(135deg,#6366F1,#818CF8)' },
-    { title: 'Hackathon', emoji: '💻', when: 'Feb 20-21', where: 'CS Building', gradient: 'linear-gradient(135deg,#7C3AED,#A855F7)' },
-    { title: 'Open Mic Night', emoji: '🎤', when: 'Next Wed', where: 'Quad', gradient: 'linear-gradient(135deg,#D946EF,#E879F9)' },
-  ];
-  el.innerHTML = `<div class="discover-scroll">${events.map(ev => `
-    <div class="discover-card event-card" style="background:${ev.gradient}" onclick="toast('Event details coming soon!')">
-      <div style="font-size:36px;margin-bottom:8px">${ev.emoji}</div>
-      <div class="discover-card-name" style="color:#fff">${ev.title}</div>
-      <div class="discover-card-meta" style="color:rgba(255,255,255,0.8)">${ev.when}</div>
-      <div class="discover-card-tag" style="background:rgba(255,255,255,0.2);color:#fff">📍 ${ev.where}</div>
-    </div>
-  `).join('')}</div>`;
+  // Use allCampusEvents if loaded, otherwise fetch
+  const renderEvts = (events) => {
+    if (!events.length) {
+      el.innerHTML = `<div class="discover-empty"><span>📅</span><p>No events yet. Check the Campus map!</p></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="discover-scroll">${events.slice(0, 8).map(ev => {
+      const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+      const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+      const goingCount = (ev.going || []).length;
+      return `
+        <div class="discover-card event-card" style="background:${grad}" onclick="${ev.id ? `openEventDetail('${ev.id}')` : `toast('View on Campus map!')`}">
+          <div style="font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>
+          <div class="discover-card-name" style="color:#fff">${esc(ev.title)}</div>
+          <div class="discover-card-meta" style="color:rgba(255,255,255,0.8)">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
+          <div class="discover-card-tag" style="background:rgba(255,255,255,0.2);color:#fff">📍 ${loc ? loc.name : esc(ev.location || '?')}</div>
+          ${goingCount ? `<div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:4px">👥 ${goingCount} going</div>` : ''}
+        </div>`;
+    }).join('')}</div>`;
+  };
+  if (allCampusEvents.length) { renderEvts(allCampusEvents); }
+  else {
+    loadCampusEvents().then(() => renderEvts(allCampusEvents));
+  }
 }
 
 // ─── Stories System ──────────────────────────────
@@ -691,27 +699,69 @@ async function toggleLike(pid) {
   } catch (e) { console.error(e); }
 }
 
-// ─── Comments ────────────────────────────────────
+// ─── Comments with Replies ────────────────────────────────────
+let _commentReplyTo = null; // { id, authorName } or null
+
 async function openComments(postId) {
   let comments = [];
   try {
-    const snap = await db.collection('posts').doc(postId).collection('comments').orderBy('createdAt','asc').limit(50).get();
+    const snap = await db.collection('posts').doc(postId).collection('comments').orderBy('createdAt','asc').limit(100).get();
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error(e); }
+
+  // Separate top-level and replies
+  const topLevel = comments.filter(c => !c.replyTo);
+  const replies = comments.filter(c => c.replyTo);
+  const replyMap = {};
+  replies.forEach(r => {
+    if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
+    replyMap[r.replyTo].push(r);
+  });
+
+  _commentReplyTo = null;
+
+  function renderCommentTree() {
+    if (!topLevel.length && !replies.length) return '<p style="color:var(--text-tertiary);text-align:center;padding:16px">No comments yet</p>';
+    return topLevel.map(c => {
+      const cReplies = replyMap[c.id] || [];
+      return `
+        <div class="comment-item">
+          ${avatar(c.authorName, c.authorPhoto, 'avatar-sm')}
+          <div class="comment-bubble">
+            <div class="comment-author" onclick="openProfile('${c.authorId}')">${esc(c.authorName)}</div>
+            <div class="comment-text">${esc(c.text)}</div>
+            <div class="comment-footer">
+              <span class="comment-time">${timeAgo(c.createdAt)}</span>
+              <button class="comment-reply-btn" onclick="setCommentReply('${c.id}','${esc(c.authorName)}')">Reply</button>
+            </div>
+          </div>
+        </div>
+        ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => `
+          <div class="comment-item">
+            ${avatar(r.authorName, r.authorPhoto, 'avatar-sm')}
+            <div class="comment-bubble">
+              <div class="comment-author" onclick="openProfile('${r.authorId}')">${esc(r.authorName)}</div>
+              <div class="comment-text">${esc(r.text)}</div>
+              <div class="comment-footer">
+                <span class="comment-time">${timeAgo(r.createdAt)}</span>
+                <button class="comment-reply-btn" onclick="setCommentReply('${c.id}','${esc(r.authorName)}')">Reply</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}</div>` : ''}
+      `;
+    }).join('');
+  }
+
   openModal(`
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="display:flex;flex-direction:column;max-height:60vh;padding:0">
       <div id="comments-container" style="flex:1;overflow-y:auto;padding:16px">
-        ${comments.length ? comments.map(c => `
-          <div class="comment-item">
-            ${avatar(c.authorName, c.authorPhoto, 'avatar-sm')}
-            <div class="comment-bubble">
-              <div class="comment-author" onclick="openProfile('${c.authorId}')">${esc(c.authorName)}</div>
-              <div class="comment-text">${esc(c.text)}</div>
-              <div class="comment-time">${timeAgo(c.createdAt)}</div>
-            </div>
-          </div>
-        `).join('') : '<p style="color:var(--text-tertiary);text-align:center;padding:16px">No comments yet</p>'}
+        ${renderCommentTree()}
+      </div>
+      <div id="comment-reply-indicator" class="reply-indicator" style="display:none">
+        <span id="comment-reply-label"></span>
+        <button onclick="clearCommentReply()">&times;</button>
       </div>
       <div class="comment-input-wrap" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
         <input type="text" id="comment-input" placeholder="Write a comment...">
@@ -719,20 +769,38 @@ async function openComments(postId) {
       </div>
     </div>
   `);
-  // scroll to bottom of comments
   const cc = $('#comments-container'); if (cc) cc.scrollTop = cc.scrollHeight;
+}
+
+function setCommentReply(commentId, authorName) {
+  _commentReplyTo = { id: commentId, authorName };
+  const ind = $('#comment-reply-indicator');
+  const label = $('#comment-reply-label');
+  if (ind) { ind.style.display = 'flex'; }
+  if (label) { label.textContent = `↩ Replying to ${authorName}`; }
+  $('#comment-input')?.focus();
+}
+
+function clearCommentReply() {
+  _commentReplyTo = null;
+  const ind = $('#comment-reply-indicator');
+  if (ind) ind.style.display = 'none';
 }
 
 async function postComment(postId) {
   const input = $('#comment-input'); const text = input?.value.trim(); if (!text) return;
   input.value = '';
+  const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
+  _commentReplyTo = null;
   try {
     await db.collection('posts').doc(postId).collection('comments').add({
       text, authorId: state.user.uid, authorName: state.profile.displayName,
-      authorPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp()
+      authorPhoto: state.profile.photoURL || null, replyTo: replyTo || null,
+      createdAt: FieldVal.serverTimestamp()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
-    closeModal(); toast('Comment posted');
+    // Reopen to show the new comment
+    openComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
 }
 
@@ -808,6 +876,10 @@ function renderExplore() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           List
         </button>
+        <button class="explore-toggle-btn" data-v="map">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Campus
+        </button>
       </div>
       <div id="explore-body">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -828,7 +900,11 @@ function renderExplore() {
 
 async function loadExploreUsers() {
   try {
-    const snap = await db.collection('users').limit(50).get();
+    // Load events in parallel with users
+    const [snap] = await Promise.all([
+      db.collection('users').limit(50).get(),
+      loadCampusEvents()
+    ]);
     const myUni = state.profile.university || '';
     const myMajor = state.profile.major || '';
     const myModules = state.profile.modules || [];
@@ -855,6 +931,7 @@ async function loadExploreUsers() {
 
 function renderExploreView() {
   if (exploreView === 'radar') renderRadarView();
+  else if (exploreView === 'map') renderCampusMapView();
   else renderListView();
 }
 
@@ -999,6 +1076,228 @@ function renderExploreGrid(query = '', filter = 'all') {
         ${tag ? `<div class="user-card-distance">${tag}</div>` : ''}
       </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  CAMPUS MAP — Events & Locations on visual map
+// ══════════════════════════════════════════════════
+const CAMPUS_LOCATIONS = [
+  { id: 'library', name: 'Library', emoji: '📚', x: 30, y: 20 },
+  { id: 'main-hall', name: 'Main Hall', emoji: '🏛', x: 50, y: 15 },
+  { id: 'student-center', name: 'Student Center', emoji: '☕', x: 70, y: 25 },
+  { id: 'cs-building', name: 'CS Building', emoji: '💻', x: 20, y: 50 },
+  { id: 'sports-complex', name: 'Sports Complex', emoji: '⚽', x: 80, y: 50 },
+  { id: 'amphitheatre', name: 'Amphitheatre', emoji: '🎭', x: 45, y: 45 },
+  { id: 'quad', name: 'The Quad', emoji: '🌳', x: 55, y: 60 },
+  { id: 'cafeteria', name: 'Cafeteria', emoji: '🍕', x: 35, y: 70 },
+  { id: 'res-halls', name: 'Res Halls', emoji: '🏠', x: 75, y: 75 },
+  { id: 'lab-block', name: 'Lab Block', emoji: '🔬', x: 15, y: 35 },
+  { id: 'admin', name: 'Admin Block', emoji: '🏢', x: 60, y: 35 },
+  { id: 'parking', name: 'Parking', emoji: '🅿️', x: 90, y: 85 },
+];
+
+let allCampusEvents = [];
+
+async function loadCampusEvents() {
+  try {
+    const snap = await db.collection('events').orderBy('date','asc').limit(50).get();
+    allCampusEvents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.error(e);
+    // Fallback seed events if collection is empty or fails
+    allCampusEvents = [
+      { title: 'Study Jam Session', emoji: '📚', date: '2026-02-11', time: '18:00', location: 'library', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#6C5CE7,#A855F7)' },
+      { title: 'Career Fair 2026', emoji: '💼', date: '2026-02-15', time: '09:00', location: 'main-hall', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#7C3AED,#C084FC)' },
+      { title: 'Pool Tournament', emoji: '🎱', date: '2026-02-14', time: '16:00', location: 'student-center', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#8B5CF6,#D946EF)' },
+      { title: 'Welcome Mixer', emoji: '🎉', date: '2026-02-14', time: '19:00', location: 'amphitheatre', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#6366F1,#818CF8)' },
+      { title: 'Hackathon', emoji: '💻', date: '2026-02-20', time: '08:00', location: 'cs-building', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#7C3AED,#A855F7)' },
+      { title: 'Open Mic Night', emoji: '🎤', date: '2026-02-18', time: '19:00', location: 'quad', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#D946EF,#E879F9)' },
+    ];
+  }
+}
+
+function renderCampusMapView() {
+  const body = $('#explore-body'); if (!body) return;
+
+  const eventsByLoc = {};
+  allCampusEvents.forEach(ev => {
+    if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
+    eventsByLoc[ev.location].push(ev);
+  });
+
+  body.innerHTML = `
+    <div class="campus-map-container">
+      <div class="campus-map-header">
+        <h3>NWU Campus Map</h3>
+        <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
+      </div>
+      <div class="campus-map">
+        ${CAMPUS_LOCATIONS.map(loc => {
+          const evts = eventsByLoc[loc.id] || [];
+          const hasEvents = evts.length > 0;
+          return `
+            <div class="campus-pin ${hasEvents ? 'has-events pulse' : ''}"
+                 style="left:${loc.x}%;top:${loc.y}%"
+                 onclick="openLocationDetail('${loc.id}')">
+              <div class="campus-pin-icon">${loc.emoji}</div>
+              ${hasEvents ? `<span class="campus-pin-badge">${evts.length}</span>` : ''}
+              <div class="campus-pin-label">${loc.name}</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="campus-events-section">
+        <div class="campus-events-header">
+          <h3>📅 Upcoming Events</h3>
+          <span style="font-size:12px;color:var(--text-tertiary)">${allCampusEvents.length} events</span>
+        </div>
+        ${allCampusEvents.length ? allCampusEvents.map(ev => {
+          const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+          const goingCount = (ev.going || []).length;
+          const amGoing = (ev.going || []).includes(state.user.uid);
+          const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+          return `
+            <div class="campus-event-card" onclick="openEventDetail('${ev.id || ''}')">
+              <div class="campus-event-icon" style="background:${grad}">${ev.emoji || '📅'}</div>
+              <div class="campus-event-info">
+                <div class="campus-event-title">${esc(ev.title)}</div>
+                <div class="campus-event-meta">
+                  📍 ${loc ? loc.name : esc(ev.location || '?')} · 🕐 ${esc(ev.date || '')} ${esc(ev.time || '')}
+                </div>
+                <div class="campus-event-going">
+                  ${amGoing ? '<span style="color:var(--green);font-weight:700">✓ Going</span>' : ''}
+                  ${goingCount ? `<span>${goingCount} going</span>` : ''}
+                </div>
+              </div>
+            </div>`;
+        }).join('') : '<div class="empty-state"><h3>No events yet</h3><p>Be the first to create one!</p></div>'}
+      </div>
+    </div>
+  `;
+}
+
+function openLocationDetail(locationId) {
+  const loc = CAMPUS_LOCATIONS.find(l => l.id === locationId);
+  if (!loc) return;
+  const evts = allCampusEvents.filter(ev => ev.location === locationId);
+  openModal(`
+    <div class="modal-header"><h2>${loc.emoji} ${loc.name}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      ${evts.length ? `
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">${evts.length} event${evts.length > 1 ? 's' : ''} at this location</p>
+        ${evts.map(ev => {
+          const amGoing = (ev.going || []).includes(state.user.uid);
+          return `
+          <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px">
+            <div style="font-weight:700;font-size:15px">${ev.emoji || '📅'} ${esc(ev.title)}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">🕐 ${esc(ev.date || '')} at ${esc(ev.time || '')}</div>
+            <div style="font-size:12px;margin-top:4px">${(ev.going||[]).length} going ${amGoing ? '(including you ✓)' : ''}</div>
+            ${ev.id ? `<button class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" style="margin-top:8px" onclick="toggleEventGoing('${ev.id}');closeModal()">${amGoing ? 'Cancel RSVP' : 'I\'m Going!'}</button>` : ''}
+          </div>`;
+        }).join('')}
+      ` : '<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>'}
+      <button class="btn-primary btn-full" style="margin-top:12px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
+    </div>
+  `);
+}
+
+function openCreateEvent(presetLoc) {
+  openModal(`
+    <div class="modal-header"><h2>Create Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session"></div>
+      <div class="form-group"><label>Emoji</label><input type="text" id="ev-emoji" value="📅" placeholder="📅" style="width:60px"></div>
+      <div class="form-group"><label>Location</label>
+        <select id="ev-location">
+          ${CAMPUS_LOCATIONS.map(l => `<option value="${l.id}" ${l.id === presetLoc ? 'selected' : ''}>${l.emoji} ${l.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="form-group" style="flex:1"><label>Date</label><input type="date" id="ev-date"></div>
+        <div class="form-group" style="flex:1"><label>Time</label><input type="time" id="ev-time"></div>
+      </div>
+      <div class="form-group"><label>Description (optional)</label><textarea id="ev-desc" placeholder="What's happening?" style="resize:none;height:60px"></textarea></div>
+      <button class="btn-primary btn-full" id="ev-create-btn">Create Event</button>
+    </div>
+  `);
+  $('#ev-create-btn').onclick = async () => {
+    const title = $('#ev-title')?.value.trim();
+    const emoji = $('#ev-emoji')?.value.trim() || '📅';
+    const location = $('#ev-location')?.value;
+    const date = $('#ev-date')?.value;
+    const time = $('#ev-time')?.value || '';
+    const desc = $('#ev-desc')?.value.trim() || '';
+    if (!title || !date) return toast('Title and date required');
+    closeModal(); toast('Creating event...');
+    const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)','linear-gradient(135deg,#7C3AED,#C084FC)','linear-gradient(135deg,#8B5CF6,#D946EF)','linear-gradient(135deg,#6366F1,#818CF8)','linear-gradient(135deg,#D946EF,#E879F9)'];
+    try {
+      await db.collection('events').add({
+        title, emoji, location, date, time, description: desc,
+        gradient: gradients[Math.floor(Math.random() * gradients.length)],
+        createdBy: state.user.uid,
+        creatorName: state.profile.displayName,
+        going: [state.user.uid],
+        createdAt: FieldVal.serverTimestamp()
+      });
+      toast('Event created!');
+      await loadCampusEvents();
+      renderCampusMapView();
+    } catch (e) { toast('Failed'); console.error(e); }
+  };
+}
+
+async function openEventDetail(eventId) {
+  if (!eventId) return;
+  try {
+    const doc = await db.collection('events').doc(eventId).get();
+    if (!doc.exists) return toast('Event not found');
+    const ev = { id: doc.id, ...doc.data() };
+    const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+    const amGoing = (ev.going || []).includes(state.user.uid);
+    const goingCount = (ev.going || []).length;
+    openModal(`
+      <div class="modal-header"><h2>${ev.emoji || '📅'} Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+          <span>📍 ${loc ? loc.name : esc(ev.location)}</span>
+          <span>📅 ${esc(ev.date)}</span>
+          ${ev.time ? `<span>🕐 ${esc(ev.time)}</span>` : ''}
+          <span>👥 ${goingCount} going</span>
+        </div>
+        ${ev.description ? `<p style="font-size:14px;line-height:1.5;margin-bottom:16px">${esc(ev.description)}</p>` : ''}
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px">Created by</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${avatar(ev.creatorName || 'System', null, 'avatar-sm')}
+            <span>${esc(ev.creatorName || 'Unino')}</span>
+          </div>
+        </div>
+        <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
+          ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
+        </button>
+      </div>
+    `);
+  } catch (e) { toast('Could not load event'); console.error(e); }
+}
+
+async function toggleEventGoing(eventId) {
+  if (!eventId) return;
+  const uid = state.user.uid;
+  try {
+    const doc = await db.collection('events').doc(eventId).get();
+    if (!doc.exists) return;
+    const going = doc.data().going || [];
+    if (going.includes(uid)) {
+      await db.collection('events').doc(eventId).update({ going: FieldVal.arrayRemove(uid) });
+      toast('RSVP cancelled');
+    } else {
+      await db.collection('events').doc(eventId).update({ going: FieldVal.arrayUnion(uid) });
+      toast("You're going! 🎉");
+    }
+    await loadCampusEvents();
+    if (exploreView === 'map') renderCampusMapView();
+  } catch (e) { toast('Failed'); console.error(e); }
 }
 
 // ══════════════════════════════════════════════════
@@ -1763,6 +2062,9 @@ async function sendFriendRequest(toUid, toName, toPhoto) {
     });
     state.profile.sentRequests = [...(state.profile.sentRequests || []), toUid];
     toast('Friend request sent!');
+    // Refresh current page to update button states
+    if (state.page === 'feed') renderFeed();
+    else if (state.page === 'explore') renderExplore();
   } catch (e) { toast('Failed to send request'); console.error(e); }
 }
 
@@ -1782,7 +2084,11 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
     state.profile.friends = [...(state.profile.friends || []), fromUid];
     state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
     toast(`You and ${fromName} are now friends!`);
-    loadNotifications(); // refresh notification dropdown
+    // Auto-close dropdown if no more requests
+    loadNotifications();
+    if (!(state.profile.friendRequests || []).length) {
+      const dd = $('#notif-dropdown'); if (dd) dd.style.display = 'none';
+    }
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -1798,6 +2104,9 @@ async function rejectFriendRequest(fromUid) {
     state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
     toast('Request declined');
     loadNotifications();
+    if (!(state.profile.friendRequests || []).length) {
+      const dd = $('#notif-dropdown'); if (dd) dd.style.display = 'none';
+    }
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -1821,7 +2130,7 @@ function listenForNotifications() {
   notifUnsub = db.collection('users').doc(state.user.uid).onSnapshot(doc => {
     if (!doc.exists) return;
     const data = doc.data();
-    // Sync local profile
+    // Sync local profile in real-time
     state.profile.friends = data.friends || [];
     state.profile.friendRequests = data.friendRequests || [];
     state.profile.sentRequests = data.sentRequests || [];
@@ -1829,6 +2138,11 @@ function listenForNotifications() {
     const requests = data.friendRequests || [];
     const dot = $('#notif-dot');
     if (dot) dot.style.display = requests.length > 0 ? 'block' : 'none';
+    // Auto-refresh dropdown if open
+    const dd = $('#notif-dropdown');
+    if (dd && dd.style.display === 'block') {
+      loadNotifications();
+    }
   });
 }
 
@@ -2294,6 +2608,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAsgLock, archiveAsg, doArchiveAsg, autoFillAsg,
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
-    loadNotifications
+    loadNotifications, setCommentReply, clearCommentReply,
+    openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing
   });
 });

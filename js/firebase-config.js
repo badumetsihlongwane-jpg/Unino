@@ -59,6 +59,11 @@
  *      match /assignmentGroups/{groupId}/messages/{msgId} {
  *        allow read, write: if request.auth != null;
  *      }
+ *      match /events/{eventId} {
+ *        allow read: if request.auth != null;
+ *        allow create: if request.auth != null;
+ *        allow update: if request.auth != null;
+ *      }
  *    }
  *  }
  */

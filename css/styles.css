@@ -1073,14 +1073,17 @@ input, select, textarea, button {
 .comment-item {
   display: flex;
   gap: 10px;
-  padding: 8px 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
 }
+.comment-item:last-child { border-bottom: none; }
 
 .comment-bubble {
   flex: 1;
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   padding: 10px 14px;
   border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
   min-width: 0;
 }
 
@@ -1104,6 +1107,69 @@ input, select, textarea, button {
   font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 4px;
+  display: inline;
+}
+
+.comment-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.comment-reply-btn {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.comment-reply-btn:hover { text-decoration: underline; }
+
+.comment-replies {
+  margin-left: 36px;
+  border-left: 2px solid var(--accent-light);
+  padding-left: 12px;
+}
+
+.comment-replies .comment-item {
+  padding: 6px 0;
+}
+
+.comment-replies .comment-bubble {
+  background: var(--bg-secondary);
+  border-color: transparent;
+  padding: 8px 12px;
+}
+
+.comment-replies .comment-bubble .comment-author {
+  font-size: 12px;
+}
+
+.comment-replies .comment-bubble .comment-text {
+  font-size: 13px;
+}
+
+.reply-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--accent-light);
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reply-indicator button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
 }
 
 .comment-input-wrap {
@@ -3294,4 +3360,168 @@ input, select, textarea, button {
 
 .asg-actions {
   padding: 16px;
+}
+
+/* ══════════════════════════════════════════════════
+   CAMPUS MAP & EVENTS
+   ══════════════════════════════════════════════════ */
+.campus-map-container {
+  padding-bottom: 16px;
+}
+
+.campus-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+.campus-map-header h3 {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.campus-map {
+  position: relative;
+  width: calc(100% - 32px);
+  margin: 0 16px;
+  height: 320px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  /* Subtle grid pattern */
+  background-image:
+    radial-gradient(circle at 20% 30%, var(--accent-light) 0%, transparent 60%),
+    radial-gradient(circle at 70% 60%, rgba(108,92,231,0.05) 0%, transparent 50%);
+}
+
+.campus-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+.campus-pin:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+  z-index: 5;
+}
+
+.campus-pin-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-full);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.campus-pin.has-events .campus-pin-icon {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+
+.campus-pin.pulse .campus-pin-icon {
+  animation: pinPulse 2s infinite;
+}
+
+@keyframes pinPulse {
+  0%, 100% { box-shadow: 0 2px 8px var(--accent-glow); }
+  50% { box-shadow: 0 2px 20px var(--accent-glow), 0 0 0 6px rgba(108,92,231,0.1); }
+}
+
+.campus-pin-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  background: var(--red);
+  color: #fff;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.campus-pin-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px var(--bg-primary);
+}
+
+.campus-events-section {
+  padding: 16px;
+}
+.campus-events-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.campus-events-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.campus-event-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.campus-event-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+
+.campus-event-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.campus-event-info {
+  flex: 1;
+  min-width: 0;
+}
+.campus-event-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.campus-event-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.campus-event-going {
+  font-size: 11px;
+  margin-top: 2px;
+  display: flex;
+  gap: 8px;
+  color: var(--text-tertiary);
 }
