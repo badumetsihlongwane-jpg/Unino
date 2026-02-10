@@ -732,10 +732,7 @@ function renderPosts(posts) {
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
         ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasVideo ? `<div class="post-media-wrap post-video-wrap">
-          <video src="${mediaURL}" class="post-video" preload="metadata" playsinline onclick="this.paused?this.play():this.pause()"></video>
-          <div class="post-video-overlay" onclick="this.style.display='none';this.parentElement.querySelector('video').play()">
-            <div class="play-btn-circle"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-          </div>
+          <video src="${mediaURL}" class="post-video" preload="metadata" playsinline controls></video>
         </div>` : ''}
         <div class="post-engagement">
           <div class="post-stats">
@@ -779,7 +776,7 @@ function openReelsViewer() {
         </div>
         <button onclick="document.getElementById('reels-viewer').remove()" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer">&times;</button>
       </div>
-      <video id="reel-video" src="${url}" style="flex:1;width:100%;height:100%;object-fit:contain" autoplay playsinline loop></video>
+      <video id="reel-video" src="${url}" style="flex:1;width:100%;height:100%;object-fit:contain" autoplay playsinline loop controls></video>
       <div style="position:absolute;bottom:40px;left:16px;right:16px;z-index:2">
         ${p.content ? `<p style="color:#fff;margin:0 0 12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);font-size:14px">${esc(p.content)}</p>` : ''}
         <div style="display:flex;gap:24px">
@@ -1644,7 +1641,7 @@ async function openGroupChat(groupId, collection = 'groups') {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" preload="metadata"></audio><button class="voice-play-btn" onclick="const a=this.parentElement.querySelector('audio');if(a.paused){a.play();this.textContent='⏸'}else{a.pause();this.textContent='▶'}">▶</button><div class="voice-wave"></div><span class="voice-dur">Voice</span></div>`;
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" controls preload="metadata" style="height:36px;max-width:200px"></audio></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
@@ -2415,7 +2412,7 @@ async function openChat(convoId) {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" preload="metadata"></audio><button class="voice-play-btn" onclick="const a=this.parentElement.querySelector('audio');if(a.paused){a.play();this.textContent='⏸'}else{a.pause();this.textContent='▶'}">▶</button><div class="voice-wave"></div><span class="voice-dur">Voice</span></div>`;
+            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio src="${m.audioURL}" controls preload="metadata" style="height:36px;max-width:200px"></audio></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
             return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;

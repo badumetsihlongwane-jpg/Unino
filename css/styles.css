@@ -3733,4 +3733,10 @@ input, select, textarea, button {
   box-shadow: 0 6px 24px var(--accent-glow);
 }
 
-.post-more-btn {\n  color: var(--text-tertiary);\n  transition: color 0.2s;\n}\n.post-more-btn:hover {\n  color: var(--text-primary);\n}
+.post-more-btn {
+  color: var(--text-tertiary);
+  transition: color 0.2s;
+}
+.post-more-btn:hover {
+  color: var(--text-primary);
+}
