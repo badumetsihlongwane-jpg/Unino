@@ -749,7 +749,14 @@ function renderFeed() {
         return true; // public or no visibility set
       });
       state.posts = visible;
+      // Save scroll position before re-render to prevent "jump to top"
+      const contentEl = document.getElementById('content');
+      const savedScroll = contentEl ? contentEl.scrollTop : 0;
       renderPosts(visible);
+      // Restore scroll position after re-render
+      if (contentEl && savedScroll > 0) {
+        requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
+      }
     });
   state.unsubs.push(u);
 }
@@ -903,6 +910,7 @@ function openStoryCreator() {
         <div class="story-type-tabs">
           <button class="story-type-tab active" data-st="text">Text</button>
           <button class="story-type-tab" data-st="photo">Photo</button>
+          <button class="story-type-tab" data-st="video">Video</button>
         </div>
         <div id="story-text-creator" class="story-type-content active">
           <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
@@ -920,6 +928,16 @@ function openStoryCreator() {
           </div>
           <input type="text" id="story-photo-caption" placeholder="Add a caption..." style="margin-top:12px">
         </div>
+        <div id="story-video-creator" class="story-type-content">
+          <div id="story-video-preview" class="story-photo-drop">
+            <label style="cursor:pointer;text-align:center">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              <p style="color:var(--text-secondary);font-size:13px;margin-top:8px">Tap to add video</p>
+              <input type="file" hidden accept="video/*" id="story-video-file">
+            </label>
+          </div>
+          <input type="text" id="story-video-caption" placeholder="Add a caption..." style="margin-top:12px">
+        </div>
         <button class="btn-primary btn-full" id="story-submit" style="margin-top:16px">Share Story</button>
       </div>
     </div>
@@ -930,7 +948,7 @@ function openStoryCreator() {
       $$('.story-type-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       $$('.story-type-content').forEach(c => c.classList.remove('active'));
-      const target = tab.dataset.st === 'text' ? '#story-text-creator' : '#story-photo-creator';
+      const target = tab.dataset.st === 'text' ? '#story-text-creator' : tab.dataset.st === 'photo' ? '#story-photo-creator' : '#story-video-creator';
       $(target)?.classList.add('active');
     };
   });
@@ -939,6 +957,13 @@ function openStoryCreator() {
       window._storyFile = e.target.files[0];
       const prev = $('#story-photo-preview');
       prev.innerHTML = `<img src="${localPreview(e.target.files[0])}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
+    }
+  };
+  $('#story-video-file').onchange = async e => {
+    if (e.target.files[0]) {
+      window._storyVideoFile = e.target.files[0];
+      const prev = $('#story-video-preview');
+      prev.innerHTML = `<video src="${localPreview(e.target.files[0])}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)" controls></video>`;
     }
   };
   $('#story-submit').onclick = async () => {
@@ -959,6 +984,12 @@ function openStoryCreator() {
       storyData.type = 'text';
       storyData.text = text;
       storyData.bgColor = window._storyBg || '#6C5CE7';
+    } else if (activeTab === 'video') {
+      if (!window._storyVideoFile) return toast('Add a video!');
+      storyData.type = 'video';
+      storyData.caption = $('#story-video-caption')?.value.trim() || '';
+      closeModal(); toast('Uploading video story...');
+      storyData.videoURL = await uploadToR2(window._storyVideoFile, 'stories');
     } else {
       if (!window._storyFile) return toast('Add a photo!');
       storyData.type = 'photo';
@@ -1025,7 +1056,20 @@ function showStoryFrame() {
 
   // Content
   const content = $('#story-viewer-content');
-  if (story.type === 'photo') {
+  if (story.type === 'video' && story.videoURL) {
+    content.innerHTML = `
+      <video src="${story.videoURL}" class="story-full-video" autoplay playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
+      ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
+    `;
+    content.style.background = '#000';
+    // Video stories: auto-advance after video ends or 15s max
+    clearTimeout(storyViewerData.timer);
+    const vid = content.querySelector('video');
+    if (vid) {
+      vid.onended = () => advanceStory(1);
+      storyViewerData.timer = setTimeout(() => advanceStory(1), 15000);
+    }
+  } else if (story.type === 'photo') {
     content.innerHTML = `
       <img src="${story.imageURL}" class="story-full-img">
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
@@ -1071,6 +1115,37 @@ function closeStoryViewer() {
   $('#story-viewer').style.display = 'none';
 }
 
+// ─── Multi-image Collage Renderer ────────────────
+function renderCollage(urls) {
+  if (!urls || urls.length <= 1) return '';
+  const count = urls.length;
+  const cls = `collage-grid collage-${Math.min(count, 4)}`;
+  return `<div class="${cls}">${urls.slice(0, 4).map((url, i) =>
+    `<div class="collage-item${count > 4 && i === 3 ? ' collage-more-item' : ''}" onclick="viewImage('${url}')">
+      <img src="${url}" loading="lazy">
+      ${count > 4 && i === 3 ? `<div class="collage-more-overlay">+${count - 4}</div>` : ''}
+    </div>`
+  ).join('')}</div>`;
+}
+
+// ─── Quote Embed Renderer ────────────────────────
+function renderQuoteEmbed(rp) {
+  if (!rp) return '';
+  const hasImg = rp.imageURL && rp.mediaType !== 'video';
+  const hasVid = rp.videoURL || (rp.mediaType === 'video');
+  const vidUrl = hasVid ? (rp.videoURL || rp.imageURL) : null;
+  return `
+    <div class="quote-embed" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        ${avatar(rp.authorName || 'User', rp.authorPhoto, 'avatar-sm')}
+        <span style="font-weight:600;font-size:13px">${esc(rp.authorName || 'User')}</span>
+      </div>
+      ${rp.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(rp.content)}</div>` : ''}
+      ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
+      ${hasVid && vidUrl ? `<div style="position:relative;border-radius:8px;overflow:hidden;max-height:160px"><video src="${vidUrl}" style="width:100%;max-height:160px;object-fit:cover" preload="metadata"></video><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div></div></div>` : ''}
+    </div>`;
+}
+
 // ─── Render Posts ────────────────────────────────
 function renderPosts(posts) {
   const el = $('#feed-posts'); if (!el) return;
@@ -1082,8 +1157,9 @@ function renderPosts(posts) {
   el.innerHTML = posts.map(post => {
     const liked = (post.likes || []).includes(state.user.uid);
     const lc = (post.likes || []).length, cc = post.commentsCount || 0;
+    const hasCollage = post.imageURLs && post.imageURLs.length > 1 && !post.repostOf;
     const hasVideo = post.videoURL || (post.mediaType === 'video');
-    const hasImage = post.imageURL && !hasVideo;
+    const hasImage = post.imageURL && !hasVideo && !hasCollage;
     const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
     let videoPlayerData = null;
     if (hasVideo && mediaURL) {
@@ -1091,7 +1167,11 @@ function renderPosts(posts) {
       _videoPlayers.push(videoPlayerData);
     }
     return `
-      <div class="post-card">
+      <div class="post-card" id="post-${post.id}">
+        ${post.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          ${esc(post.authorName)} reposted
+        </div>` : ''}
         <div class="post-header">
           <div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>
           <div class="post-header-info">
@@ -1101,8 +1181,10 @@ function renderPosts(posts) {
           ${post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
-        ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
-        ${hasVideo && videoPlayerData ? videoPlayerData.html : ''}
+        ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
+        ${hasCollage ? renderCollage(post.imageURLs) : ''}
+        ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
+        ${post.repostOf ? renderQuoteEmbed(post.repostOf) : ''}
         <div class="post-engagement">
           <div class="post-stats">
             ${lc ? `<span class="stat-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> ${lc}</span>` : ''}
@@ -1157,7 +1239,7 @@ function renderReelsUI() {
   container.className = 'reels-container';
   container.innerHTML = `
     <div class="reels-header">
-      <h3>Reels</h3>
+      <h3>Clips</h3>
       <button class="reels-close-btn" onclick="closeReelsViewer()">&times;</button>
     </div>
     <div class="reels-scroll" id="reels-scroll">
@@ -1283,6 +1365,17 @@ function setupFeedVideoAutoplay() {
 // ─── Like ────────────────────────────────────────
 async function toggleLike(pid) {
   const ref = db.collection('posts').doc(pid);
+  // Optimistic UI: update DOM instantly before Firestore round-trip
+  const postEl = document.getElementById('post-' + pid);
+  if (postEl) {
+    const likeBtn = postEl.querySelector('.post-action.liked, .post-action:first-child');
+    if (likeBtn) {
+      const isLiked = likeBtn.classList.contains('liked');
+      likeBtn.classList.toggle('liked', !isLiked);
+      const svg = likeBtn.querySelector('svg');
+      if (svg) { svg.setAttribute('fill', !isLiked ? 'var(--red)' : 'none'); svg.setAttribute('stroke', !isLiked ? 'var(--red)' : 'currentColor'); }
+    }
+  }
   try {
     const doc = await ref.get(); if (!doc.exists) return;
     const data = doc.data();
@@ -1435,8 +1528,7 @@ function viewImage(url) { const v = $('#img-view'); if (!v) return; $('#img-full
 
 // ─── Create Post ─────────────────────────────────
 function openCreateModal() {
-  let pendingFile = null; // File object
-  let pendingPreview = null; // local blob URL for preview
+  let pendingFiles = []; // Array of File objects
   let pendingIsVideo = false;
   openModal(`
     <div class="modal-header"><h2>Create Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -1450,12 +1542,12 @@ function openCreateModal() {
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
       <div id="create-preview" class="media-preview" style="display:none">
-        <div id="create-preview-content"></div>
-        <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFile=null">&times;</button>
+        <div id="create-preview-content" class="collage-preview-grid"></div>
+        <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
         <div style="display:flex;align-items:center;gap:8px">
-          <label class="add-photo-btn" title="Photo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file"></label>
+          <label class="add-photo-btn" title="Photos (multiple)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file" multiple></label>
           <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7" fill="var(--accent)"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
@@ -1466,35 +1558,66 @@ function openCreateModal() {
       </div>
     </div>
   `);
-  const handleFile = (file) => {
-    pendingFile = file;
-    pendingIsVideo = isVideo(file);
-    pendingPreview = localPreview(file);
+  const showPreviews = () => {
     const pc = $('#create-preview-content');
+    if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
     if (pendingIsVideo) {
-      pc.innerHTML = `<video src="${pendingPreview}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
+      pc.innerHTML = `<video src="${localPreview(pendingFiles[0])}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
     } else {
-      pc.innerHTML = `<img src="${pendingPreview}" style="width:100%;max-height:200px;object-fit:cover;border-radius:var(--radius)">`;
+      const count = pendingFiles.length;
+      pc.className = `collage-preview-grid collage-${Math.min(count, 4)}`;
+      pc.innerHTML = pendingFiles.slice(0, 4).map((f, i) =>
+        `<div class="collage-preview-item${count > 4 && i === 3 ? ' collage-more' : ''}">
+          <img src="${localPreview(f)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">
+          ${count > 4 && i === 3 ? `<div class="collage-more-overlay">+${count - 4}</div>` : ''}
+        </div>`
+      ).join('');
     }
     $('#create-preview').style.display = 'block';
   };
-  $('#create-file').onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
-  $('#create-video-file').onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
+  $('#create-file').onchange = e => {
+    if (e.target.files.length) {
+      pendingFiles = [...pendingFiles, ...Array.from(e.target.files)];
+      pendingIsVideo = false;
+      showPreviews();
+    }
+  };
+  $('#create-video-file').onchange = e => {
+    if (e.target.files[0]) {
+      pendingFiles = [e.target.files[0]];
+      pendingIsVideo = true;
+      showPreviews();
+    }
+  };
   $('#create-submit').onclick = async () => {
     const text = $('#create-text').value.trim();
-    if (!text && !pendingFile) return toast('Post cannot be empty');
+    if (!text && !pendingFiles.length) return toast('Post cannot be empty');
     const visibility = $('#create-visibility')?.value || 'public';
     closeModal(); toast('Uploading...');
     try {
       let mediaURL = null;
       let mediaType = 'text';
-      if (pendingFile) {
-        const folder = pendingIsVideo ? 'videos' : 'images';
-        mediaURL = await uploadToR2(pendingFile, folder);
-        mediaType = pendingIsVideo ? 'video' : 'image';
+      let imageURLs = null;
+      if (pendingFiles.length && pendingIsVideo) {
+        mediaURL = await uploadToR2(pendingFiles[0], 'videos');
+        mediaType = 'video';
+      } else if (pendingFiles.length === 1) {
+        mediaURL = await uploadToR2(pendingFiles[0], 'images');
+        mediaType = 'image';
+      } else if (pendingFiles.length > 1) {
+        // Multi-image: upload all
+        imageURLs = [];
+        for (const f of pendingFiles) {
+          const url = await uploadToR2(f, 'images');
+          imageURLs.push(url);
+        }
+        mediaURL = imageURLs[0]; // First image as main
+        mediaType = 'collage';
       }
       await db.collection('posts').add({
-        content: text, imageURL: mediaType === 'image' ? mediaURL : null,
+        content: text,
+        imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
+        imageURLs: imageURLs || null,
         videoURL: mediaType === 'video' ? mediaURL : null,
         mediaType,
         authorId: state.user.uid, authorName: state.profile.displayName,
@@ -2092,6 +2215,11 @@ function openCreateGroup() {
       <div class="form-group"><label>Type</label>
         <select id="grp-type"><option value="study">📚 Study Group</option><option value="social">🎉 Social</option><option value="project">💻 Project</option><option value="module">🧩 Module</option></select>
       </div>
+      <div class="form-group"><label>Cover Photo (optional)</label><input type="file" accept="image/*" id="grp-cover-file"></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="grp-anon-toggle" style="width:auto">
+        <label for="grp-anon-toggle" style="margin:0;font-size:14px">Allow anonymous posting</label>
+      </div>
       <button class="btn-primary btn-full" id="grp-create-btn">Create Group</button>
     </div>
   `);
@@ -2099,15 +2227,21 @@ function openCreateGroup() {
     const name = $('#grp-name')?.value.trim();
     const desc = $('#grp-desc')?.value.trim() || '';
     const type = $('#grp-type')?.value || 'study';
+    const allowAnon = $('#grp-anon-toggle')?.checked || false;
     if (!name) return toast('Name required');
     closeModal(); toast('Creating group...');
     try {
+      let coverURL = null;
+      const coverFile = $('#grp-cover-file')?.files?.[0];
+      if (coverFile) coverURL = await uploadToR2(coverFile, 'group-covers');
       await db.collection('groups').add({
-        name, description: desc, type,
+        name, description: desc, type, coverURL,
         createdBy: state.user.uid,
+        admins: [state.user.uid],
         members: [state.user.uid],
         memberNames: { [state.user.uid]: state.profile.displayName },
         memberPhotos: { [state.user.uid]: state.profile.photoURL || '' },
+        allowAnonymous: allowAnon,
         lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
         createdAt: FieldVal.serverTimestamp()
       });
@@ -2123,51 +2257,168 @@ async function openGroupChat(groupId, collection = 'groups') {
   try {
     const gDoc = await db.collection(collection).doc(groupId).get();
     if (!gDoc.exists) return toast('Group not found');
-    const group = gDoc.data();
+    const group = { id: groupId, ...gDoc.data() };
     const uid = state.user.uid;
+    const isAdmin = (group.admins || [group.createdBy]).includes(uid);
+    const isMember = (group.members || []).includes(uid);
 
     const gName = group.name || group.assignmentTitle || 'Group';
     const gType = group.type || 'study';
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
+
+    // For assignment groups, keep old behavior (chat only)
+    if (collection === 'assignmentGroups') {
+      return _openGroupChatLegacy(groupId, collection, group, uid, gName, gEmoji);
+    }
 
     showScreen('group-chat-view');
     $('#gchat-hdr-info').innerHTML = `
       <div class="group-header-info">
         <div class="group-icon">${gEmoji}</div>
         <div><h3 style="font-size:15px;font-weight:700">${esc(gName)}</h3>
-        <small style="color:var(--text-secondary)">${(group.members || []).length} members${group.moduleCode ? ' · ' + esc(group.moduleCode) : ''}</small></div>
+        <small style="color:var(--text-secondary)">${(group.members || []).length} members</small></div>
+      </div>
+      ${isAdmin ? `<button class="icon-btn" onclick="openGroupSettings('${groupId}')" style="margin-left:auto;font-size:16px" title="Settings">⚙️</button>` : ''}
+    `;
+
+    // Build group page with tabs: Posts | Chat | Members
+    const gchatMsgs = $('#gchat-msgs');
+    gchatMsgs.innerHTML = `
+      <div class="group-page-inner">
+        ${group.coverURL ? `<div class="group-cover-img"><img src="${group.coverURL}" style="width:100%;height:140px;object-fit:cover;border-radius:12px"></div>` : ''}
+        ${group.description ? `<p style="padding:8px 12px;font-size:13px;color:var(--text-secondary)">${esc(group.description)}</p>` : ''}
+        <div class="group-tabs-row">
+          <button class="group-tab active" data-gt="posts">Posts</button>
+          <button class="group-tab" data-gt="chat">Chat</button>
+          <button class="group-tab" data-gt="members">Members</button>
+        </div>
+        <div id="group-tab-body"></div>
       </div>
     `;
 
-    if (gchatUnsub) gchatUnsub();
-    const msgs = $('#gchat-msgs');
-    gchatUnsub = db.collection(collection).doc(groupId)
-      .collection('messages').orderBy('createdAt','asc').limit(100)
-      .onSnapshot(snap => {
-        const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        if (!messages.length) {
-          msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
-        } else {
-          msgs.innerHTML = messages.map(m => {
-            const isMe = m.senderId === uid;
-            let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"><source src="${m.audioURL}" type="audio/ogg">Audio not supported</audio></div>`;
-            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
-            if (m.text) content += esc(m.text);
-            return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
-              ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-              ${content}
-              <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-            </div>`;
-          }).join('');
-          msgs.scrollTop = msgs.scrollHeight;
+    const renderGroupPosts = async () => {
+      const body = document.getElementById('group-tab-body');
+      if (!body) return;
+      body.innerHTML = `
+        <div class="group-create-post" style="padding:12px">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
+            ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-sm')}
+            <div style="flex:1;font-size:14px;color:var(--text-secondary)">Write something...</div>
+          </div>
+          <textarea id="gpost-text" placeholder="Share with the group…" style="width:100%;min-height:60px;border:1px solid var(--border);border-radius:var(--radius);padding:10px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;resize:none"></textarea>
+          ${group.allowAnonymous ? `<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px"><input type="checkbox" id="gpost-anon" style="width:auto">Post anonymously</label>` : ''}
+          <div style="display:flex;justify-content:flex-end;margin-top:8px">
+            <button class="btn-primary btn-sm" onclick="submitGroupPost('${groupId}')">Post</button>
+          </div>
+        </div>
+        <div id="group-posts-feed" style="padding:0 12px"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
+      `;
+      // Load group posts
+      try {
+        const snap = await db.collection('groups').doc(groupId).collection('posts').limit(50).get();
+        const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        posts.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        const feed = document.getElementById('group-posts-feed');
+        if (!feed) return;
+        if (!posts.length) {
+          feed.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-tertiary)">No posts yet. Be the first!</div>';
+          return;
         }
-      });
+        feed.innerHTML = posts.map(p => {
+          const isAnon = p.anonymous;
+          const pName = isAnon ? 'Anonymous' : esc(p.authorName || 'User');
+          const pPhoto = isAnon ? null : p.authorPhoto;
+          const lc = (p.likes || []).length;
+          const liked = (p.likes || []).includes(uid);
+          return `<div class="post-card" style="margin-bottom:12px">
+            <div class="post-header">
+              ${isAnon ? `<div class="avatar-md" style="background:var(--text-tertiary)">🎭</div>` : avatar(pName, pPhoto, 'avatar-md')}
+              <div class="post-header-info">
+                <div class="post-author-name">${pName}</div>
+                <div class="post-meta">${timeAgo(p.createdAt)}</div>
+              </div>
+              ${(p.authorId === uid || isAdmin) ? `<button class="icon-btn" onclick="deleteGroupPost('${groupId}','${p.id}')" style="margin-left:auto;font-size:14px;color:var(--text-tertiary)" title="Delete">✕</button>` : ''}
+            </div>
+            ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+            ${p.imageURL ? `<div class="post-media-wrap"><img src="${p.imageURL}" class="post-image" onclick="viewImage('${p.imageURL}')"></div>` : ''}
+            <div class="post-actions" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
+              <button class="post-action ${liked?'liked':''}" onclick="toggleGroupPostLike('${groupId}','${p.id}')">❤ ${lc||'Like'}</button>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) { console.error(e); }
+    };
 
+    const renderGroupChat = () => {
+      const body = document.getElementById('group-tab-body');
+      if (!body) return;
+      body.innerHTML = '<div id="gchat-inner-msgs" style="min-height:200px;max-height:400px;overflow-y:auto;padding:8px"></div>';
+      if (gchatUnsub) gchatUnsub();
+      const innerMsgs = document.getElementById('gchat-inner-msgs');
+      gchatUnsub = db.collection(collection).doc(groupId)
+        .collection('messages').orderBy('createdAt','asc').limit(100)
+        .onSnapshot(snap => {
+          const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          if (!messages.length) {
+            innerMsgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+          } else {
+            innerMsgs.innerHTML = messages.map(m => {
+              const isMe = m.senderId === uid;
+              let content = '';
+              if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"></audio></div>`;
+              if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+              if (m.text) content += esc(m.text);
+              return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+                ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
+                ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+                ${content}
+                <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+              </div></div>`;
+            }).join('');
+            setTimeout(() => { innerMsgs.scrollTop = innerMsgs.scrollHeight; }, 50);
+          }
+        });
+    };
+
+    const renderGroupMembers = () => {
+      const body = document.getElementById('group-tab-body');
+      if (!body) return;
+      const members = group.members || [];
+      const admins = group.admins || [group.createdBy];
+      body.innerHTML = `<div style="padding:12px">${members.map(mid => {
+        const mName = (group.memberNames || {})[mid] || 'User';
+        const mPhoto = (group.memberPhotos || {})[mid] || null;
+        const mIsAdmin = admins.includes(mid);
+        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+          ${avatar(mName, mPhoto, 'avatar-sm')}
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:14px">${esc(mName)}</div>
+            ${mIsAdmin ? '<div style="font-size:11px;color:var(--accent);font-weight:600">Admin</div>' : ''}
+          </div>
+          ${isAdmin && mid !== uid ? `<button class="btn-sm btn-outline" onclick="removeGroupMember('${groupId}','${mid}')">Remove</button>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    };
+
+    // Wire group tabs
+    gchatMsgs.querySelectorAll('.group-tab').forEach(tab => {
+      tab.onclick = () => {
+        gchatMsgs.querySelectorAll('.group-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        if (tab.dataset.gt === 'posts') renderGroupPosts();
+        else if (tab.dataset.gt === 'chat') renderGroupChat();
+        else renderGroupMembers();
+      };
+    });
+
+    // Default to posts tab
+    renderGroupPosts();
+
+    // Wire send for chat (use existing input bar)
     const sendGMsg = async () => {
       const input = $('#gchat-input');
       const text = input.value.trim();
-      // Support voice messages
       let audioURL = null;
       if (window._gchatVoiceBlob) {
         const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
@@ -2197,6 +2448,148 @@ async function openGroupChat(groupId, collection = 'groups') {
       navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open group'); }
+}
+
+// Legacy chat view for assignment groups
+function _openGroupChatLegacy(groupId, collection, group, uid, gName, gEmoji) {
+  showScreen('group-chat-view');
+  $('#gchat-hdr-info').innerHTML = `
+    <div class="group-header-info">
+      <div class="group-icon">${gEmoji}</div>
+      <div><h3 style="font-size:15px;font-weight:700">${esc(gName)}</h3>
+      <small style="color:var(--text-secondary)">${(group.members || []).length} members${group.moduleCode ? ' · ' + esc(group.moduleCode) : ''}</small></div>
+    </div>
+  `;
+  if (gchatUnsub) gchatUnsub();
+  const msgs = $('#gchat-msgs');
+  gchatUnsub = db.collection(collection).doc(groupId)
+    .collection('messages').orderBy('createdAt','asc').limit(100)
+    .onSnapshot(snap => {
+      const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!messages.length) {
+        msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+      } else {
+        msgs.innerHTML = messages.map(m => {
+          const isMe = m.senderId === uid;
+          let content = '';
+          if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"></audio></div>`;
+          if (m.text) content += esc(m.text);
+          return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+            ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+            <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
+            ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+            ${content}
+            <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+          </div></div>`;
+        }).join('');
+        setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
+      }
+    });
+
+  const sendGMsg = async () => {
+    const input = $('#gchat-input');
+    const text = input.value.trim();
+    let audioURL = null;
+    if (window._gchatVoiceBlob) {
+      const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+      audioURL = await uploadToR2(af, 'voice');
+      window._gchatVoiceBlob = null;
+    }
+    if (!text && !audioURL) return;
+    input.value = '';
+    try {
+      await db.collection(collection).doc(groupId).collection('messages').add({
+        text: text || '', audioURL: audioURL || null,
+        senderId: uid, senderName: state.profile.displayName,
+        senderPhoto: state.profile.photoURL || null,
+        createdAt: FieldVal.serverTimestamp()
+      });
+      await db.collection(collection).doc(groupId).update({
+        lastMessage: audioURL ? '🎤 Voice' : text, updatedAt: FieldVal.serverTimestamp()
+      });
+    } catch (e) { console.error(e); }
+  };
+  $('#gchat-send').onclick = sendGMsg;
+  $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
+  $('#gchat-back').onclick = () => {
+    if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
+    showScreen('app'); navigate('chat');
+  };
+}
+
+// Group helper functions
+async function submitGroupPost(groupId) {
+  const text = document.getElementById('gpost-text')?.value.trim();
+  if (!text) return toast('Write something!');
+  const anon = document.getElementById('gpost-anon')?.checked || false;
+  try {
+    await db.collection('groups').doc(groupId).collection('posts').add({
+      content: text,
+      authorId: state.user.uid,
+      authorName: anon ? 'Anonymous' : state.profile.displayName,
+      authorPhoto: anon ? null : (state.profile.photoURL || null),
+      anonymous: anon,
+      likes: [],
+      createdAt: FieldVal.serverTimestamp()
+    });
+    toast('Posted!');
+    openGroupChat(groupId);
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function toggleGroupPostLike(groupId, postId) {
+  try {
+    const ref = db.collection('groups').doc(groupId).collection('posts').doc(postId);
+    const doc = await ref.get(); if (!doc.exists) return;
+    const likes = doc.data().likes || [];
+    if (likes.includes(state.user.uid)) {
+      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
+    } else {
+      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+    }
+    openGroupChat(groupId);
+  } catch (e) { console.error(e); }
+}
+
+async function deleteGroupPost(groupId, postId) {
+  try {
+    await db.collection('groups').doc(groupId).collection('posts').doc(postId).delete();
+    toast('Post deleted');
+    openGroupChat(groupId);
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function removeGroupMember(groupId, memberId) {
+  try {
+    const ref = db.collection('groups').doc(groupId);
+    await ref.update({
+      members: FieldVal.arrayRemove(memberId),
+      [`memberNames.${memberId}`]: firebase.firestore.FieldValue.delete(),
+      [`memberPhotos.${memberId}`]: firebase.firestore.FieldValue.delete()
+    });
+    toast('Member removed');
+    openGroupChat(groupId);
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+function openGroupSettings(groupId) {
+  openModal(`
+    <div class="modal-header"><h2>Group Settings</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <button class="ios-action-btn" style="color:var(--red)" onclick="closeModal();deleteGroup('${groupId}')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        <span>Delete Group</span>
+      </button>
+    </div>
+  `);
+}
+
+async function deleteGroup(groupId) {
+  try {
+    await db.collection('groups').doc(groupId).delete();
+    toast('Group deleted');
+    showScreen('app'); navigate('chat');
+  } catch (e) { toast('Failed'); console.error(e); }
 }
 
 async function joinGroup(groupId) {
@@ -2894,9 +3287,44 @@ async function addNotification(targetId, type, text, payload) {
 }
 
 async function viewPost(pid) {
-  // If we have openComments logic, verify if we can open it directly.
-  // Ideally, show post logic. For now, openComments is a good approximation for interaction.
-  openComments(pid);
+  // Show the post in a modal so tapping a like notification opens the actual post
+  try {
+    const doc = await db.collection('posts').doc(pid).get();
+    if (!doc.exists) return toast('Post not found');
+    const p = { id: doc.id, ...doc.data() };
+    const liked = (p.likes || []).includes(state.user.uid);
+    const lc = (p.likes || []).length, cc = p.commentsCount || 0;
+    const hasVideo = p.videoURL || (p.mediaType === 'video');
+    const hasImage = p.imageURL && !hasVideo;
+    const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
+
+    openModal(`
+      <div class="modal-header"><h2>Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px">
+        <div class="post-card" style="box-shadow:none;border:none;margin:0;padding:0">
+          ${p.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            Reposted
+          </div>` : ''}
+          <div class="post-header">
+            <div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>
+            <div class="post-header-info">
+              <div class="post-author-name" onclick="closeModal();openProfile('${p.authorId}')">${esc(p.authorName || 'User')}</div>
+              <div class="post-meta">${timeAgo(p.createdAt)}</div>
+            </div>
+          </div>
+          ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+          ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
+          ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
+          <div class="post-actions" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+            <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${p.id}');closeModal()">❤ ${lc || 'Like'}</button>
+            <button class="post-action" onclick="closeModal();openComments('${p.id}')">💬 ${cc || 'Comment'}</button>
+            <button class="post-action" onclick="closeModal();openShareModal('${p.id}')">↗ Share</button>
+          </div>
+        </div>
+      </div>
+    `);
+  } catch (e) { console.error(e); toast('Could not load post'); }
 }
 
 // ─── DM List ─────────────────────────────────────
@@ -2985,9 +3413,12 @@ async function openChat(convoId) {
             if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"><source src="${m.audioURL}" type="audio/ogg">Audio not supported</audio></div>`;
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
-            return `<div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>`;
+            return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(name, photo, 'avatar-xs')}</div>` : ''}
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>
+            </div>`;
           }).join('');
-          msgs.scrollTop = msgs.scrollHeight;
+          setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
         }
       });
 
@@ -3163,6 +3594,7 @@ async function openProfile(uid) {
 
       <div class="profile-tabs">
         <button class="profile-tab active" data-pt="posts">Posts</button>
+        <button class="profile-tab" data-pt="photos">Photos</button>
         <button class="profile-tab" data-pt="about">About</button>
       </div>
       <div id="profile-tab-content">${renderProfilePosts(posts, user)}</div>
@@ -3174,7 +3606,9 @@ async function openProfile(uid) {
         $$('.profile-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const tc = $('#profile-tab-content');
-        tc.innerHTML = tab.dataset.pt === 'posts' ? renderProfilePosts(posts, user) : renderProfileAbout(user);
+        if (tab.dataset.pt === 'posts') tc.innerHTML = renderProfilePosts(posts, user);
+        else if (tab.dataset.pt === 'photos') tc.innerHTML = renderProfilePhotos(posts);
+        else tc.innerHTML = renderProfileAbout(user);
       };
     });
   } catch (e) {
@@ -3200,9 +3634,9 @@ function renderProfilePosts(posts, user) {
     }
     return `
     <div class="post-card">
-      ${p.repostOf ? `<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+      ${p.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-         Reposted
+         ${esc(user.displayName)} reposted
        </div>` : ''}
       <div class="post-header">
         ${avatar(user.displayName, user.photoURL, 'avatar-md')}
@@ -3214,9 +3648,10 @@ function renderProfilePosts(posts, user) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
         </button>` : ''}
       </div>
-      <div class="post-content">${formatContent(p.content)}</div>
-      ${hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
-      ${hasVideo && videoPlayerData ? videoPlayerData.html : ''}
+      ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+      ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
+      ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
+      ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
       <div class="post-actions">
         <button class="post-action ${(p.likes||[]).includes(state.user.uid)?'liked':''}" onclick="toggleLike('${p.id}')">❤ ${(p.likes||[]).length||'Like'}</button>
         <button class="post-action" onclick="openComments('${p.id}')">💬 ${p.commentsCount||'Comment'}</button>
@@ -3276,9 +3711,25 @@ function renderProfileAbout(user) {
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
-      <div class="about-item"><span class="about-icon">📧</span><div><div class="about-label">Email</div><div class="about-value">${esc(user.email || 'Private')}</div></div></div>
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
     </div>`;
+}
+
+function renderProfilePhotos(posts) {
+  const photos = posts
+    .filter(p => p.imageURL && p.mediaType !== 'video')
+    .map(p => p.imageURL);
+  const videos = posts
+    .filter(p => p.videoURL || p.mediaType === 'video')
+    .map(p => p.videoURL || p.imageURL);
+  const all = [...photos.map(u => ({ type:'img', url:u })), ...videos.map(u => ({ type:'vid', url:u }))];
+  if (!all.length) return '<div class="empty-state"><h3>No photos yet</h3></div>';
+  return `<div class="profile-photo-grid">${all.map(m => {
+    if (m.type === 'img') {
+      return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy"></div>`;
+    }
+    return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><video src="${m.url}" preload="metadata"></video><div class="photo-grid-play">▶</div></div>`;
+  }).join('')}</div>`;
 }
 
 // ─── Edit Profile (with modules) ─────────────────
@@ -3398,7 +3849,7 @@ async function openShareModal(postId) {
   openModal(`
     <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="repost('${postId}')">🔄 Repost to Feed</button>
+       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Quote Repost</button>
        <div style="height:1px;background:var(--border);margin:16px 0"></div>
        <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
        <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
@@ -3477,32 +3928,71 @@ async function shareToFriend(uid, name, postId) {
    } catch(e) { console.error(e); toast('Failed to send'); }
 }
 
+async function openQuoteRepost(postId) {
+  closeModal();
+  try {
+    const origRef = await db.collection('posts').doc(postId).get();
+    if (!origRef.exists) return toast('Post not found');
+    const orig = origRef.data();
+    const hasImg = orig.imageURL && orig.mediaType !== 'video';
+    openModal(`
+      <div class="modal-header"><h2>Quote Repost</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px">
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
+          <div><div style="font-weight:600">${esc(state.profile.displayName)}</div><div style="font-size:12px;color:var(--text-secondary)">Quoting post</div></div>
+        </div>
+        <textarea id="quote-text" placeholder="Add your thoughts…" style="width:100%;min-height:80px;border:none;background:transparent;color:var(--text-primary);font-size:15px;resize:none;outline:none;margin-bottom:12px"></textarea>
+        <div class="quote-embed-preview" style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--bg-secondary)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            ${avatar(orig.authorName, orig.authorPhoto, 'avatar-sm')}
+            <span style="font-weight:600;font-size:13px">${esc(orig.authorName || 'User')}</span>
+          </div>
+          ${orig.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(orig.content)}</div>` : ''}
+          ${hasImg ? `<img src="${orig.imageURL}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px">` : ''}
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <button class="btn-primary" id="quote-submit" style="padding:10px 28px">Post</button>
+        </div>
+      </div>
+    `);
+    $('#quote-submit').onclick = async () => {
+      const quoteText = ($('#quote-text')?.value || '').trim();
+      closeModal(); toast('Reposting…');
+      try {
+        await db.collection('posts').add({
+          authorId: state.user.uid,
+          authorName: state.profile.displayName,
+          authorPhoto: state.profile.photoURL || null,
+          authorUni: state.profile.university || '',
+          content: quoteText,
+          mediaType: 'text',
+          repostOf: {
+            id: postId,
+            authorId: orig.authorId,
+            authorName: orig.authorName || '',
+            authorPhoto: orig.authorPhoto || null,
+            content: orig.content || '',
+            imageURL: orig.imageURL || null,
+            videoURL: orig.videoURL || null,
+            mediaType: orig.mediaType || 'text'
+          },
+          createdAt: FieldVal.serverTimestamp(),
+          likes: [], commentsCount: 0, visibility: 'public'
+        });
+        toast('Reposted!');
+        navigate('feed');
+      } catch (e) { toast('Failed'); console.error(e); }
+    };
+  } catch (e) { console.error(e); toast('Error loading post'); }
+}
+
 async function repost(postId) {
    try {
       const origRef = await db.collection('posts').doc(postId).get();
       if(!origRef.exists) return;
       const orig = origRef.data();
-      
-      await db.collection('posts').add({
-          authorId: state.user.uid,
-          authorName: state.profile.displayName,
-          authorPhoto: state.profile.photoURL || null,
-          authorUni: state.profile.university || '',
-          content: orig.content || '', 
-          imageURL: orig.imageURL || null,
-          videoURL: orig.videoURL || null,
-          mediaType: orig.mediaType || 'text',
-          repostOf: {
-              id: postId,
-              authorId: orig.authorId,
-              authorName: orig.authorName || ''
-          },
-          createdAt: FieldVal.serverTimestamp(),
-          likes: [], commentsCount: 0, visibility: 'public'
-      });
-      toast('Reposted!');
-      closeModal();
-      navigate('feed');
+      openQuoteRepost(postId);
    } catch(e) { console.error(e); }
 }
 
@@ -3552,7 +4042,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
-    toggleCommentLike, openShareModal, repost, shareToFriend, viewPost, markNotifRead,
+    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
+    submitGroupPost, toggleGroupPostLike, deleteGroupPost, removeGroupMember, openGroupSettings, deleteGroup,
     closeReelsViewer, toggleReelPlay, reelLike
   });
 });
