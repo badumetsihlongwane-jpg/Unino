@@ -4326,3 +4326,101 @@ input, select, textarea, button {
   outline: 2px solid var(--accent);
   border-radius: 4px;
 }
+
+/* ══════════════════════════════════════════════════
+   Share & Enhanced Comments UI
+   ══════════════════════════════════════════════════ */
+.comment-item {
+  display: flex !important;
+  gap: 12px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease;
+}
+.comment-avatar-col {
+  flex-shrink: 0;
+}
+.comment-avatar-col .avatar-sm {
+  width: 36px; height: 36px;
+  font-size: 14px;
+}
+.comment-content-col {
+  flex: 1;
+  min-width: 0;
+}
+.comment-bubble.enhanced {
+  background: var(--bg-tertiary);
+  padding: 10px 14px;
+  border-radius: 18px;
+  border-top-left-radius: 4px;
+  margin-bottom: 4px;
+  position: relative;
+}
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2px;
+}
+.comment-author {
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.comment-author:hover { text-decoration: underline; }
+.comment-text {
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+.comment-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 4px;
+  margin-bottom: 8px;
+}
+.comment-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.c-act {
+  background: none;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.2s;
+}
+.c-act:hover { color: var(--text-primary); }
+.c-act.liked { color: var(--red); }
+
+/* Threading visual */
+.comment-replies {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  margin-left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reply-item {
+  margin-bottom: 0;
+}
+.reply-item .comment-bubble.enhanced {
+  background: rgba(var(--bg-rgb), 0.5);
+  border: 1px solid var(--border);
+}
+
+/* Share Friends List */
+.share-friend-item {
+  transition: background 0.2s;
+}
+.share-friend-item:active {
+  transform: scale(0.98);
+}

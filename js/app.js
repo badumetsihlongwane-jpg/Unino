@@ -1116,7 +1116,7 @@ function renderPosts(posts) {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               ${cc || 'Comment'}
             </button>
-            <button class="post-action" onclick="toast('Link copied!')">
+            <button class="post-action" onclick="openShareModal('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
               Share
             </button>
@@ -1196,25 +1196,54 @@ async function toggleLike(pid) {
   const ref = db.collection('posts').doc(pid);
   try {
     const doc = await ref.get(); if (!doc.exists) return;
-    const likes = doc.data().likes || [];
-    if (likes.includes(state.user.uid)) await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-    else await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+    const data = doc.data();
+    const likes = data.likes || [];
+    if (likes.includes(state.user.uid)) {
+      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
+    } else {
+      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+      addNotification(data.authorId, 'like', 'liked your post', { postId: pid });
+    }
   } catch (e) { console.error(e); }
 }
 
 // ─── Comments with Replies ────────────────────────────────────
 let _commentReplyTo = null; // { id, authorName } or null
 
+async function toggleCommentLike(cid, pid) {
+  try {
+    const ref = db.collection('posts').doc(pid).collection('comments').doc(cid);
+    const doc = await ref.get();
+    if (!doc.exists) return;
+    const d = doc.data();
+    const likes = d.likes || [];
+    if (likes.includes(state.user.uid)) {
+      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
+    } else {
+      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+    }
+    openComments(pid); // Refresh
+  } catch (e) { console.error(e); }
+}
+
 async function openComments(postId) {
   let comments = [];
   try {
-    const snap = await db.collection('posts').doc(postId).collection('comments').orderBy('createdAt','asc').limit(100).get();
+    const snap = await db.collection('posts').doc(postId).collection('comments').limit(100).get();
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error(e); }
 
-  // Separate top-level and replies
+  // Process likes
+  comments.forEach(c => { c.likeCount = (c.likes || []).length; });
+
   const topLevel = comments.filter(c => !c.replyTo);
   const replies = comments.filter(c => c.replyTo);
+  
+  // Sort: Top (likes) -> Newest
+  topLevel.sort((a,b) => b.likeCount - a.likeCount || (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+  // Replies: Chronological
+  replies.sort((a,b) => (a.createdAt?.seconds||0) - (b.createdAt?.seconds||0));
+
   const replyMap = {};
   replies.forEach(r => {
     if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
@@ -1223,43 +1252,45 @@ async function openComments(postId) {
 
   _commentReplyTo = null;
 
-  function renderCommentTree() {
-    if (!topLevel.length && !replies.length) return '<p style="color:var(--text-tertiary);text-align:center;padding:16px">No comments yet</p>';
-    return topLevel.map(c => {
-      const cReplies = replyMap[c.id] || [];
-      return `
-        <div class="comment-item">
+  function renderComment(c, isReply = false) {
+     const liked = (c.likes || []).includes(state.user.uid);
+     const cReplies = replyMap[c.id] || [];
+     
+     return `
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}">
+        <div class="comment-avatar-col">
           ${avatar(c.authorName, c.authorPhoto, 'avatar-sm')}
-          <div class="comment-bubble">
-            <div class="comment-author" onclick="openProfile('${c.authorId}')">${esc(c.authorName)}</div>
-            <div class="comment-text">${esc(c.text)}</div>
-            <div class="comment-footer">
-              <span class="comment-time">${timeAgo(c.createdAt)}</span>
-              <button class="comment-reply-btn" onclick="setCommentReply('${c.id}','${esc(c.authorName)}')">Reply</button>
-            </div>
-          </div>
         </div>
-        ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => `
-          <div class="comment-item">
-            ${avatar(r.authorName, r.authorPhoto, 'avatar-sm')}
-            <div class="comment-bubble">
-              <div class="comment-author" onclick="openProfile('${r.authorId}')">${esc(r.authorName)}</div>
-              <div class="comment-text">${esc(r.text)}</div>
-              <div class="comment-footer">
-                <span class="comment-time">${timeAgo(r.createdAt)}</span>
-                <button class="comment-reply-btn" onclick="setCommentReply('${c.id}','${esc(r.authorName)}')">Reply</button>
+        <div class="comment-content-col">
+           <div class="comment-bubble enhanced">
+              <div class="comment-header">
+                  <span class="comment-author" onclick="openProfile('${c.authorId}')">${esc(c.authorName)}</span>
               </div>
-            </div>
-          </div>
-        `).join('')}</div>` : ''}
-      `;
-    }).join('');
+              <div class="comment-text">${esc(c.text)}</div>
+           </div>
+           <div class="comment-actions-row">
+               <span class="comment-time">${timeAgo(c.createdAt)}</span>
+               <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
+                  ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
+               </button>
+               <button class="c-act" onclick="setCommentReply('${c.replyTo || c.id}','${esc(c.authorName)}')">Reply</button>
+           </div>
+           ${cReplies.length ? `<div class="comment-replies">
+               ${cReplies.map(r => renderComment(r, true)).join('')}
+           </div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function renderCommentTree() {
+    if (!comments.length) return '<p class="empty-msg" style="text-align:center;padding:20px;color:var(--text-tertiary)">No comments. be the first.</p>';
+    return topLevel.map(c => renderComment(c)).join('');
   }
 
   openModal(`
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body" style="display:flex;flex-direction:column;max-height:60vh;padding:0">
-      <div id="comments-container" style="flex:1;overflow-y:auto;padding:16px">
+    <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:70vh;padding:0">
+      <div id="comments-container" class="comments-scroll" style="flex:1;overflow-y:auto;padding:16px">
         ${renderCommentTree()}
       </div>
       <div id="comment-reply-indicator" class="reply-indicator" style="display:none">
@@ -1267,12 +1298,11 @@ async function openComments(postId) {
         <button onclick="clearCommentReply()">&times;</button>
       </div>
       <div class="comment-input-wrap" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
-        <input type="text" id="comment-input" placeholder="Write a comment...">
+        <input type="text" id="comment-input" placeholder="Write a comment..." autocomplete="off">
         <button onclick="postComment('${postId}')">Post</button>
       </div>
     </div>
   `);
-  const cc = $('#comments-container'); if (cc) cc.scrollTop = cc.scrollHeight;
 }
 
 function setCommentReply(commentId, authorName) {
@@ -1302,6 +1332,10 @@ async function postComment(postId) {
       createdAt: FieldVal.serverTimestamp()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
+    
+    const pDoc = await db.collection('posts').doc(postId).get();
+    if (pDoc.exists) addNotification(pDoc.data().authorId, 'comment', 'commented on your post', { postId });
+
     // Reopen to show the new comment
     openComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
@@ -2665,32 +2699,47 @@ async function unfriend(targetUid) {
 //  NOTIFICATIONS — Friend request accept/reject
 // ══════════════════════════════════════════════════
 let notifUnsub = null;
+let generalNotifUnsub = null;
+let _notifications = [];
 
 function listenForNotifications() {
   if (notifUnsub) notifUnsub();
+  if (generalNotifUnsub) generalNotifUnsub();
+
   notifUnsub = db.collection('users').doc(state.user.uid).onSnapshot(doc => {
     if (!doc.exists) return;
     const data = doc.data();
-    // Sync local profile in real-time
     state.profile.friends = data.friends || [];
     state.profile.friendRequests = data.friendRequests || [];
     state.profile.sentRequests = data.sentRequests || [];
-    // Update badge
-    const requests = data.friendRequests || [];
-    const dot = $('#notif-dot');
-    if (dot) dot.style.display = requests.length > 0 ? 'block' : 'none';
-    // Auto-refresh dropdown if open
+    updateNotifBadge();
     const dd = $('#notif-dropdown');
-    if (dd && dd.style.display === 'block') {
-      loadNotifications();
-    }
+    if (dd && dd.style.display === 'block') loadNotifications();
   });
+
+  generalNotifUnsub = db.collection('users').doc(state.user.uid).collection('notifications')
+    .orderBy('createdAt', 'desc').limit(20)
+    .onSnapshot(snap => {
+      _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      updateNotifBadge();
+      const dd = $('#notif-dropdown');
+      if (dd && dd.style.display === 'block') loadNotifications();
+    });
+}
+
+function updateNotifBadge() {
+  const requests = state.profile.friendRequests || [];
+  const unreadCount = _notifications.filter(n => !n.read).length;
+  const dot = $('#notif-dot');
+  if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0) ? 'block' : 'none';
 }
 
 function loadNotifications() {
   const dd = $('#notif-dropdown');
   const requests = state.profile.friendRequests || [];
-  if (!requests.length) {
+  const notifs = _notifications;
+
+  if (!requests.length && !notifs.length) {
     dd.innerHTML = `
       <div class="notif-header"><h3>Notifications</h3></div>
       <div style="padding:32px;text-align:center;color:var(--text-tertiary)">
@@ -2699,9 +2748,12 @@ function loadNotifications() {
       </div>`;
     return;
   }
-  dd.innerHTML = `
-    <div class="notif-header"><h3>Friend Requests</h3><span style="background:var(--accent);color:#fff;padding:2px 8px;border-radius:100px;font-size:12px;font-weight:700">${requests.length}</span></div>
-    ${requests.map(r => `
+
+  let html = '<div class="notif-header"><h3>Notifications</h3></div><div class="notif-scroll" style="max-height:400px;overflow-y:auto">';
+
+  if (requests.length) {
+    html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Friend Requests</div>`;
+    html += requests.map(r => `
       <div class="notif-item unread">
         ${avatar(r.name, r.photo, 'avatar-md')}
         <div class="notif-content">
@@ -2711,9 +2763,49 @@ function loadNotifications() {
             <button class="btn-outline btn-sm" onclick="event.stopPropagation();rejectFriendRequest('${r.uid}')">Decline</button>
           </div>
         </div>
-      </div>
-    `).join('')}
-  `;
+      </div>`).join('');
+  }
+
+  if (notifs.length) {
+    if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
+    html += notifs.map(n => {
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : '🔔';
+      return `
+       <div class="notif-item ${n.read ? '' : 'unread'}" ${n.payload?.postId ? `onclick="viewPost('${n.payload.postId}');markNotifRead('${n.id}')"` : ''}>
+         <div style="position:relative">
+           ${avatar(n.from.name, n.from.photo, 'avatar-md')}
+           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">${icon}</div>
+         </div>
+         <div class="notif-content">
+           <div class="notif-text"><strong>${esc(n.from.name)}</strong> ${esc(n.text)}</div>
+           <div class="notif-time">${timeAgo(n.createdAt)}</div>
+         </div>
+       </div>`;
+    }).join('');
+  }
+
+  html += '</div>';
+  dd.innerHTML = html;
+}
+
+async function markNotifRead(nid) {
+  try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
+}
+
+async function addNotification(targetId, type, text, payload) {
+  if (targetId === state.user.uid) return;
+  try {
+    await db.collection('users').doc(targetId).collection('notifications').add({
+      type, text, payload, read: false, createdAt: FieldVal.serverTimestamp(),
+      from: { uid: state.user.uid, name: state.profile.displayName, photo: state.profile.photoURL || null }
+    });
+  } catch (e) { console.error(e); }
+}
+
+async function viewPost(pid) {
+  // If we have openComments logic, verify if we can open it directly.
+  // Ideally, show post logic. For now, openComments is a good approximation for interaction.
+  openComments(pid);
 }
 
 // ─── DM List ─────────────────────────────────────
@@ -2915,6 +3007,14 @@ async function openProfile(uid) {
       const pSnap = await db.collection('posts').where('authorId', '==', uid).limit(20).get();
       posts = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       posts.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+      // Filter logic: If not me and not friend, hide friends-only posts
+      if (uid !== state.user.uid) {
+        const isFriend = (state.profile.friends || []).includes(uid);
+        if (!isFriend) {
+          posts = posts.filter(p => p.visibility !== 'friends');
+        }
+      }
     } catch (e) { console.error('Posts', e); }
 
     const isMe = uid === state.user.uid;
@@ -3009,6 +3109,14 @@ function renderProfilePosts(posts, user) {
     }
     return `
     <div class="post-card">
+      ${p.repostOf ? `<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+         Reposted
+       </div>` : ''}
+      ${p.repostOf ? `<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+         Reposted
+       </div>` : ''}
       <div class="post-header">
         ${avatar(user.displayName, user.photoURL, 'avatar-md')}
         <div class="post-header-info">
@@ -3025,6 +3133,7 @@ function renderProfilePosts(posts, user) {
       <div class="post-actions">
         <button class="post-action ${(p.likes||[]).includes(state.user.uid)?'liked':''}" onclick="toggleLike('${p.id}')">❤ ${(p.likes||[]).length||'Like'}</button>
         <button class="post-action" onclick="openComments('${p.id}')">💬 ${p.commentsCount||'Comment'}</button>
+        <button class="post-action" onclick="openShareModal('${p.id}')">↗ Share</button>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -3197,6 +3306,113 @@ function closeModal() {
   $('#modal-inner').innerHTML = '';
 }
 
+// ─── Share System ────────────────────────────────
+async function openShareModal(postId) {
+  openModal(`
+    <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="repost('${postId}')">🔄 Repost to Feed</button>
+       <div style="height:1px;background:var(--border);margin:16px 0"></div>
+       <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
+       <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+          <div class="inline-spinner" style="margin:20px auto"></div>
+       </div>
+    </div>
+  `);
+  
+  const friends = state.profile.friends || [];
+  const list = $('#share-friends-list');
+  if(!friends.length) {
+     list.innerHTML = '<p style="color:var(--text-tertiary);text-align:center">Add friends to share directly.</p>';
+     return;
+  }
+  
+  try {
+     const chunks = [];
+     for(let i=0; i<friends.length; i+=10) {
+        const batch = friends.slice(i, i+10);
+        if(batch.length) {
+           const s = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
+           chunks.push(...s.docs.map(d=>({id:d.id, ...d.data()})));
+        }
+     }
+     list.innerHTML = chunks.map(f => `
+       <div class="share-friend-item" onclick="shareToFriend('${f.id}','${esc(f.displayName)}','${postId}')" style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:12px;cursor:pointer;transition:background 0.2s">
+          ${avatar(f.displayName, f.photoURL, 'avatar-sm')}
+          <div style="flex:1;display:flex;flex-direction:column">
+             <span style="font-weight:600;font-size:14px">${esc(f.displayName)}</span>
+             <span style="font-size:12px;color:var(--text-secondary)">${esc(f.university||'Student')}</span>
+          </div>
+          <button class="btn-sm btn-secondary" style="pointer-events:none">Send</button>
+       </div>
+     `).join('');
+     $$('.share-friend-item').forEach(el => {
+        el.onmouseenter = () => el.style.background = 'var(--bg-secondary)';
+        el.onmouseleave = () => el.style.background = 'transparent';
+     });
+  } catch(e) { console.error(e); list.innerHTML='Error loading friends'; }
+}
+
+async function shareToFriend(uid, name, postId) {
+   try {
+     const myId = state.user.uid;
+     const snap = await db.collection('conversations').where('participants','array-contains',myId).get();
+     let convo = snap.docs.find(d => d.data().participants.includes(uid));
+     
+     if(!convo) {
+         const ref = await db.collection('conversations').add({
+             participants: [myId, uid],
+             participantNames: [state.profile.displayName, name],
+             participantPhotos: [state.profile.photoURL||null, null],
+             updatedAt: FieldVal.serverTimestamp(),
+             lastMessage: 'Shared a post',
+             unread: { [uid]: 1, [myId]: 0 }
+         });
+         convo = { id: ref.id };
+     } else {
+         await db.collection('conversations').doc(convo.id).update({
+             lastMessage: 'Shared a post',
+             updatedAt: FieldVal.serverTimestamp(),
+             [`unread.${uid}`]: FieldVal.increment(1)
+         });
+     }
+     
+     await db.collection('conversations').doc(convo.id).collection('messages').add({
+         text: `shared post::${postId}`, 
+         type: 'share_post',
+         payload: { postId },
+         senderId: myId,
+         timestamp: FieldVal.serverTimestamp()
+     });
+     
+     toast(`Sent to ${name}`);
+     closeModal();
+   } catch(e) { console.error(e); toast('Failed to send'); }
+}
+
+async function repost(postId) {
+   try {
+      const origRef = await db.collection('posts').doc(postId).get();
+      if(!origRef.exists) return;
+      const orig = origRef.data();
+      
+      await db.collection('posts').add({
+          authorId: state.user.uid,
+          authorUni: state.profile.university || '',
+          content: '', 
+          repostOf: {
+              id: postId,
+              authorId: orig.authorId
+          },
+          createdAt: FieldVal.serverTimestamp(),
+          likes: [], commentsCount: 0, visibility: 'public'
+      });
+      toast('Reposted!');
+      closeModal();
+      navigate('feed');
+   } catch(e) { console.error(e); }
+}
+
 // ══════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════
@@ -3242,6 +3458,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
-    startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer, reelNav
+    startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer, reelNav,
+    toggleCommentLike, openShareModal, repost, shareToFriend, viewPost, markNotifRead
   });
 });
