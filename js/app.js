@@ -46,6 +46,24 @@ function timeAgo(ts) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function chatTime(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function dateSeparatorLabel(ts) {
+  if (!ts) return null;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.floor((today - msgDay) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
 // ─── Custom Voice Note Player ────────────────────
@@ -56,7 +74,7 @@ function renderVoiceMsg(audioURL) {
   const id = `vn-${++_vnCounter}`;
   return `<div class="vn-player" id="${id}" data-src="${audioURL}">
     <button class="vn-play-btn" onclick="toggleVN('${id}')">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
     </button>
     <div class="vn-track" onclick="seekVN(event,'${id}')">
       <div class="vn-bar-bg"></div>
@@ -76,7 +94,7 @@ function toggleVN(id) {
     if (k !== id && !_vnAudios[k].paused) {
       _vnAudios[k].pause();
       const o = document.getElementById(k);
-      if (o) { o.querySelector('.vn-play-btn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>'; o.classList.remove('playing'); }
+      if (o) { o.querySelector('.vn-play-btn').innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>'; o.classList.remove('playing'); }
     }
   });
   if (!_vnAudios[id]) {
@@ -96,7 +114,7 @@ function toggleVN(id) {
     });
     audio.addEventListener('ended', () => {
       el.classList.remove('playing');
-      el.querySelector('.vn-play-btn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+      el.querySelector('.vn-play-btn').innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
       el.querySelector('.vn-progress').style.width = '0%';
       el.querySelector('.vn-dot').style.left = '0%';
       if (audio.duration && isFinite(audio.duration)) el.querySelector('.vn-time').textContent = fmtDur(audio.duration);
@@ -107,11 +125,11 @@ function toggleVN(id) {
   if (audio.paused) {
     audio.play();
     el.classList.add('playing');
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>';
   } else {
     audio.pause();
     el.classList.remove('playing');
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
   }
 }
 
@@ -638,6 +656,7 @@ function initAuth() {
     const uni = $('#s-uni').value, major = $('#s-major').value, year = $('#s-year')?.value || '';
     const modulesRaw = $('#s-modules')?.value || '';
     const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+    const address = $('#s-address')?.value.trim() || '';
     if (!fname || !lname || !email || !pass || !uni || !major) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
@@ -647,7 +666,7 @@ function initAuth() {
       const displayName = `${fname} ${lname}`;
       await db.collection('users').doc(uid).set({
         displayName, firstName: fname, lastName: lname,
-        email, university: uni, major, year, modules,
+        email, university: uni, major, year, modules, address,
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online',
         joinedAt: FieldVal.serverTimestamp(), friends: []
@@ -694,6 +713,34 @@ function friendlyErr(code) {
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); navigate('feed');
   listenForNotifications();
+  listenForUnreadDMs();
+}
+
+let _unreadDMSub = null;
+function listenForUnreadDMs() {
+  if (_unreadDMSub) _unreadDMSub();
+  _unreadDMSub = db.collection('conversations')
+    .where('participants', 'array-contains', state.user.uid)
+    .onSnapshot(snap => {
+      const uid = state.user.uid;
+      let total = 0;
+      snap.docs.forEach(d => { total += (d.data().unread || {})[uid] || 0; });
+      const badge = document.getElementById('chat-badge');
+      if (badge) {
+        badge.textContent = total || '';
+        badge.style.display = total ? 'flex' : 'none';
+      }
+    }, () => {});
+}
+
+function _updateDMTabBadge() {
+  db.collection('conversations').where('participants', 'array-contains', state.user.uid).get().then(snap => {
+    const uid = state.user.uid;
+    let total = 0;
+    snap.docs.forEach(d => { total += (d.data().unread || {})[uid] || 0; });
+    const b = document.getElementById('dm-tab-badge');
+    if (b) { b.textContent = total || ''; b.style.display = total ? 'inline-flex' : 'none'; }
+  }).catch(() => {});
 }
 
 function setupHeader() {
@@ -1330,7 +1377,7 @@ function renderReelsUI() {
               <svg width="28" height="28" viewBox="0 0 24 24" fill="${liked ? '#ff4757' : 'none'}" stroke="${liked ? '#ff4757' : '#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <span>${lc || ''}</span>
             </button>
-            <button class="reel-act-btn" onclick="closeReelsViewer();openComments('${p.id}')">
+            <button class="reel-act-btn" onclick="openReelComments('${p.id}')">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               <span>${cc || ''}</span>
             </button>
@@ -1384,6 +1431,74 @@ function closeReelsViewer() {
     el.querySelectorAll('video').forEach(v => v.pause());
     el.remove();
   }
+}
+
+// ─── Inline Reel Comments ────────────────────────
+async function openReelComments(postId) {
+  // Pause current reel
+  const currentSlide = document.querySelector('.reel-slide video[src]');
+  document.querySelectorAll('.reel-video').forEach(v => v.pause());
+
+  const existing = document.getElementById('reel-comments-panel');
+  if (existing) existing.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'reel-comments-panel';
+  panel.className = 'reel-comments-panel';
+  panel.onclick = e => e.stopPropagation();
+  panel.innerHTML = `
+    <div class="reel-comments-header">
+      <h3>Comments</h3>
+      <button class="icon-btn" onclick="document.getElementById('reel-comments-panel')?.remove()">✕</button>
+    </div>
+    <div class="reel-comments-list" id="reel-comments-list"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
+    <div class="reel-comments-input">
+      <input type="text" id="reel-comment-input" placeholder="Add a comment…" autocomplete="off">
+      <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+    </div>
+  `;
+  document.getElementById('reels-viewer')?.appendChild(panel);
+  document.getElementById('reel-comment-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') postReelComment(postId); });
+
+  // Load comments
+  try {
+    const snap = await db.collection('posts').doc(postId).collection('comments').orderBy('createdAt', 'asc').limit(50).get();
+    const list = document.getElementById('reel-comments-list');
+    if (!list) return;
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!comments.length) {
+      list.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.5);font-size:13px">No comments yet</div>';
+    } else {
+      list.innerHTML = comments.map(c => `
+        <div class="reel-comment-item">
+          ${avatar(c.authorName, c.authorPhoto, 'avatar-xs')}
+          <div>
+            <span style="font-weight:600;font-size:12px">${esc(c.authorName)}</span>
+            <span style="font-size:13px;margin-left:4px">${esc(c.text)}</span>
+            <div style="font-size:11px;opacity:0.5;margin-top:2px">${timeAgo(c.createdAt)}</div>
+          </div>
+        </div>
+      `).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function postReelComment(postId) {
+  const input = document.getElementById('reel-comment-input');
+  const text = input?.value.trim();
+  if (!text) return;
+  input.value = '';
+  try {
+    await db.collection('posts').doc(postId).collection('comments').add({
+      text, authorId: state.user.uid,
+      authorName: state.profile.displayName,
+      authorPhoto: state.profile.photoURL || null,
+      createdAt: FieldVal.serverTimestamp()
+    });
+    await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
+    openReelComments(postId); // refresh
+  } catch (e) { console.error(e); toast('Failed'); }
 }
 
 async function reelLike(pid, btn) {
@@ -1922,18 +2037,18 @@ function renderExploreGrid(query = '', filter = 'all') {
 //  CAMPUS MAP — Events & Locations on visual map
 // ══════════════════════════════════════════════════
 const CAMPUS_LOCATIONS = [
-  { id: 'library', name: 'Library', emoji: '📚', x: 30, y: 20 },
-  { id: 'main-hall', name: 'Main Hall', emoji: '🏛', x: 50, y: 15 },
-  { id: 'student-center', name: 'Student Center', emoji: '☕', x: 70, y: 25 },
-  { id: 'cs-building', name: 'CS Building', emoji: '💻', x: 20, y: 50 },
-  { id: 'sports-complex', name: 'Sports Complex', emoji: '⚽', x: 80, y: 50 },
-  { id: 'amphitheatre', name: 'Amphitheatre', emoji: '🎭', x: 45, y: 45 },
-  { id: 'quad', name: 'The Quad', emoji: '🌳', x: 55, y: 60 },
-  { id: 'cafeteria', name: 'Cafeteria', emoji: '🍕', x: 35, y: 70 },
-  { id: 'res-halls', name: 'Res Halls', emoji: '🏠', x: 75, y: 75 },
-  { id: 'lab-block', name: 'Lab Block', emoji: '🔬', x: 15, y: 35 },
-  { id: 'admin', name: 'Admin Block', emoji: '🏢', x: 60, y: 35 },
-  { id: 'parking', name: 'Parking', emoji: '🅿️', x: 90, y: 85 },
+  { id: 'library', name: 'Library', emoji: '📚', x: 30, y: 20, lat: -26.6820, lng: 27.0929 },
+  { id: 'main-hall', name: 'Main Hall', emoji: '🏛', x: 50, y: 15, lat: -26.6825, lng: 27.0945 },
+  { id: 'student-center', name: 'Student Center', emoji: '☕', x: 70, y: 25, lat: -26.6830, lng: 27.0960 },
+  { id: 'cs-building', name: 'CS Building', emoji: '💻', x: 20, y: 50, lat: -26.6840, lng: 27.0920 },
+  { id: 'sports-complex', name: 'Sports Complex', emoji: '⚽', x: 80, y: 50, lat: -26.6850, lng: 27.0975 },
+  { id: 'amphitheatre', name: 'Amphitheatre', emoji: '🎭', x: 45, y: 45, lat: -26.6838, lng: 27.0940 },
+  { id: 'quad', name: 'The Quad', emoji: '🌳', x: 55, y: 60, lat: -26.6845, lng: 27.0950 },
+  { id: 'cafeteria', name: 'Cafeteria', emoji: '🍕', x: 35, y: 70, lat: -26.6855, lng: 27.0935 },
+  { id: 'res-halls', name: 'Res Halls', emoji: '🏠', x: 75, y: 75, lat: -26.6860, lng: 27.0965 },
+  { id: 'lab-block', name: 'Lab Block', emoji: '🔬', x: 15, y: 35, lat: -26.6833, lng: 27.0915 },
+  { id: 'admin', name: 'Admin Block', emoji: '🏢', x: 60, y: 35, lat: -26.6828, lng: 27.0955 },
+  { id: 'parking', name: 'Parking', emoji: '🅿️', x: 90, y: 85, lat: -26.6868, lng: 27.0985 },
 ];
 
 let allCampusEvents = [];
@@ -1956,6 +2071,8 @@ async function loadCampusEvents() {
   }
 }
 
+let _leafletMap = null;
+
 function renderCampusMapView() {
   const body = $('#explore-body'); if (!body) return;
 
@@ -1971,20 +2088,7 @@ function renderCampusMapView() {
         <h3>NWU Campus Map</h3>
         <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
-      <div class="campus-map">
-        ${CAMPUS_LOCATIONS.map(loc => {
-          const evts = eventsByLoc[loc.id] || [];
-          const hasEvents = evts.length > 0;
-          return `
-            <div class="campus-pin ${hasEvents ? 'has-events pulse' : ''}"
-                 style="left:${loc.x}%;top:${loc.y}%"
-                 onclick="openLocationDetail('${loc.id}')">
-              <div class="campus-pin-icon">${loc.emoji}</div>
-              ${hasEvents ? `<span class="campus-pin-badge">${evts.length}</span>` : ''}
-              <div class="campus-pin-label">${loc.name}</div>
-            </div>`;
-        }).join('')}
-      </div>
+      <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
 
       <div class="campus-events-section">
         <div class="campus-events-header">
@@ -2014,6 +2118,60 @@ function renderCampusMapView() {
       </div>
     </div>
   `;
+
+  // Init Leaflet map
+  requestAnimationFrame(() => initLeafletMap(eventsByLoc));
+}
+
+function initLeafletMap(eventsByLoc) {
+  const el = document.getElementById('leaflet-map');
+  if (!el || typeof L === 'undefined') return;
+
+  if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+
+  // NWU Potchefstroom campus center
+  _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
+  L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19
+  }).addTo(_leafletMap);
+
+  // Campus location pins
+  CAMPUS_LOCATIONS.forEach(loc => {
+    const evts = eventsByLoc[loc.id] || [];
+    const hasEvents = evts.length > 0;
+    const icon = L.divIcon({
+      className: 'leaflet-emoji-pin',
+      html: `<div class="map-pin-wrap ${hasEvents ? 'has-events' : ''}">
+        <span class="map-pin-emoji">${loc.emoji}</span>
+        ${hasEvents ? `<span class="map-pin-count">${evts.length}</span>` : ''}
+      </div>`,
+      iconSize: [36, 36],
+      iconAnchor: [18, 36]
+    });
+    const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap);
+    marker.bindPopup(`<b>${loc.emoji} ${loc.name}</b>${hasEvents ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`);
+    marker.on('click', () => openLocationDetail(loc.id));
+  });
+
+  // User pins - show friends on map
+  allExploreUsers.forEach(u => {
+    if (!u.lat || !u.lng) return;
+    const userIcon = L.divIcon({
+      className: 'leaflet-user-pin',
+      html: `<div class="map-user-pin">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+    const m = L.marker([u.lat, u.lng], { icon: userIcon }).addTo(_leafletMap);
+    m.bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>`);
+    m.on('click', () => openProfile(u.id));
+  });
+
+  // Invalidate size after animation
+  setTimeout(() => _leafletMap?.invalidateSize(), 300);
 }
 
 function openLocationDetail(locationId) {
@@ -2239,6 +2397,9 @@ function openSellModal() {
 function openProductDetail(itemId) {
   const item = (window._hustleItems || {})[itemId];
   if (!item) return toast('Product not found');
+  const isSelf = item.sellerId === state.user.uid;
+  const isFriend = (state.profile.friends || []).includes(item.sellerId);
+
   openModal(`
     <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
@@ -2258,16 +2419,96 @@ function openProductDetail(itemId) {
         <span>📅 ${timeAgo(item.createdAt)}</span>
       </div>
       <div style="display:flex;gap:12px;margin-top:16px">
-        <button class="btn-primary" style="flex:1" onclick="closeModal();${(state.profile.friends || []).includes(item.sellerId) || item.sellerId === state.user.uid ? `startChat('${item.sellerId}','${esc(item.sellerName)}','')` : `sendFriendRequest('${item.sellerId}','${esc(item.sellerName)}','');toast('Add seller as friend first')`}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          ${(state.profile.friends || []).includes(item.sellerId) ? 'Contact Seller' : 'Add Seller First'}
-        </button>
+        ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
+          `<button class="btn-primary" style="flex:1" id="hustle-buy-btn" onclick="hustleBuyInterest('${itemId}')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            I'm Interested
+          </button>`}
         <button class="btn-outline" style="flex:1" onclick="closeModal();openProfile('${item.sellerId}')">
           View Profile
         </button>
       </div>
     </div>
   `);
+}
+
+async function hustleBuyInterest(itemId) {
+  const item = (window._hustleItems || {})[itemId];
+  if (!item) return;
+  const btn = document.getElementById('hustle-buy-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px"></span> Sending…'; }
+
+  const uid = state.user.uid;
+  const sellerId = item.sellerId;
+  const sellerName = item.sellerName;
+  const isFriend = (state.profile.friends || []).includes(sellerId);
+  const interestMsg = `Hi, I'm interested in "${item.title}" (R${item.price}). Is it still available?`;
+
+  try {
+    // 1. Send friend request if not friends yet
+    if (!isFriend) {
+      await sendFriendRequest(sellerId, sellerName, '');
+    }
+
+    // 2. Find or create conversation
+    const snap = await db.collection('conversations').where('participants', 'array-contains', uid).get();
+    let convoId = null;
+    const existing = snap.docs.find(d => d.data().participants.includes(sellerId));
+    if (existing) {
+      convoId = existing.id;
+    } else {
+      const doc = await db.collection('conversations').add({
+        participants: [uid, sellerId],
+        participantNames: [state.profile.displayName, sellerName],
+        participantPhotos: [state.profile.photoURL || null, ''],
+        lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
+        unread: { [sellerId]: 0, [uid]: 0 }
+      });
+      convoId = doc.id;
+    }
+
+    // 3. Send the interest message automatically
+    await db.collection('conversations').doc(convoId).collection('messages').add({
+      text: interestMsg,
+      senderId: uid,
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent',
+      type: 'hustle_interest',
+      payload: { itemId, title: item.title, price: item.price, imageURL: item.imageURL || null }
+    });
+    await db.collection('conversations').doc(convoId).set({
+      lastMessage: interestMsg,
+      updatedAt: FieldVal.serverTimestamp(),
+      unread: { [sellerId]: FieldVal.increment(1), [uid]: 0 }
+    }, { merge: true });
+
+    // 4. Send notification to seller
+    await db.collection('users').doc(sellerId).collection('notifications').add({
+      type: 'hustle_interest',
+      fromUid: uid,
+      fromName: state.profile.displayName,
+      fromPhoto: state.profile.photoURL || null,
+      itemTitle: item.title,
+      itemPrice: item.price,
+      message: `${state.profile.displayName} is interested in your listing "${item.title}"`,
+      read: false,
+      createdAt: FieldVal.serverTimestamp()
+    });
+
+    closeModal();
+    toast('Interest sent to seller!');
+
+    // Open the chat if friends, otherwise inform
+    if (isFriend) {
+      openChat(convoId);
+    } else {
+      toast('Friend request sent — chat will unlock when accepted');
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Failed to send interest');
+    if (btn) { btn.disabled = false; btn.textContent = "I'm Interested"; }
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -2416,7 +2657,7 @@ function renderMessages() {
     <div class="messages-page">
       <div class="messages-header"><h2>Messages</h2></div>
       <div class="msg-tabs">
-        <button class="msg-tab active" data-mt="dm">Direct</button>
+        <button class="msg-tab active" data-mt="dm">Direct <span class="tab-badge" id="dm-tab-badge"></span></button>
         <button class="msg-tab" data-mt="groups">Groups</button>
         <button class="msg-tab" data-mt="assignments">Assignments</button>
       </div>
@@ -2427,6 +2668,8 @@ function renderMessages() {
       </div>
     </div>
   `;
+  // Compute DM unread count for the tab badge
+  _updateDMTabBadge();
   $$('.msg-tab').forEach(tab => {
     tab.onclick = () => {
       $$('.msg-tab').forEach(t => t.classList.remove('active'));
@@ -3212,6 +3455,7 @@ async function openChat(convoId) {
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Say hi! 👋</div>';
         } else {
+          let lastDateLabel = '';
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
@@ -3239,13 +3483,37 @@ async function openChat(convoId) {
               </div>`;
             }
             const ts = m.createdAt || m.timestamp;
-            return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+
+            // Date separator
+            let dateSep = '';
+            const curLabel = dateSeparatorLabel(ts);
+            if (curLabel && curLabel !== lastDateLabel) {
+              lastDateLabel = curLabel;
+              dateSep = `<div class="chat-date-sep"><span>${curLabel}</span></div>`;
+            }
+
+            // Delivery status for sent messages
+            let statusIcon = '';
+            if (isMe) {
+              const st = m.status || 'sent';
+              if (st === 'read') statusIcon = '<span class="msg-status read" title="Read">✓✓</span>';
+              else if (st === 'delivered') statusIcon = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
+              else statusIcon = '<span class="msg-status sent" title="Sent">✓</span>';
+            }
+
+            return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(name, photo, 'avatar-xs')}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${ts ? timeAgo(ts) : ''}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
           msgs.scrollTop = msgs.scrollHeight;
         }
+
+        // Mark incoming as read
+        const incoming = messages.filter(m => m.senderId !== uid && m.status !== 'read');
+        incoming.forEach(m => {
+          db.collection('conversations').doc(convoId).collection('messages').doc(m.id).update({ status: 'read' }).catch(() => {});
+        });
       });
 
     // Send message + image
@@ -3273,7 +3541,7 @@ async function openChat(convoId) {
         }
         await db.collection('conversations').doc(convoId).collection('messages').add({
           text: text || '', imageURL: imageURL || null, audioURL: audioURL || null,
-          senderId: uid, createdAt: FieldVal.serverTimestamp()
+          senderId: uid, createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
         const otherUid = convo.participants.find(p => p !== uid);
         const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
@@ -3367,6 +3635,7 @@ async function openProfile(uid) {
 
     const isMe = uid === state.user.uid;
     const modules = user.modules || [];
+    const friendCount = (user.friends || []).length;
 
     // KEY FIX: avatar-wrap is INSIDE profile-cover so position:absolute works relative to cover
     body.innerHTML = `
@@ -3375,19 +3644,22 @@ async function openProfile(uid) {
           <div class="profile-avatar-large">
             ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(user.displayName)}
           </div>
+          ${user.status === 'online' ? '<div class="avatar-online-dot"></div>' : ''}
         </div>
       </div>
 
       <div class="profile-info">
         <div class="profile-name">${esc(user.displayName)}</div>
-        <div class="profile-handle">${esc(user.major || '')} · ${esc(user.university || '')}</div>
-        ${user.year ? `<div class="profile-badges"><span class="profile-badge">🎓 ${esc(user.year)}</span></div>` : ''}
+        <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
+        <div class="profile-badges">
+          ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
+          ${user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
+        </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
-          <div class="profile-stat"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></div>
+          <div class="profile-stat"><div class="stat-num">${friendCount}</div><div class="stat-label">Friends</div></div>
           ${modules.length ? `<div class="profile-stat"><div class="stat-num">${modules.length}</div><div class="stat-label">Modules</div></div>` : ''}
         </div>
 
@@ -3525,7 +3797,13 @@ async function deletePost(postId) {
   try {
     await db.collection('posts').doc(postId).delete();
     toast('Post deleted');
-    openProfile(state.user.uid);
+    // Remove from DOM instead of navigating away
+    const el = document.getElementById(`post-${postId}`);
+    if (el) el.remove();
+    // If on profile, refresh it in place
+    if (document.getElementById('profile-view')?.classList.contains('active')) {
+      openProfile(state.user.uid);
+    }
   } catch (e) { toast('Failed to delete'); console.error(e); }
 }
 
@@ -3536,6 +3814,7 @@ function renderProfileAbout(user) {
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
+      ${user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
     </div>`;
@@ -3567,6 +3846,7 @@ function editProfile() {
     <div class="modal-body">
       <div class="form-group"><label>Display Name</label><input type="text" id="edit-name" value="${esc(p.displayName)}"></div>
       <div class="form-group"><label>Bio</label><textarea id="edit-bio">${esc(p.bio || '')}</textarea></div>
+      <div class="form-group"><label>Location / Res</label><input type="text" id="edit-address" value="${esc(p.address || '')}" placeholder="e.g. Potch Main Campus"></div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
@@ -3579,11 +3859,12 @@ function editProfile() {
   $('#edit-save').onclick = async () => {
     const name = $('#edit-name').value.trim();
     const bio = $('#edit-bio').value.trim();
+    const address = $('#edit-address')?.value.trim() || '';
     const modulesRaw = $('#edit-modules').value || '';
     const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
-    const updates = { displayName: name, bio, modules };
+    const updates = { displayName: name, bio, modules, address };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);

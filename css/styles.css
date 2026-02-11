@@ -1631,11 +1631,39 @@ input, select, textarea, button {
   font-size: 10px;
   opacity: 0.7;
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .msg-sent .msg-time {
-  text-align: right;
+  justify-content: flex-end;
 }
+
+/* ─── Chat Date Separators ───────────── */
+.chat-date-sep {
+  text-align: center;
+  margin: 14px 0 8px;
+}
+.chat-date-sep span {
+  background: var(--bg-tertiary, rgba(128,128,128,0.15));
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: 10px;
+}
+
+/* ─── Message Delivery Status ───────────── */
+.msg-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+.msg-status.sent { color: rgba(255,255,255,0.4); }
+.msg-status.delivered { color: rgba(255,255,255,0.6); }
+.msg-status.read { color: #34D399; }
 
 .msg-image {
   max-width: 240px;
@@ -1815,21 +1843,30 @@ input, select, textarea, button {
 }
 
 .profile-cover {
-  height: 140px;
+  height: 160px;
   background: var(--gradient);
   position: relative;
+  overflow: hidden;
+}
+.profile-cover::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--bg-primary));
 }
 
 .profile-avatar-wrap {
   position: absolute;
-  bottom: -44px;
+  bottom: -48px;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 2;
 }
 
 .profile-avatar-large {
-  width: 96px;
-  height: 96px;
+  width: 100px;
+  height: 100px;
   border-radius: var(--radius-full);
   border: 4px solid var(--bg-primary);
   overflow: hidden;
@@ -1839,7 +1876,8 @@ input, select, textarea, button {
   justify-content: center;
   color: #fff;
   font-weight: 800;
-  font-size: 32px;
+  font-size: 34px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
 
 .profile-avatar-large img {
@@ -1847,39 +1885,49 @@ input, select, textarea, button {
   height: 100%;
   object-fit: cover;
 }
+.avatar-online-dot {
+  position: absolute;
+  bottom: 6px; right: 6px;
+  width: 14px; height: 14px;
+  background: #34D399;
+  border-radius: 50%;
+  border: 3px solid var(--bg-primary);
+}
 
 .profile-info {
   text-align: center;
-  padding: 56px 20px 20px;
+  padding: 58px 20px 16px;
 }
 
 .profile-name {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
+  letter-spacing: -0.3px;
 }
 
 .profile-handle {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .profile-badges {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .profile-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
+  padding: 3px 10px;
   background: var(--accent-light);
   color: var(--accent);
   border-radius: 100px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -1887,8 +1935,19 @@ input, select, textarea, button {
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
-  margin-top: 12px;
+  margin-top: 10px;
   max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.profile-modules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 10px;
+  max-width: 340px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -1896,16 +1955,29 @@ input, select, textarea, button {
 .profile-stats {
   display: flex;
   justify-content: center;
-  gap: 32px;
-  margin-top: 20px;
-  padding: 20px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  gap: 0;
+  margin-top: 16px;
 }
 
 .profile-stat {
   text-align: center;
   cursor: pointer;
+  flex: 1;
+  padding: 14px 8px;
+  position: relative;
+  transition: background 0.15s;
+  border-radius: var(--radius);
+}
+.profile-stat:hover {
+  background: var(--bg-secondary);
+}
+
+.profile-stat:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 20%; height: 60%;
+  width: 1px;
+  background: var(--border);
 }
 
 .profile-stat:hover .stat-num {
@@ -1919,34 +1991,50 @@ input, select, textarea, button {
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .profile-actions {
   display: flex;
   justify-content: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 12px 20px 16px;
+}
+.profile-actions .btn-primary,
+.profile-actions .btn-secondary,
+.profile-actions .btn-outline {
+  flex: 1;
+  max-width: 160px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 12px;
 }
 
 .profile-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  gap: 4px;
 }
 
 .profile-tab {
   flex: 1;
-  padding: 14px;
+  padding: 12px 8px;
   background: none;
   border: none;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-secondary);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  border-bottom: 2.5px solid transparent;
   transition: all var(--transition);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .profile-tab.active {
@@ -3803,15 +3891,15 @@ input, select, textarea, button {
 .vn-player {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 4px;
-  min-width: 180px;
-  max-width: 260px;
+  gap: 8px;
+  padding: 4px 2px;
+  min-width: 150px;
+  max-width: 240px;
 }
 
 .vn-play-btn {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
@@ -3859,8 +3947,8 @@ input, select, textarea, button {
   position: absolute;
   top: 50%;
   left: 0%;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--accent);
   transform: translate(-50%, -50%);
@@ -4837,6 +4925,74 @@ input, select, textarea, button {
   50% { transform: scale(1.3); }
 }
 
+/* ─── Reel Inline Comments Panel ───────────── */
+.reel-comments-panel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  max-height: 55vh;
+  background: rgba(0,0,0,0.92);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 1200;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: slideUpPanel 0.25s ease-out;
+}
+@keyframes slideUpPanel {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.reel-comments-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.reel-comments-header h3 {
+  color: #fff; font-size: 15px; margin: 0;
+}
+.reel-comments-header .icon-btn {
+  color: rgba(255,255,255,0.7); font-size: 18px; background: none; border: none; cursor: pointer;
+}
+.reel-comments-list {
+  flex: 1; overflow-y: auto; padding: 10px 16px;
+  overscroll-behavior: contain;
+}
+.reel-comment-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin-bottom: 14px;
+}
+.reel-comment-item .avatar-xs { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+.reel-comment-item div { color: rgba(255,255,255,0.9); }
+.reel-comments-input {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid rgba(255,255,255,0.1);
+}
+.reel-comments-input input {
+  flex: 1; background: rgba(255,255,255,0.1); border: none;
+  border-radius: 20px; padding: 9px 14px; color: #fff; font-size: 14px; outline: none;
+}
+.reel-comments-input input::placeholder { color: rgba(255,255,255,0.4); }
+.reel-comments-input .send-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--accent); border: none; display: flex;
+  align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+}
+
+/* ─── Tab Badge (Messages tabs) ───────────── */
+.tab-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 9px;
+  min-width: 16px;
+  text-align: center;
+  margin-left: 4px;
+  display: none;
+}
+
 /* Reels FAB on feed */
 .reels-fab {
   position: fixed;
@@ -4857,3 +5013,51 @@ input, select, textarea, button {
   transition: transform 0.2s;
 }
 .reels-fab:active { transform: scale(0.9); }
+
+/* ─── Leaflet Map Pins ───────────── */
+.leaflet-emoji-pin { background: none !important; border: none !important; }
+.map-pin-wrap {
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.map-pin-emoji {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+.map-pin-count {
+  position: absolute; top: -4px; right: -6px;
+  background: var(--accent); color: #fff;
+  font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
+}
+.map-pin-wrap.has-events .map-pin-emoji {
+  animation: mapPulse 2s infinite;
+}
+@keyframes mapPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.leaflet-user-pin { background: none !important; border: none !important; }
+.map-user-pin {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--accent);
+  overflow: hidden; background: var(--gradient);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 9px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.map-user-pin img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+
+/* Leaflet popup overrides */
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 13px !important;
+}
+.leaflet-popup-content { margin: 10px 14px !important; }
