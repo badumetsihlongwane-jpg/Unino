@@ -48,6 +48,89 @@ function timeAgo(ts) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
+// ─── Custom Voice Note Player ────────────────────
+let _vnCounter = 0;
+const _vnAudios = {};
+
+function renderVoiceMsg(audioURL) {
+  const id = `vn-${++_vnCounter}`;
+  return `<div class="vn-player" id="${id}" data-src="${audioURL}">
+    <button class="vn-play-btn" onclick="toggleVN('${id}')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    </button>
+    <div class="vn-track" onclick="seekVN(event,'${id}')">
+      <div class="vn-bar-bg"></div>
+      <div class="vn-progress"></div>
+      <div class="vn-dot"></div>
+    </div>
+    <span class="vn-time">0:00</span>
+  </div>`;
+}
+
+function toggleVN(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const src = el.dataset.src;
+  // Pause any other playing VN
+  Object.keys(_vnAudios).forEach(k => {
+    if (k !== id && !_vnAudios[k].paused) {
+      _vnAudios[k].pause();
+      const o = document.getElementById(k);
+      if (o) { o.querySelector('.vn-play-btn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>'; o.classList.remove('playing'); }
+    }
+  });
+  if (!_vnAudios[id]) {
+    const audio = new Audio(src);
+    _vnAudios[id] = audio;
+    audio.addEventListener('loadedmetadata', () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        el.querySelector('.vn-time').textContent = fmtDur(audio.duration);
+      }
+    });
+    audio.addEventListener('timeupdate', () => {
+      if (!audio.duration) return;
+      const pct = (audio.currentTime / audio.duration) * 100;
+      el.querySelector('.vn-progress').style.width = pct + '%';
+      el.querySelector('.vn-dot').style.left = pct + '%';
+      el.querySelector('.vn-time').textContent = fmtDur(audio.duration - audio.currentTime);
+    });
+    audio.addEventListener('ended', () => {
+      el.classList.remove('playing');
+      el.querySelector('.vn-play-btn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+      el.querySelector('.vn-progress').style.width = '0%';
+      el.querySelector('.vn-dot').style.left = '0%';
+      if (audio.duration && isFinite(audio.duration)) el.querySelector('.vn-time').textContent = fmtDur(audio.duration);
+    });
+  }
+  const audio = _vnAudios[id];
+  const btn = el.querySelector('.vn-play-btn');
+  if (audio.paused) {
+    audio.play();
+    el.classList.add('playing');
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+  } else {
+    audio.pause();
+    el.classList.remove('playing');
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+  }
+}
+
+function seekVN(e, id) {
+  const el = document.getElementById(id);
+  if (!el || !_vnAudios[id]) return;
+  const track = el.querySelector('.vn-track');
+  const rect = track.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  _vnAudios[id].currentTime = pct * _vnAudios[id].duration;
+}
+
+function fmtDur(s) {
+  if (!s || !isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg;
@@ -900,74 +983,57 @@ function loadOnlineFriends(excludeIds = []) {
 }
 
 function openStoryCreator() {
-  let pendingImg = null;
   let bgColor = '#6C5CE7';
   const bgOptions = ['#6C5CE7','#A855F7','#7C3AED','#D946EF','#FF6B6B','#00BA88','#3B82F6','#FF9F43'];
+  window._storyFile = null;
+  window._storyVideoFile = null;
   openModal(`
     <div class="modal-header"><h2>Create Story</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
       <div class="story-creator">
-        <div class="story-type-tabs">
-          <button class="story-type-tab active" data-st="text">Text</button>
-          <button class="story-type-tab" data-st="photo">Photo</button>
-          <button class="story-type-tab" data-st="video">Video</button>
+        <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
+          <textarea id="story-text-input" placeholder="Type your story..." maxlength="200"></textarea>
         </div>
-        <div id="story-text-creator" class="story-type-content active">
-          <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
-            <textarea id="story-text-input" placeholder="Type your story..." maxlength="200"></textarea>
-          </div>
-          <div class="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
+        <div class="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
+        <div id="story-media-preview" style="display:none;margin-top:12px;position:relative;border-radius:var(--radius);overflow:hidden">
+          <div id="story-media-content"></div>
+          <button onclick="document.getElementById('story-media-preview').style.display='none';window._storyFile=null;window._storyVideoFile=null;document.getElementById('story-text-bg').style.display='flex'" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
         </div>
-        <div id="story-photo-creator" class="story-type-content">
-          <div id="story-photo-preview" class="story-photo-drop">
-            <label style="cursor:pointer;text-align:center">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <p style="color:var(--text-secondary);font-size:13px;margin-top:8px">Tap to add photo</p>
-              <input type="file" hidden accept="image/*" id="story-photo-file">
-            </label>
-          </div>
-          <input type="text" id="story-photo-caption" placeholder="Add a caption..." style="margin-top:12px">
-        </div>
-        <div id="story-video-creator" class="story-type-content">
-          <div id="story-video-preview" class="story-photo-drop">
-            <label style="cursor:pointer;text-align:center">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              <p style="color:var(--text-secondary);font-size:13px;margin-top:8px">Tap to add video</p>
-              <input type="file" hidden accept="video/*" id="story-video-file">
-            </label>
-          </div>
-          <input type="text" id="story-video-caption" placeholder="Add a caption..." style="margin-top:12px">
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+          <label class="story-upload-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <span>Photo / Video</span>
+            <input type="file" hidden accept="image/*,video/*" id="story-media-file">
+          </label>
         </div>
         <button class="btn-primary btn-full" id="story-submit" style="margin-top:16px">Share Story</button>
       </div>
     </div>
   `);
   window._storyBg = bgColor;
-  $$('.story-type-tab').forEach(tab => {
-    tab.onclick = () => {
-      $$('.story-type-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      $$('.story-type-content').forEach(c => c.classList.remove('active'));
-      const target = tab.dataset.st === 'text' ? '#story-text-creator' : tab.dataset.st === 'photo' ? '#story-photo-creator' : '#story-video-creator';
-      $(target)?.classList.add('active');
-    };
-  });
-  $('#story-photo-file').onchange = async e => {
-    if (e.target.files[0]) {
-      window._storyFile = e.target.files[0];
-      const prev = $('#story-photo-preview');
-      prev.innerHTML = `<img src="${localPreview(e.target.files[0])}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
+  $('#story-media-file').onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const isVideo = file.type.startsWith('video/');
+    const preview = $('#story-media-preview');
+    const content = $('#story-media-content');
+    if (isVideo) {
+      window._storyVideoFile = file;
+      window._storyFile = null;
+      content.innerHTML = `<video src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius)" controls></video>`;
+    } else {
+      window._storyFile = file;
+      window._storyVideoFile = null;
+      content.innerHTML = `<img src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius)">`;
     }
-  };
-  $('#story-video-file').onchange = async e => {
-    if (e.target.files[0]) {
-      window._storyVideoFile = e.target.files[0];
-      const prev = $('#story-video-preview');
-      prev.innerHTML = `<video src="${localPreview(e.target.files[0])}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)" controls></video>`;
-    }
+    preview.style.display = 'block';
+    // Hide text bg when media is selected
+    $('#story-text-bg').style.display = 'none';
   };
   $('#story-submit').onclick = async () => {
-    const activeTab = document.querySelector('.story-type-tab.active')?.dataset.st;
+    const text = $('#story-text-input')?.value.trim();
+    const hasMedia = window._storyFile || window._storyVideoFile;
+    if (!text && !hasMedia) return toast('Add text or media!');
     const p = state.profile;
     let storyData = {
       authorId: state.user.uid,
@@ -978,24 +1044,20 @@ function openStoryCreator() {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       viewedBy: []
     };
-    if (activeTab === 'text') {
-      const text = $('#story-text-input')?.value.trim();
-      if (!text) return toast('Type something!');
+    if (window._storyVideoFile) {
+      storyData.type = 'video';
+      storyData.caption = text || '';
+      closeModal(); toast('Uploading video story...');
+      storyData.videoURL = await uploadToR2(window._storyVideoFile, 'stories');
+    } else if (window._storyFile) {
+      storyData.type = 'photo';
+      storyData.caption = text || '';
+      closeModal(); toast('Uploading story...');
+      storyData.imageURL = await uploadToR2(window._storyFile, 'stories');
+    } else {
       storyData.type = 'text';
       storyData.text = text;
       storyData.bgColor = window._storyBg || '#6C5CE7';
-    } else if (activeTab === 'video') {
-      if (!window._storyVideoFile) return toast('Add a video!');
-      storyData.type = 'video';
-      storyData.caption = $('#story-video-caption')?.value.trim() || '';
-      closeModal(); toast('Uploading video story...');
-      storyData.videoURL = await uploadToR2(window._storyVideoFile, 'stories');
-    } else {
-      if (!window._storyFile) return toast('Add a photo!');
-      storyData.type = 'photo';
-      storyData.caption = $('#story-photo-caption')?.value.trim() || '';
-      closeModal(); toast('Uploading story...');
-      storyData.imageURL = await uploadToR2(window._storyFile, 'stories');
     }
     if (document.querySelector('.modal-overlay')) closeModal();
     toast('Posting story...');
@@ -1134,6 +1196,11 @@ function renderQuoteEmbed(rp) {
   const hasImg = rp.imageURL && rp.mediaType !== 'video';
   const hasVid = rp.videoURL || (rp.mediaType === 'video');
   const vidUrl = hasVid ? (rp.videoURL || rp.imageURL) : null;
+  let vidHtml = '';
+  if (hasVid && vidUrl) {
+    const vpd = createVideoPlayer(vidUrl);
+    vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;max-height:200px">${vpd.html}</div>`;
+  }
   return `
     <div class="quote-embed" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -1142,7 +1209,7 @@ function renderQuoteEmbed(rp) {
       </div>
       ${rp.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(rp.content)}</div>` : ''}
       ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
-      ${hasVid && vidUrl ? `<div style="position:relative;border-radius:8px;overflow:hidden;max-height:160px"><video src="${vidUrl}" style="width:100%;max-height:160px;object-fit:cover" preload="metadata"></video><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div></div></div>` : ''}
+      ${vidHtml}
     </div>`;
 }
 
@@ -1168,9 +1235,9 @@ function renderPosts(posts) {
     }
     return `
       <div class="post-card" id="post-${post.id}">
-        ${post.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          ${esc(post.authorName)} reposted
+        ${post.repostOf ? `<div class="repost-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          <span>${esc(post.authorName)} reposted</span>
         </div>` : ''}
         <div class="post-header">
           <div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>
@@ -2259,163 +2326,45 @@ async function openGroupChat(groupId, collection = 'groups') {
     if (!gDoc.exists) return toast('Group not found');
     const group = { id: groupId, ...gDoc.data() };
     const uid = state.user.uid;
-    const isAdmin = (group.admins || [group.createdBy]).includes(uid);
-    const isMember = (group.members || []).includes(uid);
-
     const gName = group.name || group.assignmentTitle || 'Group';
     const gType = group.type || 'study';
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
-
-    // For assignment groups, keep old behavior (chat only)
-    if (collection === 'assignmentGroups') {
-      return _openGroupChatLegacy(groupId, collection, group, uid, gName, gEmoji);
-    }
 
     showScreen('group-chat-view');
     $('#gchat-hdr-info').innerHTML = `
       <div class="group-header-info">
         <div class="group-icon">${gEmoji}</div>
         <div><h3 style="font-size:15px;font-weight:700">${esc(gName)}</h3>
-        <small style="color:var(--text-secondary)">${(group.members || []).length} members</small></div>
-      </div>
-      ${isAdmin ? `<button class="icon-btn" onclick="openGroupSettings('${groupId}')" style="margin-left:auto;font-size:16px" title="Settings">⚙️</button>` : ''}
-    `;
-
-    // Build group page with tabs: Posts | Chat | Members
-    const gchatMsgs = $('#gchat-msgs');
-    gchatMsgs.innerHTML = `
-      <div class="group-page-inner">
-        ${group.coverURL ? `<div class="group-cover-img"><img src="${group.coverURL}" style="width:100%;height:140px;object-fit:cover;border-radius:12px"></div>` : ''}
-        ${group.description ? `<p style="padding:8px 12px;font-size:13px;color:var(--text-secondary)">${esc(group.description)}</p>` : ''}
-        <div class="group-tabs-row">
-          <button class="group-tab active" data-gt="posts">Posts</button>
-          <button class="group-tab" data-gt="chat">Chat</button>
-          <button class="group-tab" data-gt="members">Members</button>
-        </div>
-        <div id="group-tab-body"></div>
+        <small style="color:var(--text-secondary)">${(group.members || []).length} members${group.moduleCode ? ' · ' + esc(group.moduleCode) : ''}</small></div>
       </div>
     `;
-
-    const renderGroupPosts = async () => {
-      const body = document.getElementById('group-tab-body');
-      if (!body) return;
-      body.innerHTML = `
-        <div class="group-create-post" style="padding:12px">
-          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
-            ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-sm')}
-            <div style="flex:1;font-size:14px;color:var(--text-secondary)">Write something...</div>
-          </div>
-          <textarea id="gpost-text" placeholder="Share with the group…" style="width:100%;min-height:60px;border:1px solid var(--border);border-radius:var(--radius);padding:10px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;resize:none"></textarea>
-          ${group.allowAnonymous ? `<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px"><input type="checkbox" id="gpost-anon" style="width:auto">Post anonymously</label>` : ''}
-          <div style="display:flex;justify-content:flex-end;margin-top:8px">
-            <button class="btn-primary btn-sm" onclick="submitGroupPost('${groupId}')">Post</button>
-          </div>
-        </div>
-        <div id="group-posts-feed" style="padding:0 12px"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
-      `;
-      // Load group posts
-      try {
-        const snap = await db.collection('groups').doc(groupId).collection('posts').limit(50).get();
-        const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        posts.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        const feed = document.getElementById('group-posts-feed');
-        if (!feed) return;
-        if (!posts.length) {
-          feed.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-tertiary)">No posts yet. Be the first!</div>';
-          return;
+    if (gchatUnsub) gchatUnsub();
+    const msgs = $('#gchat-msgs');
+    gchatUnsub = db.collection(collection).doc(groupId)
+      .collection('messages').orderBy('createdAt','asc').limit(100)
+      .onSnapshot(snap => {
+        const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (!messages.length) {
+          msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+        } else {
+          msgs.innerHTML = messages.map(m => {
+            const isMe = m.senderId === uid;
+            let content = '';
+            if (m.audioURL) content += renderVoiceMsg(m.audioURL);
+            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.text) content += esc(m.text);
+            return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
+              ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+              ${content}
+              <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+            </div></div>`;
+          }).join('');
+          msgs.scrollTop = msgs.scrollHeight;
         }
-        feed.innerHTML = posts.map(p => {
-          const isAnon = p.anonymous;
-          const pName = isAnon ? 'Anonymous' : esc(p.authorName || 'User');
-          const pPhoto = isAnon ? null : p.authorPhoto;
-          const lc = (p.likes || []).length;
-          const liked = (p.likes || []).includes(uid);
-          return `<div class="post-card" style="margin-bottom:12px">
-            <div class="post-header">
-              ${isAnon ? `<div class="avatar-md" style="background:var(--text-tertiary)">🎭</div>` : avatar(pName, pPhoto, 'avatar-md')}
-              <div class="post-header-info">
-                <div class="post-author-name">${pName}</div>
-                <div class="post-meta">${timeAgo(p.createdAt)}</div>
-              </div>
-              ${(p.authorId === uid || isAdmin) ? `<button class="icon-btn" onclick="deleteGroupPost('${groupId}','${p.id}')" style="margin-left:auto;font-size:14px;color:var(--text-tertiary)" title="Delete">✕</button>` : ''}
-            </div>
-            ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
-            ${p.imageURL ? `<div class="post-media-wrap"><img src="${p.imageURL}" class="post-image" onclick="viewImage('${p.imageURL}')"></div>` : ''}
-            <div class="post-actions" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
-              <button class="post-action ${liked?'liked':''}" onclick="toggleGroupPostLike('${groupId}','${p.id}')">❤ ${lc||'Like'}</button>
-            </div>
-          </div>`;
-        }).join('');
-      } catch (e) { console.error(e); }
-    };
+      });
 
-    const renderGroupChat = () => {
-      const body = document.getElementById('group-tab-body');
-      if (!body) return;
-      body.innerHTML = '<div id="gchat-inner-msgs" style="min-height:200px;max-height:400px;overflow-y:auto;padding:8px"></div>';
-      if (gchatUnsub) gchatUnsub();
-      const innerMsgs = document.getElementById('gchat-inner-msgs');
-      gchatUnsub = db.collection(collection).doc(groupId)
-        .collection('messages').orderBy('createdAt','asc').limit(100)
-        .onSnapshot(snap => {
-          const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          if (!messages.length) {
-            innerMsgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
-          } else {
-            innerMsgs.innerHTML = messages.map(m => {
-              const isMe = m.senderId === uid;
-              let content = '';
-              if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"></audio></div>`;
-              if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
-              if (m.text) content += esc(m.text);
-              return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
-                ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
-                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
-                ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-                ${content}
-                <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-              </div></div>`;
-            }).join('');
-            setTimeout(() => { innerMsgs.scrollTop = innerMsgs.scrollHeight; }, 50);
-          }
-        });
-    };
-
-    const renderGroupMembers = () => {
-      const body = document.getElementById('group-tab-body');
-      if (!body) return;
-      const members = group.members || [];
-      const admins = group.admins || [group.createdBy];
-      body.innerHTML = `<div style="padding:12px">${members.map(mid => {
-        const mName = (group.memberNames || {})[mid] || 'User';
-        const mPhoto = (group.memberPhotos || {})[mid] || null;
-        const mIsAdmin = admins.includes(mid);
-        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-          ${avatar(mName, mPhoto, 'avatar-sm')}
-          <div style="flex:1">
-            <div style="font-weight:600;font-size:14px">${esc(mName)}</div>
-            ${mIsAdmin ? '<div style="font-size:11px;color:var(--accent);font-weight:600">Admin</div>' : ''}
-          </div>
-          ${isAdmin && mid !== uid ? `<button class="btn-sm btn-outline" onclick="removeGroupMember('${groupId}','${mid}')">Remove</button>` : ''}
-        </div>`;
-      }).join('')}</div>`;
-    };
-
-    // Wire group tabs
-    gchatMsgs.querySelectorAll('.group-tab').forEach(tab => {
-      tab.onclick = () => {
-        gchatMsgs.querySelectorAll('.group-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        if (tab.dataset.gt === 'posts') renderGroupPosts();
-        else if (tab.dataset.gt === 'chat') renderGroupChat();
-        else renderGroupMembers();
-      };
-    });
-
-    // Default to posts tab
-    renderGroupPosts();
-
-    // Wire send for chat (use existing input bar)
     const sendGMsg = async () => {
       const input = $('#gchat-input');
       const text = input.value.trim();
@@ -2434,9 +2383,8 @@ async function openGroupChat(groupId, collection = 'groups') {
           senderPhoto: state.profile.photoURL || null,
           createdAt: FieldVal.serverTimestamp()
         });
-        const lastMsg = audioURL ? '🎤 Voice' : text;
         await db.collection(collection).doc(groupId).update({
-          lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp()
+          lastMessage: audioURL ? '🎤 Voice' : text, updatedAt: FieldVal.serverTimestamp()
         });
       } catch (e) { console.error(e); }
     };
@@ -2444,152 +2392,9 @@ async function openGroupChat(groupId, collection = 'groups') {
     $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
-      showScreen('app');
-      navigate('chat');
+      showScreen('app'); navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open group'); }
-}
-
-// Legacy chat view for assignment groups
-function _openGroupChatLegacy(groupId, collection, group, uid, gName, gEmoji) {
-  showScreen('group-chat-view');
-  $('#gchat-hdr-info').innerHTML = `
-    <div class="group-header-info">
-      <div class="group-icon">${gEmoji}</div>
-      <div><h3 style="font-size:15px;font-weight:700">${esc(gName)}</h3>
-      <small style="color:var(--text-secondary)">${(group.members || []).length} members${group.moduleCode ? ' · ' + esc(group.moduleCode) : ''}</small></div>
-    </div>
-  `;
-  if (gchatUnsub) gchatUnsub();
-  const msgs = $('#gchat-msgs');
-  gchatUnsub = db.collection(collection).doc(groupId)
-    .collection('messages').orderBy('createdAt','asc').limit(100)
-    .onSnapshot(snap => {
-      const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (!messages.length) {
-        msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
-      } else {
-        msgs.innerHTML = messages.map(m => {
-          const isMe = m.senderId === uid;
-          let content = '';
-          if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"></audio></div>`;
-          if (m.text) content += esc(m.text);
-          return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
-            ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
-            <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
-            ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-            ${content}
-            <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-          </div></div>`;
-        }).join('');
-        setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
-      }
-    });
-
-  const sendGMsg = async () => {
-    const input = $('#gchat-input');
-    const text = input.value.trim();
-    let audioURL = null;
-    if (window._gchatVoiceBlob) {
-      const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-      audioURL = await uploadToR2(af, 'voice');
-      window._gchatVoiceBlob = null;
-    }
-    if (!text && !audioURL) return;
-    input.value = '';
-    try {
-      await db.collection(collection).doc(groupId).collection('messages').add({
-        text: text || '', audioURL: audioURL || null,
-        senderId: uid, senderName: state.profile.displayName,
-        senderPhoto: state.profile.photoURL || null,
-        createdAt: FieldVal.serverTimestamp()
-      });
-      await db.collection(collection).doc(groupId).update({
-        lastMessage: audioURL ? '🎤 Voice' : text, updatedAt: FieldVal.serverTimestamp()
-      });
-    } catch (e) { console.error(e); }
-  };
-  $('#gchat-send').onclick = sendGMsg;
-  $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
-  $('#gchat-back').onclick = () => {
-    if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
-    showScreen('app'); navigate('chat');
-  };
-}
-
-// Group helper functions
-async function submitGroupPost(groupId) {
-  const text = document.getElementById('gpost-text')?.value.trim();
-  if (!text) return toast('Write something!');
-  const anon = document.getElementById('gpost-anon')?.checked || false;
-  try {
-    await db.collection('groups').doc(groupId).collection('posts').add({
-      content: text,
-      authorId: state.user.uid,
-      authorName: anon ? 'Anonymous' : state.profile.displayName,
-      authorPhoto: anon ? null : (state.profile.photoURL || null),
-      anonymous: anon,
-      likes: [],
-      createdAt: FieldVal.serverTimestamp()
-    });
-    toast('Posted!');
-    openGroupChat(groupId);
-  } catch (e) { toast('Failed'); console.error(e); }
-}
-
-async function toggleGroupPostLike(groupId, postId) {
-  try {
-    const ref = db.collection('groups').doc(groupId).collection('posts').doc(postId);
-    const doc = await ref.get(); if (!doc.exists) return;
-    const likes = doc.data().likes || [];
-    if (likes.includes(state.user.uid)) {
-      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-    } else {
-      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
-    }
-    openGroupChat(groupId);
-  } catch (e) { console.error(e); }
-}
-
-async function deleteGroupPost(groupId, postId) {
-  try {
-    await db.collection('groups').doc(groupId).collection('posts').doc(postId).delete();
-    toast('Post deleted');
-    openGroupChat(groupId);
-  } catch (e) { toast('Failed'); console.error(e); }
-}
-
-async function removeGroupMember(groupId, memberId) {
-  try {
-    const ref = db.collection('groups').doc(groupId);
-    await ref.update({
-      members: FieldVal.arrayRemove(memberId),
-      [`memberNames.${memberId}`]: firebase.firestore.FieldValue.delete(),
-      [`memberPhotos.${memberId}`]: firebase.firestore.FieldValue.delete()
-    });
-    toast('Member removed');
-    openGroupChat(groupId);
-  } catch (e) { toast('Failed'); console.error(e); }
-}
-
-function openGroupSettings(groupId) {
-  openModal(`
-    <div class="modal-header"><h2>Group Settings</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body" style="padding:16px">
-      <button class="ios-action-btn" style="color:var(--red)" onclick="closeModal();deleteGroup('${groupId}')">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-        <span>Delete Group</span>
-      </button>
-    </div>
-  `);
-}
-
-async function deleteGroup(groupId) {
-  try {
-    await db.collection('groups').doc(groupId).delete();
-    toast('Group deleted');
-    showScreen('app'); navigate('chat');
-  } catch (e) { toast('Failed'); console.error(e); }
 }
 
 async function joinGroup(groupId) {
@@ -3410,15 +3215,36 @@ async function openChat(convoId) {
           msgs.innerHTML = messages.map(m => {
             const isMe = m.senderId === uid;
             let content = '';
-            if (m.audioURL) content += `<div class="voice-msg-bubble"><audio controls preload="auto" style="width:100%;height:40px"><source src="${m.audioURL}" type="audio/webm"><source src="${m.audioURL}" type="audio/ogg">Audio not supported</audio></div>`;
+            if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
-            if (m.text) content += esc(m.text);
+            // Handle shared post messages
+            if (m.type === 'share_post' && m.payload?.postId) {
+              content = `<div class="shared-post-card" onclick="viewPost('${m.payload.postId}')">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary)">Tap to view post</div>
+              </div>`;
+            } else if (m.text && !m.text.startsWith('shared post::')) {
+              content += esc(m.text);
+            } else if (m.text && m.text.startsWith('shared post::')) {
+              const spId = m.text.replace('shared post::','');
+              content = `<div class="shared-post-card" onclick="viewPost('${spId}')">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary)">Tap to view post</div>
+              </div>`;
+            }
+            const ts = m.createdAt || m.timestamp;
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(name, photo, 'avatar-xs')}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${ts ? timeAgo(ts) : ''}</div></div>
             </div>`;
           }).join('');
-          setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
+          msgs.scrollTop = msgs.scrollHeight;
         }
       });
 
@@ -3920,7 +3746,7 @@ async function shareToFriend(uid, name, postId) {
          type: 'share_post',
          payload: { postId },
          senderId: myId,
-         timestamp: FieldVal.serverTimestamp()
+         createdAt: FieldVal.serverTimestamp()
      });
      
      toast(`Sent to ${name}`);
@@ -3935,6 +3761,8 @@ async function openQuoteRepost(postId) {
     if (!origRef.exists) return toast('Post not found');
     const orig = origRef.data();
     const hasImg = orig.imageURL && orig.mediaType !== 'video';
+    const hasVid = orig.videoURL || (orig.mediaType === 'video');
+    const vidUrl = hasVid ? (orig.videoURL || orig.imageURL) : null;
     openModal(`
       <div class="modal-header"><h2>Quote Repost</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body" style="padding:16px">
@@ -3950,6 +3778,7 @@ async function openQuoteRepost(postId) {
           </div>
           ${orig.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(orig.content)}</div>` : ''}
           ${hasImg ? `<img src="${orig.imageURL}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px">` : ''}
+          ${hasVid && vidUrl ? `<video src="${vidUrl}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px" controls preload="metadata"></video>` : ''}
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:12px">
           <button class="btn-primary" id="quote-submit" style="padding:10px 28px">Post</button>
@@ -4043,7 +3872,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
-    submitGroupPost, toggleGroupPostLike, deleteGroupPost, removeGroupMember, openGroupSettings, deleteGroup,
-    closeReelsViewer, toggleReelPlay, reelLike
+    closeReelsViewer, toggleReelPlay, reelLike,
+    toggleVN, seekVN
   });
 });

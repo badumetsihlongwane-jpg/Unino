@@ -2842,41 +2842,6 @@ input, select, textarea, button {
 }
 
 /* ── Group Page (Facebook-style) ─── */
-.group-page-inner {
-  padding-bottom: 80px;
-}
-.group-cover-img {
-  margin-bottom: 8px;
-}
-.group-tabs-row {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  padding: 0 12px;
-  gap: 0;
-}
-.group-tab {
-  flex: 1;
-  padding: 12px 8px;
-  font-size: 14px;
-  font-weight: 600;
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  text-align: center;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-}
-.group-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-.group-create-post {
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 12px;
-}
-
 /* ── Multi-Image Collage Grid ─── */
 .collage-grid {
   display: grid;
@@ -3831,53 +3796,137 @@ input, select, textarea, button {
 
 /* Voice message bubble */
 .voice-msg-bubble {
+  display: none;
+}
+
+/* ── Custom Voice Note Player ─── */
+.vn-player {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
-  min-width: 200px;
-}
-
-.voice-msg-bubble audio {
-  width: 100%;
+  gap: 10px;
+  padding: 8px 4px;
   min-width: 180px;
-  height: 40px;
+  max-width: 260px;
 }
 
-.voice-play-btn {
-  width: 36px;
-  height: 36px;
+.vn-play-btn {
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
   color: #fff;
-  font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 0.15s;
 }
+.vn-play-btn:active { transform: scale(0.9); }
 
-.voice-wave {
+.vn-track {
   flex: 1;
-  height: 20px;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--accent) 0px,
-    var(--accent) 2px,
-    transparent 2px,
-    transparent 5px
-  );
-  border-radius: 4px;
-  opacity: 0.4;
+  height: 4px;
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
   min-width: 60px;
 }
 
-.voice-dur {
+.vn-bar-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+}
+.msg-received .vn-bar-bg {
+  background: var(--border);
+}
+
+.vn-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.1s linear;
+}
+
+.vn-dot {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: left 0.1s linear, opacity 0.2s;
+}
+.vn-player.playing .vn-dot {
+  opacity: 1;
+}
+
+.vn-time {
   font-size: 11px;
-  color: var(--text-secondary);
+  opacity: 0.7;
   white-space: nowrap;
+  min-width: 30px;
+  text-align: right;
+}
+
+/* ── Repost Badge ─── */
+.repost-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0 0 8px 0;
+}
+.repost-badge span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* ── Shared Post Card in Chat ─── */
+.shared-post-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  margin: 4px 0;
+  min-width: 160px;
+  transition: background 0.2s;
+}
+.shared-post-card:active {
+  background: var(--border);
+}
+
+/* ── Story Upload Button ─── */
+.story-upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.story-upload-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ═══ MEDIA PREVIEW (Create Post) ═══ */
