@@ -135,6 +135,370 @@ function formatContent(text) {
   return esc(text).replace(/#(\w+)/g, '<span class="hashtag">#$1</span>');
 }
 
+// ─── Custom Video Player Engine ──────────────────
+let _playerIdCounter = 0;
+
+function buildPlayerHTML(src, id) {
+  return `
+  <div class="unino-player show-controls" id="up-${id}" data-player-id="${id}">
+    <video preload="metadata" playsinline>
+      <source src="${src}" type="video/mp4">
+      <source src="${src}" type="video/webm">
+    </video>
+
+    <div class="up-loader"><div class="up-loader-ring"></div></div>
+
+    <div class="up-big-play" data-act="toggle">
+      <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+    </div>
+
+    <div class="up-play-anim"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>
+
+    <div class="up-skip-indicator left">-10s</div>
+    <div class="up-skip-indicator right">+10s</div>
+
+    <div class="up-tap-zone left"></div>
+    <div class="up-tap-zone center" data-act="toggle"></div>
+    <div class="up-tap-zone right"></div>
+
+    <div class="up-top-bar">
+      <span class="up-top-title"></span>
+    </div>
+
+    <div class="up-controls">
+      <div class="up-progress-wrap">
+        <div class="up-time-preview">0:00</div>
+        <div class="up-progress-track">
+          <div class="up-progress-buffer" style="width:0"></div>
+          <div class="up-progress-fill" style="width:0"></div>
+        </div>
+        <div class="up-progress-thumb" style="left:0"></div>
+      </div>
+
+      <div class="up-controls-row">
+        <button class="up-btn play-btn" data-act="toggle" aria-label="Play">
+          <svg class="up-icon-play" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="5,3 19,12 5,21"/></svg>
+          <svg class="up-icon-pause" viewBox="0 0 24 24" fill="#fff" stroke="none" style="display:none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>
+        </button>
+
+        <span class="up-time"><span class="up-cur">0:00</span><span class="up-time-sep"> / </span><span class="up-dur">0:00</span></span>
+
+        <span class="up-spacer"></span>
+
+        <div class="up-vol-wrap">
+          <button class="up-btn vol-btn" aria-label="Volume">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#fff" stroke="none"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>
+          </button>
+          <div class="up-vol-slider-wrap"><input type="range" class="up-vol-slider" min="0" max="1" step="0.05" value="1"></div>
+        </div>
+
+        <span class="up-speed-badge" data-act="speed">1x</span>
+
+        <button class="up-btn" data-act="pip" aria-label="Picture in picture">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="9" width="8" height="6" rx="1" fill="rgba(255,255,255,0.3)"/></svg>
+        </button>
+
+        <button class="up-btn" data-act="fullscreen" aria-label="Fullscreen">
+          <svg class="up-icon-fs" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <svg class="up-icon-fs-exit" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="display:none"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function initPlayer(id) {
+  const root = document.getElementById('up-' + id);
+  if (!root) return;
+  const vid = root.querySelector('video');
+  if (!vid) return;
+
+  // Elements
+  const bigPlay = root.querySelector('.up-big-play');
+  const playAnim = root.querySelector('.up-play-anim');
+  const loader = root.querySelector('.up-loader');
+  const progressWrap = root.querySelector('.up-progress-wrap');
+  const progressFill = root.querySelector('.up-progress-fill');
+  const progressBuffer = root.querySelector('.up-progress-buffer');
+  const progressThumb = root.querySelector('.up-progress-thumb');
+  const timePreview = root.querySelector('.up-time-preview');
+  const curTime = root.querySelector('.up-cur');
+  const durTime = root.querySelector('.up-dur');
+  const playBtn = root.querySelector('.play-btn');
+  const iconPlay = root.querySelector('.up-icon-play');
+  const iconPause = root.querySelector('.up-icon-pause');
+  const volSlider = root.querySelector('.up-vol-slider');
+  const speedBadge = root.querySelector('.up-speed-badge');
+  const skipLeft = root.querySelector('.up-skip-indicator.left');
+  const skipRight = root.querySelector('.up-skip-indicator.right');
+  const iconFs = root.querySelector('.up-icon-fs');
+  const iconFsExit = root.querySelector('.up-icon-fs-exit');
+  const tapLeft = root.querySelector('.up-tap-zone.left');
+  const tapRight = root.querySelector('.up-tap-zone.right');
+
+  let controlsTimer = null;
+  let isSeeking = false;
+  const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  let speedIdx = 2;
+
+  // Format time
+  const fmt = (s) => {
+    if (isNaN(s) || !isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return m + ':' + sec.toString().padStart(2, '0');
+  };
+
+  // Show/hide controls
+  const showControls = () => {
+    root.classList.add('show-controls');
+    clearTimeout(controlsTimer);
+    if (!vid.paused) {
+      controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 3000);
+    }
+  };
+
+  const hideControlsSoon = () => {
+    clearTimeout(controlsTimer);
+    if (!vid.paused) {
+      controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 3000);
+    }
+  };
+
+  // Toggle play/pause
+  const togglePlay = () => {
+    if (vid.paused) {
+      vid.play().catch(() => {});
+    } else {
+      vid.pause();
+    }
+  };
+
+  // Update play/pause icons
+  const syncPlayState = () => {
+    const playing = !vid.paused;
+    root.classList.toggle('playing', playing);
+    iconPlay.style.display = playing ? 'none' : 'block';
+    iconPause.style.display = playing ? 'block' : 'none';
+    // Update big play anim
+    playAnim.querySelector('svg').innerHTML = playing
+      ? '<polygon points="5,3 19,12 5,21"/>'
+      : '<rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/>';
+    showControls();
+  };
+
+  // Flash play/pause animation
+  const flashAnim = () => {
+    playAnim.classList.remove('pop');
+    void playAnim.offsetWidth;
+    playAnim.classList.add('pop');
+  };
+
+  // Update progress
+  const updateProgress = () => {
+    if (isSeeking || !vid.duration) return;
+    const pct = (vid.currentTime / vid.duration) * 100;
+    progressFill.style.width = pct + '%';
+    progressThumb.style.left = pct + '%';
+    curTime.textContent = fmt(vid.currentTime);
+  };
+
+  // Update buffer
+  const updateBuffer = () => {
+    if (vid.buffered.length > 0) {
+      const end = vid.buffered.end(vid.buffered.length - 1);
+      progressBuffer.style.width = (end / vid.duration) * 100 + '%';
+    }
+  };
+
+  // Seek via progress bar
+  const seekFromEvent = (e) => {
+    const rect = progressWrap.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    vid.currentTime = pct * vid.duration;
+    progressFill.style.width = (pct * 100) + '%';
+    progressThumb.style.left = (pct * 100) + '%';
+    curTime.textContent = fmt(vid.currentTime);
+  };
+
+  // Double-tap skip
+  let tapTimers = {};
+  const doubleTapSkip = (direction, zone) => {
+    const key = direction;
+    if (tapTimers[key]) {
+      clearTimeout(tapTimers[key]);
+      tapTimers[key] = null;
+      const skipSec = direction === 'left' ? -10 : 10;
+      vid.currentTime = Math.max(0, Math.min(vid.duration, vid.currentTime + skipSec));
+      const indicator = direction === 'left' ? skipLeft : skipRight;
+      indicator.classList.remove('show');
+      void indicator.offsetWidth;
+      indicator.classList.add('show');
+      showControls();
+    } else {
+      tapTimers[key] = setTimeout(() => {
+        tapTimers[key] = null;
+        togglePlay();
+        flashAnim();
+      }, 250);
+    }
+  };
+
+  // === EVENT LISTENERS ===
+
+  vid.addEventListener('play', syncPlayState);
+  vid.addEventListener('pause', () => { syncPlayState(); root.classList.add('show-controls'); clearTimeout(controlsTimer); });
+  vid.addEventListener('timeupdate', updateProgress);
+  vid.addEventListener('progress', updateBuffer);
+  vid.addEventListener('loadedmetadata', () => { durTime.textContent = fmt(vid.duration); });
+  vid.addEventListener('ended', () => { root.classList.remove('playing'); root.classList.add('show-controls'); clearTimeout(controlsTimer); });
+  vid.addEventListener('waiting', () => loader.classList.add('active'));
+  vid.addEventListener('canplay', () => loader.classList.remove('active'));
+
+  // Controls hover/touch
+  root.addEventListener('mousemove', showControls);
+  root.addEventListener('mouseleave', hideControlsSoon);
+  root.addEventListener('touchstart', () => {
+    if (root.classList.contains('show-controls')) {
+      root.classList.remove('show-controls');
+    } else {
+      showControls();
+    }
+  }, { passive: true });
+
+  // Big play
+  bigPlay.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); flashAnim(); });
+
+  // Tap zones
+  tapLeft.addEventListener('click', (e) => { e.stopPropagation(); doubleTapSkip('left', tapLeft); });
+  tapRight.addEventListener('click', (e) => { e.stopPropagation(); doubleTapSkip('right', tapRight); });
+  root.querySelector('.up-tap-zone.center').addEventListener('click', (e) => {
+    e.stopPropagation(); togglePlay(); flashAnim();
+  });
+
+  // Play button
+  playBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); flashAnim(); });
+
+  // Progress scrubbing
+  let scrubbing = false;
+  progressWrap.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    scrubbing = true;
+    isSeeking = true;
+    seekFromEvent(e);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!scrubbing) return;
+    seekFromEvent(e);
+  });
+  document.addEventListener('mouseup', () => {
+    if (scrubbing) { scrubbing = false; isSeeking = false; }
+  });
+  // Touch scrubbing
+  progressWrap.addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+    scrubbing = true;
+    isSeeking = true;
+    const touch = e.touches[0];
+    seekFromEvent(touch);
+  }, { passive: false });
+  progressWrap.addEventListener('touchmove', (e) => {
+    if (!scrubbing) return;
+    e.preventDefault();
+    seekFromEvent(e.touches[0]);
+  }, { passive: false });
+  progressWrap.addEventListener('touchend', () => {
+    scrubbing = false; isSeeking = false;
+  });
+
+  // Hover time preview
+  progressWrap.addEventListener('mousemove', (e) => {
+    const rect = progressWrap.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    timePreview.textContent = fmt(pct * (vid.duration || 0));
+    timePreview.style.left = (pct * 100) + '%';
+  });
+
+  // Volume
+  if (volSlider) {
+    volSlider.addEventListener('input', (e) => {
+      e.stopPropagation();
+      vid.volume = parseFloat(volSlider.value);
+      vid.muted = vid.volume === 0;
+    });
+    const volBtn = root.querySelector('.vol-btn');
+    if (volBtn) {
+      volBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vid.muted = !vid.muted;
+        volSlider.value = vid.muted ? 0 : vid.volume || 1;
+      });
+    }
+  }
+
+  // Speed
+  speedBadge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    speedIdx = (speedIdx + 1) % speeds.length;
+    vid.playbackRate = speeds[speedIdx];
+    speedBadge.textContent = speeds[speedIdx] + 'x';
+  });
+
+  // PiP
+  root.querySelector('[data-act="pip"]')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await vid.requestPictureInPicture();
+    } catch (err) { console.warn('PiP not supported'); }
+  });
+
+  // Fullscreen
+  root.querySelector('[data-act="fullscreen"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.fullscreenElement === root) {
+      document.exitFullscreen();
+    } else {
+      (root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen).call(root);
+    }
+  });
+
+  // Fullscreen change icon
+  const onFsChange = () => {
+    const fs = document.fullscreenElement === root;
+    iconFs.style.display = fs ? 'none' : 'block';
+    iconFsExit.style.display = fs ? 'block' : 'none';
+  };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  // Keyboard shortcuts when player focused
+  root.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case ' ': case 'k': e.preventDefault(); togglePlay(); flashAnim(); break;
+      case 'ArrowRight': e.preventDefault(); vid.currentTime = Math.min(vid.duration, vid.currentTime + 10); break;
+      case 'ArrowLeft': e.preventDefault(); vid.currentTime = Math.max(0, vid.currentTime - 10); break;
+      case 'ArrowUp': e.preventDefault(); vid.volume = Math.min(1, vid.volume + 0.1); if (volSlider) volSlider.value = vid.volume; break;
+      case 'ArrowDown': e.preventDefault(); vid.volume = Math.max(0, vid.volume - 0.1); if (volSlider) volSlider.value = vid.volume; break;
+      case 'f': e.preventDefault(); root.querySelector('[data-act="fullscreen"]')?.click(); break;
+      case 'm': e.preventDefault(); vid.muted = !vid.muted; break;
+    }
+  });
+
+  // Make focusable
+  root.setAttribute('tabindex', '0');
+
+  // Initial controls auto-hide
+  controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 4000);
+
+  return { root, vid, togglePlay };
+}
+
+function createVideoPlayer(src) {
+  const id = ++_playerIdCounter;
+  return { html: buildPlayerHTML(src, id), id };
+}
+
 // ─── Screen Manager ──────────────────────────────
 function showScreen(id) {
   $$('.screen').forEach(s => s.classList.remove('active'));
@@ -713,12 +1077,18 @@ function renderPosts(posts) {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📝</div><h3>No posts yet</h3><p>Be the first to share something!</p></div>`;
     return;
   }
+  const _videoPlayers = [];
   el.innerHTML = posts.map(post => {
     const liked = (post.likes || []).includes(state.user.uid);
     const lc = (post.likes || []).length, cc = post.commentsCount || 0;
     const hasVideo = post.videoURL || (post.mediaType === 'video');
     const hasImage = post.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
+    let videoPlayerData = null;
+    if (hasVideo && mediaURL) {
+      videoPlayerData = createVideoPlayer(mediaURL);
+      _videoPlayers.push(videoPlayerData);
+    }
     return `
       <div class="post-card">
         <div class="post-header">
@@ -731,13 +1101,7 @@ function renderPosts(posts) {
         </div>
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
         ${hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
-        ${hasVideo ? `<div class="post-media-wrap post-video-wrap">
-          <video class="post-video" preload="auto" playsinline controls>
-            <source src="${mediaURL}" type="video/mp4">
-            <source src="${mediaURL}" type="video/webm">
-            Your browser does not support video.
-          </video>
-        </div>` : ''}
+        ${hasVideo && videoPlayerData ? videoPlayerData.html : ''}
         <div class="post-engagement">
           <div class="post-stats">
             ${lc ? `<span class="stat-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> ${lc}</span>` : ''}
@@ -760,6 +1124,11 @@ function renderPosts(posts) {
         </div>
       </div>`;
   }).join('');
+
+  // Initialize all custom video players after DOM update
+  requestAnimationFrame(() => {
+    _videoPlayers.forEach(p => initPlayer(p.id));
+  });
 }
 
 // ─── Reels Viewer (Fullscreen video swipe) ─────────
@@ -768,44 +1137,58 @@ function openReelsViewer() {
   const videoPosts = (state.posts || []).filter(p => p.videoURL || p.mediaType === 'video');
   if (!videoPosts.length) return toast('No reels yet — post a video to start!');
   let idx = 0;
+  let reelPlayerRef = null;
+
   function renderReel() {
     const p = videoPosts[idx];
     const url = p.videoURL || p.imageURL;
-    return `
+    const player = createVideoPlayer(url);
+    return { player, html: `
     <div id="reels-viewer" style="position:fixed;inset:0;z-index:10000;background:#000;display:flex;flex-direction:column">
-      <div style="position:absolute;top:16px;left:16px;right:16px;z-index:2;display:flex;justify-content:space-between;align-items:center">
+      <div style="position:absolute;top:16px;left:16px;right:16px;z-index:20;display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:10px">
           ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
           <span style="color:#fff;font-weight:600;font-size:14px">${esc(p.authorName)}</span>
         </div>
-        <button onclick="document.getElementById('reels-viewer').remove()" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer">&times;</button>
+        <button onclick="document.getElementById('reels-viewer')?.remove()" style="background:rgba(0,0,0,0.4);backdrop-filter:blur(8px);border:none;color:#fff;font-size:24px;cursor:pointer;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center">&times;</button>
       </div>
-      <video id="reel-video" src="${url}" style="flex:1;width:100%;height:100%;object-fit:contain" autoplay playsinline loop controls></video>
-      <div style="position:absolute;bottom:40px;left:16px;right:16px;z-index:2">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center">${player.html}</div>
+      <div style="position:absolute;bottom:80px;left:16px;right:80px;z-index:20">
         ${p.content ? `<p style="color:#fff;margin:0 0 12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);font-size:14px">${esc(p.content)}</p>` : ''}
-        <div style="display:flex;gap:24px">
-          <button onclick="toggleLike('${p.id}')" style="background:none;border:none;color:#fff;display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'none'}" stroke="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            ${(p.likes||[]).length || ''}
-          </button>
-          <button onclick="document.getElementById('reels-viewer').remove();openComments('${p.id}')" style="background:none;border:none;color:#fff;display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </button>
-        </div>
       </div>
-      <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;justify-content:space-between;padding:0 8px;z-index:2">
-        <button onclick="reelNav(-1)" style="background:rgba(0,0,0,0.3);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx===0?'visibility:hidden':''}">‹</button>
-        <button onclick="reelNav(1)" style="background:rgba(0,0,0,0.3);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx>=videoPosts.length-1?'visibility:hidden':''}">›</button>
+      <div style="position:absolute;bottom:80px;right:16px;z-index:20;display:flex;flex-direction:column;gap:16px;align-items:center">
+        <button onclick="toggleLike('${p.id}')" style="background:rgba(0,0,0,0.3);backdrop-filter:blur(6px);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'none'}" stroke="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span style="font-size:11px;font-weight:700">${(p.likes||[]).length || ''}</span>
+        </button>
+        <button onclick="document.getElementById('reels-viewer')?.remove();openComments('${p.id}')" style="background:rgba(0,0,0,0.3);backdrop-filter:blur(6px);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
       </div>
-      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.5);font-size:12px;z-index:2">${idx+1} / ${videoPosts.length}</div>
-    </div>`;
+      <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;justify-content:space-between;padding:0 8px;z-index:20">
+        <button onclick="reelNav(-1)" style="background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx===0?'visibility:hidden':''}">‹</button>
+        <button onclick="reelNav(1)" style="background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx>=videoPosts.length-1?'visibility:hidden':''}">›</button>
+      </div>
+      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.5);font-size:12px;z-index:20;background:rgba(0,0,0,0.3);padding:4px 12px;border-radius:100px;backdrop-filter:blur(4px)">${idx+1} / ${videoPosts.length}</div>
+    </div>` };
   }
+
   window.reelNav = (dir) => {
     idx = Math.max(0, Math.min(videoPosts.length - 1, idx + dir));
-    document.getElementById('reels-viewer').outerHTML = renderReel();
-    document.getElementById('reel-video')?.play();
+    const { player, html } = renderReel();
+    document.getElementById('reels-viewer').outerHTML = html;
+    requestAnimationFrame(() => {
+      reelPlayerRef = initPlayer(player.id);
+      if (reelPlayerRef) reelPlayerRef.vid.play().catch(() => {});
+    });
   };
-  document.body.insertAdjacentHTML('beforeend', renderReel());
+
+  const { player, html } = renderReel();
+  document.body.insertAdjacentHTML('beforeend', html);
+  requestAnimationFrame(() => {
+    reelPlayerRef = initPlayer(player.id);
+    if (reelPlayerRef) reelPlayerRef.vid.play().catch(() => {});
+  });
 }
 
 // ─── Like ────────────────────────────────────────
@@ -2614,7 +2997,17 @@ async function openProfile(uid) {
 function renderProfilePosts(posts, user) {
   if (!posts.length) return '<div class="empty-state"><h3>No posts yet</h3></div>';
   const isMe = user.id === state.user.uid;
-  return `<div class="profile-posts">${posts.map(p => `
+  const _profPlayers = [];
+  const html = `<div class="profile-posts">${posts.map(p => {
+    const hasVideo = p.videoURL || (p.mediaType === 'video');
+    const hasImage = p.imageURL && !hasVideo;
+    const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
+    let videoPlayerData = null;
+    if (hasVideo && mediaURL) {
+      videoPlayerData = createVideoPlayer(mediaURL);
+      _profPlayers.push(videoPlayerData);
+    }
+    return `
     <div class="post-card">
       <div class="post-header">
         ${avatar(user.displayName, user.photoURL, 'avatar-md')}
@@ -2627,13 +3020,17 @@ function renderProfilePosts(posts, user) {
         </button>` : ''}
       </div>
       <div class="post-content">${formatContent(p.content)}</div>
-      ${p.imageURL ? `<div class="post-image-wrap"><img src="${p.imageURL}" class="post-image" onclick="viewImage('${p.imageURL}')"></div>` : ''}
+      ${hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
+      ${hasVideo && videoPlayerData ? videoPlayerData.html : ''}
       <div class="post-actions">
         <button class="post-action ${(p.likes||[]).includes(state.user.uid)?'liked':''}" onclick="toggleLike('${p.id}')">❤ ${(p.likes||[]).length||'Like'}</button>
         <button class="post-action" onclick="openComments('${p.id}')">💬 ${p.commentsCount||'Comment'}</button>
       </div>
-    </div>
-  `).join('')}</div>`;
+    </div>`;
+  }).join('')}</div>`;
+  // Init players after render
+  requestAnimationFrame(() => _profPlayers.forEach(p => initPlayer(p.id)));
+  return html;
 }
 
 // ─── iOS-style Post Options (Delete) ─────────────
