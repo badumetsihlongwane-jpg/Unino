@@ -1184,13 +1184,13 @@ input, select, textarea, button {
 .comment-reply-btn:hover { text-decoration: underline; }
 
 .comment-replies {
-  margin-left: 36px;
-  border-left: 2px solid var(--accent-light);
-  padding-left: 12px;
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
 }
 
 .comment-replies .comment-item {
-  padding: 6px 0;
+  padding: 0;
 }
 
 .comment-replies .comment-bubble {
@@ -4399,21 +4399,46 @@ input, select, textarea, button {
 .c-act:hover { color: var(--text-primary); }
 .c-act.liked { color: var(--red); }
 
-/* Threading visual */
+/* Threading visual — connected lines */
 .comment-replies {
-  margin-top: 8px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border);
-  margin-left: 6px;
+  margin-top: 4px;
+  padding-left: 18px;
+  margin-left: 18px;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
+  border-left: none;
+}
+.comment-replies::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 18px;
+  width: 2px;
+  background: var(--accent-light, rgba(108,92,231,0.25));
+  border-radius: 2px;
+}
+.comment-replies .comment-item {
+  position: relative;
+  margin-bottom: 12px;
+  padding: 0;
+}
+.comment-replies .comment-item::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 18px;
+  width: 14px;
+  height: 2px;
+  background: var(--accent-light, rgba(108,92,231,0.25));
 }
 .reply-item {
   margin-bottom: 0;
 }
 .reply-item .comment-bubble.enhanced {
-  background: rgba(var(--bg-rgb), 0.5);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
 }
 

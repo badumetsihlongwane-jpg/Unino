@@ -2718,13 +2718,15 @@ function listenForNotifications() {
   });
 
   generalNotifUnsub = db.collection('users').doc(state.user.uid).collection('notifications')
-    .orderBy('createdAt', 'desc').limit(20)
+    .limit(30)
     .onSnapshot(snap => {
       _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _notifications.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      _notifications = _notifications.slice(0, 20);
       updateNotifBadge();
       const dd = $('#notif-dropdown');
       if (dd && dd.style.display === 'block') loadNotifications();
-    });
+    }, err => { console.warn('Notif listener error:', err); });
 }
 
 function updateNotifBadge() {
@@ -3113,10 +3115,6 @@ function renderProfilePosts(posts, user) {
          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
          Reposted
        </div>` : ''}
-      ${p.repostOf ? `<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
-         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-         Reposted
-       </div>` : ''}
       <div class="post-header">
         ${avatar(user.displayName, user.photoURL, 'avatar-md')}
         <div class="post-header-info">
@@ -3398,11 +3396,17 @@ async function repost(postId) {
       
       await db.collection('posts').add({
           authorId: state.user.uid,
+          authorName: state.profile.displayName,
+          authorPhoto: state.profile.photoURL || null,
           authorUni: state.profile.university || '',
-          content: '', 
+          content: orig.content || '', 
+          imageURL: orig.imageURL || null,
+          videoURL: orig.videoURL || null,
+          mediaType: orig.mediaType || 'text',
           repostOf: {
               id: postId,
-              authorId: orig.authorId
+              authorId: orig.authorId,
+              authorName: orig.authorName || ''
           },
           createdAt: FieldVal.serverTimestamp(),
           likes: [], commentsCount: 0, visibility: 'public'
