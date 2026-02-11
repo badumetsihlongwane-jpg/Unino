@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════
- *  UNINO — Campus Social Engine v4
+ *  UNIBO — Campus Social Engine v5
  *  Firebase Auth + Firestore | base64 images
  *  Feed (Discover tabs), Explore (Radar/List + Modules),
  *  Marketplace, Messaging (fixed), Profiles (fixed)
@@ -748,6 +748,7 @@ function renderFeed() {
         if (post.visibility === 'friends') return myFriends.includes(post.authorId);
         return true; // public or no visibility set
       });
+      state.posts = visible;
       renderPosts(visible);
     });
   state.unsubs.push(u);
@@ -1128,67 +1129,155 @@ function renderPosts(posts) {
   // Initialize all custom video players after DOM update
   requestAnimationFrame(() => {
     _videoPlayers.forEach(p => initPlayer(p.id));
+    setupFeedVideoAutoplay();
   });
 }
 
-// ─── Reels Viewer (Fullscreen video swipe) ─────────
+// ─── Reels Viewer (TikTok-style fullscreen vertical scroll) ─────────
+let _reelsActive = false;
+let _reelVideos = [];
+
 function openReelsViewer() {
-  // Gather all video posts
-  const videoPosts = (state.posts || []).filter(p => p.videoURL || p.mediaType === 'video');
-  if (!videoPosts.length) return toast('No reels yet — post a video to start!');
-  let idx = 0;
-  let reelPlayerRef = null;
+  // Fetch ALL video posts from Firestore, not just what's in state
+  db.collection('posts').orderBy('createdAt', 'desc').limit(100).get().then(snap => {
+    const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _reelVideos = allPosts.filter(p => p.videoURL || p.mediaType === 'video');
+    if (!_reelVideos.length) return toast('No reels yet — post a video!');
+    _reelsActive = true;
+    renderReelsUI();
+  }).catch(e => { console.error(e); toast('Could not load reels'); });
+}
 
-  function renderReel() {
-    const p = videoPosts[idx];
-    const url = p.videoURL || p.imageURL;
-    const player = createVideoPlayer(url);
-    return { player, html: `
-    <div id="reels-viewer" style="position:fixed;inset:0;z-index:10000;background:#000;display:flex;flex-direction:column">
-      <div style="position:absolute;top:16px;left:16px;right:16px;z-index:20;display:flex;justify-content:space-between;align-items:center">
-        <div style="display:flex;align-items:center;gap:10px">
-          ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
-          <span style="color:#fff;font-weight:600;font-size:14px">${esc(p.authorName)}</span>
-        </div>
-        <button onclick="document.getElementById('reels-viewer')?.remove()" style="background:rgba(0,0,0,0.4);backdrop-filter:blur(8px);border:none;color:#fff;font-size:24px;cursor:pointer;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center">&times;</button>
-      </div>
-      <div style="flex:1;display:flex;align-items:center;justify-content:center">${player.html}</div>
-      <div style="position:absolute;bottom:80px;left:16px;right:80px;z-index:20">
-        ${p.content ? `<p style="color:#fff;margin:0 0 12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);font-size:14px">${esc(p.content)}</p>` : ''}
-      </div>
-      <div style="position:absolute;bottom:80px;right:16px;z-index:20;display:flex;flex-direction:column;gap:16px;align-items:center">
-        <button onclick="toggleLike('${p.id}')" style="background:rgba(0,0,0,0.3);backdrop-filter:blur(6px);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'none'}" stroke="${(p.likes||[]).includes(state.user.uid)?'var(--red)':'#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          <span style="font-size:11px;font-weight:700">${(p.likes||[]).length || ''}</span>
-        </button>
-        <button onclick="document.getElementById('reels-viewer')?.remove();openComments('${p.id}')" style="background:rgba(0,0,0,0.3);backdrop-filter:blur(6px);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </button>
-      </div>
-      <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;justify-content:space-between;padding:0 8px;z-index:20">
-        <button onclick="reelNav(-1)" style="background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx===0?'visibility:hidden':''}">‹</button>
-        <button onclick="reelNav(1)" style="background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;${idx>=videoPosts.length-1?'visibility:hidden':''}">›</button>
-      </div>
-      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.5);font-size:12px;z-index:20;background:rgba(0,0,0,0.3);padding:4px 12px;border-radius:100px;backdrop-filter:blur(4px)">${idx+1} / ${videoPosts.length}</div>
-    </div>` };
-  }
+function renderReelsUI() {
+  const existing = document.getElementById('reels-viewer');
+  if (existing) existing.remove();
 
-  window.reelNav = (dir) => {
-    idx = Math.max(0, Math.min(videoPosts.length - 1, idx + dir));
-    const { player, html } = renderReel();
-    document.getElementById('reels-viewer').outerHTML = html;
-    requestAnimationFrame(() => {
-      reelPlayerRef = initPlayer(player.id);
-      if (reelPlayerRef) reelPlayerRef.vid.play().catch(() => {});
+  const container = document.createElement('div');
+  container.id = 'reels-viewer';
+  container.className = 'reels-container';
+  container.innerHTML = `
+    <div class="reels-header">
+      <h3>Reels</h3>
+      <button class="reels-close-btn" onclick="closeReelsViewer()">&times;</button>
+    </div>
+    <div class="reels-scroll" id="reels-scroll">
+      ${_reelVideos.map((p, i) => {
+        const url = p.videoURL || p.imageURL;
+        const liked = (p.likes || []).includes(state.user.uid);
+        const lc = (p.likes || []).length;
+        const cc = p.commentsCount || 0;
+        return `
+        <div class="reel-slide" data-idx="${i}">
+          <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
+          <div class="reel-overlay-bottom">
+            <div class="reel-author" onclick="closeReelsViewer();openProfile('${p.authorId}')">
+              ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
+              <span class="reel-author-name">${esc(p.authorName || 'User')}</span>
+            </div>
+            ${p.content ? `<p class="reel-caption">${esc(p.content)}</p>` : ''}
+          </div>
+          <div class="reel-actions">
+            <button class="reel-act-btn ${liked ? 'liked' : ''}" onclick="reelLike('${p.id}', this)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="${liked ? '#ff4757' : 'none'}" stroke="${liked ? '#ff4757' : '#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <span>${lc || ''}</span>
+            </button>
+            <button class="reel-act-btn" onclick="closeReelsViewer();openComments('${p.id}')">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>${cc || ''}</span>
+            </button>
+            <button class="reel-act-btn" onclick="openShareModal('${p.id}')">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+              <span>Share</span>
+            </button>
+          </div>
+          <div class="reel-play-toggle" onclick="toggleReelPlay(this)"></div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+  document.body.appendChild(container);
+
+  const scrollEl = document.getElementById('reels-scroll');
+  // Intersection observer for auto-play
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      const video = entry.target.querySelector('.reel-video');
+      if (!video) return;
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
+        video.muted = false;
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
     });
-  };
+  }, { root: scrollEl, threshold: [0.7] });
 
-  const { player, html } = renderReel();
-  document.body.insertAdjacentHTML('beforeend', html);
+  scrollEl.querySelectorAll('.reel-slide').forEach(slide => observer.observe(slide));
+
+  // Play first reel
   requestAnimationFrame(() => {
-    reelPlayerRef = initPlayer(player.id);
-    if (reelPlayerRef) reelPlayerRef.vid.play().catch(() => {});
+    const firstVid = scrollEl.querySelector('.reel-slide:first-child .reel-video');
+    if (firstVid) { firstVid.muted = false; firstVid.play().catch(() => {}); }
   });
+}
+
+function toggleReelPlay(overlay) {
+  const vid = overlay.parentElement.querySelector('.reel-video');
+  if (!vid) return;
+  if (vid.paused) { vid.play().catch(() => {}); overlay.classList.remove('paused'); }
+  else { vid.pause(); overlay.classList.add('paused'); }
+}
+
+function closeReelsViewer() {
+  _reelsActive = false;
+  const el = document.getElementById('reels-viewer');
+  if (el) {
+    el.querySelectorAll('video').forEach(v => v.pause());
+    el.remove();
+  }
+}
+
+async function reelLike(pid, btn) {
+  try {
+    const ref = db.collection('posts').doc(pid);
+    const doc = await ref.get(); if (!doc.exists) return;
+    const data = doc.data();
+    const likes = data.likes || [];
+    const svgEl = btn.querySelector('svg');
+    const spanEl = btn.querySelector('span');
+    if (likes.includes(state.user.uid)) {
+      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
+      btn.classList.remove('liked');
+      svgEl.setAttribute('fill', 'none');
+      svgEl.setAttribute('stroke', '#fff');
+      spanEl.textContent = likes.length - 1 || '';
+    } else {
+      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+      btn.classList.add('liked');
+      svgEl.setAttribute('fill', '#ff4757');
+      svgEl.setAttribute('stroke', '#ff4757');
+      spanEl.textContent = likes.length + 1;
+      addNotification(data.authorId, 'like', 'liked your reel', { postId: pid });
+    }
+  } catch (e) { console.error(e); }
+}
+
+// ─── Auto-play videos on scroll in feed ─────────
+function setupFeedVideoAutoplay() {
+  const feedEl = document.getElementById('feed-posts');
+  if (!feedEl) return;
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      const vid = entry.target.querySelector('video');
+      if (!vid) return;
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+        vid.play().catch(() => {});
+      } else {
+        vid.pause();
+      }
+    });
+  }, { threshold: [0.6] });
+  feedEl.querySelectorAll('.unino-player').forEach(p => observer.observe(p));
 }
 
 // ─── Like ────────────────────────────────────────
@@ -3462,7 +3551,8 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
-    startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer, reelNav,
-    toggleCommentLike, openShareModal, repost, shareToFriend, viewPost, markNotifRead
+    startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
+    toggleCommentLike, openShareModal, repost, shareToFriend, viewPost, markNotifRead,
+    closeReelsViewer, toggleReelPlay, reelLike
   });
 });
