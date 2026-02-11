@@ -1846,7 +1846,6 @@ input, select, textarea, button {
   height: 160px;
   background: var(--gradient);
   position: relative;
-  overflow: hidden;
 }
 .profile-cover::after {
   content: '';
@@ -1854,6 +1853,7 @@ input, select, textarea, button {
   bottom: 0; left: 0; right: 0;
   height: 60px;
   background: linear-gradient(transparent, var(--bg-primary));
+  pointer-events: none;
 }
 
 .profile-avatar-wrap {
@@ -1861,7 +1861,7 @@ input, select, textarea, button {
   bottom: -48px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 2;
+  z-index: 3;
 }
 
 .profile-avatar-large {
@@ -3971,16 +3971,23 @@ input, select, textarea, button {
 .repost-badge {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   font-size: 12px;
   color: var(--text-secondary);
-  padding: 0 0 8px 0;
+  padding: 8px 12px;
+  margin: -12px -16px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
+.repost-badge svg { flex-shrink: 0; }
 .repost-badge span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  max-width: 260px;
+  font-weight: 600;
 }
 
 /* ── Shared Post Card in Chat ─── */
@@ -5061,3 +5068,54 @@ input, select, textarea, button {
   font-size: 13px !important;
 }
 .leaflet-popup-content { margin: 10px 14px !important; }
+
+/* ─── Radar Map Overlay ───────────── */
+.radar-map-wrap {
+  position: relative;
+  margin: 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.radar-overlay {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px; height: 280px;
+  pointer-events: none;
+  z-index: 400;
+}
+.radar-overlay .radar-ring {
+  position: absolute;
+  border: 1px solid rgba(108,92,231,0.15);
+  border-radius: 50%;
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+}
+.radar-overlay .r1 { width: 90px; height: 90px; }
+.radar-overlay .r2 { width: 170px; height: 170px; }
+.radar-overlay .r3 { width: 260px; height: 260px; }
+.radar-sweep-anim {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 130px; height: 130px;
+  transform-origin: 0 0;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(108,92,231,0.2) 30deg, transparent 60deg);
+  animation: radarSweep 4s linear infinite;
+  border-radius: 0 130px 0 0;
+}
+@keyframes radarSweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Map user pin proximity colors */
+.map-user-pin.pin-module { border-color: #34D399; }
+.map-user-pin.pin-campus { border-color: var(--accent); }
+.map-user-pin.pin-far { border-color: #F59E0B; }
+.map-user-pin.map-me-pin {
+  width: 36px; height: 36px;
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 12px rgba(108,92,231,0.5);
+  font-size: 12px;
+}

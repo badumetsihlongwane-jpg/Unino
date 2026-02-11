@@ -601,7 +601,13 @@ function createVideoPlayer(src) {
 }
 
 // ─── Screen Manager ──────────────────────────────
+function stopAllVideos() {
+  document.querySelectorAll('video').forEach(v => { v.pause(); v.currentTime = 0; });
+  document.querySelectorAll('audio').forEach(a => { a.pause(); a.currentTime = 0; });
+}
+
 function showScreen(id) {
+  stopAllVideos();
   $$('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
@@ -789,6 +795,8 @@ function updateStatusUI() {
 // ─── Navigation ──────────────────────────────────
 function navigate(page) {
   state.page = page; unsub();
+  stopAllVideos();
+  if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   switch (page) {
     case 'feed': renderFeed(); break;
@@ -878,11 +886,26 @@ function renderFeed() {
         if (post.visibility === 'friends') return myFriends.includes(post.authorId);
         return true; // public or no visibility set
       });
-      state.posts = visible;
+
+      // Engagement-weighted shuffle: mix popular + new for discovery
+      const scored = visible.map(p => {
+        const likes = (p.likes || []).length;
+        const comments = p.commentsCount || 0;
+        const isFriend = myFriends.includes(p.authorId);
+        const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
+        const freshness = Math.max(0, 1 - ageHrs / 48); // decay over 48h
+        const engagement = (likes * 2 + comments * 3) * 0.3;
+        const friendBoost = isFriend ? 8 : 0;
+        const randomFactor = Math.random() * 10; // discovery element
+        return { ...p, _score: engagement + freshness * 15 + friendBoost + randomFactor };
+      });
+      scored.sort((a, b) => b._score - a._score);
+
+      state.posts = scored;
       // Save scroll position before re-render to prevent "jump to top"
       const contentEl = document.getElementById('content');
       const savedScroll = contentEl ? contentEl.scrollTop : 0;
-      renderPosts(visible);
+      renderPosts(scored);
       // Restore scroll position after re-render
       if (contentEl && savedScroll > 0) {
         requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
@@ -1238,6 +1261,7 @@ function renderCollage(urls) {
 }
 
 // ─── Quote Embed Renderer ────────────────────────
+const _pendingQuotePlayers = [];
 function renderQuoteEmbed(rp) {
   if (!rp) return '';
   const hasImg = rp.imageURL && rp.mediaType !== 'video';
@@ -1246,6 +1270,7 @@ function renderQuoteEmbed(rp) {
   let vidHtml = '';
   if (hasVid && vidUrl) {
     const vpd = createVideoPlayer(vidUrl);
+    _pendingQuotePlayers.push(vpd);
     vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;max-height:200px">${vpd.html}</div>`;
   }
   return `
@@ -1325,6 +1350,8 @@ function renderPosts(posts) {
   // Initialize all custom video players after DOM update
   requestAnimationFrame(() => {
     _videoPlayers.forEach(p => initPlayer(p.id));
+    _pendingQuotePlayers.forEach(p => initPlayer(p.id));
+    _pendingQuotePlayers.length = 0;
     setupFeedVideoAutoplay();
   });
 }
@@ -1338,6 +1365,12 @@ function openReelsViewer() {
   db.collection('posts').orderBy('createdAt', 'desc').limit(100).get().then(snap => {
     const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     _reelVideos = allPosts.filter(p => p.videoURL || p.mediaType === 'video');
+    // Shuffle with engagement-weighted randomization for discovery
+    _reelVideos = _reelVideos.map(p => {
+      const likes = (p.likes || []).length;
+      const comments = p.commentsCount || 0;
+      return { ...p, _score: (likes + comments) * 0.3 + Math.random() * 10 };
+    }).sort((a, b) => b._score - a._score);
     if (!_reelVideos.length) return toast('No reels yet — post a video!');
     _reelsActive = true;
     renderReelsUI();
@@ -1435,9 +1468,7 @@ function closeReelsViewer() {
 
 // ─── Inline Reel Comments ────────────────────────
 async function openReelComments(postId) {
-  // Pause current reel
-  const currentSlide = document.querySelector('.reel-slide video[src]');
-  document.querySelectorAll('.reel-video').forEach(v => v.pause());
+  // Keep video playing while comments are open
 
   const existing = document.getElementById('reel-comments-panel');
   if (existing) existing.remove();
@@ -1449,7 +1480,7 @@ async function openReelComments(postId) {
   panel.innerHTML = `
     <div class="reel-comments-header">
       <h3>Comments</h3>
-      <button class="icon-btn" onclick="document.getElementById('reel-comments-panel')?.remove()">✕</button>
+      <button class="icon-btn" onclick="closeReelComments()">✕</button>
     </div>
     <div class="reel-comments-list" id="reel-comments-list"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
     <div class="reel-comments-input">
@@ -1482,6 +1513,11 @@ async function openReelComments(postId) {
       list.scrollTop = list.scrollHeight;
     }
   } catch (e) { console.error(e); }
+}
+
+function closeReelComments() {
+  const panel = document.getElementById('reel-comments-panel');
+  if (panel) panel.remove();
 }
 
 async function postReelComment(postId) {
@@ -1896,25 +1932,26 @@ function renderRadarView() {
   const campusUsers = allExploreUsers.filter(u => u.proximity === 'campus' || u.proximity === 'course');
   const otherUsers = allExploreUsers.filter(u => u.proximity === 'far');
 
+  const eventsByLoc = {};
+  allCampusEvents.forEach(ev => {
+    if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
+    eventsByLoc[ev.location].push(ev);
+  });
+
   body.innerHTML = `
-    <div class="radar-container">
-      <div class="radar-visual">
+    <div class="radar-map-wrap">
+      <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
+      <div class="radar-overlay">
         <div class="radar-ring r3"></div>
         <div class="radar-ring r2"></div>
         <div class="radar-ring r1"></div>
-        <div class="radar-center-dot">
-          ${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}
-        </div>
-        <div class="radar-sweep"></div>
-        ${renderRadarDots(moduleUsers, 55, 'module')}
-        ${renderRadarDots(campusUsers, 90, 'campus')}
-        ${renderRadarDots(otherUsers.slice(0, 6), 120, 'far')}
+        <div class="radar-sweep-anim"></div>
       </div>
-      <div class="radar-legend">
-        <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-        <span><span class="legend-dot campus"></span> Same campus (${campusUsers.length})</span>
-        <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
-      </div>
+    </div>
+    <div class="radar-legend" style="padding:0 16px">
+      <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
+      <span><span class="legend-dot campus"></span> Same campus (${campusUsers.length})</span>
+      <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
     </div>
 
     ${moduleUsers.length ? `
@@ -1937,6 +1974,60 @@ function renderRadarView() {
       <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
     </div>` : ''}
   `;
+
+  // Init Leaflet on radar
+  requestAnimationFrame(() => {
+    const el = document.getElementById('radar-map');
+    if (!el || typeof L === 'undefined') return;
+    if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+
+    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
+    L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OSM', maxZoom: 19
+    }).addTo(_leafletMap);
+
+    // My pin (center)
+    const myIcon = L.divIcon({
+      className: 'leaflet-user-pin',
+      html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
+      iconSize: [36, 36], iconAnchor: [18, 18]
+    });
+    L.marker([-26.6840, 27.0945], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
+
+    // Campus locations
+    CAMPUS_LOCATIONS.forEach(loc => {
+      const evts = eventsByLoc[loc.id] || [];
+      const icon = L.divIcon({
+        className: 'leaflet-emoji-pin',
+        html: `<div class="map-pin-wrap ${evts.length ? 'has-events' : ''}"><span class="map-pin-emoji">${loc.emoji}</span>${evts.length ? `<span class="map-pin-count">${evts.length}</span>` : ''}</div>`,
+        iconSize: [36, 36], iconAnchor: [18, 36]
+      });
+      L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap)
+        .bindPopup(`<b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`)
+        .on('click', () => openLocationDetail(loc.id));
+    });
+
+    // User pins by proximity
+    const usersToPlot = [...moduleUsers, ...campusUsers, ...otherUsers.slice(0, 8)];
+    usersToPlot.forEach((u, i) => {
+      const baseR = u.proximity === 'module' ? 0.001 : (u.proximity === 'campus' || u.proximity === 'course') ? 0.002 : 0.004;
+      const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
+      const lat = -26.6840 + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8);
+      const lng = 27.0945 + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8);
+      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'campus' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+      const uIcon = L.divIcon({
+        className: 'leaflet-user-pin',
+        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14]
+      });
+      L.marker([lat, lng], { icon: uIcon }).addTo(_leafletMap)
+        .bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>${u.sharedModules?.length ? `<br><small>🔗 ${u.sharedModules.join(', ')}</small>` : ''}`)
+        .on('click', () => openProfile(u.id));
+    });
+
+    setTimeout(() => _leafletMap?.invalidateSize(), 300);
+  });
 }
 
 function renderRadarDots(users, radius, type) {
@@ -2059,15 +2150,7 @@ async function loadCampusEvents() {
     allCampusEvents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) {
     console.error(e);
-    // Fallback seed events if collection is empty or fails
-    allCampusEvents = [
-      { title: 'Study Jam Session', emoji: '📚', date: '2026-02-11', time: '18:00', location: 'library', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#6C5CE7,#A855F7)' },
-      { title: 'Career Fair 2026', emoji: '💼', date: '2026-02-15', time: '09:00', location: 'main-hall', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#7C3AED,#C084FC)' },
-      { title: 'Pool Tournament', emoji: '🎱', date: '2026-02-14', time: '16:00', location: 'student-center', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#8B5CF6,#D946EF)' },
-      { title: 'Welcome Mixer', emoji: '🎉', date: '2026-02-14', time: '19:00', location: 'amphitheatre', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#6366F1,#818CF8)' },
-      { title: 'Hackathon', emoji: '💻', date: '2026-02-20', time: '08:00', location: 'cs-building', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#7C3AED,#A855F7)' },
-      { title: 'Open Mic Night', emoji: '🎤', date: '2026-02-18', time: '19:00', location: 'quad', createdBy: 'system', going: [], gradient: 'linear-gradient(135deg,#D946EF,#E879F9)' },
-    ];
+    allCampusEvents = [];
   }
 }
 
@@ -3346,13 +3429,16 @@ async function viewPost(pid) {
     const hasImage = p.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
 
+    let videoPlayerData = null;
+    if (hasVideo && mediaURL) { videoPlayerData = createVideoPlayer(mediaURL); }
+
     openModal(`
       <div class="modal-header"><h2>Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body" style="padding:16px">
         <div class="post-card" style="box-shadow:none;border:none;margin:0;padding:0">
-          ${p.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+          ${p.repostOf ? `<div class="repost-badge" style="margin:-0 -0 10px">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            Reposted
+            <span>Reposted</span>
           </div>` : ''}
           <div class="post-header">
             <div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>
@@ -3363,6 +3449,7 @@ async function viewPost(pid) {
           </div>
           ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
           ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
+          ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
           ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
           <div class="post-actions" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
             <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${p.id}');closeModal()">❤ ${lc || 'Like'}</button>
@@ -3372,6 +3459,13 @@ async function viewPost(pid) {
         </div>
       </div>
     `);
+
+    // Init video players inside modal
+    requestAnimationFrame(() => {
+      if (videoPlayerData) initPlayer(videoPlayerData.id);
+      _pendingQuotePlayers.forEach(p => initPlayer(p.id));
+      _pendingQuotePlayers.length = 0;
+    });
   } catch (e) { console.error(e); toast('Could not load post'); }
 }
 
@@ -3463,12 +3557,28 @@ async function openChat(convoId) {
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             // Handle shared post messages
             if (m.type === 'share_post' && m.payload?.postId) {
-              content = `<div class="shared-post-card" onclick="viewPost('${m.payload.postId}')">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              const pl = m.payload;
+              let mediaPreview = '';
+              if (pl.mediaURL && pl.mediaType === 'video') {
+                mediaPreview = `<div style="position:relative;border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px">
+                  <video src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </div>
+                </div>`;
+              } else if (pl.mediaURL && (pl.mediaType === 'image' || !pl.mediaType)) {
+                mediaPreview = `<div style="border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px"><img src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
+              }
+              let snippetHTML = pl.content ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(pl.content)}</div>` : '';
+              content = `<div class="shared-post-card" onclick="viewPost('${pl.postId}')">
+                ${mediaPreview}
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                   <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
+                  ${pl.authorName ? `<span style="font-size:11px;color:var(--text-tertiary)">by ${esc(pl.authorName)}</span>` : ''}
                 </div>
-                <div style="font-size:13px;color:var(--text-secondary)">Tap to view post</div>
+                ${snippetHTML}
+                <div style="font-size:11px;color:var(--text-tertiary)">Tap to view</div>
               </div>`;
             } else if (m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
@@ -3758,7 +3868,11 @@ function renderProfilePosts(posts, user) {
     </div>`;
   }).join('')}</div>`;
   // Init players after render
-  requestAnimationFrame(() => _profPlayers.forEach(p => initPlayer(p.id)));
+  requestAnimationFrame(() => {
+    _profPlayers.forEach(p => initPlayer(p.id));
+    _pendingQuotePlayers.forEach(p => initPlayer(p.id));
+    _pendingQuotePlayers.length = 0;
+  });
   return html;
 }
 
@@ -4001,6 +4115,23 @@ async function openShareModal(postId) {
 async function shareToFriend(uid, name, postId) {
    try {
      const myId = state.user.uid;
+
+     // Fetch post preview data for rich chat card
+     let preview = {};
+     try {
+       const pDoc = await db.collection('posts').doc(postId).get();
+       if (pDoc.exists) {
+         const pd = pDoc.data();
+         preview = {
+           content: (pd.content || '').slice(0, 80),
+           mediaURL: pd.mediaURL || '',
+           mediaType: pd.mediaType || '',
+           authorName: pd.authorName || '',
+           authorPhoto: pd.authorPhotoURL || ''
+         };
+       }
+     } catch(_) {}
+
      const snap = await db.collection('conversations').where('participants','array-contains',myId).get();
      let convo = snap.docs.find(d => d.data().participants.includes(uid));
      
@@ -4025,7 +4156,7 @@ async function shareToFriend(uid, name, postId) {
      await db.collection('conversations').doc(convo.id).collection('messages').add({
          text: `shared post::${postId}`, 
          type: 'share_post',
-         payload: { postId },
+         payload: { postId, ...preview },
          senderId: myId,
          createdAt: FieldVal.serverTimestamp()
      });
