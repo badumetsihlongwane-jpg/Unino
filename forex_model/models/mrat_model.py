@@ -536,12 +536,19 @@ class HierarchicalReasoningLayer(nn.Module):
         if level == 'macro':
             self.horizon = 'days'
             self.d_output = 128
+            self.parent_dim = 0  # No parent for macro
         elif level == 'meso':
             self.horizon = 'hours'
             self.d_output = 96
+            self.parent_dim = 128  # Macro output
         else:  # micro
             self.horizon = 'minutes'
             self.d_output = 64
+            self.parent_dim = 96  # Meso output
+        
+        # Input projection for hierarchical dependency
+        input_dim = self.d_model + self.parent_dim
+        self.input_proj = nn.Linear(input_dim, self.d_model) if self.parent_dim > 0 else nn.Identity()
         
         # Reasoning network
         self.reasoning_net = nn.Sequential(
@@ -567,8 +574,8 @@ class HierarchicalReasoningLayer(nn.Module):
         if parent_signal is not None:
             # Concatenate parent signal for hierarchical dependency
             x = torch.cat([fused, parent_signal], dim=-1)
-            # Adjust input dimension
-            x = nn.Linear(x.shape[-1], self.d_model).to(x.device)(x)
+            # Project to d_model
+            x = self.input_proj(x)
         else:
             x = fused
         

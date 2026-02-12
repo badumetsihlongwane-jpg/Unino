@@ -268,14 +268,14 @@ class EconomicCalendarTransformer:
         Returns:
             (anticipation_score, impact_score)
         """
-        if time_to_event_hours < 0:  # Event is in future
+        if time_to_event_hours > 0:  # Event is in future
             # Anticipation builds as event approaches
-            anticipation = np.exp(time_to_event_hours / 24)  # Decay over 24h
+            anticipation = np.exp(-time_to_event_hours / 24)  # Decay over 24h
             impact = 0.0
-        else:  # Event already happened
+        else:  # Event already happened (negative or zero)
             # Impact decays over time
             anticipation = 0.0
-            impact = np.exp(-time_to_event_hours / 12)  # Decay over 12h
+            impact = np.exp(time_to_event_hours / 12)  # Decay over 12h (time_to_event is negative)
         
         return anticipation, impact
     
@@ -312,12 +312,12 @@ class EconomicCalendarTransformer:
             
             # Temporal encoding
             time_delta = (row.time - current_time).total_seconds() / 3600  # hours
-            if time_delta < 0:  # Future event
+            if time_delta > 0:  # Future event
                 time_to_events[idx] = time_delta
                 time_since_events[idx] = 0
-            else:  # Past event
+            else:  # Past event (negative or zero time_delta)
                 time_to_events[idx] = 0
-                time_since_events[idx] = time_delta
+                time_since_events[idx] = -time_delta  # Make positive
         
         return {
             'event_type': event_type_ids,

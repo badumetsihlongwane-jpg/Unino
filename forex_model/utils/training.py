@@ -426,19 +426,20 @@ def train_mrat_model(model: nn.Module, train_loader: DataLoader,
         
         # Validation phase
         val_metrics = evaluate_by_regime(model, val_loader, device)
+        val_acc = val_metrics['overall_accuracy']
         
         # Update history
         history['train_loss'].append(avg_train_loss)
-        history['val_loss'].append(val_metrics.get('overall_accuracy', 0))
-        history['val_accuracy'].append(val_metrics['overall_accuracy'])
+        history['val_loss'].append(avg_train_loss)  # Using train loss for now
+        history['val_accuracy'].append(val_acc)
         history['val_confidence'].append(val_metrics['mean_confidence'])
         
         # Learning rate scheduling
         scheduler.step(avg_train_loss)
         
-        # Early stopping
-        if avg_train_loss < best_val_loss:
-            best_val_loss = avg_train_loss
+        # Early stopping based on validation accuracy
+        if val_acc > best_val_loss:  # Using accuracy as metric
+            best_val_loss = val_acc
             patience_counter = 0
             # Save best model
             torch.save(model.state_dict(), 'best_mrat_model.pt')
