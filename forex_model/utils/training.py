@@ -54,11 +54,23 @@ def collate_fn(batch_list):
         'macro_indicators': {}
     }
     
-    # Handle events
+    # Handle events - pad to max length in batch
     for key in batch_list[0]['events'].keys():
-        collated['events'][key] = torch.stack([
-            b['events'][key] for b in batch_list
-        ])
+        tensors = [b['events'][key] for b in batch_list]
+        # Find max length
+        max_len = max(t.shape[0] if len(t.shape) > 0 else 1 for t in tensors)
+        
+        # Pad all tensors to max length
+        padded = []
+        for t in tensors:
+            if len(t.shape) == 0:  # Scalar
+                t = t.unsqueeze(0)
+            if t.shape[0] < max_len:
+                pad_size = max_len - t.shape[0]
+                t = torch.cat([t, torch.zeros(pad_size, dtype=t.dtype)])
+            padded.append(t)
+        
+        collated['events'][key] = torch.stack(padded)
     
     # Handle macro indicators
     for key in batch_list[0]['macro_indicators'].keys():
@@ -528,7 +540,7 @@ def generate_prediction_output(model: nn.Module, batch: Dict,
                 'NEUTRAL': float(direction_probs[1]),
                 'SHORT': float(direction_probs[2])
             },
-            'confidence': confidence,
+            'confidence': float(confidence),
             'expected_move': {
                 'mean': float(np.random.randn() * 0.005),  # Placeholder
                 'std': 0.0031,
@@ -544,7 +556,7 @@ def generate_prediction_output(model: nn.Module, batch: Dict,
             'volatility_regime': 'MEDIUM',
             'tail_risk_score': float(risk_scores[0]),
             'liquidity_warning': bool(risk_scores[2] > 0.7),
-            'optimal_position_size': confidence * (1 - risk_scores[0])
+            'optimal_position_size': float(confidence * (1 - risk_scores[0]))
         },
         'regime_state': regime_state,
         'explainability': {

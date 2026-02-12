@@ -232,7 +232,11 @@ class EventEmbeddingNetwork(nn.Module):
         ], dim=-1)  # [batch, n_events, 64]
         
         # Pool over events (max pooling to capture most important event)
-        pooled, _ = torch.max(event_features, dim=1)  # [batch, 64]
+        # Handle case with no events
+        if event_features.shape[1] == 0:
+            pooled = torch.zeros(event_features.shape[0], 64, device=event_features.device)
+        else:
+            pooled, _ = torch.max(event_features, dim=1)  # [batch, 64]
         
         # Predict impact
         impact = self.impact_net(pooled)  # [batch, d_event]
@@ -298,17 +302,27 @@ class MacroStateEncoder(nn.Module):
         Returns:
             encoded: [batch, d_macro] macro state encoding
         """
+        # Handle potential time dimension and average if needed
+        def flatten_if_needed(x):
+            if len(x.shape) == 3:  # [batch, time, features]
+                return torch.mean(x, dim=1)  # [batch, features]
+            return x
+        
         # Encode IRD dynamics
-        ird_features = self.ird_net(macro['ird'])  # [batch, 32]
+        ird_input = flatten_if_needed(macro['ird'])
+        ird_features = self.ird_net(ird_input)  # [batch, 32]
         
         # Encode yield curve
-        yield_features = self.yield_net(macro['yield_curve'])  # [batch, 32]
+        yield_input = flatten_if_needed(macro['yield_curve'])
+        yield_features = self.yield_net(yield_input)  # [batch, 32]
         
         # Encode commodities
-        commodity_features = self.commodity_net(macro['commodities'])  # [batch, 16]
+        comm_input = flatten_if_needed(macro['commodities'])
+        commodity_features = self.commodity_net(comm_input)  # [batch, 16]
         
         # Encode policy stance
-        policy_features = self.policy_net(macro['policy'])  # [batch, 16]
+        policy_input = flatten_if_needed(macro['policy'])
+        policy_features = self.policy_net(policy_input)  # [batch, 16]
         
         # Concatenate and fuse
         all_features = torch.cat([
@@ -338,7 +352,8 @@ class RegimeDetectionModule(nn.Module):
     
     def __init__(self, config):
         super().__init__()
-        self.d_input = config.d_price + config.d_macro
+        # Use 2*d_model since we concat price and macro after projection
+        self.d_input = config.d_model * 2
         
         # Expert networks (one per regime dimension)
         self.risk_sentiment_expert = self._make_expert(2)  # Risk-On/Off
@@ -670,6 +685,11 @@ class MRATForexModel(nn.Module):
         self.event_encoder = EventEmbeddingNetwork(config)
         self.macro_encoder = MacroStateEncoder(config)
         
+        # Projection layers to d_model
+        self.price_proj = nn.Linear(config.d_price, config.d_model)
+        self.event_proj = nn.Linear(config.d_event, config.d_model)
+        self.macro_proj = nn.Linear(config.d_macro, config.d_model)
+        
         # Regime detection
         self.regime_detector = RegimeDetectionModule(config)
         
@@ -701,6 +721,11 @@ class MRATForexModel(nn.Module):
         H_price = self.price_encoder(batch['ohlc'])
         H_event = self.event_encoder(batch['events'])
         H_macro = self.macro_encoder(batch['macro_indicators'])
+        
+        # Project to d_model
+        H_price = self.price_proj(H_price)
+        H_event = self.event_proj(H_event)
+        H_macro = self.macro_proj(H_macro)
         
         # For simplicity, treat commodities as part of macro
         # In full implementation, would have separate encoder

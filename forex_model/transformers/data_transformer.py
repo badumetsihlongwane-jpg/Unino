@@ -40,9 +40,9 @@ class PriceDataTransformer:
     def compute_log_returns(self, prices: np.ndarray) -> np.ndarray:
         """Compute log returns for stationarity."""
         log_prices = np.log(prices + 1e-8)
-        returns = np.diff(log_prices, axis=0)
-        # Pad to maintain length
-        returns = np.vstack([returns[0:1], returns])
+        returns = np.diff(log_prices)
+        # Pad to match original length
+        returns = np.concatenate([[returns[0]], returns])
         return returns
     
     def compute_momentum(self, prices: np.ndarray, 
@@ -299,25 +299,25 @@ class EconomicCalendarTransformer:
         time_to_events = np.zeros(n_events)
         time_since_events = np.zeros(n_events)
         
-        for i, row in events_df.iterrows():
+        for idx, row in enumerate(events_df.itertuples()):
             # Event type encoding
-            event_name = row['event_type']
-            event_type_ids[i] = self.event_types.get(event_name, 0)
+            event_name = row.event_type
+            event_type_ids[idx] = self.event_types.get(event_name, 0)
             
             # Surprise calculation
-            if pd.notna(row['actual']) and pd.notna(row['forecast']):
-                surprises[i] = self.compute_surprise(
-                    row['actual'], row['forecast']
+            if pd.notna(row.actual) and pd.notna(row.forecast):
+                surprises[idx] = self.compute_surprise(
+                    row.actual, row.forecast
                 )
             
             # Temporal encoding
-            time_delta = (row['time'] - current_time).total_seconds() / 3600  # hours
+            time_delta = (row.time - current_time).total_seconds() / 3600  # hours
             if time_delta < 0:  # Future event
-                time_to_events[i] = time_delta
-                time_since_events[i] = 0
+                time_to_events[idx] = time_delta
+                time_since_events[idx] = 0
             else:  # Past event
-                time_to_events[i] = 0
-                time_since_events[i] = time_delta
+                time_to_events[idx] = 0
+                time_since_events[idx] = time_delta
         
         return {
             'event_type': event_type_ids,
