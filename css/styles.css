@@ -1656,9 +1656,9 @@ input, select, textarea, button {
 
 /* ─── Message Delivery Status ───────────── */
 .msg-status {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: -1px;
+  letter-spacing: 0px;
   line-height: 1;
 }
 .msg-status.sent { color: rgba(255,255,255,0.4); }
@@ -5103,6 +5103,7 @@ input, select, textarea, button {
   background: conic-gradient(from 0deg, transparent 0deg, rgba(108,92,231,0.2) 30deg, transparent 60deg);
   animation: radarSweep 4s linear infinite;
   border-radius: 0 130px 0 0;
+  pointer-events: none;
 }
 @keyframes radarSweep {
   from { transform: rotate(0deg); }
@@ -5232,4 +5233,121 @@ input, select, textarea, button {
 }
 .radar-sweep-anim {
   background: conic-gradient(from 0deg, transparent 0deg, rgba(139, 124, 247, 0.25) 30deg, transparent 60deg);
+}
+
+/* ─── Event Image Preview Grid (Create Event) ───────────── */
+.ev-img-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.ev-img-thumb {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  aspect-ratio: 1;
+}
+.ev-img-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ev-img-remove {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.ev-img-remove:hover { background: #EF4444; }
+
+/* ─── Event Detail Images ───────────── */
+.ev-detail-images {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.ev-detail-images.single {
+  grid-template-columns: 1fr;
+}
+.ev-detail-images.grid {
+  grid-template-columns: 1fr 1fr;
+}
+.ev-detail-images img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  max-height: 220px;
+}
+
+/* ─── Anonymous Message Button ───────────── */
+.anon-msg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #7C3AED, #D946EF);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.anon-msg-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.4);
+}
+
+/* ─── Event Scroll Cards (Radar) ───────────── */
+.event-scroll-card {
+  flex-shrink: 0;
+  width: 110px;
+  text-align: center;
+  cursor: pointer;
+  padding: 8px 4px;
+  border-radius: var(--radius);
+  transition: all var(--transition);
+}
+.event-scroll-card:hover { background: var(--bg-tertiary); }
+.event-scroll-thumb {
+  width: 80px; height: 80px;
+  border-radius: var(--radius);
+  object-fit: cover;
+  margin-bottom: 6px;
+}
+.event-scroll-icon {
+  width: 80px; height: 80px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin: 0 auto 6px;
+}
+.event-scroll-title {
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.event-scroll-meta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -813,7 +813,7 @@ function renderFeed() {
   const c = $('#content'), p = state.profile;
   c.innerHTML = `
     <div class="feed-page">
-      <div class="welcome-banner">
+      ${!window._greetingShown ? `<div class="welcome-banner" id="welcome-banner">
         <div class="welcome-text">
           <h2>Hey, ${esc(p.firstName || p.displayName?.split(' ')[0])} 👋</h2>
           <p>${esc(p.university || 'NWU Campus')}</p>
@@ -821,7 +821,9 @@ function renderFeed() {
         <div class="welcome-stat">
           <span class="dot green"></span> <span id="feed-online">0</span> online
         </div>
-      </div>
+      </div>` : `<div class="welcome-stat" style="padding:12px 16px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)">
+        <span class="dot green"></span> <span id="feed-online">0</span> online
+      </div>`}
 
       <div class="stories-row" id="stories-row">
         <div class="story-item add-story" onclick="openStoryCreator()">
@@ -854,6 +856,9 @@ function renderFeed() {
       </button>
     </div>
   `;
+
+  // Mark greeting as shown for this session
+  window._greetingShown = true;
 
   // Wire discover tabs
   $$('.discover-tab').forEach(tab => {
@@ -1867,10 +1872,6 @@ function renderExplore() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           List
         </button>
-        <button class="explore-toggle-btn" data-v="map">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          Campus
-        </button>
       </div>
       <div id="explore-body">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -1922,7 +1923,6 @@ async function loadExploreUsers() {
 
 function renderExploreView() {
   if (exploreView === 'radar') renderRadarView();
-  else if (exploreView === 'map') renderCampusMapView();
   else renderListView();
 }
 
@@ -1973,6 +1973,20 @@ function renderRadarView() {
       <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span></div>
       <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
     </div>` : ''}
+
+    <div class="proximity-section">
+      <div class="proximity-header"><h3>📅 Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
+      ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+        const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+        const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+        const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+        return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+          ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}">${ev.emoji || '📅'}</div>`}
+          <div class="event-scroll-title">${esc(ev.title)}</div>
+          <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : ''}</div>
+        </div>`;
+      }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+    </div>
   `;
 
   // Init Leaflet on radar
@@ -1983,8 +1997,11 @@ function renderRadarView() {
 
     _leafletMap = L.map('radar-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
+    }).addTo(_leafletMap);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
     }).addTo(_leafletMap);
 
     // My pin (center)
@@ -2216,10 +2233,13 @@ function initLeafletMap(eventsByLoc) {
   _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
   L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
     maxZoom: 20,
     subdomains: 'abcd'
+  }).addTo(_leafletMap);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
   }).addTo(_leafletMap);
 
   // Campus location pins
@@ -2284,6 +2304,7 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
+  window._eventFiles = [];
   openModal(`
     <div class="modal-header"><h2>Create Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
@@ -2299,9 +2320,19 @@ function openCreateEvent(presetLoc) {
         <div class="form-group" style="flex:1"><label>Time</label><input type="time" id="ev-time"></div>
       </div>
       <div class="form-group"><label>Description (optional)</label><textarea id="ev-desc" placeholder="What's happening?" style="resize:none;height:60px"></textarea></div>
+      <div class="form-group"><label>Event Photos (up to 4)</label><input type="file" accept="image/*" id="ev-file" multiple></div>
+      <div id="ev-img-preview" class="ev-img-preview-grid"></div>
       <button class="btn-primary btn-full" id="ev-create-btn">Create Event</button>
     </div>
   `);
+  $('#ev-file').onchange = e => {
+    const files = Array.from(e.target.files).slice(0, 4);
+    window._eventFiles = files;
+    const previewEl = $('#ev-img-preview');
+    if (previewEl && files.length) {
+      previewEl.innerHTML = files.map((f, i) => `<div class="ev-img-thumb"><img src="${URL.createObjectURL(f)}"><button type="button" class="ev-img-remove" onclick="removeEventImage(${i})">&times;</button></div>`).join('');
+    }
+  };
   $('#ev-create-btn').onclick = async () => {
     const title = $('#ev-title')?.value.trim();
     const emoji = $('#ev-emoji')?.value.trim() || '📅';
@@ -2310,11 +2341,19 @@ function openCreateEvent(presetLoc) {
     const time = $('#ev-time')?.value || '';
     const desc = $('#ev-desc')?.value.trim() || '';
     if (!title || !date) return toast('Title and date required');
+    const filesToUpload = [...(window._eventFiles || [])];
+    window._eventFiles = [];
     closeModal(); toast('Creating event...');
     const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)','linear-gradient(135deg,#7C3AED,#C084FC)','linear-gradient(135deg,#8B5CF6,#D946EF)','linear-gradient(135deg,#6366F1,#818CF8)','linear-gradient(135deg,#D946EF,#E879F9)'];
     try {
+      let imageURLs = [];
+      for (const f of filesToUpload) {
+        const url = await uploadToR2(f, 'events');
+        if (url) imageURLs.push(url);
+      }
       await db.collection('events').add({
         title, emoji, location, date, time, description: desc,
+        imageURLs,
         gradient: gradients[Math.floor(Math.random() * gradients.length)],
         createdBy: state.user.uid,
         creatorName: state.profile.displayName,
@@ -2323,9 +2362,19 @@ function openCreateEvent(presetLoc) {
       });
       toast('Event created!');
       await loadCampusEvents();
-      renderCampusMapView();
+      if (exploreView === 'radar') renderRadarView();
     } catch (e) { toast('Failed'); console.error(e); }
   };
+}
+
+function removeEventImage(idx) {
+  if (window._eventFiles) {
+    window._eventFiles.splice(idx, 1);
+    const previewEl = $('#ev-img-preview');
+    if (previewEl) {
+      previewEl.innerHTML = window._eventFiles.map((f, i) => `<div class="ev-img-thumb"><img src="${URL.createObjectURL(f)}"><button type="button" class="ev-img-remove" onclick="removeEventImage(${i})">&times;</button></div>`).join('');
+    }
+  }
 }
 
 async function openEventDetail(eventId) {
@@ -2340,6 +2389,7 @@ async function openEventDetail(eventId) {
     openModal(`
       <div class="modal-header"><h2>${ev.emoji || '📅'} Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
+        ${(ev.imageURLs && ev.imageURLs.length) ? `<div class="ev-detail-images ${ev.imageURLs.length === 1 ? 'single' : 'grid'}">${ev.imageURLs.map(url => `<img src="${url}" onclick="viewImage('${url}')" style="cursor:pointer">`).join('')}</div>` : ''}
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
           <span>📍 ${loc ? loc.name : esc(ev.location)}</span>
@@ -2744,9 +2794,14 @@ function renderMessages() {
     <div class="messages-page">
       <div class="messages-header"><h2>Messages</h2></div>
       <div class="msg-tabs">
-        <button class="msg-tab active" data-mt="dm">Direct <span class="tab-badge" id="dm-tab-badge"></span></button>
-        <button class="msg-tab" data-mt="groups">Groups</button>
-        <button class="msg-tab" data-mt="assignments">Assignments</button>
+        <button class="msg-tab active" data-mt="dm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          DMs <span class="tab-badge" id="dm-tab-badge"></span>
+        </button>
+        <button class="msg-tab" data-mt="assignments">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Assignments
+        </button>
       </div>
       <div id="msg-tab-content">
         <div class="convo-list" id="convo-list">
@@ -2763,13 +2818,13 @@ function renderMessages() {
       tab.classList.add('active');
       state.lastMsgTab = tab.dataset.mt;
       if (tab.dataset.mt === 'dm') loadDMList();
-      else if (tab.dataset.mt === 'groups') loadGroupList();
       else loadAssignmentGroups();
     };
   });
   // Restore last active tab
   const restoreTab = state.lastMsgTab || 'dm';
-  const tabBtn = document.querySelector(`.msg-tab[data-mt="${restoreTab}"]`);
+  if (restoreTab === 'groups') state.lastMsgTab = 'dm';
+  const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
   if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
 }
 
@@ -3659,12 +3714,19 @@ async function openChat(convoId) {
 
     showScreen('chat-view');
 
+    // Only show anon toggle for anonymous conversations (non-friend chats)
+    const anonBtn = $('#chat-anon-toggle');
+    if (anonBtn) {
+      if (convo.isAnonymous) {
+        anonBtn.style.display = '';
+        anonBtn.onclick = () => toggleAnonymous(convoId);
+      } else {
+        anonBtn.style.display = 'none';
+      }
+    }
+
     // Set initial header (will be updated by anon listener)
     updateAnonUI(convo, uid, name, photo);
-
-    // Wire anonymous toggle
-    const anonBtn = $('#chat-anon-toggle');
-    if (anonBtn) anonBtn.onclick = () => toggleAnonymous(convoId);
 
     // Listen for anonymous state changes in real-time
     if (_anonUnsub) _anonUnsub();
@@ -3843,7 +3905,6 @@ async function openChat(convoId) {
 
 async function startChat(uid, name, photo) {
   if (uid === state.user.uid) return toast("That's you!");
-  // Friends-only gate
   const myFriends = state.profile.friends || [];
   if (!myFriends.includes(uid)) return toast('Add as friend first to message');
   try {
@@ -3860,6 +3921,57 @@ async function startChat(uid, name, photo) {
       });
       openChat(doc.id);
     }
+  } catch (e) { toast('Could not start chat'); console.error(e); }
+}
+
+// Anonymous messaging for non-friends (shy users)
+const ANON_DAILY_LIMIT = 5;
+
+async function startAnonChat(uid, name, photo) {
+  if (uid === state.user.uid) return toast("That's you!");
+  const myFriends = state.profile.friends || [];
+  if (myFriends.includes(uid)) return toast('You are already friends — use normal chat');
+
+  // Check daily anonymous usage limit
+  const anonCount = state.profile.anonUsageToday || 0;
+  const lastAnonDate = state.profile.anonUsageDate || '';
+  const today = new Date().toISOString().split('T')[0];
+  const todayCount = (lastAnonDate === today) ? anonCount : 0;
+
+  if (todayCount >= ANON_DAILY_LIMIT) {
+    return toast(`Anonymous limit reached (${ANON_DAILY_LIMIT}/day). Try again tomorrow!`);
+  }
+
+  try {
+    // Check for existing anon conversation
+    const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
+    const existing = snap.docs.find(d => {
+      const data = d.data();
+      return data.participants.includes(uid) && data.isAnonymous;
+    });
+    if (existing) { openChat(existing.id); return; }
+
+    // Increment anon usage
+    await db.collection('users').doc(state.user.uid).update({
+      anonUsageToday: todayCount + 1,
+      anonUsageDate: today
+    });
+    state.profile.anonUsageToday = todayCount + 1;
+    state.profile.anonUsageDate = today;
+
+    // Create anonymous conversation
+    const doc = await db.collection('conversations').add({
+      participants: [state.user.uid, uid],
+      participantNames: [state.profile.displayName, name],
+      participantPhotos: [state.profile.photoURL || null, photo || null],
+      lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
+      unread: { [uid]: 0, [state.user.uid]: 0 },
+      isAnonymous: true,
+      anonymous: { [state.user.uid]: true },
+      anonStartedBy: state.user.uid
+    });
+    toast(`Anonymous chat started (${todayCount + 1}/${ANON_DAILY_LIMIT} today)`);
+    openChat(doc.id);
   } catch (e) { toast('Could not start chat'); console.error(e); }
 }
 
@@ -3949,7 +4061,7 @@ async function openProfile(uid) {
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-                  : `<button class="btn-outline" disabled style="opacity:0.5" title="Add as friend first">🔒 Message</button>`;
+                  : `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">👻 Anonymous Message</button>`;
                 return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>
@@ -4437,6 +4549,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
+    startAnonChat, removeEventImage,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     closeReelsViewer, toggleReelPlay, reelLike,
