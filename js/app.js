@@ -18,6 +18,10 @@ const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C0
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
 const VERIFIED_UIDS = new Set(); // populated on login
 let _isAdmin = false;
+let verifiedUsersUnsub = null;
+let _asgAlertUnsub = null;
+let _asgPendingAlerts = [];
+let _dmUnreadCount = 0;
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
 
@@ -1056,6 +1060,11 @@ function initAuth() {
       if (state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
     } else {
+      if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
+      if (_asgAlertUnsub) { _asgAlertUnsub(); _asgAlertUnsub = null; }
+      VERIFIED_UIDS.clear();
+      _asgPendingAlerts = [];
+      _dmUnreadCount = 0;
       state.user = null; state.profile = null; unsub(); showScreen('auth-screen');
     }
   });
@@ -1076,8 +1085,10 @@ function friendlyErr(code) {
 // ══════════════════════════════════════════════════
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); navigate('feed');
+  listenForVerifiedUsers();
   listenForNotifications();
   listenForUnreadDMs();
+  listenForAssignmentAlerts();
   setupPresenceTracking();
   listenForOnlineCount();
 }
@@ -1094,6 +1105,36 @@ function listenForOnlineCount() {
 }
 
 let _unreadDMSub = null;
+function refreshChatBadge() {
+  const asgPendingTotal = _asgPendingAlerts.reduce((sum, g) => sum + (g.pendingRequests || []).length, 0);
+  const total = (_dmUnreadCount || 0) + asgPendingTotal;
+  const badge = document.getElementById('chat-badge');
+  if (badge) {
+    badge.textContent = total || '';
+    badge.style.display = total ? 'flex' : 'none';
+  }
+  const asgBadge = document.getElementById('asg-tab-badge');
+  if (asgBadge) {
+    asgBadge.textContent = asgPendingTotal || '';
+    asgBadge.style.display = asgPendingTotal ? 'inline-flex' : 'none';
+  }
+}
+
+function listenForVerifiedUsers() {
+  if (verifiedUsersUnsub) verifiedUsersUnsub();
+  verifiedUsersUnsub = db.collection('users').where('isVerified', '==', true).onSnapshot(snap => {
+    VERIFIED_UIDS.clear();
+    snap.docs.forEach(d => VERIFIED_UIDS.add(d.id));
+    if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
+    // Refresh active surfaces so badges update immediately for everyone.
+    if (state.page === 'feed') renderFeed();
+    else if (state.page === 'explore') renderExplore();
+    else if (state.page === 'chat') renderMessages();
+  }, () => {
+    if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
+  });
+}
+
 function listenForUnreadDMs() {
   if (_unreadDMSub) _unreadDMSub();
   _unreadDMSub = db.collection('conversations')
@@ -1102,11 +1143,23 @@ function listenForUnreadDMs() {
       const uid = state.user.uid;
       let total = 0;
       snap.docs.forEach(d => { total += (d.data().unread || {})[uid] || 0; });
-      const badge = document.getElementById('chat-badge');
-      if (badge) {
-        badge.textContent = total || '';
-        badge.style.display = total ? 'flex' : 'none';
-      }
+      _dmUnreadCount = total;
+      refreshChatBadge();
+    }, () => {});
+}
+
+function listenForAssignmentAlerts() {
+  if (_asgAlertUnsub) _asgAlertUnsub();
+  _asgAlertUnsub = db.collection('assignmentGroups')
+    .where('createdBy', '==', state.user.uid)
+    .onSnapshot(snap => {
+      _asgPendingAlerts = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(g => (g.status || 'open') === 'open' && (g.pendingRequests || []).length > 0);
+      refreshChatBadge();
+      updateNotifBadge();
+      const dd = $('#notif-dropdown');
+      if (dd && dd.style.display === 'block') loadNotifications();
     }, () => {});
 }
 
@@ -3389,7 +3442,7 @@ function renderMessages() {
         </button>
         <button class="msg-tab" data-mt="assignments">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Assignments
+          Assignments <span class="tab-badge" id="asg-tab-badge"></span>
         </button>
       </div>
       <div id="msg-tab-content">
@@ -3401,6 +3454,7 @@ function renderMessages() {
   `;
   // Compute DM unread count for the tab badge
   _updateDMTabBadge();
+  refreshChatBadge();
   $$('.msg-tab').forEach(tab => {
     tab.onclick = () => {
       $$('.msg-tab').forEach(t => t.classList.remove('active'));
@@ -3733,11 +3787,26 @@ async function joinAsg(groupId) {
 async function requestJoinAsg(groupId) {
   const uid = state.user.uid;
   try {
+    const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
+    const g = gDoc.data() || {};
     await db.collection('assignmentGroups').doc(groupId).update({
       pendingRequests: FieldVal.arrayUnion({ uid, name: state.profile.displayName, photo: state.profile.photoURL || '' })
     });
+    if (g.createdBy && g.createdBy !== uid) {
+      addNotification(g.createdBy, 'assignment', `requested to join ${g.assignmentTitle || g.moduleCode || 'your assignment group'}`, { groupId, kind: 'asg_join_request' });
+    }
     closeModal(); toast('Request sent! The host will review it.');
   } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function approveAsgRequestByUid(groupId, reqUid) {
+  try {
+    const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
+    if (!gDoc.exists) return;
+    const req = (gDoc.data().pendingRequests || []).find(r => r.uid === reqUid);
+    if (!req) return toast('Request no longer available');
+    await approveAsgRequest(groupId, reqUid, req.name || 'Student', req.photo || '');
+  } catch (e) { console.error(e); toast('Failed'); }
 }
 
 async function approveAsgRequest(groupId, reqUid, reqName, reqPhoto) {
@@ -3752,6 +3821,7 @@ async function approveAsgRequest(groupId, reqUid, reqName, reqPhoto) {
       [`memberPhotos.${reqUid}`]: reqPhoto || '',
       pendingRequests: newPending
     });
+    addNotification(reqUid, 'assignment', `approved your request to join ${g.assignmentTitle || g.moduleCode || 'an assignment group'}`, { groupId, kind: 'asg_approved' });
     closeModal(); toast(`${reqName} approved!`);
     openAssignmentDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
@@ -3761,8 +3831,12 @@ async function rejectAsgRequest(groupId, reqUid) {
   try {
     const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
     const g = gDoc.data();
+    const req = (g.pendingRequests || []).find(r => r.uid === reqUid);
     const newPending = (g.pendingRequests||[]).filter(r => r.uid !== reqUid);
     await db.collection('assignmentGroups').doc(groupId).update({ pendingRequests: newPending });
+    if (req?.uid) {
+      addNotification(req.uid, 'assignment', `declined your request for ${g.assignmentTitle || g.moduleCode || 'an assignment group'}`, { groupId, kind: 'asg_declined' });
+    }
     closeModal(); toast('Request declined');
     openAssignmentDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
@@ -4131,16 +4205,18 @@ function listenForNotifications() {
 function updateNotifBadge() {
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const unreadCount = _notifications.filter(n => !n.read).length;
+  const pendingAsg = _asgPendingAlerts.reduce((sum, g) => sum + (g.pendingRequests || []).length, 0);
   const dot = $('#notif-dot');
-  if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0) ? 'block' : 'none';
+  if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0 || pendingAsg > 0) ? 'block' : 'none';
 }
 
 function loadNotifications() {
   const dd = $('#notif-dropdown');
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
+  const asgAlerts = _asgPendingAlerts;
   const notifs = _notifications;
 
-  if (!requests.length && !notifs.length) {
+  if (!requests.length && !asgAlerts.length && !notifs.length) {
     dd.innerHTML = `
       <div class="notif-header"><h3>Notifications</h3></div>
       <div style="padding:32px;text-align:center;color:var(--text-tertiary)">
@@ -4167,11 +4243,43 @@ function loadNotifications() {
       </div>`).join('');
   }
 
-  if (notifs.length) {
+  if (asgAlerts.length) {
     if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
+    html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Assignment Requests</div>`;
+    html += asgAlerts.map(g => `
+      <div class="notif-item unread" onclick="openAssignmentDetail('${g.id}')">
+        <div style="position:relative">
+          <div class="avatar-md group-avatar-icon">📋</div>
+          <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">⏳</div>
+        </div>
+        <div class="notif-content">
+          <div class="notif-text"><strong>${esc(g.assignmentTitle || g.moduleCode || 'Assignment Group')}</strong> has ${(g.pendingRequests || []).length} pending request${(g.pendingRequests || []).length === 1 ? '' : 's'}</div>
+          <div class="notif-time">Tap to review</div>
+          <div class="notif-actions" style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+            ${(g.pendingRequests || []).slice(0, 3).map(r => `
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg-tertiary);border-radius:10px;padding:6px 8px">
+                <span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(r.name || 'Student')}</span>
+                <div style="display:flex;gap:6px">
+                  <button class="btn-primary btn-sm" onclick="event.stopPropagation();approveAsgRequestByUid('${g.id}','${r.uid}')">Accept</button>
+                  <button class="btn-outline btn-sm" onclick="event.stopPropagation();rejectAsgRequest('${g.id}','${r.uid}')">Decline</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (notifs.length) {
+    if (requests.length || asgAlerts.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += notifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : '🔔';
-      const clickAction = n.payload?.postId ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')` : `markNotifRead('${n.id}')`;
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'assignment' ? '📋' : '🔔';
+      const clickAction = n.payload?.postId
+        ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+        : n.payload?.groupId
+          ? `openAssignmentDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+          : `markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unino', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
@@ -5295,6 +5403,8 @@ async function openAdminPanel() {
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllGroups()">\ud83d\udccb View All Assignment Groups</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllUsers()">\ud83d\udc65 View All Users</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">\ud83e\uddf9 Moderate Posts</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">\ud83d\udce2 Broadcast Notice</button>
       </div>
     </div>
   `);
@@ -5420,6 +5530,66 @@ async function doVerifyUser(uid, verify) {
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
+async function adminModeratePosts() {
+  if (!_isAdmin) return;
+  closeModal();
+  openModal(`
+    <div class="modal-header"><h2>Moderate Posts</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" id="admin-posts-body"><div class="inline-spinner" style="margin:24px auto"></div></div>
+  `);
+  try {
+    const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(50).get();
+    const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const body = $('#admin-posts-body');
+    body.innerHTML = posts.length ? posts.map(p => `
+      <div class="asg-card" style="margin:8px 0">
+        <div class="asg-card-title">${esc((p.content || '').slice(0, 100) || '[media post]')}</div>
+        <div class="asg-card-meta"><span>By ${esc(p.authorName || 'User')}</span><span>\u00b7 ${timeAgo(p.createdAt)}</span></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn-outline" style="flex:1" onclick="viewPost('${p.id}')">View</button>
+          <button class="btn-danger" style="flex:1;border-radius:var(--radius)" onclick="adminDeletePost('${p.id}')">Delete</button>
+        </div>
+      </div>
+    `).join('') : '<p style="padding:16px;color:var(--text-secondary)">No posts found.</p>';
+  } catch (e) { console.error(e); }
+}
+
+async function adminDeletePost(postId) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('posts').doc(postId).delete();
+    toast('Post removed');
+    adminModeratePosts();
+  } catch (e) { toast('Delete failed'); console.error(e); }
+}
+
+function adminBroadcastPrompt() {
+  if (!_isAdmin) return;
+  closeModal();
+  openModal(`
+    <div class="modal-header"><h2>Broadcast Notice</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Message</label><textarea id="admin-broadcast-text" placeholder="Important campus-wide update..." style="resize:none;height:90px"></textarea></div>
+      <button class="btn-primary btn-full" onclick="adminSendBroadcast()">Send to All Users</button>
+    </div>
+  `);
+}
+
+async function adminSendBroadcast() {
+  if (!_isAdmin) return;
+  const text = ($('#admin-broadcast-text')?.value || '').trim();
+  if (!text) return toast('Message required');
+  try {
+    const usersSnap = await db.collection('users').get();
+    await Promise.all(usersSnap.docs.map(d => db.collection('users').doc(d.id).collection('notifications').add({
+      type: 'admin', text, payload: { admin: true }, read: false, createdAt: FieldVal.serverTimestamp(),
+      from: { uid: state.user.uid, name: 'Unibo Admin', photo: state.profile.photoURL || null }
+    })));
+    closeModal();
+    toast(`Broadcast sent to ${usersSnap.size} users`);
+  } catch (e) { toast('Broadcast failed'); console.error(e); }
+}
+
 // ══════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════
@@ -5459,7 +5629,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openStoryCreator, viewStory, closeStoryViewer, advanceStory, deleteStory,
     openCreateGroup, openGroupChat, joinGroup, loadStories,
     openCreateAssignmentGroup, openAssignmentDetail, joinAsg, requestJoinAsg,
-    approveAsgRequest, rejectAsgRequest, removeFromAsg, leaveAsg,
+    approveAsgRequest, approveAsgRequestByUid, rejectAsgRequest, removeFromAsg, leaveAsg,
     toggleAsgLock, archiveAsg, doArchiveAsg, autoFillAsg,
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
@@ -5471,6 +5641,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
     toggleVN, seekVN,
-    openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser
+    openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
+    adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast
   });
 });
