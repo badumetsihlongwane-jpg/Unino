@@ -3500,15 +3500,17 @@ async function openGroupChat(groupId, collection = 'groups') {
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
+            // Check if reply is to current user's message
+            const replyDisplayName = m.replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
             const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
+              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-              ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
+              ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
               <button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
@@ -3543,7 +3545,8 @@ async function openGroupChat(groupId, collection = 'groups') {
       const replyPayload = _gReplyTo ? {
         replyToId: _gReplyTo.id,
         replyToText: _gReplyTo.text,
-        replyToName: _gReplyTo.name
+        replyToName: _gReplyTo.name,
+        replyToSenderId: _gReplyTo.senderId
       } : {};
       input.value = '';
       resizeGInput();
@@ -3587,7 +3590,8 @@ function setGroupReply(messageId) {
   _gReplyTo = {
     id: m.id,
     text: replyText,
-    name: m.senderName || 'User'
+    name: m.senderName || 'User',
+    senderId: m.senderId
   };
   const ind = $('#gchat-reply-indicator');
   if (!ind) return;
@@ -3607,7 +3611,7 @@ function setDmReply(messageId) {
   if (!m) return;
   const otherName = m.senderId === state.user?.uid ? 'You' : 'Them';
   const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
-  _dmReplyTo = { id: m.id, text: replyText, name: otherName };
+  _dmReplyTo = { id: m.id, text: replyText, name: otherName, senderId: m.senderId };
   const ind = $('#dm-reply-indicator');
   if (!ind) return;
   ind.innerHTML = `<span>↩ Replying to <strong>${esc(otherName)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearDmReply()">&times;</button>`;
@@ -4409,6 +4413,8 @@ function listenForNotifications() {
     state.profile.friends = data.friends || [];
     state.profile.friendRequests = sanitizeFriendRequests(data.friendRequests || []);
     state.profile.sentRequests = data.sentRequests || [];
+    state.profile.blockedUsers = data.blockedUsers || [];
+    state.profile.blockedBy = data.blockedBy || [];
     updateNotifBadge();
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display === 'block') loadNotifications();
@@ -4430,8 +4436,9 @@ function updateNotifBadge() {
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const unreadCount = _notifications.filter(n => !n.read).length;
   const pendingAsg = _asgPendingAlerts.reduce((sum, g) => sum + (g.pendingRequests || []).length, 0);
+  const revealCount = _notifications.filter(n => n.type === 'reveal_request' && !n.read).length;
   const dot = $('#notif-dot');
-  if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0 || pendingAsg > 0) ? 'block' : 'none';
+  if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0 || pendingAsg > 0 || revealCount > 0) ? 'block' : 'none';
 }
 
 function loadNotifications() {
@@ -4439,8 +4446,12 @@ function loadNotifications() {
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const asgAlerts = _asgPendingAlerts;
   const notifs = _notifications;
+  
+  // Separate reveal requests (top priority)
+  const revealRequests = notifs.filter(n => n.type === 'reveal_request');
+  const otherNotifs = notifs.filter(n => n.type !== 'reveal_request');
 
-  if (!requests.length && !asgAlerts.length && !notifs.length) {
+  if (!requests.length && !asgAlerts.length && !revealRequests.length && !otherNotifs.length) {
     dd.innerHTML = `
       <div class="notif-header"><h3>Notifications</h3></div>
       <div style="padding:32px;text-align:center;color:var(--text-tertiary)">
@@ -4451,6 +4462,26 @@ function loadNotifications() {
   }
 
   let html = '<div class="notif-header"><h3>Notifications</h3></div><div class="notif-scroll" style="max-height:400px;overflow-y:auto">';
+  
+  // Show reveal requests FIRST (top priority)
+  if (revealRequests.length) {
+    html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">🎭 Identity Reveal Requests</div>`;
+    html += revealRequests.map(n => {
+      const from = n.from || { name: 'Someone', photo: null };
+      const convoId = n.payload?.convoId || '';
+      return `
+       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="openChat('${convoId}');markNotifRead('${n.id}')">
+         <div style="position:relative">
+           <div class="avatar-md anon-avatar">👻</div>
+           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">🎭</div>
+         </div>
+         <div class="notif-content">
+           <div class="notif-text"><strong>Anonymous contact</strong> wants to reveal their identity</div>
+           <div class="notif-time">${timeAgo(n.createdAt)}</div>
+         </div>
+       </div>`;
+    }).join('');
+  }
 
   if (requests.length) {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Friend Requests</div>`;
@@ -4495,9 +4526,9 @@ function loadNotifications() {
     `).join('');
   }
 
-  if (notifs.length) {
-    if (requests.length || asgAlerts.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
-    html += notifs.map(n => {
+  if (otherNotifs.length) {
+    if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
+    html += otherNotifs.map(n => {
       const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'assignment' ? '📋' : '🔔';
       const clickAction = n.payload?.postId
         ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
@@ -4627,8 +4658,10 @@ function loadDMList() {
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
         const unread = (c.unread || {})[uid] || 0;
+        const isArchived = (c.archived || []).includes(uid);
+        if (isArchived) return '';
         return `
-          <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')">
+          <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')" oncontextmenu="event.preventDefault();showConvoActions('${c.id}','${esc(displayName)}','${otherUid}')">
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
@@ -4637,6 +4670,7 @@ function loadDMList() {
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
               ${unread ? `<div class="convo-unread-badge">${unread}</div>` : ''}
+              <button class="convo-menu-btn" onclick="event.stopPropagation();showConvoActions('${c.id}','${esc(displayName)}','${otherUid}')" style="margin-top:4px">⋯</button>
             </div>
           </div>`;
       }).join('');
@@ -4752,9 +4786,27 @@ async function toggleAnonymous(convoId) {
 async function requestReveal(convoId) {
   const uid = state.user.uid;
   try {
+    const snap = await db.collection('conversations').doc(convoId).get();
+    if (!snap.exists) return;
+    const convo = snap.data();
+    const otherUid = convo.participants.find(p => p !== uid);
+    if (!otherUid) return;
+    
+    // Mark my reveal request
     await db.collection('conversations').doc(convoId).update({
       [`revealRequests.${uid}`]: true
     });
+    
+    // Create notification for the other user
+    await db.collection('users').doc(otherUid).collection('notifications').add({
+      type: 'reveal_request',
+      text: 'Someone wants to reveal their identity in an anonymous chat',
+      payload: { convoId },
+      read: false,
+      createdAt: FieldVal.serverTimestamp(),
+      from: { uid: 'anonymous', name: 'Anonymous', photo: null }
+    });
+    
     toast('Reveal request sent!');
   } catch (e) { toast('Failed'); console.error(e); }
 }
@@ -4893,13 +4945,15 @@ async function openChat(convoId) {
               ? '<div class="avatar-xs anon-avatar">👻</div>'
               : avatar(displayName, displayPhoto, 'avatar-xs');
 
+            // Check if reply is to current user's message
+            const replyDisplayName = m.replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
             const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
+              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
           scrollToLatest(msgs);
@@ -4927,6 +4981,19 @@ async function openChat(convoId) {
     }
 
     const sendMsg = async () => {
+      // Check if blocked before sending
+      const otherUid = convo.participants.find(p => p !== uid);
+      const myBlocked = state.profile.blockedUsers || [];
+      const blockedBy = state.profile.blockedBy || [];
+      if (myBlocked.includes(otherUid)) {
+        toast('You blocked this user');
+        return;
+      }
+      if (blockedBy.includes(otherUid)) {
+        toast('This user has blocked you');
+        return;
+      }
+      
       const text = input.value.trim();
       let img = chatPendingImg;
       const chatFile = window._chatFile || null;
@@ -4934,7 +5001,8 @@ async function openChat(convoId) {
       const replyPayload = _dmReplyTo ? {
         replyToId: _dmReplyTo.id,
         replyToText: _dmReplyTo.text,
-        replyToName: _dmReplyTo.name
+        replyToName: _dmReplyTo.name,
+        replyToSenderId: _dmReplyTo.senderId
       } : {};
       input.value = ''; chatPendingImg = null; window._chatFile = null;
       resizeDmInput();
@@ -4965,7 +5033,6 @@ async function openChat(convoId) {
           senderId: uid, senderAnon, ...replyPayload,
           createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
-        const otherUid = convo.participants.find(p => p !== uid);
         const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
         await db.collection('conversations').doc(convoId).set({
           lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
@@ -5012,6 +5079,13 @@ async function startChat(uid, name, photo) {
   if (uid === state.user.uid) return toast("That's you!");
   const myFriends = state.profile.friends || [];
   if (!myFriends.includes(uid)) return toast('Add as friend first to message');
+  
+  // Check if blocked
+  const myBlocked = state.profile.blockedUsers || [];
+  const blockedBy = state.profile.blockedBy || [];
+  if (myBlocked.includes(uid)) return toast('You blocked this user');
+  if (blockedBy.includes(uid)) return toast('Cannot message this user');
+  
   try {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     const existing = snap.docs.find(d => d.data().participants.includes(uid));
@@ -5035,6 +5109,12 @@ const ANON_DAILY_LIMIT = 5;
 
 async function startAnonChat(uid, name, photo, forceNew = false) {
   if (uid === state.user.uid) return toast("That's you!");
+  
+  // Check if blocked (anon chats also blocked)
+  const myBlocked = state.profile.blockedUsers || [];
+  const blockedBy = state.profile.blockedBy || [];
+  if (myBlocked.includes(uid)) return toast('You blocked this user');
+  if (blockedBy.includes(uid)) return toast('This user has blocked anonymous messages');
 
   // Check daily anonymous usage limit
   const anonCount = state.profile.anonUsageToday || 0;
@@ -5109,6 +5189,93 @@ async function editAnonNickname(convoId) {
     updates[`anonNicknames.${anonNicknameKey(state.user.uid, otherUid)}`] = cleaned || FieldVal.delete();
     await db.collection('conversations').doc(convoId).update(updates);
   } catch (e) { console.error(e); toast('Could not save nickname'); }
+}
+
+function showConvoActions(convoId, displayName, otherUid) {
+  openModal(`
+    <div class="modal-header"><h2>Chat Actions</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px">Manage conversation with <strong>${displayName}</strong></p>
+      <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="archiveConvo('${convoId}')">📦 Archive Chat</button>
+      <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="deleteConvo('${convoId}')">🗑️ Delete Chat</button>
+      <button class="btn-danger btn-full" onclick="blockUserFromChat('${otherUid}','${displayName}','${convoId}')">🚫 Block User</button>
+    </div>
+  `);
+}
+
+async function archiveConvo(convoId) {
+  closeModal();
+  try {
+    await db.collection('conversations').doc(convoId).update({
+      archived: FieldVal.arrayUnion(state.user.uid)
+    });
+    toast('Chat archived');
+    if (state.lastMsgTab === 'dm') loadDMList();
+  } catch (e) { toast('Failed to archive'); console.error(e); }
+}
+
+async function deleteConvo(convoId) {
+  if (!window.confirm('Delete this conversation? This cannot be undone.')) return;
+  closeModal();
+  try {
+    const snap = await db.collection('conversations').doc(convoId).get();
+    if (!snap.exists) return;
+    const convo = snap.data();
+    const otherUid = convo.participants.find(p => p !== state.user.uid);
+    
+    // If both users delete, remove from Firestore
+    const deleted = convo.deletedBy || [];
+    if (deleted.includes(otherUid)) {
+      await db.collection('conversations').doc(convoId).delete();
+    } else {
+      await db.collection('conversations').doc(convoId).update({
+        deletedBy: FieldVal.arrayUnion(state.user.uid),
+        archived: FieldVal.arrayUnion(state.user.uid)
+      });
+    }
+    toast('Chat deleted');
+    if (state.lastMsgTab === 'dm') loadDMList();
+    showScreen('app');
+  } catch (e) { toast('Failed to delete'); console.error(e); }
+}
+
+async function blockUserFromChat(uid, name, convoId) {
+  if (!window.confirm(`Block ${name}? They won't be able to message you (including anonymously).`)) return;
+  closeModal();
+  try {
+    // Add to my blocked list
+    await db.collection('users').doc(state.user.uid).update({
+      blockedUsers: FieldVal.arrayUnion(uid)
+    });
+    // Add me to their blockedBy list
+    await db.collection('users').doc(uid).update({
+      blockedBy: FieldVal.arrayUnion(state.user.uid)
+    });
+    // Archive the conversation
+    await db.collection('conversations').doc(convoId).update({
+      archived: FieldVal.arrayUnion(state.user.uid),
+      blocked: true
+    });
+    state.profile.blockedUsers = [...(state.profile.blockedUsers || []), uid];
+    toast(`${name} blocked`);
+    if (state.lastMsgTab === 'dm') loadDMList();
+    showScreen('app');
+  } catch (e) { toast('Failed to block'); console.error(e); }
+}
+
+async function unblockUser(uid, name) {
+  if (!window.confirm(`Unblock ${name}?`)) return;
+  closeModal();
+  try {
+    await db.collection('users').doc(state.user.uid).update({
+      blockedUsers: FieldVal.arrayRemove(uid)
+    });
+    await db.collection('users').doc(uid).update({
+      blockedBy: FieldVal.arrayRemove(state.user.uid)
+    });
+    state.profile.blockedUsers = (state.profile.blockedUsers || []).filter(b => b !== uid);
+    toast(`${name} unblocked`);
+  } catch (e) { toast('Failed to unblock'); console.error(e); }
 }
 
 // ══════════════════════════════════════════════════
@@ -6053,6 +6220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
-    reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear
+    reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
+    showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal
   });
 });

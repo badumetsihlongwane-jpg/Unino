@@ -1716,6 +1716,9 @@ input, select, textarea, button {
 .convo-right {
   text-align: right;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 .convo-time {
@@ -1736,6 +1739,22 @@ input, select, textarea, button {
   font-weight: 700;
   border-radius: 100px;
   padding: 0 6px;
+}
+
+.convo-menu-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+}
+
+.convo-menu-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 /* ── Chat View ─────────────────────────────────────────── */
