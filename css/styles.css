@@ -5119,3 +5119,117 @@ input, select, textarea, button {
   box-shadow: 0 0 12px rgba(108,92,231,0.5);
   font-size: 12px;
 }
+
+/* ─── Anonymous Mode ───────────── */
+.anon-toggle-btn {
+  position: relative;
+  transition: all 0.3s ease;
+}
+.anon-toggle-btn.anon-active {
+  color: #D946EF;
+  background: rgba(217, 70, 239, 0.15);
+  border-radius: 50%;
+}
+.anon-toggle-btn.anon-active svg { stroke: #D946EF; }
+
+.anon-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #7C3AED, #D946EF) !important;
+  font-size: 16px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.anon-reveal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(139, 124, 247, 0.1);
+  border-bottom: 1px solid rgba(139, 124, 247, 0.2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  gap: 8px;
+  flex-shrink: 0;
+}
+.anon-reveal-banner.reveal-request {
+  background: rgba(217, 70, 239, 0.12);
+  border-color: rgba(217, 70, 239, 0.25);
+  color: #D946EF;
+}
+.anon-reveal-banner.reveal-waiting {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.2);
+  color: #F59E0B;
+}
+.anon-reveal-banner.reveal-success {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.25);
+  color: #34D399;
+  animation: revealFlash 0.6s ease;
+}
+.anon-reveal-banner.reveal-available {
+  background: linear-gradient(90deg, rgba(108,92,231,0.08), rgba(217,70,239,0.08));
+}
+@keyframes revealFlash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── Neon Map Theme Overrides ───────────── */
+.radar-map-wrap,
+.campus-map-container #leaflet-map {
+  border: 1px solid rgba(139, 124, 247, 0.3);
+  box-shadow: 0 0 20px rgba(108, 92, 231, 0.15), inset 0 0 20px rgba(108, 92, 231, 0.05);
+}
+[data-theme="dark"] .radar-map-wrap,
+[data-theme="dark"] .campus-map-container #leaflet-map {
+  box-shadow: 0 0 30px rgba(139, 124, 247, 0.2), 0 0 60px rgba(108, 92, 231, 0.08);
+}
+.leaflet-popup-content-wrapper {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 4px 20px rgba(108, 92, 231, 0.3) !important;
+  border: 1px solid rgba(139, 124, 247, 0.25) !important;
+}
+.leaflet-popup-tip {
+  background: var(--bg-secondary) !important;
+  border: 1px solid rgba(139, 124, 247, 0.25) !important;
+  border-top: none !important;
+  border-left: none !important;
+}
+.leaflet-control-zoom a {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid rgba(139, 124, 247, 0.2) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.map-pin-wrap.has-events .map-pin-emoji {
+  filter: drop-shadow(0 0 8px rgba(139, 124, 247, 0.6));
+}
+.map-user-pin {
+  box-shadow: 0 0 10px rgba(108, 92, 231, 0.4), 0 2px 8px rgba(0,0,0,0.3);
+}
+.map-user-pin.pin-module {
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.4), 0 2px 8px rgba(0,0,0,0.3);
+}
+.map-user-pin.map-me-pin {
+  box-shadow: 0 0 20px rgba(108, 92, 231, 0.6), 0 0 40px rgba(108, 92, 231, 0.2);
+}
+.map-pin-count {
+  box-shadow: 0 0 8px rgba(139, 124, 247, 0.5);
+}
+
+.radar-overlay .radar-ring {
+  border-color: rgba(139, 124, 247, 0.2);
+  box-shadow: 0 0 8px rgba(139, 124, 247, 0.08);
+}
+.radar-sweep-anim {
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(139, 124, 247, 0.25) 30deg, transparent 60deg);
+}

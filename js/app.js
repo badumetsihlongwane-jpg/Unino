@@ -1983,8 +1983,8 @@ function renderRadarView() {
 
     _leafletMap = L.map('radar-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OSM', maxZoom: 19
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
     }).addTo(_leafletMap);
 
     // My pin (center)
@@ -2216,9 +2216,10 @@ function initLeafletMap(eventsByLoc) {
   _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
   L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 19
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 20,
+    subdomains: 'abcd'
   }).addTo(_leafletMap);
 
   // Campus location pins
@@ -2457,13 +2458,16 @@ function openSellModal() {
   };
   $('#sell-submit').onclick = async () => {
     const title = $('#sell-title').value.trim(), price = $('#sell-price').value.trim();
+    const category = $('#sell-cat').value;
     if (!title || !price) return toast('Title and price required');
+    const fileToUpload = window._sellFile || null;
+    window._sellFile = null;
     closeModal(); toast('Uploading...');
     try {
       let sellImgURL = null;
-      if (window._sellFile) { sellImgURL = await uploadToR2(window._sellFile, 'listings'); }
+      if (fileToUpload) { sellImgURL = await uploadToR2(fileToUpload, 'listings'); }
       await db.collection('listings').add({
-        title, price, category: $('#sell-cat').value, imageURL: sellImgURL,
+        title, price, category, imageURL: sellImgURL,
         sellerId: state.user.uid, sellerName: state.profile.displayName,
         status: 'active', createdAt: FieldVal.serverTimestamp()
       });
@@ -3493,14 +3497,21 @@ function loadDMList() {
       const uid = state.user.uid;
       el.innerHTML = convos.map(c => {
         const idx = c.participants.indexOf(uid) === 0 ? 1 : 0;
-        const name = (c.participantNames || [])[idx] || 'User';
-        const photo = (c.participantPhotos || [])[idx] || null;
+        const otherUid = c.participants[idx];
+        const rawName = (c.participantNames || [])[idx] || 'User';
+        const rawPhoto = (c.participantPhotos || [])[idx] || null;
+        const theirAnon = !!((c.anonymous || {})[otherUid]);
+        const displayName = theirAnon ? 'Anonymous 👻' : rawName;
+        const displayPhoto = theirAnon ? null : rawPhoto;
+        const avatarHtml = theirAnon
+          ? '<div class="avatar-md anon-avatar">👻</div>'
+          : avatar(displayName, displayPhoto, 'avatar-md');
         const unread = (c.unread || {})[uid] || 0;
         return `
           <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')">
-            <div class="convo-avatar">${avatar(name, photo, 'avatar-md')}</div>
+            <div class="convo-avatar">${avatarHtml}</div>
             <div class="convo-info">
-              <div class="convo-name">${esc(name)}</div>
+              <div class="convo-name">${esc(displayName)}</div>
               <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
@@ -3519,22 +3530,150 @@ function loadDMList() {
 
 // ─── Chat View ───────────────────────────────────
 let chatUnsub = null;
+let _anonUnsub = null;
+
+function getAnonState(convo, uid) {
+  const anonMap = convo.anonymous || {};
+  return {
+    meAnon: !!anonMap[uid],
+    themAnon: !!anonMap[Object.keys(anonMap).find(k => k !== uid)],
+    revealRequests: convo.revealRequests || {}
+  };
+}
+
+function updateAnonUI(convo, uid, realName, realPhoto) {
+  const { meAnon, themAnon, revealRequests } = getAnonState(convo, uid);
+  const otherUid = convo.participants.find(p => p !== uid);
+  const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
+  const otherName = (convo.participantNames || [])[idx] || 'User';
+  const otherPhoto = (convo.participantPhotos || [])[idx] || null;
+
+  // Update header display
+  const hdrInfo = $('#chat-hdr-info');
+  if (themAnon) {
+    hdrInfo.innerHTML = `
+      <div class="avatar-sm anon-avatar">👻</div>
+      <div><h3 style="font-size:15px;font-weight:700">Anonymous</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">Identity hidden</span></div>
+    `;
+  } else {
+    hdrInfo.innerHTML = `
+      ${avatar(otherName, otherPhoto, 'avatar-sm')}
+      <div><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3></div>
+    `;
+  }
+
+  // Update toggle button visual
+  const toggleBtn = $('#chat-anon-toggle');
+  if (toggleBtn) {
+    toggleBtn.querySelector('.anon-icon-off').style.display = meAnon ? 'none' : 'block';
+    toggleBtn.querySelector('.anon-icon-on').style.display = meAnon ? 'block' : 'none';
+    toggleBtn.classList.toggle('anon-active', meAnon);
+  }
+
+  // Update reveal banner
+  const banner = $('#anon-reveal-banner');
+  if (banner) {
+    if (meAnon && themAnon) {
+      const iRequested = !!revealRequests[uid];
+      const theyRequested = !!revealRequests[otherUid];
+      if (iRequested && theyRequested) {
+        // Mutual reveal! Both requested
+        banner.innerHTML = `<span>🎉 Both revealed! You can now see each other.</span>`;
+        banner.className = 'anon-reveal-banner reveal-success';
+        banner.style.display = 'flex';
+        // Auto-remove anonymous for both
+        db.collection('conversations').doc(convo._id).update({
+          [`anonymous.${uid}`]: false,
+          [`anonymous.${otherUid}`]: false,
+          revealRequests: {}
+        }).catch(() => {});
+      } else if (iRequested) {
+        banner.innerHTML = `<span>⏳ Waiting for them to reveal too...</span>`;
+        banner.className = 'anon-reveal-banner reveal-waiting';
+        banner.style.display = 'flex';
+      } else if (theyRequested) {
+        banner.innerHTML = `<span>👀 They want to reveal!</span><button class="btn-primary btn-sm" onclick="mutualReveal('${convo._id}')">Reveal Together</button>`;
+        banner.className = 'anon-reveal-banner reveal-request';
+        banner.style.display = 'flex';
+      } else {
+        banner.innerHTML = `<span>🎭 Both anonymous</span><button class="btn-outline btn-sm" onclick="requestReveal('${convo._id}')">Request Mutual Reveal</button>`;
+        banner.className = 'anon-reveal-banner reveal-available';
+        banner.style.display = 'flex';
+      }
+    } else if (meAnon || themAnon) {
+      banner.innerHTML = `<span>🎭 ${meAnon ? 'You are' : 'They are'} anonymous</span>`;
+      banner.className = 'anon-reveal-banner';
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+}
+
+async function toggleAnonymous(convoId) {
+  const uid = state.user.uid;
+  try {
+    const doc = await db.collection('conversations').doc(convoId).get();
+    if (!doc.exists) return;
+    const convo = doc.data();
+    const currentAnon = (convo.anonymous || {})[uid] || false;
+    await db.collection('conversations').doc(convoId).update({
+      [`anonymous.${uid}`]: !currentAnon,
+      // Clear reveal requests when toggling
+      revealRequests: {}
+    });
+    toast(!currentAnon ? 'You are now Anonymous 👻' : 'Identity revealed');
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function requestReveal(convoId) {
+  const uid = state.user.uid;
+  try {
+    await db.collection('conversations').doc(convoId).update({
+      [`revealRequests.${uid}`]: true
+    });
+    toast('Reveal request sent!');
+  } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function mutualReveal(convoId) {
+  const uid = state.user.uid;
+  try {
+    await db.collection('conversations').doc(convoId).update({
+      [`revealRequests.${uid}`]: true
+    });
+  } catch (e) { toast('Failed'); console.error(e); }
+}
 
 async function openChat(convoId) {
   try {
     const convoDoc = await db.collection('conversations').doc(convoId).get();
     if (!convoDoc.exists) return toast('Chat not found');
     const convo = convoDoc.data();
+    convo._id = convoId;
     const uid = state.user.uid;
     const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
     const name = (convo.participantNames || [])[idx] || 'User';
     const photo = (convo.participantPhotos || [])[idx] || null;
 
     showScreen('chat-view');
-    $('#chat-hdr-info').innerHTML = `
-      ${avatar(name, photo, 'avatar-sm')}
-      <div><h3 style="font-size:15px;font-weight:700">${esc(name)}</h3></div>
-    `;
+
+    // Set initial header (will be updated by anon listener)
+    updateAnonUI(convo, uid, name, photo);
+
+    // Wire anonymous toggle
+    const anonBtn = $('#chat-anon-toggle');
+    if (anonBtn) anonBtn.onclick = () => toggleAnonymous(convoId);
+
+    // Listen for anonymous state changes in real-time
+    if (_anonUnsub) _anonUnsub();
+    _anonUnsub = db.collection('conversations').doc(convoId).onSnapshot(snap => {
+      if (!snap.exists) return;
+      const liveConvo = snap.data();
+      liveConvo._id = convoId;
+      updateAnonUI(liveConvo, uid, name, photo);
+    });
 
     // Mark as read
     db.collection('conversations').doc(convoId).set({ unread: { [uid]: 0 } }, { merge: true }).catch(() => {});
@@ -3611,12 +3750,20 @@ async function openChat(convoId) {
               else statusIcon = '<span class="msg-status sent" title="Sent">✓</span>';
             }
 
+            // Determine anonymous display
+            const senderAnon = m.senderAnon || false;
+            const displayName = (!isMe && senderAnon) ? 'Anonymous' : name;
+            const displayPhoto = (!isMe && senderAnon) ? null : photo;
+            const avatarHTML = senderAnon && !isMe
+              ? '<div class="avatar-xs anon-avatar">👻</div>'
+              : avatar(displayName, displayPhoto, 'avatar-xs');
+
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
-              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(name, photo, 'avatar-xs')}</div>` : ''}
+              ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
-          msgs.scrollTop = msgs.scrollHeight;
+          requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
         }
 
         // Mark incoming as read
@@ -3649,9 +3796,15 @@ async function openChat(convoId) {
           window._chatVoiceBlob = null;
           const vrec = $('#voice-recorder'); if (vrec) vrec.style.display = 'none';
         }
+        // Check if sender is currently anonymous
+        let senderAnon = false;
+        try {
+          const freshConvo = await db.collection('conversations').doc(convoId).get();
+          if (freshConvo.exists) senderAnon = !!(freshConvo.data().anonymous || {})[uid];
+        } catch (_) {}
         await db.collection('conversations').doc(convoId).collection('messages').add({
           text: text || '', imageURL: imageURL || null, audioURL: audioURL || null,
-          senderId: uid, createdAt: FieldVal.serverTimestamp(), status: 'sent'
+          senderId: uid, senderAnon, createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
         const otherUid = convo.participants.find(p => p !== uid);
         const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
@@ -3680,6 +3833,8 @@ async function openChat(convoId) {
     // Back button
     $('#chat-back').onclick = () => {
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+      if (_anonUnsub) { _anonUnsub(); _anonUnsub = null; }
+      const banner = $('#anon-reveal-banner'); if (banner) banner.style.display = 'none';
       showScreen('app');
       navigate('chat');
     };

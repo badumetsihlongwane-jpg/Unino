@@ -127,7 +127,12 @@
   <header class="sub-hdr">
     <button class="icon-btn" id="chat-back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
     <div class="sub-hdr-info" id="chat-hdr-info"></div>
+    <button class="icon-btn anon-toggle-btn" id="chat-anon-toggle" title="Toggle Anonymous Mode">
+      <svg class="anon-icon-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <svg class="anon-icon-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M12 2C6.48 2 2 6 2 11c0 2.8 1.3 5.3 3.4 7L12 22l6.6-4C20.7 16.3 22 13.8 22 11c0-5-4.48-9-10-9z"/><circle cx="9" cy="11" r="1.5" fill="currentColor"/><circle cx="15" cy="11" r="1.5" fill="currentColor"/></svg>
+    </button>
   </header>
+  <div id="anon-reveal-banner" class="anon-reveal-banner" style="display:none"></div>
   <div id="chat-msgs" class="chat-msgs"></div>
   <div id="chat-img-preview" class="chat-img-preview" style="display:none">
     <img src="" alt="">
