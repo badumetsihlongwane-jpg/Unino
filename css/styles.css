@@ -811,6 +811,7 @@ input, select, textarea, button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
 }
 
 .story-name {
@@ -821,6 +822,7 @@ input, select, textarea, button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .add-story .story-avatar-inner {
@@ -906,6 +908,96 @@ input, select, textarea, button {
 .trend-chip span {
   color: var(--text-secondary);
   font-size: 11px;
+}
+
+.trending-posts-card {
+  margin: 8px 16px 12px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(18, 96, 92, 0.08), rgba(244, 162, 97, 0.12));
+  border: 1px solid rgba(18, 96, 92, 0.12);
+  border-radius: 18px;
+}
+
+.trending-posts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.trending-posts-head h3 {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 2px;
+}
+
+.trending-posts-head span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.trend-nav-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.trend-nav-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.trending-post-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.trending-post-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.trending-post-card {
+  flex: 0 0 min(280px, 78vw);
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 16px;
+  padding: 14px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.trending-post-meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.trending-post-copy {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.hashtag-trends-card {
+  background: linear-gradient(135deg, rgba(244, 162, 97, 0.1), rgba(255, 214, 10, 0.12));
+  border-color: rgba(244, 162, 97, 0.16);
 }
 
 .prompt-actions {
@@ -1065,11 +1157,43 @@ input, select, textarea, button {
   font-weight: 700;
 }
 
+.expandable-post-body .post-content {
+  padding-bottom: 6px;
+}
+
+.post-expand-btn {
+  margin: 0 16px 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0;
+  cursor: pointer;
+}
+
+.module-post-text .post-content {
+  padding: 0 0 6px;
+}
+
+.module-post-text .post-expand-btn {
+  margin: 0;
+}
+
 .post-module-tags {
   padding: 0 16px 12px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.anon-inline-action {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.hashtag-chip {
+  background: rgba(18, 96, 92, 0.08);
 }
 
 /* Post Image / Video Container */

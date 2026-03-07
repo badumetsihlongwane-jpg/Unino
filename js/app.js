@@ -80,19 +80,140 @@ function scoreSeed(str = '') {
   return Math.abs(hash % 1000) / 1000;
 }
 
+function extractHashTags(text = '') {
+  const found = new Set();
+  const regex = /#([A-Za-z][A-Za-z0-9_]{1,23})\b/g;
+  const source = `${text || ''}`;
+  let match;
+  while ((match = regex.exec(source))) found.add(match[1].toLowerCase());
+  return [...found].slice(0, 8);
+}
+
 function extractModuleTags(text = '', manualTags = '') {
   const found = new Set();
-  const regex = /\b([A-Za-z]{3,5}\d{3})\b/g;
-  const source = `${text} ${manualTags}`.toUpperCase();
-  let match;
-  while ((match = regex.exec(source))) found.add(match[1]);
+  extractHashTags(`${text} ${manualTags}`)
+    .map(tag => tag.toUpperCase())
+    .filter(tag => /^[A-Z]{3,5}\d{3}$/.test(tag))
+    .forEach(tag => found.add(tag));
   manualTags.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean).forEach(tag => found.add(tag));
   return [...found].slice(0, 5);
+}
+
+function getPostHashTags(post = {}) {
+  if (Array.isArray(post.hashTags) && post.hashTags.length) return [...new Set(post.hashTags.map(tag => (tag || '').toLowerCase()).filter(Boolean))];
+  return extractHashTags(post.content || '');
 }
 
 function renderPostModuleTags(moduleTags = []) {
   if (!moduleTags.length) return '';
   return `<div class="post-module-tags">${moduleTags.map(tag => `<button class="module-chip clickable" onclick="openModuleFeed('${tag}')">${esc(tag)}</button>`).join('')}</div>`;
+}
+
+function renderPostHashTags(hashTags = []) {
+  if (!hashTags.length) return '';
+  return `<div class="post-module-tags">${hashTags.slice(0, 4).map(tag => `<button class="module-chip clickable hashtag-chip" onclick="openTagFeed('${esc(tag)}')">#${esc(tag)}</button>`).join('')}</div>`;
+}
+
+const _expandedPostKeys = {};
+const _postTextStore = {};
+const _postTextLimit = {};
+let _trendingRailTimer = null;
+
+function buildExpandablePostHTML(text, key, maxChars = 320) {
+  const raw = text || '';
+  _postTextStore[key] = raw;
+  _postTextLimit[key] = maxChars;
+  const expanded = !!_expandedPostKeys[key];
+  const shouldTrim = raw.length > maxChars;
+  const shown = shouldTrim && !expanded ? `${raw.slice(0, maxChars).trimEnd()}...` : raw;
+  return `
+    <div class="expandable-post-body">
+      <div class="post-content">${formatContent(shown)}</div>
+      ${shouldTrim ? `<button class="post-expand-btn" onclick="event.stopPropagation();togglePostExpand('${key}')">${expanded ? 'Show less' : 'Show more'}</button>` : ''}
+    </div>
+  `;
+}
+
+function renderExpandablePostContent(text, key, maxChars = 320) {
+  return `<div id="expandable-${key}">${buildExpandablePostHTML(text, key, maxChars)}</div>`;
+}
+
+function togglePostExpand(key) {
+  _expandedPostKeys[key] = !_expandedPostKeys[key];
+  const host = document.getElementById(`expandable-${key}`);
+  if (!host) return;
+  host.innerHTML = buildExpandablePostHTML(_postTextStore[key] || '', key, _postTextLimit[key] || 320);
+}
+
+function shiftTrendingRail(dir = 1) {
+  const rail = document.getElementById('trending-post-scroll');
+  if (!rail) return;
+  const amount = rail.clientWidth * 0.82;
+  const atEnd = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 12;
+  if (dir > 0 && atEnd) rail.scrollTo({ left: 0, behavior: 'smooth' });
+  else rail.scrollBy({ left: amount * dir, behavior: 'smooth' });
+}
+
+function setupTrendingRail() {
+  const rail = document.getElementById('trending-post-scroll');
+  if (!rail) return;
+  if (_trendingRailTimer) clearInterval(_trendingRailTimer);
+  const pause = () => { if (_trendingRailTimer) { clearInterval(_trendingRailTimer); _trendingRailTimer = null; } };
+  const resume = () => {
+    if (_trendingRailTimer) clearInterval(_trendingRailTimer);
+    _trendingRailTimer = setInterval(() => shiftTrendingRail(1), 4500);
+  };
+  rail.onmouseenter = pause;
+  rail.onmouseleave = resume;
+  rail.ontouchstart = pause;
+  rail.ontouchend = () => setTimeout(resume, 1200);
+  resume();
+}
+
+function renderTrendingPostsRail(posts = []) {
+  const railHost = document.getElementById('feed-trending-posts');
+  if (!railHost) {
+    if (_trendingRailTimer) clearInterval(_trendingRailTimer);
+    _trendingRailTimer = null;
+    return;
+  }
+  const trending = [...posts]
+    .filter(post => post.content || post.imageURL || post.videoURL)
+    .sort((a, b) => (((b.likes || []).length + (b.commentsCount || 0) * 2) - (((a.likes || []).length + (a.commentsCount || 0) * 2))))
+    .slice(0, 10);
+  if (!trending.length) {
+    if (_trendingRailTimer) clearInterval(_trendingRailTimer);
+    _trendingRailTimer = null;
+    railHost.innerHTML = '';
+    return;
+  }
+  railHost.innerHTML = `
+    <div class="trending-posts-card">
+      <div class="trending-posts-head">
+        <div>
+          <h3>Trending Now</h3>
+          <span>Auto-scrolling highlights</span>
+        </div>
+        <div class="trend-nav-actions">
+          <button class="trend-nav-btn" onclick="shiftTrendingRail(-1)">‹</button>
+          <button class="trend-nav-btn" onclick="shiftTrendingRail(1)">›</button>
+        </div>
+      </div>
+      <div class="trending-post-scroll" id="trending-post-scroll">
+        ${trending.map(post => `
+          <div class="trending-post-card" onclick="viewPost('${post.id}')">
+            <div class="trending-post-meta-top">
+              <span>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName || 'User')}</span>
+              <span>${((post.likes || []).length + (post.commentsCount || 0))} reacts</span>
+            </div>
+            ${post.content ? `<div class="trending-post-copy">${formatContent((post.content || '').slice(0, 150) + ((post.content || '').length > 150 ? '...' : ''))}</div>` : ''}
+            ${renderPostModuleTags((post.moduleTags || []).slice(0, 2))}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  setupTrendingRail();
 }
 
 async function openModuleFeed(tag) {
@@ -117,9 +238,55 @@ async function openModuleFeed(tag) {
               <div class="module-post-time">${timeAgo(post.createdAt)}</div>
             </div>
           </div>
-          ${post.content ? `<div class="module-post-text">${formatContent(post.content)}</div>` : ''}
+          ${post.content ? `<div class="module-post-text">${renderExpandablePostContent(post.content, `module-${post.id}`, 180)}</div>` : ''}
           ${renderPostModuleTags(post.moduleTags || [])}
         </div>`).join('') : '<div class="empty-state"><h3>No posts yet</h3><p>Be the first to post for this module.</p></div>'}
+    </div>
+  `);
+}
+
+async function openTagFeed(tag) {
+  const hashTag = (tag || '').replace(/^#/, '').toLowerCase();
+  if (!hashTag) return;
+  let posts = (state.posts || []).filter(post => getPostHashTags(post).includes(hashTag));
+  if (!posts.length) {
+    try {
+      const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(80).get();
+      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => getPostHashTags(post).includes(hashTag));
+    } catch (e) { console.error(e); }
+  }
+  openModal(`
+    <div class="modal-header"><h2>#${esc(hashTag)}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body module-feed-modal">
+      ${posts.length ? posts.map(post => `
+        <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
+          <div class="module-post-top">
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            <div>
+              <div class="module-post-author">${post.isAnonymous ? 'Anonymous' : esc(post.authorName || 'User')}</div>
+              <div class="module-post-time">${timeAgo(post.createdAt)}</div>
+            </div>
+          </div>
+          ${post.content ? `<div class="module-post-text">${renderExpandablePostContent(post.content, `tag-${post.id}`, 140)}</div>` : ''}
+          ${renderPostHashTags(getPostHashTags(post).filter(item => item !== hashTag))}
+        </div>`).join('') : '<div class="empty-state"><h3>No posts yet</h3><p>Use this tag in a post to start the thread.</p></div>'}
+    </div>
+  `);
+}
+
+function openAnonPostActions(uid) {
+  if (!uid || uid === state.user.uid) return toast("That's you!");
+  openModal(`
+    <div class="modal-body" style="padding:20px 18px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div class="avatar-md anon-avatar">👻</div>
+        <div>
+          <h3 style="margin-bottom:4px">Anonymous post</h3>
+          <p style="color:var(--text-secondary);font-size:13px">Start a private anonymous chat. Both sides stay hidden until reveal.</p>
+        </div>
+      </div>
+      <button class="btn-primary btn-full" onclick="closeModal();startAnonChat('${uid}')">Send Anonymous Message</button>
+      <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Cancel</button>
     </div>
   `);
 }
@@ -146,23 +313,39 @@ async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId) {
 function renderModuleTrends(posts = []) {
   const trendEl = document.getElementById('module-trends');
   if (!trendEl) return;
-  const counts = new Map();
-  posts.forEach(post => (post.moduleTags || []).forEach(tag => counts.set(tag, (counts.get(tag) || 0) + 1)));
-  const trends = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  if (!trends.length) {
+  const moduleCounts = new Map();
+  const hashCounts = new Map();
+  posts.forEach(post => {
+    (post.moduleTags || []).forEach(tag => moduleCounts.set(tag, (moduleCounts.get(tag) || 0) + 1));
+    getPostHashTags(post)
+      .filter(tag => !/^[A-Z]{3,5}\d{3}$/.test(tag.toUpperCase()))
+      .forEach(tag => hashCounts.set(tag, (hashCounts.get(tag) || 0) + 1));
+  });
+  const moduleTrends = [...moduleCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const hashTrends = [...hashCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!moduleTrends.length && !hashTrends.length) {
     trendEl.innerHTML = '';
     return;
   }
   trendEl.innerHTML = `
-    <div class="module-trends-card">
+    ${moduleTrends.length ? `<div class="module-trends-card">
       <div class="module-trends-head">
         <h3>Module Trends</h3>
         <span>Tap to explore</span>
       </div>
       <div class="module-trends-row">
-        ${trends.map(([tag, count]) => `<button class="trend-chip" onclick="openModuleFeed('${tag}')">${esc(tag)} <span>${count}</span></button>`).join('')}
+        ${moduleTrends.map(([tag, count]) => `<button class="trend-chip" onclick="openModuleFeed('${tag}')">${esc(tag)} <span>${count}</span></button>`).join('')}
       </div>
-    </div>
+    </div>` : ''}
+    ${hashTrends.length ? `<div class="module-trends-card hashtag-trends-card">
+      <div class="module-trends-head">
+        <h3>Campus Tags</h3>
+        <span>Open live tag threads</span>
+      </div>
+      <div class="module-trends-row">
+        ${hashTrends.map(([tag, count]) => `<button class="trend-chip" onclick="openTagFeed('${tag}')">#${esc(tag)} <span>${count}</span></button>`).join('')}
+      </div>
+    </div>` : ''}
   `;
 }
 
@@ -338,7 +521,7 @@ function formatContent(text) {
     if (/^[A-Z]{3,5}\d{3}$/.test(tag)) {
       return `<span class="hashtag module-hashtag" onclick="openModuleFeed('${tag}')">#${tag}</span>`;
     }
-    return `<span class="hashtag">#${rawTag}</span>`;
+    return `<span class="hashtag" onclick="openTagFeed('${rawTag.toLowerCase()}')">#${rawTag}</span>`;
   });
 }
 
@@ -1013,6 +1196,8 @@ function renderFeed() {
 
       <div id="module-trends"></div>
 
+      <div id="feed-trending-posts"></div>
+
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
@@ -1086,6 +1271,7 @@ function renderFeed() {
       const savedScroll = contentEl ? contentEl.scrollTop : 0;
       renderPosts(scored);
       renderModuleTrends(scored);
+      renderTrendingPostsRail(scored);
       // Restore scroll position after re-render
       if (contentEl && savedScroll > 0) {
         requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
@@ -1205,9 +1391,9 @@ function loadStories() {
         const name = isMe ? 'You' : esc(s.authorFirstName || s.authorName?.split(' ')[0] || '?');
         const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
         row.insertAdjacentHTML('beforeend', `
-          <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="viewStory('${group.uid}')">
+          <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="event.stopPropagation();viewStory('${group.uid}')">
             <div class="story-avatar"><div class="story-avatar-inner">
-              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="">` : initials(s.authorName)}
+              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(s.authorName)}
             </div></div>
             <div class="story-name">${name}</div>
           </div>
@@ -1356,18 +1542,17 @@ function showStoryFrame() {
 
   // Content
   const content = $('#story-viewer-content');
+  let autoAdvanceMs = 5000;
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
       <video src="${story.videoURL}" class="story-full-video" autoplay playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
-    // Video stories: auto-advance after video ends or 15s max
-    clearTimeout(storyViewerData.timer);
+    autoAdvanceMs = 15000;
     const vid = content.querySelector('video');
     if (vid) {
       vid.onended = () => advanceStory(1);
-      storyViewerData.timer = setTimeout(() => advanceStory(1), 15000);
     }
   } else if (story.type === 'photo') {
     content.innerHTML = `
@@ -1387,7 +1572,7 @@ function showStoryFrame() {
 
   // Auto-advance timer
   clearTimeout(storyViewerData.timer);
-  storyViewerData.timer = setTimeout(() => advanceStory(1), 5000);
+  storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
 
   // Navigation
   $('#story-prev').onclick = () => advanceStory(-1);
@@ -1478,6 +1663,7 @@ function renderPosts(posts) {
   el.innerHTML = posts.map(post => {
     const liked = (post.likes || []).includes(state.user.uid);
     const lc = (post.likes || []).length, cc = post.commentsCount || 0;
+    const canAnonMessage = post.isAnonymous && post.authorId !== state.user.uid;
     const hasCollage = post.imageURLs && post.imageURLs.length > 1 && !post.repostOf;
     const hasVideo = post.videoURL || (post.mediaType === 'video');
     const hasImage = post.imageURL && !hasVideo && !hasCollage;
@@ -1495,16 +1681,17 @@ function renderPosts(posts) {
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
-            ? `<div class="avatar-md anon-avatar">👻</div>`
+            ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer">👻</div>`
             : `<div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? '' : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
-        ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
+        ${post.content ? renderExpandablePostContent(post.content, `feed-${post.id}`, 180) : ''}
         ${renderPostModuleTags(post.moduleTags || [])}
+        ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
@@ -1515,6 +1702,7 @@ function renderPosts(posts) {
             ${cc ? `<span class="stat-item">${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
           </div>
           <div class="post-actions">
+            ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}')">👻 Message</button>` : ''}
             <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               ${lc || 'Like'}
@@ -1813,8 +2001,11 @@ async function toggleCommentLike(cid, pid) {
 }
 
 async function openComments(postId) {
+  let postData = null;
   let comments = [];
   try {
+    const postDoc = await db.collection('posts').doc(postId).get();
+    postData = postDoc.exists ? postDoc.data() : null;
     const snap = await db.collection('posts').doc(postId).collection('comments').limit(100).get();
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error(e); }
@@ -1841,16 +2032,19 @@ async function openComments(postId) {
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
      const cReplies = replyMap[c.id] || [];
+      const hiddenIdentity = !!postData?.isAnonymous || !!c.isAnonymous;
+      const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
+      const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
      
      return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}">
         <div class="comment-avatar-col">
-          ${avatar(c.authorName, c.authorPhoto, 'avatar-sm')}
+          ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
         </div>
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" onclick="openProfile('${c.authorId}')">${esc(c.authorName)}</span>
+                  <span class="comment-author" ${hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
               </div>
               <div class="comment-text">${esc(c.text)}</div>
            </div>
@@ -1859,7 +2053,7 @@ async function openComments(postId) {
                <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
                   ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
                </button>
-               <button class="c-act" onclick="setCommentReply('${c.replyTo || c.id}','${esc(c.authorName)}')">Reply</button>
+            <button class="c-act" onclick="setCommentReply('${c.replyTo || c.id}','${esc(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `<div class="comment-replies">
                ${cReplies.map(r => renderComment(r, true)).join('')}
@@ -1912,15 +2106,18 @@ async function postComment(postId) {
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
   _commentReplyTo = null;
   try {
+    const pDoc = await db.collection('posts').doc(postId).get();
+    const postData = pDoc.exists ? pDoc.data() : null;
+    const isAnonThread = !!postData?.isAnonymous;
     await db.collection('posts').doc(postId).collection('comments').add({
-      text, authorId: state.user.uid, authorName: state.profile.displayName,
-      authorPhoto: state.profile.photoURL || null, replyTo: replyTo || null,
+      text, authorId: state.user.uid, authorName: isAnonThread ? 'Anonymous' : state.profile.displayName,
+      authorPhoto: isAnonThread ? null : (state.profile.photoURL || null), isAnonymous: isAnonThread,
+      replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     
-    const pDoc = await db.collection('posts').doc(postId).get();
-    if (pDoc.exists) addNotification(pDoc.data().authorId, 'comment', 'commented on your post', { postId });
+    if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId });
 
     // Reopen to show the new comment
     openComments(postId);
@@ -2034,6 +2231,7 @@ function openCreateModal() {
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
       const moduleTags = extractModuleTags(text);
+      const hashTags = extractHashTags(text);
       if (!text && !pendingFiles.length) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = visibility === 'anonymous';
@@ -2063,6 +2261,7 @@ function openCreateModal() {
           authorPhoto: isAnon ? null : (state.profile.photoURL || null),
           authorUni: state.profile.university || '',
           moduleTags,
+          hashTags,
           isAnonymous: isAnon || false,
           visibility: isAnon ? 'public' : visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
@@ -3781,18 +3980,20 @@ async function viewPost(pid) {
             <span>Reposted</span>
           </div>` : ''}
           <div class="post-header">
-            ${p.isAnonymous ? `<div class="avatar-md anon-avatar">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
+            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
             <div class="post-header-info">
-              <div class="post-author-name" ${p.isAnonymous ? '' : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? '👻 Anonymous' : esc(p.authorName || 'User')}</div>
+              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? '👻 Anonymous' : esc(p.authorName || 'User')}</div>
               <div class="post-meta">${timeAgo(p.createdAt)}</div>
             </div>
           </div>
-          ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+          ${p.content ? renderExpandablePostContent(p.content, `modal-${p.id}`, 180) : ''}
           ${renderPostModuleTags(p.moduleTags || [])}
+          ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
           ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
           ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
           ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
           <div class="post-actions" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+            ${p.isAnonymous && p.authorId !== state.user.uid ? `<button class="post-action anon-inline-action" onclick="closeModal();openAnonPostActions('${p.authorId}')">👻 Message</button>` : ''}
             <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${p.id}');closeModal()">❤ ${lc || 'Like'}</button>
             <button class="post-action" onclick="closeModal();openComments('${p.id}')">💬 ${cc || 'Comment'}</button>
             <button class="post-action" onclick="closeModal();openShareModal('${p.id}')">↗ Share</button>
@@ -4214,8 +4415,6 @@ const ANON_DAILY_LIMIT = 5;
 
 async function startAnonChat(uid, name, photo) {
   if (uid === state.user.uid) return toast("That's you!");
-  const myFriends = state.profile.friends || [];
-  if (myFriends.includes(uid)) return toast('You are already friends — use normal chat');
 
   // Check daily anonymous usage limit
   const anonCount = state.profile.anonUsageToday || 0;
@@ -4228,6 +4427,17 @@ async function startAnonChat(uid, name, photo) {
   }
 
   try {
+    let targetName = name;
+    let targetPhoto = photo;
+    if (!targetName || targetName === 'Anonymous' || targetName.includes('Anonymous')) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data() || {};
+        targetName = userData.displayName || userData.firstName || 'User';
+        targetPhoto = userData.photoURL || '';
+      }
+    }
+
     // Check for existing anon conversation
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     const existing = snap.docs.find(d => {
@@ -4247,8 +4457,8 @@ async function startAnonChat(uid, name, photo) {
     // Create anonymous conversation
     const doc = await db.collection('conversations').add({
       participants: [state.user.uid, uid],
-      participantNames: [state.profile.displayName, name],
-      participantPhotos: [state.profile.photoURL || null, photo || null],
+      participantNames: [state.profile.displayName, targetName || 'User'],
+      participantPhotos: [state.profile.photoURL || null, targetPhoto || null],
       lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
       unread: { [uid]: 0, [state.user.uid]: 0 },
       participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' },
@@ -4383,10 +4593,11 @@ async function openProfile(uid) {
 }
 
 function renderProfilePosts(posts, user) {
-  if (!posts.length) return '<div class="empty-state"><h3>No posts yet</h3></div>';
   const isMe = user.id === state.user.uid;
+  const visiblePosts = isMe ? posts : posts.filter(p => !p.isAnonymous);
+  if (!visiblePosts.length) return '<div class="empty-state"><h3>No posts yet</h3></div>';
   const _profPlayers = [];
-  const html = `<div class="profile-posts">${posts.map(p => {
+  const html = `<div class="profile-posts">${visiblePosts.map(p => {
     const hasVideo = p.videoURL || (p.mediaType === 'video');
     const hasImage = p.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
@@ -4411,8 +4622,9 @@ function renderProfilePosts(posts, user) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
         </button>` : ''}
       </div>
-      ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+      ${p.content ? renderExpandablePostContent(p.content, `profile-${p.id}`, 170) : ''}
       ${renderPostModuleTags(p.moduleTags || [])}
+      ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
       ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
       ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
       ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
@@ -4838,10 +5050,10 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
-    startAnonChat, removeEventImage, showUserPreview, openModuleFeed,
+    startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
-    closeReelsViewer, toggleReelPlay, reelLike,
+    closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
     toggleVN, seekVN
   });
 });
