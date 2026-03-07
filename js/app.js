@@ -990,7 +990,6 @@ function loadDiscoverEvents() {
           <div class="discover-card-tag">📍 ${locName}</div>
           ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">👥 ${goingCount} going</div>` : ''}
         </div>`;
-        </div>`;
     }).join('')}</div>`;
   };
   if (allCampusEvents.length) { renderEvts(allCampusEvents); }
