@@ -25,6 +25,53 @@ function normalizeModules(modules = []) {
   return (modules || []).map(m => (m || '').trim().toUpperCase()).filter(Boolean);
 }
 
+function normalizeAddress(address = '') {
+  return (address || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(res|residence|residency|res\.|street|st|road|rd|avenue|ave|block|unit|room|house|flat|hostel)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addressTokens(address = '') {
+  return normalizeAddress(address).split(' ').filter(token => token.length > 2);
+}
+
+function addressMatchScore(a = '', b = '') {
+  const left = addressTokens(a);
+  const right = addressTokens(b);
+  if (!left.length || !right.length) return 0;
+  const rightSet = new Set(right);
+  return left.filter(token => rightSet.has(token)).length;
+}
+
+function sanitizeFriendRequests(requests = []) {
+  const seen = new Set();
+  return (requests || []).filter(req => {
+    const uid = req && req.uid;
+    if (!uid || seen.has(uid)) return false;
+    seen.add(uid);
+    return true;
+  });
+}
+
+function anonNicknameKey(viewerUid, otherUid) {
+  return `${viewerUid}_${otherUid}`;
+}
+
+function defaultAnonLabel(convoId = '') {
+  const suffix = (convoId || '').slice(-4).toUpperCase() || 'CHAT';
+  return `Anonymous #${suffix}`;
+}
+
+function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
+  const custom = (convo.anonNicknames || {})[anonNicknameKey(viewerUid, otherUid)] || '';
+  return custom || defaultAnonLabel(convo.id || convo._id || otherUid || '');
+}
+
+let _commentAnonChoice = null;
+
 function initials(n) {
   if (!n) return '?';
   const p = n.trim().split(/\s+/);
@@ -202,6 +249,7 @@ function renderTrendingPostsRail(posts = []) {
       <div class="trending-post-scroll" id="trending-post-scroll">
         ${trending.map(post => `
           <div class="trending-post-card" onclick="viewPost('${post.id}')">
+            ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
             <div class="trending-post-meta-top">
               <span>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName || 'User')}</span>
               <span>${((post.likes || []).length + (post.commentsCount || 0))} reacts</span>
@@ -299,13 +347,14 @@ async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId) {
     ? `shared notes in ${tag}`
     : `posted in ${tag}`;
   try {
-    for (const tag of uniqueTags) {
-      const snap = await db.collection('users').where('modules', 'array-contains', tag).limit(25).get();
-      for (const doc of snap.docs) {
-        if (doc.id === state.user.uid || notified.has(doc.id)) continue;
-        notified.add(doc.id);
-        await addNotification(doc.id, 'module', notifTextFor(tag), { postId, moduleTag: tag });
-      }
+    const snap = await db.collection('users').limit(120).get();
+    for (const doc of snap.docs) {
+      if (doc.id === state.user.uid || notified.has(doc.id)) continue;
+      const userData = doc.data() || {};
+      const matchedTag = uniqueTags.find(tag => normalizeModules(userData.modules || []).includes(tag));
+      if (!matchedTag) continue;
+      notified.add(doc.id);
+      await addNotification(doc.id, 'module', notifTextFor(matchedTag), { postId, moduleTag: matchedTag });
     }
   } catch (e) { console.error(e); }
 }
@@ -953,7 +1002,7 @@ function initAuth() {
     const modulesRaw = $('#s-modules')?.value || '';
     const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
     const address = $('#s-address')?.value.trim() || '';
-    if (!fname || !lname || !email || !pass || !uni || !major) return toast('All fields required');
+    if (!fname || !lname || !email || !pass || !uni || !major || !address) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
     if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
@@ -1243,18 +1292,29 @@ function renderFeed() {
       });
 
       const previousOrder = new Map((state.posts || []).map((post, index) => [post.id, index]));
+      const likedTagPrefs = new Set();
+      const likedModulePrefs = new Set(normalizeModules(state.profile.modules || []));
+      (state.posts || []).forEach(existingPost => {
+        if ((existingPost.likes || []).includes(uid)) {
+          normalizeModules(existingPost.moduleTags || []).forEach(tag => likedModulePrefs.add(tag));
+          getPostHashTags(existingPost).forEach(tag => likedTagPrefs.add(tag));
+        }
+      });
 
       // Discovery ranking for new posts, while preserving the current on-screen order for existing ones.
       const scored = visible.map(p => {
         const likes = (p.likes || []).length;
         const comments = p.commentsCount || 0;
         const isFriend = myFriends.includes(p.authorId);
+        const sharedModules = normalizeModules(p.moduleTags || []).filter(tag => likedModulePrefs.has(tag)).length;
+        const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
         const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
         const freshness = Math.max(0, 1 - ageHrs / 48); // decay over 48h
         const engagement = (likes * 2 + comments * 3) * 0.3;
         const friendBoost = isFriend ? 8 : 0;
+        const interestBoost = sharedModules * 10 + sharedTags * 5;
         const randomFactor = scoreSeed(p.id) * 10;
-        return { ...p, _score: engagement + freshness * 15 + friendBoost + randomFactor };
+        return { ...p, _score: engagement + freshness * 15 + friendBoost + interestBoost + randomFactor };
       });
       scored.sort((a, b) => {
         const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
@@ -1283,9 +1343,9 @@ function renderFeed() {
 // ─── Discover: People tab ────────────────────────
 function loadDiscoverPeople() {
   const el = $('#discover-content'); if (!el) return;
-  const myUni = state.profile.university || '';
   const myMajor = state.profile.major || '';
   const myModules = normalizeModules(state.profile.modules || []);
+  const myAddress = state.profile.address || '';
 
   db.collection('users').limit(30).get().then(snap => {
     let users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== state.user.uid);
@@ -1295,11 +1355,12 @@ function loadDiscoverPeople() {
       let score = 0;
       const theirModules = normalizeModules(u.modules || []);
       const shared = myModules.filter(m => theirModules.includes(m));
+      const nearbyScore = addressMatchScore(myAddress, u.address || '');
       if (shared.length) score += 30 + shared.length * 10;
-      if (u.university === myUni) score += 20;
+      if (nearbyScore > 0) score += 20 + nearbyScore * 6;
       if (u.major === myMajor) score += 10;
       if (u.status === 'online') score += 5;
-      return { ...u, score, sharedModules: shared };
+      return { ...u, score, sharedModules: shared, nearbyScore };
     }).sort((a, b) => b.score - a.score).slice(0, 10);
 
     if (!users.length) {
@@ -1310,8 +1371,8 @@ function loadDiscoverPeople() {
     el.innerHTML = `<div class="discover-scroll">${users.map(u => {
       const tag = u.sharedModules?.length
         ? `🔗 ${u.sharedModules.length} shared module${u.sharedModules.length > 1 ? 's' : ''}`
-        : u.university === myUni ? '📍 Same campus'
-        : u.university ? `🎓 ${esc(u.university)}` : '';
+        : u.nearbyScore > 0 ? '📍 Nearby area'
+        : u.major ? `📚 ${esc(u.major)}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
       const isFriend = (state.profile.friends || []).includes(u.id);
       return `
@@ -2028,11 +2089,14 @@ async function openComments(postId) {
   });
 
   _commentReplyTo = null;
+  const forceAnon = !!postData?.isAnonymous && postData?.authorId === state.user.uid;
+  const supportsAnonChoice = !!postData?.isAnonymous && postData?.authorId !== state.user.uid;
+  _commentAnonChoice = forceAnon ? true : (supportsAnonChoice ? true : false);
 
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
      const cReplies = replyMap[c.id] || [];
-      const hiddenIdentity = !!postData?.isAnonymous || !!c.isAnonymous;
+      const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
       const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
      
@@ -2044,7 +2108,7 @@ async function openComments(postId) {
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" ${hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
+                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
               </div>
               <div class="comment-text">${esc(c.text)}</div>
            </div>
@@ -2078,11 +2142,19 @@ async function openComments(postId) {
         <button onclick="clearCommentReply()">&times;</button>
       </div>
       <div class="comment-input-wrap" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
+        ${postData?.isAnonymous ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:10px">
+          <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)">
+          <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
+        </label>` : ''}
         <input type="text" id="comment-input" placeholder="Write a comment..." autocomplete="off">
         <button onclick="postComment('${postId}')">Post</button>
       </div>
     </div>
   `);
+}
+
+function setCommentAnonChoice(next) {
+  _commentAnonChoice = !!next;
 }
 
 function setCommentReply(commentId, authorName) {
@@ -2109,9 +2181,11 @@ async function postComment(postId) {
     const pDoc = await db.collection('posts').doc(postId).get();
     const postData = pDoc.exists ? pDoc.data() : null;
     const isAnonThread = !!postData?.isAnonymous;
+    const forceAnon = isAnonThread && postData?.authorId === state.user.uid;
+    const commentAnon = forceAnon ? true : (isAnonThread ? !!_commentAnonChoice : false);
     await db.collection('posts').doc(postId).collection('comments').add({
-      text, authorId: state.user.uid, authorName: isAnonThread ? 'Anonymous' : state.profile.displayName,
-      authorPhoto: isAnonThread ? null : (state.profile.photoURL || null), isAnonymous: isAnonThread,
+      text, authorId: state.user.uid, authorName: commentAnon ? 'Anonymous' : state.profile.displayName,
+      authorPhoto: commentAnon ? null : (state.profile.photoURL || null), isAnonymous: commentAnon,
       replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
@@ -2362,21 +2436,22 @@ async function loadExploreUsers() {
       db.collection('users').limit(50).get(),
       loadCampusEvents()
     ]);
-    const myUni = state.profile.university || '';
     const myMajor = state.profile.major || '';
-    const myModules = state.profile.modules || [];
+    const myModules = normalizeModules(state.profile.modules || []);
+    const myAddress = state.profile.address || '';
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(u => u.id !== state.user.uid)
       .map(u => {
-        const uModules = u.modules || [];
+        const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
+        const nearbyScore = addressMatchScore(myAddress, u.address || '');
         let proximity = 'far';
         if (shared.length > 0) proximity = 'module';
-        else if (u.university === myUni && u.major === myMajor) proximity = 'course';
-        else if (u.university === myUni) proximity = 'campus';
-        return { ...u, sharedModules: shared, proximity };
+        else if (nearbyScore > 0) proximity = 'nearby';
+        else if (u.major === myMajor) proximity = 'course';
+        return { ...u, sharedModules: shared, proximity, nearbyScore };
       });
     renderExploreView();
   } catch (e) {
@@ -2394,7 +2469,8 @@ function renderExploreView() {
 function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
   const moduleUsers = allExploreUsers.filter(u => u.proximity === 'module');
-  const campusUsers = allExploreUsers.filter(u => u.proximity === 'campus' || u.proximity === 'course');
+  const nearbyUsers = allExploreUsers.filter(u => u.proximity === 'nearby');
+  const courseUsers = allExploreUsers.filter(u => u.proximity === 'course');
   const otherUsers = allExploreUsers.filter(u => u.proximity === 'far');
 
   const eventsByLoc = {};
@@ -2415,7 +2491,8 @@ function renderRadarView() {
     </div>
     <div class="radar-legend" style="padding:0 16px">
       <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-      <span><span class="legend-dot campus"></span> Same campus (${campusUsers.length})</span>
+      <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
+      <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
       <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
     </div>
 
@@ -2426,12 +2503,18 @@ function renderRadarView() {
     </div>` : ''}
 
     <div class="proximity-section">
-      <div class="proximity-header"><h3>📍 Same Campus</h3><span class="proximity-count">${campusUsers.length}</span></div>
+      <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span></div>
       <div class="proximity-scroll">
-        ${campusUsers.length ? campusUsers.map(u => proximityCard(u)).join('')
+        ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
           : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
       </div>
     </div>
+
+    ${courseUsers.length ? `
+    <div class="proximity-section">
+      <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span></div>
+      <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
+    </div>` : ''}
 
     ${otherUsers.length ? `
     <div class="proximity-section">
@@ -2491,13 +2574,13 @@ function renderRadarView() {
     });
 
     // User pins by proximity
-    const usersToPlot = [...moduleUsers, ...campusUsers, ...otherUsers.slice(0, 8)];
+    const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
     usersToPlot.forEach((u, i) => {
-      const baseR = u.proximity === 'module' ? 0.001 : (u.proximity === 'campus' || u.proximity === 'course') ? 0.002 : 0.004;
+      const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
       const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
       const lat = -26.6840 + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8);
       const lng = 27.0945 + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8);
-      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'campus' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
       const uIcon = L.divIcon({
         className: 'leaflet-user-pin',
         html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
@@ -2529,6 +2612,7 @@ function proximityCard(u) {
   const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
   const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.join(', ')}`
     : u.proximity === 'course' ? `📚 ${esc(u.major)}`
+    : u.proximity === 'nearby' ? `📍 ${esc(u.address || 'Nearby')}`
     : `🎓 ${esc(u.university || '')}`;
   return `
     <div class="proximity-card" onclick="showUserPreview('${u.id}')">
@@ -2579,7 +2663,7 @@ function renderListView() {
       </div>
       <div class="filter-chips">
         <span class="chip active" data-f="all">All</span>
-        <span class="chip" data-f="campus">Same Campus</span>
+        <span class="chip" data-f="nearby">Nearby</span>
         <span class="chip" data-f="module">Shared Modules</span>
         <span class="chip" data-f="course">Same Course</span>
       </div>
@@ -2613,7 +2697,7 @@ function renderExploreGrid(query = '', filter = 'all') {
       (u.modules || []).some(m => m.toLowerCase().includes(q))
     );
   }
-  if (filter === 'campus') users = users.filter(u => u.university === state.profile.university);
+  if (filter === 'nearby') users = users.filter(u => u.proximity === 'nearby');
   else if (filter === 'module') users = users.filter(u => u.sharedModules?.length > 0);
   else if (filter === 'course') users = users.filter(u => u.major === state.profile.major);
 
@@ -2624,7 +2708,8 @@ function renderExploreGrid(query = '', filter = 'all') {
 
   grid.innerHTML = users.map(u => {
     const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.length} shared`
-      : u.proximity === 'campus' || u.proximity === 'course' ? '📍 Same campus'
+      : u.proximity === 'nearby' ? '📍 Nearby area'
+      : u.proximity === 'course' ? '📚 Same course'
       : u.university ? `🎓 ${esc(u.university)}` : '';
     return `
       <div class="user-card" onclick="openProfile('${u.id}')">
@@ -3862,7 +3947,7 @@ function listenForNotifications() {
     if (!doc.exists) return;
     const data = doc.data();
     state.profile.friends = data.friends || [];
-    state.profile.friendRequests = data.friendRequests || [];
+    state.profile.friendRequests = sanitizeFriendRequests(data.friendRequests || []);
     state.profile.sentRequests = data.sentRequests || [];
     updateNotifBadge();
     const dd = $('#notif-dropdown');
@@ -3882,7 +3967,7 @@ function listenForNotifications() {
 }
 
 function updateNotifBadge() {
-  const requests = state.profile.friendRequests || [];
+  const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const unreadCount = _notifications.filter(n => !n.read).length;
   const dot = $('#notif-dot');
   if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0) ? 'block' : 'none';
@@ -3890,7 +3975,7 @@ function updateNotifBadge() {
 
 function loadNotifications() {
   const dd = $('#notif-dropdown');
-  const requests = state.profile.friendRequests || [];
+  const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const notifs = _notifications;
 
   if (!requests.length && !notifs.length) {
@@ -3924,8 +4009,9 @@ function loadNotifications() {
     if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += notifs.map(n => {
       const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : '🔔';
+      const clickAction = n.payload?.postId ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')` : `markNotifRead('${n.id}')`;
       return `
-       <div class="notif-item ${n.read ? '' : 'unread'}" ${n.payload?.postId ? `onclick="viewPost('${n.payload.postId}');markNotifRead('${n.id}')"` : ''}>
+       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
          <div style="position:relative">
            ${avatar(n.from.name, n.from.photo, 'avatar-md')}
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">${icon}</div>
@@ -4040,7 +4126,7 @@ function loadDMList() {
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
         const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
-        const displayName = theirAnon ? 'Anonymous 👻' : rawName;
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
         const displayPhoto = theirAnon ? null : rawPhoto;
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
@@ -4087,13 +4173,14 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const otherName = (convo.participantNames || [])[idx] || 'User';
   const otherPhoto = (convo.participantPhotos || [])[idx] || null;
   const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
+  const anonName = getAnonDisplayName(convo, uid, otherUid);
 
   // Update header display
   const hdrInfo = $('#chat-hdr-info');
   if (themAnon) {
     hdrInfo.innerHTML = `
       <div class="avatar-sm anon-avatar">👻</div>
-      <div><h3 style="font-size:15px;font-weight:700">Anonymous</h3>
+      <div><div style="display:flex;align-items:center;gap:8px"><h3 style="font-size:15px;font-weight:700">${esc(anonName)}</h3><button class="anon-name-edit" onclick="editAnonNickname('${convo._id}')">✎</button></div>
       <span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'} · Identity hidden</span></div>
     `;
   } else {
@@ -4442,7 +4529,8 @@ async function startAnonChat(uid, name, photo) {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     const existing = snap.docs.find(d => {
       const data = d.data();
-      return data.participants.includes(uid) && data.isAnonymous;
+      const stillAnonymous = !!((data.anonymous || {})[state.user.uid]) || !!((data.anonymous || {})[uid]);
+      return data.participants.includes(uid) && data.isAnonymous && stillAnonymous;
     });
     if (existing) { openChat(existing.id); return; }
 
@@ -4469,6 +4557,24 @@ async function startAnonChat(uid, name, photo) {
     toast(`Anonymous chat started (${todayCount + 1}/${ANON_DAILY_LIMIT} today)`);
     openChat(doc.id);
   } catch (e) { toast('Could not start chat'); console.error(e); }
+}
+
+async function editAnonNickname(convoId) {
+  if (!convoId) return;
+  try {
+    const snap = await db.collection('conversations').doc(convoId).get();
+    if (!snap.exists) return;
+    const convo = { _id: convoId, ...snap.data() };
+    const otherUid = (convo.participants || []).find(uid => uid !== state.user.uid);
+    if (!otherUid) return;
+    const current = (convo.anonNicknames || {})[anonNicknameKey(state.user.uid, otherUid)] || '';
+    const next = window.prompt('Set a private nickname for this anonymous chat', current || defaultAnonLabel(convoId));
+    if (next === null) return;
+    const cleaned = next.trim();
+    const updates = {};
+    updates[`anonNicknames.${anonNicknameKey(state.user.uid, otherUid)}`] = cleaned || FieldVal.delete();
+    await db.collection('conversations').doc(convoId).update(updates);
+  } catch (e) { console.error(e); toast('Could not save nickname'); }
 }
 
 // ══════════════════════════════════════════════════
@@ -5049,6 +5155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
+    setCommentAnonChoice, editAnonNickname,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
