@@ -850,6 +850,64 @@ input, select, textarea, button {
   font-size: 15px;
 }
 
+.create-post-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.module-trends-card {
+  margin: 12px 16px 8px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(108,92,231,0.08), rgba(217,70,239,0.08));
+  border: 1px solid rgba(108,92,231,0.12);
+  border-radius: 16px;
+}
+
+.module-trends-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.module-trends-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.module-trends-head span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.module-trends-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trend-chip {
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trend-chip span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .prompt-actions {
   display: flex;
   gap: 8px;
@@ -1000,6 +1058,13 @@ input, select, textarea, button {
 
 .post-content .hashtag:hover {
   text-decoration: underline;
+}
+
+.post-module-tags {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* Post Image / Video Container */
@@ -2847,6 +2912,59 @@ input, select, textarea, button {
   font-size: 11px;
   font-weight: 600;
   margin: 2px;
+}
+
+.module-chip.clickable {
+  border: none;
+  cursor: pointer;
+}
+
+.module-chip.clickable:hover,
+.trend-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(108, 92, 231, 0.15);
+}
+
+.module-feed-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.module-post-item {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border-radius: 14px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.module-post-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.module-post-author {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.module-post-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.module-post-text {
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.module-post-item .post-module-tags {
+  padding: 0;
 }
 .user-card-modules {
   margin-top: 6px;

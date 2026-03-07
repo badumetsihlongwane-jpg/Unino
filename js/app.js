@@ -66,6 +66,102 @@ function dateSeparatorLabel(ts) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
+function isStudentEmail(email = '') {
+  return /@mynwu\.ac\.za$/i.test((email || '').trim());
+}
+
+function scoreSeed(str = '') {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.charCodeAt(i);
+  return Math.abs(hash % 1000) / 1000;
+}
+
+function extractModuleTags(text = '', manualTags = '') {
+  const found = new Set();
+  const regex = /\b([A-Za-z]{3,5}\d{3})\b/g;
+  const source = `${text} ${manualTags}`.toUpperCase();
+  let match;
+  while ((match = regex.exec(source))) found.add(match[1]);
+  manualTags.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean).forEach(tag => found.add(tag));
+  return [...found].slice(0, 5);
+}
+
+function renderPostModuleTags(moduleTags = []) {
+  if (!moduleTags.length) return '';
+  return `<div class="post-module-tags">${moduleTags.map(tag => `<button class="module-chip clickable" onclick="openModuleFeed('${tag}')">${esc(tag)}</button>`).join('')}</div>`;
+}
+
+async function openModuleFeed(tag) {
+  const moduleTag = (tag || '').toUpperCase();
+  if (!moduleTag) return;
+  let posts = (state.posts || []).filter(post => (post.moduleTags || []).includes(moduleTag));
+  if (!posts.length) {
+    try {
+      const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(50).get();
+      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => (post.moduleTags || []).includes(moduleTag));
+    } catch (e) { console.error(e); }
+  }
+  openModal(`
+    <div class="modal-header"><h2>${esc(moduleTag)} Posts</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body module-feed-modal">
+      ${posts.length ? posts.map(post => `
+        <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
+          <div class="module-post-top">
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            <div>
+              <div class="module-post-author">${post.isAnonymous ? 'Anonymous' : esc(post.authorName || 'User')}</div>
+              <div class="module-post-time">${timeAgo(post.createdAt)}</div>
+            </div>
+          </div>
+          ${post.content ? `<div class="module-post-text">${formatContent(post.content)}</div>` : ''}
+          ${renderPostModuleTags(post.moduleTags || [])}
+        </div>`).join('') : '<div class="empty-state"><h3>No posts yet</h3><p>Be the first to post for this module.</p></div>'}
+    </div>
+  `);
+}
+
+async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId) {
+  const uniqueTags = [...new Set(moduleTags)].slice(0, 3);
+  if (!uniqueTags.length || !postId) return;
+  const notified = new Set();
+  const notifTextFor = tag => /notes|summary|slides|past\s*paper|resource/i.test(text)
+    ? `shared notes in ${tag}`
+    : `posted in ${tag}`;
+  try {
+    for (const tag of uniqueTags) {
+      const snap = await db.collection('users').where('modules', 'array-contains', tag).limit(25).get();
+      for (const doc of snap.docs) {
+        if (doc.id === state.user.uid || notified.has(doc.id)) continue;
+        notified.add(doc.id);
+        await addNotification(doc.id, 'module', notifTextFor(tag), { postId, moduleTag: tag });
+      }
+    }
+  } catch (e) { console.error(e); }
+}
+
+function renderModuleTrends(posts = []) {
+  const trendEl = document.getElementById('module-trends');
+  if (!trendEl) return;
+  const counts = new Map();
+  posts.forEach(post => (post.moduleTags || []).forEach(tag => counts.set(tag, (counts.get(tag) || 0) + 1)));
+  const trends = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!trends.length) {
+    trendEl.innerHTML = '';
+    return;
+  }
+  trendEl.innerHTML = `
+    <div class="module-trends-card">
+      <div class="module-trends-head">
+        <h3>Module Trends</h3>
+        <span>Tap to explore</span>
+      </div>
+      <div class="module-trends-row">
+        ${trends.map(([tag, count]) => `<button class="trend-chip" onclick="openModuleFeed('${tag}')">${esc(tag)} <span>${count}</span></button>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
 // ─── Custom Voice Note Player ────────────────────
 let _vnCounter = 0;
 const _vnAudios = {};
@@ -648,6 +744,7 @@ function initAuth() {
     e.preventDefault();
     const btn = $('#l-btn'), email = $('#l-email').value.trim(), pass = $('#l-pass').value;
     if (!email || !pass) return toast('Enter email and password');
+    if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try { await auth.signInWithEmailAndPassword(email, pass); }
     catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Log In'; }
@@ -665,6 +762,7 @@ function initAuth() {
     const address = $('#s-address')?.value.trim() || '';
     if (!fname || !lname || !email || !pass || !uni || !major) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
+    if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try {
       const cred = await auth.createUserWithEmailAndPassword(email, pass);
@@ -685,6 +783,11 @@ function initAuth() {
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
     if (user) {
+      if (!isStudentEmail(user.email || '')) {
+        toast('Only @mynwu.ac.za accounts are allowed');
+        await auth.signOut().catch(() => {});
+        return;
+      }
       state.user = user;
       try {
         const doc = await db.collection('users').doc(user.uid).get();
@@ -848,6 +951,8 @@ function renderFeed() {
         <div class="prompt-actions"><span class="prompt-action">+</span></div>
       </div>
 
+      <div id="module-trends"></div>
+
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
@@ -892,7 +997,9 @@ function renderFeed() {
         return true; // public or no visibility set
       });
 
-      // Engagement-weighted shuffle: mix popular + new for discovery
+      const previousOrder = new Map((state.posts || []).map((post, index) => [post.id, index]));
+
+      // Discovery ranking for new posts, while preserving the current on-screen order for existing ones.
       const scored = visible.map(p => {
         const likes = (p.likes || []).length;
         const comments = p.commentsCount || 0;
@@ -901,16 +1008,24 @@ function renderFeed() {
         const freshness = Math.max(0, 1 - ageHrs / 48); // decay over 48h
         const engagement = (likes * 2 + comments * 3) * 0.3;
         const friendBoost = isFriend ? 8 : 0;
-        const randomFactor = Math.random() * 10; // discovery element
+        const randomFactor = scoreSeed(p.id) * 10;
         return { ...p, _score: engagement + freshness * 15 + friendBoost + randomFactor };
       });
-      scored.sort((a, b) => b._score - a._score);
+      scored.sort((a, b) => {
+        const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
+        const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
+        if (ai !== -1 && bi !== -1) return ai - bi;
+        if (ai !== -1) return 1;
+        if (bi !== -1) return -1;
+        return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+      });
 
       state.posts = scored;
       // Save scroll position before re-render to prevent "jump to top"
       const contentEl = document.getElementById('content');
       const savedScroll = contentEl ? contentEl.scrollTop : 0;
       renderPosts(scored);
+      renderModuleTrends(scored);
       // Restore scroll position after re-render
       if (contentEl && savedScroll > 0) {
         requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
@@ -1329,6 +1444,7 @@ function renderPosts(posts) {
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
+        ${renderPostModuleTags(post.moduleTags || [])}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
@@ -1592,6 +1708,7 @@ function setupFeedVideoAutoplay() {
 // ─── Like ────────────────────────────────────────
 async function toggleLike(pid) {
   const ref = db.collection('posts').doc(pid);
+  window._lastLikedPost = pid;
   // Optimistic UI: update DOM instantly before Firestore round-trip
   const postEl = document.getElementById('post-' + pid);
   if (postEl) {
@@ -1779,6 +1896,8 @@ function openCreateModal() {
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
+      <div class="form-group" style="margin-top:10px"><label>Module tags (optional)</label><input type="text" id="create-modules" placeholder="e.g. MATH301, COS132"></div>
+      <div class="create-post-hint">Use Anonymous if you want the post hidden from your identity. Add module tags so students in that class can discover it.</div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
@@ -1855,6 +1974,7 @@ function openCreateModal() {
     };
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
+      const moduleTags = extractModuleTags(text, $('#create-modules')?.value || '');
       if (!text && !pendingFiles.length) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = visibility === 'anonymous';
@@ -1873,7 +1993,7 @@ function openCreateModal() {
           mediaURL = imageURLs[0];
           mediaType = 'collage';
         }
-        await db.collection('posts').add({
+        const postRef = await db.collection('posts').add({
           content: text,
           imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
           imageURLs: imageURLs || null,
@@ -1883,10 +2003,12 @@ function openCreateModal() {
           authorName: isAnon ? 'Anonymous' : state.profile.displayName,
           authorPhoto: isAnon ? null : (state.profile.photoURL || null),
           authorUni: state.profile.university || '',
+          moduleTags,
           isAnonymous: isAnon || false,
           visibility: isAnon ? 'public' : visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
+        if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, text, postRef.id);
         toast('Posted!');
       } catch (e) { toast('Failed'); console.error(e); }
     };
@@ -3525,7 +3647,7 @@ function loadNotifications() {
   if (notifs.length) {
     if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += notifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : '🔔';
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : '🔔';
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" ${n.payload?.postId ? `onclick="viewPost('${n.payload.postId}');markNotifRead('${n.id}')"` : ''}>
          <div style="position:relative">
@@ -3582,13 +3704,14 @@ async function viewPost(pid) {
             <span>Reposted</span>
           </div>` : ''}
           <div class="post-header">
-            <div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>
+            ${p.isAnonymous ? `<div class="avatar-md anon-avatar">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
             <div class="post-header-info">
-              <div class="post-author-name" onclick="closeModal();openProfile('${p.authorId}')">${esc(p.authorName || 'User')}</div>
+              <div class="post-author-name" ${p.isAnonymous ? '' : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? '👻 Anonymous' : esc(p.authorName || 'User')}</div>
               <div class="post-meta">${timeAgo(p.createdAt)}</div>
             </div>
           </div>
           ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+          ${renderPostModuleTags(p.moduleTags || [])}
           ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
           ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
           ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
@@ -4089,6 +4212,7 @@ async function openProfile(uid) {
         if (!isFriend) {
           posts = posts.filter(p => p.visibility !== 'friends');
         }
+        posts = posts.filter(p => !p.isAnonymous);
       }
     } catch (e) { console.error('Posts', e); }
 
@@ -4196,9 +4320,9 @@ function renderProfilePosts(posts, user) {
          ${esc(user.displayName)} reposted
        </div>` : ''}
       <div class="post-header">
-        ${avatar(user.displayName, user.photoURL, 'avatar-md')}
+        ${p.isAnonymous ? `<div class="avatar-md anon-avatar">👻</div>` : avatar(user.displayName, user.photoURL, 'avatar-md')}
         <div class="post-header-info">
-          <div class="post-author-name">${esc(user.displayName)}</div>
+          <div class="post-author-name">${p.isAnonymous ? '👻 Anonymous' : esc(user.displayName)}</div>
           <div class="post-meta">${timeAgo(p.createdAt)}</div>
         </div>
         ${isMe ? `<button class="icon-btn" onclick="showPostOptions('${p.id}')" style="margin-left:auto">
@@ -4206,6 +4330,7 @@ function renderProfilePosts(posts, user) {
         </button>` : ''}
       </div>
       ${p.content ? `<div class="post-content">${formatContent(p.content)}</div>` : ''}
+      ${renderPostModuleTags(p.moduleTags || [])}
       ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
       ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
       ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
@@ -4631,7 +4756,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
-    startAnonChat, removeEventImage, showUserPreview,
+    startAnonChat, removeEventImage, showUserPreview, openModuleFeed,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     closeReelsViewer, toggleReelPlay, reelLike,
