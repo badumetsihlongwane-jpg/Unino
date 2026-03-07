@@ -1212,8 +1212,19 @@ function listenForVerifiedUsers() {
     VERIFIED_UIDS.clear();
     snap.docs.forEach(d => VERIFIED_UIDS.add(d.id));
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
+    // Refresh visible areas so badges appear as soon as verified list updates.
+    if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
+      renderPosts(state.posts);
+    }
+    if (document.getElementById('profile-view')?.classList.contains('active')) {
+      const pid = document.getElementById('prof-back')?.dataset?.uid;
+      if (pid) openProfile(pid);
+    }
   }, () => {
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
+    if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
+      renderPosts(state.posts);
+    }
   });
 }
 
@@ -5106,6 +5117,8 @@ async function editAnonNickname(convoId) {
 async function openProfile(uid) {
   showScreen('profile-view');
   const body = $('#prof-body');
+  const backBtn = $('#prof-back');
+  if (backBtn) backBtn.dataset.uid = uid;
   body.innerHTML = '<div style="padding:60px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>';
   $('#prof-top-name').textContent = '';
 
@@ -5905,7 +5918,7 @@ function adminVerifyUser() {
           <div class="pref-person" style="cursor:pointer">
             ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
             <div class="pref-person-info">
-              <div class="pref-person-name">${esc(u.displayName)}${u.isVerified ? '<span class="verified-badge">\u2714</span>' : ''}</div>
+              <div class="pref-person-name">${esc(u.displayName)}${u.isVerified || VERIFIED_UIDS.has(u.id) ? '<span class="verified-badge">\u2714</span>' : ''}</div>
               <div class="pref-person-meta">${esc(u.email || '')}</div>
             </div>
             <button class="btn-sm ${u.isVerified ? 'btn-ghost' : 'btn-primary'}" onclick="event.stopPropagation();doVerifyUser('${u.id}', ${!u.isVerified})">${u.isVerified ? 'Unverify' : 'Verify'}</button>
@@ -5940,7 +5953,7 @@ async function adminModeratePosts() {
     body.innerHTML = posts.length ? posts.map(p => `
       <div class="asg-card" style="margin:8px 0">
         <div class="asg-card-title">${esc((p.content || '').slice(0, 100) || '[media post]')}</div>
-        <div class="asg-card-meta"><span>By ${esc(p.authorName || 'User')}</span><span>\u00b7 ${timeAgo(p.createdAt)}</span></div>
+        <div class="asg-card-meta"><span>By ${esc(p.authorName || 'User')}${verifiedBadge(p.authorId)}</span><span>\u00b7 ${timeAgo(p.createdAt)}</span></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn-outline" style="flex:1" onclick="viewPost('${p.id}')">View</button>
           <button class="btn-danger" style="flex:1;border-radius:var(--radius)" onclick="adminDeletePost('${p.id}')">Delete</button>
