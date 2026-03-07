@@ -22,8 +22,49 @@ let verifiedUsersUnsub = null;
 let _asgAlertUnsub = null;
 let _asgPendingAlerts = [];
 let _dmUnreadCount = 0;
+let _dmReplyTo = null;
+let _gReplyTo = null;
+let _dmMsgLookup = new Map();
+let _gMsgLookup = new Map();
+let _chatViewportCleanup = null;
+let _gchatViewportCleanup = null;
+const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
+
+function clampText(v = '', max = 80) {
+  const t = (v || '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+function resolvePostAuthorPhoto(post = {}) {
+  if (post.authorPhoto) return post.authorPhoto;
+  if (!post.authorId) return null;
+  if (post.authorId === state.user?.uid) return state.profile?.photoURL || null;
+  if (Object.prototype.hasOwnProperty.call(_authorPhotoCache, post.authorId)) return _authorPhotoCache[post.authorId];
+  _authorPhotoCache[post.authorId] = null;
+  db.collection('users').doc(post.authorId).get().then(doc => {
+    _authorPhotoCache[post.authorId] = doc.exists ? (doc.data().photoURL || null) : null;
+    if (state.page === 'feed') renderFeed();
+  }).catch(() => {});
+  return null;
+}
+
+function scrollToLatest(msgsEl) {
+  if (!msgsEl) return;
+  requestAnimationFrame(() => { msgsEl.scrollTop = msgsEl.scrollHeight; });
+}
+
+function setupViewportFollow(msgsEl) {
+  if (!msgsEl || !window.visualViewport) return () => {};
+  const onVv = () => setTimeout(() => scrollToLatest(msgsEl), 20);
+  window.visualViewport.addEventListener('resize', onVv);
+  window.visualViewport.addEventListener('scroll', onVv);
+  return () => {
+    window.visualViewport.removeEventListener('resize', onVv);
+    window.visualViewport.removeEventListener('scroll', onVv);
+  };
+}
 
 // ─── Helpers ─────────────────────────────────────
 function colorFor(n) {
@@ -241,7 +282,7 @@ function renderTrendingPostsRail(posts = []) {
     .filter(post => post.content || post.imageURL || post.videoURL)
     .sort((a, b) => (((b.likes || []).length + (b.commentsCount || 0) * 2) - (((a.likes || []).length + (a.commentsCount || 0) * 2))))
     .slice(0, 10);
-  if (!trending.length) {
+  if (trending.length === 0) {
     if (_trendingRailTimer) clearInterval(_trendingRailTimer);
     _trendingRailTimer = null;
     railHost.innerHTML = '';
@@ -1811,6 +1852,7 @@ function renderPosts(posts) {
     const hasVideo = post.videoURL || (post.mediaType === 'video');
     const hasImage = post.imageURL && !hasVideo && !hasCollage;
     const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
+    const displayAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
     let videoPlayerData = null;
     if (hasVideo && mediaURL) {
       videoPlayerData = createVideoPlayer(mediaURL);
@@ -1825,7 +1867,7 @@ function renderPosts(posts) {
         <div class="post-header">
           ${post.isAnonymous
             ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer">👻</div>`
-            : `<div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>`}
+            : `<div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
             <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
@@ -3364,35 +3406,59 @@ async function openGroupChat(groupId, collection = 'groups') {
       </div>
     `;
     if (gchatUnsub) gchatUnsub();
+    if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
+    _gReplyTo = null;
+    const gReply = $('#gchat-reply-indicator');
+    if (gReply) gReply.style.display = 'none';
     const msgs = $('#gchat-msgs');
+    _gchatViewportCleanup = setupViewportFollow(msgs);
     gchatUnsub = db.collection(collection).doc(groupId)
       .collection('messages').orderBy('createdAt','asc').limit(100)
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _gMsgLookup = new Map(messages.map(m => [m.id, m]));
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
         } else {
-          msgs.innerHTML = messages.map(m => {
+          msgs.innerHTML = messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
+            const replyMeta = m.replyToText
+              ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
+              : '';
+            const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+              ${replyMeta}
               ${content}
+              <button class="msg-reply-btn" onclick="setGroupReply('${m.id}')">Reply</button>
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
             </div></div>`;
           }).join('');
-          msgs.scrollTop = msgs.scrollHeight;
+          scrollToLatest(msgs);
         }
       });
 
+    const gInput = $('#gchat-input');
+    const resizeGInput = () => {
+      if (!gInput) return;
+      gInput.style.height = '40px';
+      gInput.style.height = `${Math.min(gInput.scrollHeight, 84)}px`;
+      scrollToLatest(msgs);
+    };
+    if (gInput) {
+      gInput.style.height = '40px';
+      gInput.oninput = resizeGInput;
+    }
+
     const sendGMsg = async () => {
-      const input = $('#gchat-input');
-      const text = input.value.trim();
+      const input = gInput || $('#gchat-input');
+      const text = input?.value.trim();
       let audioURL = null;
       if (window._gchatVoiceBlob) {
         const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
@@ -3400,13 +3466,22 @@ async function openGroupChat(groupId, collection = 'groups') {
         window._gchatVoiceBlob = null;
       }
       if (!text && !audioURL) return;
+      const replyPayload = _gReplyTo ? {
+        replyToId: _gReplyTo.id,
+        replyToText: _gReplyTo.text,
+        replyToName: _gReplyTo.name
+      } : {};
       input.value = '';
+      resizeGInput();
       input.focus();
+      _gReplyTo = null;
+      if (gReply) gReply.style.display = 'none';
       try {
         await db.collection(collection).doc(groupId).collection('messages').add({
           text: text || '', audioURL: audioURL || null,
           senderId: uid, senderName: state.profile.displayName,
           senderPhoto: state.profile.photoURL || null,
+          ...replyPayload,
           createdAt: FieldVal.serverTimestamp()
         });
         await db.collection(collection).doc(groupId).update({
@@ -3421,11 +3496,55 @@ async function openGroupChat(groupId, collection = 'groups') {
         sendGMsg();
       }
     };
+    $('#gchat-input').onfocus = () => scrollToLatest(msgs);
+    $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 80);
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
+      if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
       showScreen('app'); navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open group'); }
+}
+
+function setGroupReply(messageId) {
+  const m = _gMsgLookup.get(messageId);
+  if (!m) return;
+  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
+  _gReplyTo = {
+    id: m.id,
+    text: replyText,
+    name: m.senderName || 'User'
+  };
+  const ind = $('#gchat-reply-indicator');
+  if (!ind) return;
+  ind.innerHTML = `<span>↩ Replying to <strong>${esc(_gReplyTo.name)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearGroupReply()">&times;</button>`;
+  ind.style.display = 'flex';
+  $('#gchat-input')?.focus();
+}
+
+function clearGroupReply() {
+  _gReplyTo = null;
+  const ind = $('#gchat-reply-indicator');
+  if (ind) ind.style.display = 'none';
+}
+
+function setDmReply(messageId) {
+  const m = _dmMsgLookup.get(messageId);
+  if (!m) return;
+  const otherName = m.senderId === state.user?.uid ? 'You' : 'Them';
+  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
+  _dmReplyTo = { id: m.id, text: replyText, name: otherName };
+  const ind = $('#dm-reply-indicator');
+  if (!ind) return;
+  ind.innerHTML = `<span>↩ Replying to <strong>${esc(otherName)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearDmReply()">&times;</button>`;
+  ind.style.display = 'flex';
+  $('#chat-input')?.focus();
+}
+
+function clearDmReply() {
+  _dmReplyTo = null;
+  const ind = $('#dm-reply-indicator');
+  if (ind) ind.style.display = 'none';
 }
 
 async function joinGroup(groupId) {
@@ -4139,6 +4258,7 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
       friends: FieldVal.arrayUnion(uid),
       sentRequests: FieldVal.arrayRemove(uid)
     });
+    await ensureFriendDMConversation(fromUid, fromName, fromPhoto);
     // Update local state
     state.profile.friends = [...(state.profile.friends || []), fromUid];
     state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
@@ -4149,6 +4269,23 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
       const dd = $('#notif-dropdown'); if (dd) dd.style.display = 'none';
     }
   } catch (e) { toast('Failed'); console.error(e); }
+}
+
+async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
+  const myUid = state.user.uid;
+  const snap = await db.collection('conversations').where('participants', 'array-contains', myUid).get();
+  const existing = snap.docs.find(d => (d.data().participants || []).includes(otherUid));
+  if (existing) return existing.id;
+  const ref = await db.collection('conversations').add({
+    participants: [myUid, otherUid],
+    participantNames: [state.profile.displayName, otherName || 'Friend'],
+    participantPhotos: [state.profile.photoURL || null, otherPhoto || null],
+    lastMessage: '',
+    updatedAt: FieldVal.serverTimestamp(),
+    unread: { [otherUid]: 0, [myUid]: 0 },
+    participantStatuses: { [myUid]: state.status || 'online', [otherUid]: 'offline' }
+  });
+  return ref.id;
 }
 
 async function rejectFriendRequest(fromUid) {
@@ -4596,16 +4733,22 @@ async function openChat(convoId) {
 
     // Messages listener
     if (chatUnsub) chatUnsub();
+    if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
+    _dmReplyTo = null;
+    const dmReply = $('#dm-reply-indicator');
+    if (dmReply) dmReply.style.display = 'none';
     const msgs = $('#chat-msgs');
+    _chatViewportCleanup = setupViewportFollow(msgs);
     chatUnsub = db.collection('conversations').doc(convoId)
       .collection('messages').orderBy('createdAt', 'asc').limit(100)
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _dmMsgLookup = new Map(messages.map(m => [m.id, m]));
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Say hi! 👋</div>';
         } else {
           let lastDateLabel = '';
-          msgs.innerHTML = messages.map(m => {
+          msgs.innerHTML = messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
@@ -4674,12 +4817,16 @@ async function openChat(convoId) {
               ? '<div class="avatar-xs anon-avatar">👻</div>'
               : avatar(displayName, displayPhoto, 'avatar-xs');
 
+            const replyMeta = m.replyToText
+              ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
+              : '';
+            const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'}">${content}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${replyMeta}${content}<button class="msg-reply-btn" onclick="setDmReply('${m.id}')">Reply</button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
-          requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+          scrollToLatest(msgs);
         }
 
         // Mark incoming as read
@@ -4692,14 +4839,32 @@ async function openChat(convoId) {
     // Send message + image
     const input = $('#chat-input');
     let chatPendingImg = null;
+    const resizeDmInput = () => {
+      if (!input) return;
+      input.style.height = '40px';
+      input.style.height = `${Math.min(input.scrollHeight, 84)}px`;
+      scrollToLatest(msgs);
+    };
+    if (input) {
+      input.style.height = '40px';
+      input.oninput = resizeDmInput;
+    }
 
     const sendMsg = async () => {
       const text = input.value.trim();
       let img = chatPendingImg;
       const chatFile = window._chatFile || null;
       if (!text && !img && !window._chatVoiceBlob) return;
+      const replyPayload = _dmReplyTo ? {
+        replyToId: _dmReplyTo.id,
+        replyToText: _dmReplyTo.text,
+        replyToName: _dmReplyTo.name
+      } : {};
       input.value = ''; chatPendingImg = null; window._chatFile = null;
+      resizeDmInput();
       input.focus();
+      _dmReplyTo = null;
+      if (dmReply) dmReply.style.display = 'none';
       const preview = $('#chat-img-preview'); if (preview) preview.style.display = 'none';
       try {
         // Upload image to R2 if file exists
@@ -4721,7 +4886,8 @@ async function openChat(convoId) {
         } catch (_) {}
         await db.collection('conversations').doc(convoId).collection('messages').add({
           text: text || '', imageURL: imageURL || null, audioURL: audioURL || null,
-          senderId: uid, senderAnon, createdAt: FieldVal.serverTimestamp(), status: 'sent'
+          senderId: uid, senderAnon, ...replyPayload,
+          createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
         const otherUid = convo.participants.find(p => p !== uid);
         const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
@@ -4738,6 +4904,8 @@ async function openChat(convoId) {
         sendMsg();
       }
     };
+    input.onfocus = () => scrollToLatest(msgs);
+    input.onblur = () => setTimeout(() => scrollToLatest(msgs), 80);
 
     // Wire image upload button in chat
     const chatFileInput = $('#chat-file-input');
@@ -4756,6 +4924,7 @@ async function openChat(convoId) {
     $('#chat-back').onclick = () => {
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
       if (_anonUnsub) { _anonUnsub(); _anonUnsub = null; }
+      if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
       const banner = $('#anon-reveal-banner'); if (banner) banner.style.display = 'none';
       showScreen('app');
       navigate('chat');
@@ -5743,6 +5912,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
+    setDmReply, clearDmReply, setGroupReply, clearGroupReply,
     setCommentAnonChoice, editAnonNickname,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
