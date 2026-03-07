@@ -1265,6 +1265,11 @@ function setupPresenceTracking() {
       refreshPresence(true).catch(() => {});
     }
   });
+  // Handle mobile back button
+  window.addEventListener('popstate', () => {
+    const current = state.page;
+    if (current !== 'feed') navigate('feed');
+  });
   clearInterval(_presenceTimer);
   _presenceTimer = setInterval(() => refreshPresence().catch(() => {}), 30000);
   refreshPresence(true).catch(() => {});
@@ -3409,7 +3414,7 @@ async function openGroupChat(groupId, collection = 'groups') {
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
-    $('#gchat-input').onkeydown = e => { if (e.key === 'Enter') sendGMsg(); };
+    $('#gchat-input').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendGMsg(); } };
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       showScreen('app'); navigate('chat');
@@ -4720,7 +4725,7 @@ async function openChat(convoId) {
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
-    input.onkeydown = e => { if (e.key === 'Enter') sendMsg(); };
+    input.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMsg(); } };
 
     // Wire image upload button in chat
     const chatFileInput = $('#chat-file-input');
@@ -4905,7 +4910,7 @@ async function openProfile(uid) {
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
           ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
-          ${user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
+          ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
         ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${esc(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
@@ -5023,20 +5028,7 @@ function renderProfilePosts(posts, user) {
 }
 
 // ─── iOS-style Post Options (Delete) ─────────────
-function showPostOptions(postId) {
-  openModal(`
-    <div class="modal-body" style="padding:8px 0">
-      <button class="ios-action-btn" onclick="confirmDeletePost('${postId}')">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-        <span style="color:var(--red)">Delete Post</span>
-      </button>
-      <div style="height:1px;background:var(--border);margin:4px 16px"></div>
-      <button class="ios-action-btn" onclick="closeModal()">
-        <span>Cancel</span>
-      </button>
-    </div>
-  `);
-}
+// ─── Post Reports with Multi-Option Menu ────────\nasync function reportPost(postId) {\n  closModal();\n  openModal(`<div class=\"modal-body\" style=\"padding:16px\"><h3>Report this post</h3><div style=\"display:flex;flex-direction:column;gap:8px;margin:16px 0\"><label><input type=\"radio\" name=\"report-reason\" value=\"spam\"> Spam</label><label><input type=\"radio\" name=\"report-reason\" value=\"inappropriate\"> Inappropriate</label><label><input type=\"radio\" name=\"report-reason\" value=\"harassment\"> Harassment</label><label><input type=\"radio\" name=\"report-reason\" value=\"misinformation\"> Misinformation</label><label><input type=\"radio\" name=\"report-reason\" value=\"other\"> Other</label></div><div style=\"display:flex;gap:12px\"><button class=\"btn-secondary\" onclick=\"closeModal()\" style=\"flex:1\">Cancel</button><button class=\"btn-primary\" onclick=\"submitPostReport('${postId}')\" style=\"flex:1\">Report</button></div></div>`);\n}\n\nasync function submitPostReport(postId) {\n  const reason = document.querySelector('input[name=\"report-reason\"]:checked')?.value;\n  if (!reason) return toast('Select a reason');\n  try {\n    await db.collection('posts').doc(postId).update({reports: FieldVal.arrayUnion({reportedBy: state.user.uid, reason, reportedAt: FieldVal.serverTimestamp()})});\n    closeModal();\n    toast('Post reported, thank you!');\n  } catch (e) { toast('Report failed'); }\n}\n\nfunction showPostOptions(postId) {\n  db.collection('posts').doc(postId).get().then(doc => {\n    if (!doc.exists) return;\n    const post = doc.data();\n    const isOwner = post.authorId === state.user.uid;\n    const rc = (post.reports || []).length;\n    const opts = isOwner\n      ? `<button class=\"ios-action-btn\" onclick=\"confirmDeletePost('${postId}')\">\n        <svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--red)\" stroke-width=\"2\"><polyline points=\"3 6 5 6 21 6\"/><path d=\"M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2\"/></svg>\n        <span style=\"color:var(--red)\">Delete</span></button>` \n      : `<button class=\"ios-action-btn\" onclick=\"reportPost('${postId}')\">\n        <span style=\"color:var(--orange)\">Report ${rc ? '(' + rc + ')' : ''}</span></button>`;\n    openModal(`<div class=\"modal-body\" style=\"padding:8px 0\">${opts}${_isAdmin ? `<div style=\"height:1px;background:var(--border);margin:4px 16px\"></div><button class=\"ios-action-btn\" onclick=\"adminDeletePost('${postId}')\" style=\"color:var(--red)\"><span>⚠Admin Delete</span></button>` : ''}<div style=\"height:1px;background:var(--border);margin:4px 16px\"></div><button class=\"ios-action-btn\" onclick=\"closeModal()\"><span>Cancel</span></button></div>`);\n  });\n}
 
 async function confirmDeletePost(postId) {
   closeModal();
@@ -5052,7 +5044,7 @@ async function confirmDeletePost(postId) {
   `);
 }
 
-async function deletePost(postId) {
+async function adminDeletePost(postId) {\n  if (!_isAdmin) return toast('Admin only');\n  try {\n    await db.collection('posts').doc(postId).delete();\n    toast('Post deleted');\n    renderFeed();\n  } catch (e) { console.error(e); }\n}\n\nfunction showAdminDataClear() {\n  if (!_isAdmin) return toast('Admin only');\n  openModal(`\n    <div class=\"modal-body\" style=\"padding:24px;text-align:center\">\n      <h3 style=\"color:var(--red);margin-bottom:16px\">⚠️ Clear Test Data</h3>\n      <p style=\"font-size:14px;margin-bottom:20px\">Delete all posts, groups, messages, and events?</p>\n      <div style=\"background:var(--bg-secondary);padding:12px;margin-bottom:20px;border-radius:8px;font-size:12px;color:var(--orange)\">User profiles preserved</div>\n      <div style=\"display:flex;gap:12px\">\n        <button class=\"btn-secondary\" onclick=\"closeModal()\" style=\"flex:1\">Cancel</button>\n        <button class=\"btn-danger\" onclick=\"doAdminDataClear()\" style=\"flex:1\">Clear All</button>\n      </div>\n    </div>\n  `);\n}\n\nasync function doAdminDataClear() {\n  if (!_isAdmin) return;\n  closeModal();\n  toast('Clearing data...');\n  try {\n    const batch = db.batch();\n    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups'];\n    for (const col of collections) {\n      const snap = await db.collection(col).limit(500).get();\n      snap.docs.forEach(doc => batch.delete(doc.ref));\n    }\n    await batch.commit();\n    toast('Data cleared!');\n    navigate('feed');\n  } catch (e) { console.error(e); toast('Clear failed'); }\n}\n\n
   closeModal();
   try {
     await db.collection('posts').doc(postId).delete();
@@ -5069,12 +5061,13 @@ async function deletePost(postId) {
 
 function renderProfileAbout(user) {
   const modules = user.modules || [];
+  const isMe = user.id === state.user?.uid;
   return `
     <div class="profile-about">
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
-      ${user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
+      ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
     </div>`;
@@ -5642,6 +5635,7 @@ document.addEventListener('DOMContentLoaded', () => {
     closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
-    adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast
+    adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
+    reportPost, submitPostReport, showAdminDataClear, doAdminDataClear
   });
 });
