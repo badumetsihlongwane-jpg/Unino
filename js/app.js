@@ -69,6 +69,32 @@ function jumpToMessage(messageId, containerId) {
   setTimeout(() => row.classList.remove('msg-jump-highlight'), 1200);
 }
 
+function patchPostEngagement(post) {
+  if (!post?.id) return;
+  const postEl = document.getElementById(`post-${post.id}`);
+  if (!postEl) return;
+  const liked = (post.likes || []).includes(state.user.uid);
+  const likeCount = (post.likes || []).length;
+  const commentCount = post.commentsCount || 0;
+
+  const likeBtn = postEl.querySelector(`.post-action[onclick*="toggleLike('${post.id}')"]`);
+  if (likeBtn) {
+    likeBtn.classList.toggle('liked', liked);
+    likeBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      ${likeCount || 'Like'}
+    `;
+  }
+
+  const stats = postEl.querySelector('.post-stats');
+  if (stats) {
+    stats.innerHTML = `
+      ${likeCount ? `<span class="stat-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> ${likeCount}</span>` : ''}
+      ${commentCount ? `<span class="stat-item">${commentCount} comment${commentCount > 1 ? 's' : ''}</span>` : ''}
+    `;
+  }
+}
+
 function scrollToLatest(msgsEl) {
   if (!msgsEl) return;
   requestAnimationFrame(() => { msgsEl.scrollTop = msgsEl.scrollHeight; });
@@ -1463,6 +1489,19 @@ function renderFeed() {
         return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
       });
 
+      // Keep feed position stable for like updates by patching only one card.
+      if (window._lastLikedPost && state.posts?.length) {
+        const prevIds = state.posts.map(p => p.id).join(',');
+        const nextIds = scored.map(p => p.id).join(',');
+        if (prevIds === nextIds) {
+          state.posts = scored;
+          const likedPost = scored.find(p => p.id === window._lastLikedPost);
+          if (likedPost) patchPostEngagement(likedPost);
+          window._lastLikedPost = null;
+          return;
+        }
+      }
+
       state.posts = scored;
       // Save scroll position before re-render to prevent "jump to top"
       const contentEl = document.getElementById('content');
@@ -1513,6 +1552,12 @@ function loadDiscoverPeople() {
         : u.major ? `📚 ${esc(u.major)}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
       const isFriend = (state.profile.friends || []).includes(u.id);
+      const isPending = (state.profile.sentRequests || []).includes(u.id);
+      const actionBtn = isFriend
+        ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')">Message</button>`
+        : isPending
+          ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
+          : `<button class="discover-card-btn" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
       return `
         <div class="discover-card" onclick="openProfile('${u.id}')">
           <div class="discover-card-avatar">
@@ -1522,7 +1567,7 @@ function loadDiscoverPeople() {
           <div class="discover-card-name">${esc(u.displayName)}</div>
           <div class="discover-card-meta">${esc(u.major || 'Student')}</div>
           ${tag ? `<div class="discover-card-tag">${tag}</div>` : ''}
-          <button class="discover-card-btn" onclick="event.stopPropagation();${isFriend ? `startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')` : `sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)`}">${isFriend ? 'Message' : 'Add Friend'}</button>
+          ${actionBtn}
         </div>`;
     }).join('')}</div>`;
   }).catch(() => { el.innerHTML = '<div class="discover-empty"><p>Could not load</p></div>'; });
@@ -2772,6 +2817,7 @@ async function showUserPreview(uid) {
     }
     const isMe = uid === state.user.uid;
     const isFriend = (state.profile.friends || []).includes(uid);
+    const isPending = (state.profile.sentRequests || []).includes(uid);
     const modules = (user.modules || []).slice(0, 3);
     openModal(`
       <div class="modal-body" style="text-align:center;padding:24px">
@@ -2784,7 +2830,9 @@ async function showUserPreview(uid) {
           ${isMe ? '' : isFriend
             ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
             : `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>
-               <button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}
+               ${isPending
+                 ? `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`
+                 : `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}`}
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Profile</button>
         </div>
       </div>
@@ -4396,7 +4444,7 @@ function loadNotifications() {
   if (requests.length) {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Friend Requests</div>`;
     html += requests.map(r => `
-      <div class="notif-item unread">
+      <div class="notif-item unread" onclick="openProfile('${r.uid}')">
         ${avatar(r.name, r.photo, 'avatar-md')}
         <div class="notif-content">
           <div class="notif-text"><strong>${esc(r.name)}</strong> sent you a friend request</div>
@@ -5135,7 +5183,7 @@ async function openProfile(uid) {
                 } else if (isPending) {
                   friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
                 } else {
-                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}');this.textContent='Pending…';this.disabled=true;this.style.opacity='0.6'">Add Friend</button>`;
+                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', this)">Add Friend</button>`;
                 }
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat

@@ -1861,7 +1861,8 @@ input, select, textarea, button {
 }
 
 .msg-bubble:has(.vn-player) {
-  padding: 5px 9px;
+  padding: 3px 8px;
+  max-width: min(92%, 440px);
 }
 
 .msg-bubble.msg-new {
@@ -4504,15 +4505,15 @@ input, select, textarea, button {
 .vn-player {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 2px 0;
-  min-width: 190px;
-  max-width: 320px;
+  gap: 8px;
+  padding: 0;
+  min-width: 230px;
+  max-width: min(78vw, 420px);
 }
 
 .vn-play-btn {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
@@ -4532,7 +4533,7 @@ input, select, textarea, button {
   border-radius: 2px;
   cursor: pointer;
   position: relative;
-  min-width: 120px;
+  min-width: 170px;
 }
 
 .vn-bar-bg {
@@ -4573,10 +4574,10 @@ input, select, textarea, button {
 }
 
 .vn-time {
-  font-size: 11px;
+  font-size: 10px;
   opacity: 0.7;
   white-space: nowrap;
-  min-width: 30px;
+  min-width: 26px;
   text-align: right;
 }
 
