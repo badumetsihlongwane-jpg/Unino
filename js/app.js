@@ -329,7 +329,13 @@ function isVideoURL(url) {
 
 function formatContent(text) {
   if (!text) return '';
-  return esc(text).replace(/#(\w+)/g, '<span class="hashtag">#$1</span>');
+  return esc(text).replace(/#(\w+)/g, (_, rawTag) => {
+    const tag = (rawTag || '').toUpperCase();
+    if (/^[A-Z]{3,5}\d{3}$/.test(tag)) {
+      return `<span class="hashtag module-hashtag" onclick="openModuleFeed('${tag}')">#${tag}</span>`;
+    }
+    return `<span class="hashtag">#${rawTag}</span>`;
+  });
 }
 
 // ─── Custom Video Player Engine ──────────────────
@@ -1896,8 +1902,7 @@ function openCreateModal() {
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
-      <div class="form-group" style="margin-top:10px"><label>Module tags (optional)</label><input type="text" id="create-modules" placeholder="e.g. MATH301, COS132"></div>
-      <div class="create-post-hint">Use Anonymous if you want the post hidden from your identity. Add module tags so students in that class can discover it.</div>
+      <div class="create-post-hint">Use #MATH301-style tags inside your post so students in that module can discover it. Choose Anonymous if you want the post hidden from your identity.</div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
@@ -1974,7 +1979,7 @@ function openCreateModal() {
     };
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
-      const moduleTags = extractModuleTags(text, $('#create-modules')?.value || '');
+      const moduleTags = extractModuleTags(text);
       if (!text && !pendingFiles.length) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = visibility === 'anonymous';
@@ -2571,6 +2576,7 @@ async function openEventDetail(eventId) {
     const locName = loc ? loc.name : esc(ev.location || 'TBA');
     const amGoing = (ev.going || []).includes(state.user.uid);
     const goingCount = (ev.going || []).length;
+    const isCreator = ev.createdBy === state.user.uid;
     openModal(`
       <div class="modal-header"><h2>${ev.emoji || '📅'} Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
@@ -2593,9 +2599,26 @@ async function openEventDetail(eventId) {
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
+        ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
     `);
   } catch (e) { toast('Could not load event'); console.error(e); }
+}
+
+async function deleteEvent(eventId) {
+  if (!eventId) return;
+  if (!window.confirm('Delete this event? This cannot be undone.')) return;
+  try {
+    const doc = await db.collection('events').doc(eventId).get();
+    if (!doc.exists) return toast('Event not found');
+    if (doc.data().createdBy !== state.user.uid) return toast('Only the creator can delete this event');
+    await db.collection('events').doc(eventId).delete();
+    closeModal();
+    await loadCampusEvents();
+    if (state.page === 'explore') renderExploreView();
+    if (state.page === 'feed') loadDiscoverEvents();
+    toast('Event deleted');
+  } catch (e) { toast('Failed to delete event'); console.error(e); }
 }
 
 async function toggleEventGoing(eventId) {
@@ -4224,7 +4247,7 @@ async function openProfile(uid) {
     body.innerHTML = `
       <div class="profile-cover">
         <div class="profile-avatar-wrap">
-          <div class="profile-avatar-large">
+          <div class="profile-avatar-large${user.photoURL ? ' clickable' : ''}" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')"` : ''}>
             ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(user.displayName)}
           </div>
           ${user.status === 'online' ? '<div class="avatar-online-dot"></div>' : ''}
@@ -4239,6 +4262,7 @@ async function openProfile(uid) {
           ${user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
+        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${esc(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
@@ -4755,7 +4779,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openAsgPreferences, openAsgChat, loadAssignmentGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
-    openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
+    openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,

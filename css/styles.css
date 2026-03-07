@@ -1060,6 +1060,11 @@ input, select, textarea, button {
   text-decoration: underline;
 }
 
+.post-content .module-hashtag {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .post-module-tags {
   padding: 0 16px 12px;
   display: flex;
@@ -1950,6 +1955,15 @@ input, select, textarea, button {
   height: 100%;
   object-fit: cover;
 }
+
+.profile-avatar-large.clickable {
+  cursor: zoom-in;
+}
+
+.profile-avatar-large.clickable:hover {
+  transform: scale(1.02);
+}
+
 .avatar-online-dot {
   position: absolute;
   bottom: 6px; right: 6px;
