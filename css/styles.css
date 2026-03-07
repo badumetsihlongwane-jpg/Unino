@@ -3959,6 +3959,208 @@ input, select, textarea, button {
   padding: 16px;
 }
 
+/* ── Verified Badge ───────────────────────────────── */
+.verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 900;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
+}
+.profile-name .verified-badge {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+.post-author-name .verified-badge {
+  width: 15px;
+  height: 15px;
+  font-size: 8px;
+}
+
+/* ── Preferences Modal ────────────────────────────── */
+.pref-modal {
+  padding: 0 !important;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+.pref-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pref-section h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.pref-search-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.pref-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+.pref-people-list,
+.pref-grouped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.pref-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 2px solid transparent;
+}
+.pref-person:hover {
+  background: var(--bg-tertiary);
+}
+.pref-person.want {
+  background: rgba(0, 186, 136, 0.08);
+  border-color: var(--green);
+}
+.pref-person.dontwant {
+  background: rgba(255, 107, 107, 0.08);
+  border-color: var(--red);
+}
+.pref-person-info { flex: 1; min-width: 0; }
+.pref-person-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pref-person-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pref-choice-indicator {
+  font-size: 16px;
+  font-weight: 700;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.pref-person.want .pref-choice-indicator {
+  background: var(--green);
+  color: #fff;
+}
+.pref-person.dontwant .pref-choice-indicator {
+  background: var(--red);
+  color: #fff;
+}
+.pref-grouped-tag {
+  font-size: 11px;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.pref-grouped-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+.pref-actions {
+  padding: 16px;
+}
+.pref-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-top: 8px;
+  text-align: center;
+}
+.pref-empty {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* ── Admin Panel ──────────────────────────────────── */
+.admin-panel {
+  padding: 0 !important;
+}
+.admin-stats {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.admin-stat-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 12px 8px;
+  text-align: center;
+}
+.admin-stat-num {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.admin-stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.admin-section {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-section h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
 /* ══════════════════════════════════════════════════
    CAMPUS MAP & EVENTS
    ══════════════════════════════════════════════════ */
