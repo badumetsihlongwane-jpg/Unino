@@ -65,7 +65,8 @@
         <option>1st Year</option><option>2nd Year</option><option>3rd Year</option>
         <option>Honours</option><option>Postgrad</option><option>PhD</option>
       </select>
-      <input type="text" id="s-address" placeholder="Campus / res / area (e.g. Potch Main Campus)">
+      <input type="text" id="s-address" placeholder="Campus / res / area (e.g. Potch Main Campus)" autocomplete="off" style="margin-bottom:0">
+      <div id="s-address-suggestions" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:150px;overflow-y:auto;margin-bottom:12px"></div>
       <button type="submit" class="btn-accent w100" id="s-btn">Create Account</button>
       <p class="switch-text">Already registered? <a href="#" id="to-login">Log In</a></p>
     </form>
