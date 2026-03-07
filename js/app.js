@@ -6,7 +6,7 @@
  * ══════════════════════════════════════════════════════ */
 
 // ─── State ───────────────────────────────────────
-const state = { user: null, profile: null, page: 'feed', status: 'online', unsubs: [], lastMsgTab: 'dm' };
+const state = { user: null, profile: null, page: 'feed', status: 'online', manualStatus: 'online', unsubs: [], lastMsgTab: 'dm' };
 
 // ─── Shortcuts ───────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -19,6 +19,10 @@ function colorFor(n) {
   let h = 0;
   for (let i = 0; i < (n || '').length; i++) h = n.charCodeAt(i) + ((h << 5) - h);
   return COLORS[Math.abs(h) % COLORS.length];
+}
+
+function normalizeModules(modules = []) {
+  return (modules || []).map(m => (m || '').trim().toUpperCase()).filter(Boolean);
 }
 
 function initials(n) {
@@ -803,7 +807,8 @@ function initAuth() {
       } catch {
         state.profile = { id: user.uid, displayName: user.displayName, email: user.email, status: 'online', modules: [] };
       }
-      state.status = state.profile.status || 'online';
+      state.manualStatus = state.profile.manualStatus || state.profile.status || 'online';
+      state.status = state.profile.status || state.manualStatus;
       enterApp();
     } else {
       state.user = null; state.profile = null; unsub(); showScreen('auth-screen');
@@ -829,6 +834,7 @@ function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); navigate('feed');
   listenForNotifications();
   listenForUnreadDMs();
+  setupPresenceTracking();
 }
 
 let _unreadDMSub = null;
@@ -885,10 +891,9 @@ function setupStatusPill() {
   updateStatusUI();
   pill.onclick = async () => {
     const modes = ['online','study','offline'];
-    state.status = modes[(modes.indexOf(state.status) + 1) % 3];
-    updateStatusUI();
-    try { await db.collection('users').doc(state.user.uid).update({ status: state.status }); } catch (e) { console.error(e); }
-    toast('Status: ' + state.status.charAt(0).toUpperCase() + state.status.slice(1));
+    state.manualStatus = modes[(modes.indexOf(state.manualStatus) + 1) % 3];
+    refreshPresence(true).catch(() => {});
+    toast('Status: ' + state.manualStatus.charAt(0).toUpperCase() + state.manualStatus.slice(1));
   };
 }
 
@@ -899,6 +904,55 @@ function updateStatusUI() {
   if (state.status === 'online') { pill.classList.add('online'); dot.classList.add('green'); txt.textContent = 'Online'; }
   else if (state.status === 'study') { pill.classList.add('away'); dot.classList.add('orange'); txt.textContent = 'Studying'; }
   else { pill.classList.add('offline'); dot.classList.add('gray'); txt.textContent = 'Offline'; }
+}
+
+let _lastActivityAt = Date.now();
+let _presenceTimer = null;
+
+async function syncConversationPresence(status) {
+  if (!state.user?.uid) return;
+  try {
+    const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
+    await Promise.all(snap.docs.map(d => d.ref.set({ participantStatuses: { [state.user.uid]: status } }, { merge: true })));
+  } catch (e) { console.error(e); }
+}
+
+async function refreshPresence(force = false) {
+  if (!state.user?.uid) return;
+  const inactive = (Date.now() - _lastActivityAt) > 3 * 60 * 1000;
+  const effective = state.manualStatus === 'online' ? (inactive ? 'offline' : 'online') : state.manualStatus;
+  if (!force && state.status === effective) return;
+  state.status = effective;
+  updateStatusUI();
+  try {
+    await db.collection('users').doc(state.user.uid).update({ status: effective, manualStatus: state.manualStatus, lastActiveAt: FieldVal.serverTimestamp() });
+    syncConversationPresence(effective);
+  } catch (e) { console.error(e); }
+}
+
+function markActivity() {
+  _lastActivityAt = Date.now();
+  if (state.manualStatus === 'online' && state.status !== 'online') refreshPresence().catch(() => {});
+}
+
+function setupPresenceTracking() {
+  ['mousemove','keydown','click','touchstart','scroll'].forEach(evt => {
+    document.addEventListener(evt, markActivity, { passive: true });
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (state.manualStatus === 'online') {
+        _lastActivityAt = 0;
+        refreshPresence(true).catch(() => {});
+      }
+    } else {
+      markActivity();
+      refreshPresence(true).catch(() => {});
+    }
+  });
+  clearInterval(_presenceTimer);
+  _presenceTimer = setInterval(() => refreshPresence().catch(() => {}), 30000);
+  refreshPresence(true).catch(() => {});
 }
 
 // ─── Navigation ──────────────────────────────────
@@ -1045,7 +1099,7 @@ function loadDiscoverPeople() {
   const el = $('#discover-content'); if (!el) return;
   const myUni = state.profile.university || '';
   const myMajor = state.profile.major || '';
-  const myModules = state.profile.modules || [];
+  const myModules = normalizeModules(state.profile.modules || []);
 
   db.collection('users').limit(30).get().then(snap => {
     let users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== state.user.uid);
@@ -1053,7 +1107,8 @@ function loadDiscoverPeople() {
     // Score & sort by relevance
     users = users.map(u => {
       let score = 0;
-      const shared = (myModules).filter(m => (u.modules || []).includes(m));
+      const theirModules = normalizeModules(u.modules || []);
+      const shared = myModules.filter(m => theirModules.includes(m));
       if (shared.length) score += 30 + shared.length * 10;
       if (u.university === myUni) score += 20;
       if (u.major === myMajor) score += 10;
@@ -1159,25 +1214,7 @@ function loadStories() {
         `);
       });
 
-      // Also load online users who don't have stories
-      loadOnlineFriends(Object.keys(byUser).concat(ordered.map(o => o.uid)));
-    }).catch(() => loadOnlineFriends([]));
-}
-
-function loadOnlineFriends(excludeIds = []) {
-  const row = $('#stories-row'); if (!row) return;
-  db.collection('users').where('status', '==', 'online').limit(15).get().then(snap => {
-    const users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid && !excludeIds.includes(u.id));
-    row.insertAdjacentHTML('beforeend', users.map(u => `
-      <div class="story-item no-story" onclick="openProfile('${u.id}')">
-        <div class="story-avatar"><div class="story-avatar-inner">
-          ${u.photoURL ? `<img src="${u.photoURL}" alt="">` : initials(u.displayName)}
-        </div></div>
-        <div class="story-name">${esc(u.firstName || u.displayName?.split(' ')[0] || '?')}</div>
-      </div>
-    `).join(''));
-  }).catch(() => {});
+    }).catch(() => {});
 }
 
 function openStoryCreator() {
@@ -1309,9 +1346,12 @@ function showStoryFrame() {
 
   // Header
   const hdr = $('#story-viewer-user');
+  const isMyStory = story.authorId === state.user.uid;
+  const viewCount = Math.max(0, (story.viewedBy || []).filter(uid => uid !== state.user.uid).length);
   hdr.innerHTML = `
     ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
-    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}</small></div>
+    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · ${viewCount} view${viewCount === 1 ? '' : 's'}` : ''}</small></div>
+    ${isMyStory ? `<button class="story-delete-btn" onclick="deleteStory('${story.id}')">Delete</button>` : ''}
   `;
 
   // Content
@@ -1373,6 +1413,20 @@ function advanceStory(dir) {
 function closeStoryViewer() {
   clearTimeout(storyViewerData.timer);
   $('#story-viewer').style.display = 'none';
+}
+
+async function deleteStory(storyId) {
+  if (!storyId) return;
+  if (!window.confirm('Delete this story?')) return;
+  try {
+    const doc = await db.collection('stories').doc(storyId).get();
+    if (!doc.exists) return toast('Story not found');
+    if (doc.data().authorId !== state.user.uid) return toast('Only your own story can be deleted');
+    await db.collection('stories').doc(storyId).delete();
+    closeStoryViewer();
+    loadStories();
+    toast('Story deleted');
+  } catch (e) { toast('Failed to delete story'); console.error(e); }
 }
 
 // ─── Multi-image Collage Renderer ────────────────
@@ -3783,6 +3837,7 @@ function loadDMList() {
         const otherUid = c.participants[idx];
         const rawName = (c.participantNames || [])[idx] || 'User';
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
+        const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
         const displayName = theirAnon ? 'Anonymous 👻' : rawName;
         const displayPhoto = theirAnon ? null : rawPhoto;
@@ -3792,10 +3847,10 @@ function loadDMList() {
         const unread = (c.unread || {})[uid] || 0;
         return `
           <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')">
-            <div class="convo-avatar">${avatarHtml}</div>
+            <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : esc(c.lastMessage || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -3830,6 +3885,7 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
   const otherName = (convo.participantNames || [])[idx] || 'User';
   const otherPhoto = (convo.participantPhotos || [])[idx] || null;
+  const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
 
   // Update header display
   const hdrInfo = $('#chat-hdr-info');
@@ -3837,12 +3893,12 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     hdrInfo.innerHTML = `
       <div class="avatar-sm anon-avatar">👻</div>
       <div><h3 style="font-size:15px;font-weight:700">Anonymous</h3>
-      <span style="font-size:11px;color:var(--text-tertiary)">Identity hidden</span></div>
+      <span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'} · Identity hidden</span></div>
     `;
   } else {
     hdrInfo.innerHTML = `
       ${avatar(otherName, otherPhoto, 'avatar-sm')}
-      <div><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3></div>
+      <div><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3><span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'}</span></div>
     `;
   }
 
@@ -4145,7 +4201,8 @@ async function startChat(uid, name, photo) {
         participantNames: [state.profile.displayName, name],
         participantPhotos: [state.profile.photoURL || null, photo || null],
         lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
-        unread: { [uid]: 0, [state.user.uid]: 0 }
+        unread: { [uid]: 0, [state.user.uid]: 0 },
+        participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' }
       });
       openChat(doc.id);
     }
@@ -4194,8 +4251,9 @@ async function startAnonChat(uid, name, photo) {
       participantPhotos: [state.profile.photoURL || null, photo || null],
       lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
       unread: { [uid]: 0, [state.user.uid]: 0 },
+      participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' },
       isAnonymous: true,
-      anonymous: { [state.user.uid]: true },
+      anonymous: { [state.user.uid]: true, [uid]: true },
       anonStartedBy: state.user.uid
     });
     toast(`Anonymous chat started (${todayCount + 1}/${ANON_DAILY_LIMIT} today)`);
@@ -4771,7 +4829,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleLike, openComments, postComment, viewImage,
     startChat, openChat, closeModal, editProfile, doLogout, toast,
     showPostOptions, confirmDeletePost, deletePost, openProductDetail,
-    openStoryCreator, viewStory, closeStoryViewer, advanceStory,
+    openStoryCreator, viewStory, closeStoryViewer, advanceStory, deleteStory,
     openCreateGroup, openGroupChat, joinGroup, loadStories,
     openCreateAssignmentGroup, openAssignmentDetail, joinAsg, requestJoinAsg,
     approveAsgRequest, rejectAsgRequest, removeFromAsg, leaveAsg,

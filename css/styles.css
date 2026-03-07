@@ -3336,6 +3336,18 @@ input, select, textarea, button {
   padding: 2px;
 }
 
+.story-delete-btn {
+  margin-left: auto;
+  border: none;
+  background: rgba(239, 68, 68, 0.18);
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ══════════════════════════════════════════════════
    STORY CREATOR MODAL
    ══════════════════════════════════════════════════ */
