@@ -81,7 +81,7 @@ export default {
         const headers = new Headers(CORS_HEADERS);
         headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
         headers.set('Content-Length', object.size);
-        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('Cache-Control', 'no-store');
         headers.set('ETag', object.httpEtag);
         headers.set('Accept-Ranges', 'bytes');
 

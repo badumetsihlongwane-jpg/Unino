@@ -1048,8 +1048,7 @@ function initAuth() {
   });
 
   db.collection('stats').doc('global').onSnapshot(doc => {
-    const c = doc.exists ? (doc.data().totalUsers || 0) : 0;
-    const el = $('#auth-count'); if (el) el.textContent = c;
+    const el = $('#auth-count'); if (el && !state.user) el.textContent = '0';
   });
 }
 
@@ -1067,6 +1066,18 @@ function enterApp() {
   listenForNotifications();
   listenForUnreadDMs();
   setupPresenceTracking();
+  listenForOnlineCount();
+}
+
+let _onlineCountSub = null;
+function listenForOnlineCount() {
+  if (_onlineCountSub) _onlineCountSub();
+  _onlineCountSub = db.collection('users').where('status', '==', 'online').onSnapshot(snap => {
+    const count = snap.size || 0;
+    const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
+    const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
+    const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
+  }, () => {});
 }
 
 let _unreadDMSub = null;
@@ -1103,9 +1114,6 @@ function setupHeader() {
   if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt="">`; el.style.background = 'transparent'; }
   else { el.textContent = initials(p.displayName); el.style.background = colorFor(p.displayName); }
   el.onclick = () => openProfile(state.user.uid);
-  db.collection('stats').doc('global').onSnapshot(doc => {
-    const hc = $('#hdr-count'); if (hc) hc.textContent = doc.exists ? (doc.data().totalUsers || 0) : 0;
-  });
 }
 
 function setupNav() {
@@ -1271,12 +1279,6 @@ function renderFeed() {
 
   loadDiscoverPeople();
   loadStories();
-
-  // Live count
-  db.collection('stats').doc('global').onSnapshot(doc => {
-    const el = $('#feed-online');
-    if (el) el.textContent = doc.exists ? (doc.data().totalUsers || 0) : 0;
-  });
 
   // Real-time posts
   const u = db.collection('posts').orderBy('createdAt', 'desc').limit(50)
@@ -2644,7 +2646,7 @@ async function showUserPreview(uid) {
         <div style="display:flex;gap:8px;justify-content:center">
           ${isMe ? '' : isFriend
             ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-            : `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">👻 Anonymous</button>
+            : `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>
                <button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Profile</button>
         </div>
@@ -4010,14 +4012,15 @@ function loadNotifications() {
     html += notifs.map(n => {
       const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : '🔔';
       const clickAction = n.payload?.postId ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')` : `markNotifRead('${n.id}')`;
+      const from = n.from || { name: 'Unino', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
          <div style="position:relative">
-           ${avatar(n.from.name, n.from.photo, 'avatar-md')}
+           ${avatar(from.name, from.photo, 'avatar-md')}
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">${icon}</div>
          </div>
          <div class="notif-content">
-           <div class="notif-text"><strong>${esc(n.from.name)}</strong> ${esc(n.text)}</div>
+           <div class="notif-text"><strong>${esc(from.name)}</strong> ${esc(n.text)}</div>
            <div class="notif-time">${timeAgo(n.createdAt)}</div>
          </div>
        </div>`;
@@ -4137,7 +4140,7 @@ function loadDMList() {
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -4500,7 +4503,7 @@ async function startChat(uid, name, photo) {
 // Anonymous messaging for non-friends (shy users)
 const ANON_DAILY_LIMIT = 5;
 
-async function startAnonChat(uid, name, photo) {
+async function startAnonChat(uid, name, photo, forceNew = false) {
   if (uid === state.user.uid) return toast("That's you!");
 
   // Check daily anonymous usage limit
@@ -4527,7 +4530,7 @@ async function startAnonChat(uid, name, photo) {
 
     // Check for existing anon conversation
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
-    const existing = snap.docs.find(d => {
+    const existing = forceNew ? null : snap.docs.find(d => {
       const data = d.data();
       const stillAnonymous = !!((data.anonymous || {})[state.user.uid]) || !!((data.anonymous || {})[uid]);
       return data.participants.includes(uid) && data.isAnonymous && stillAnonymous;
@@ -4552,7 +4555,8 @@ async function startAnonChat(uid, name, photo) {
       participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' },
       isAnonymous: true,
       anonymous: { [state.user.uid]: true, [uid]: true },
-      anonStartedBy: state.user.uid
+      anonStartedBy: state.user.uid,
+      anonContext: forceNew ? 'profile' : 'discovery'
     });
     toast(`Anonymous chat started (${todayCount + 1}/${ANON_DAILY_LIMIT} today)`);
     openChat(doc.id);
@@ -4665,7 +4669,7 @@ async function openProfile(uid) {
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-                  : `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">👻 Anonymous Message</button>`;
+                  : `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>`;
                 return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>

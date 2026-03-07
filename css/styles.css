@@ -1660,7 +1660,10 @@ input, select, textarea, button {
   padding: 14px 16px;
   cursor: pointer;
   transition: all var(--transition);
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
+  margin: 6px 10px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
 }
 
 .convo-item:hover {
@@ -1668,7 +1671,7 @@ input, select, textarea, button {
 }
 
 .convo-item.unread {
-  background: var(--accent-light);
+  background: color-mix(in srgb, var(--accent-light) 70%, var(--bg-secondary));
 }
 
 .convo-avatar {

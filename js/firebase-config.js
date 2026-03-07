@@ -85,5 +85,5 @@ const db = firebase.firestore();
 // Storage disabled (requires paid plan) — using base64 data URLs instead
 const storage = null;
 
-// Enable offline persistence for better UX
-db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+// IndexedDB multi-tab persistence in this compat setup is noisy and unstable in-browser.
+// Leave Firestore online-only here until the cache API migration is done.
