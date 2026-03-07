@@ -978,15 +978,18 @@ function loadDiscoverEvents() {
     }
     el.innerHTML = `<div class="discover-scroll">${events.slice(0, 8).map(ev => {
       const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+      const locName = loc ? loc.name : esc(ev.location || '?');
       const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
       const goingCount = (ev.going || []).length;
+      const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
       return `
-        <div class="discover-card event-card" style="background:${grad}" onclick="${ev.id ? `openEventDetail('${ev.id}')` : `toast('View on Campus map!')`}">
-          <div style="font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>
-          <div class="discover-card-name" style="color:#fff">${esc(ev.title)}</div>
-          <div class="discover-card-meta" style="color:rgba(255,255,255,0.8)">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
-          <div class="discover-card-tag" style="background:rgba(255,255,255,0.2);color:#fff">📍 ${loc ? loc.name : esc(ev.location || '?')}</div>
-          ${goingCount ? `<div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:4px">👥 ${goingCount} going</div>` : ''}
+        <div class="discover-card event-card" onclick="${ev.id ? `openEventDetail('${ev.id}')` : `toast('View on Campus map!')`}">
+          ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div style="background:${grad};width:100%;height:120px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>`}
+          <div class="discover-card-name">${esc(ev.title)}</div>
+          <div class="discover-card-meta">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
+          <div class="discover-card-tag">📍 ${locName}</div>
+          ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">👥 ${goingCount} going</div>` : ''}
+        </div>`;
         </div>`;
     }).join('')}</div>`;
   };
@@ -1317,12 +1320,14 @@ function renderPosts(posts) {
           <span>${esc(post.authorName)} reposted</span>
         </div>` : ''}
         <div class="post-header">
-          <div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>
+          ${post.isAnonymous
+            ? `<div class="avatar-md anon-avatar">👻</div>`
+            : `<div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, post.authorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" onclick="openProfile('${post.authorId}')">${esc(post.authorName)}</div>
-            <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : '🌍 '}${esc(post.authorUni || '')} · ${timeAgo(post.createdAt)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? '' : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName)}</div>
+            <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
-          ${post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
+          ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
         ${post.content ? `<div class="post-content">${formatContent(post.content)}</div>` : ''}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
@@ -1751,11 +1756,22 @@ function viewImage(url) { const v = $('#img-view'); if (!v) return; $('#img-full
 
 // ─── Create Post ─────────────────────────────────
 function openCreateModal() {
-  let pendingFiles = []; // Array of File objects
+  let pendingFiles = [];
   let pendingIsVideo = false;
-  openModal(`
-    <div class="modal-header"><h2>Create Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+  let createTab = 'post'; // 'post' or 'event'
+  window._eventFiles = [];
+
+  const renderCreateInner = () => {
+    const mi = $('#modal-inner');
+    if (!mi) return;
+    mi.innerHTML = `
+    <div class="modal-header"><h2>Create</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="create-tabs">
+      <button class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
+      <button class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">📅 Event</button>
+    </div>
     <div class="modal-body">
+      ${createTab === 'post' ? `
       <div style="display:flex;gap:12px;margin-bottom:16px">
         ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
         <div>
@@ -1770,87 +1786,157 @@ function openCreateModal() {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
         <div style="display:flex;align-items:center;gap:8px">
-          <label class="add-photo-btn" title="Photos (multiple)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file" multiple></label>
+          <label class="add-photo-btn" title="Photos"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file" multiple></label>
           <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7" fill="var(--accent)"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
+            <option value="anonymous">👻 Anonymous</option>
           </select>
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
-    </div>
-  `);
-  const showPreviews = () => {
-    const pc = $('#create-preview-content');
-    if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
-    if (pendingIsVideo) {
-      pc.innerHTML = `<video src="${localPreview(pendingFiles[0])}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
-    } else {
-      const count = pendingFiles.length;
-      pc.className = `collage-preview-grid collage-${Math.min(count, 4)}`;
-      pc.innerHTML = pendingFiles.slice(0, 4).map((f, i) =>
-        `<div class="collage-preview-item${count > 4 && i === 3 ? ' collage-more' : ''}">
-          <img src="${localPreview(f)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">
-          ${count > 4 && i === 3 ? `<div class="collage-more-overlay">+${count - 4}</div>` : ''}
-        </div>`
-      ).join('');
-    }
-    $('#create-preview').style.display = 'block';
+      ` : `
+      <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
+      <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
+      <div style="display:flex;gap:8px">
+        <div class="form-group" style="flex:1"><label>Date</label><input type="date" id="ev-date"></div>
+        <div class="form-group" style="flex:1"><label>Time</label><input type="time" id="ev-time"></div>
+      </div>
+      <div class="form-group"><label>Description (optional)</label><textarea id="ev-desc" placeholder="What's happening?" style="resize:none;height:60px"></textarea></div>
+      <div class="form-group"><label>Event Photos (up to 4)</label><input type="file" accept="image/*" id="ev-file" multiple></div>
+      <div id="ev-img-preview" class="ev-img-preview-grid"></div>
+      <button class="btn-primary btn-full" id="ev-create-btn">Create Event</button>
+      `}
+    </div>`;
+
+    // Wire tab switching
+    $$('.create-tab').forEach(tab => {
+      tab.onclick = () => {
+        createTab = tab.dataset.ct;
+        renderCreateInner();
+      };
+    });
+
+    if (createTab === 'post') wirePostTab();
+    else wireEventTab();
   };
-  $('#create-file').onchange = e => {
-    if (e.target.files.length) {
-      pendingFiles = [...pendingFiles, ...Array.from(e.target.files)];
-      pendingIsVideo = false;
-      showPreviews();
-    }
-  };
-  $('#create-video-file').onchange = e => {
-    if (e.target.files[0]) {
-      pendingFiles = [e.target.files[0]];
-      pendingIsVideo = true;
-      showPreviews();
-    }
-  };
-  $('#create-submit').onclick = async () => {
-    const text = $('#create-text').value.trim();
-    if (!text && !pendingFiles.length) return toast('Post cannot be empty');
-    const visibility = $('#create-visibility')?.value || 'public';
-    closeModal(); toast('Uploading...');
-    try {
-      let mediaURL = null;
-      let mediaType = 'text';
-      let imageURLs = null;
-      if (pendingFiles.length && pendingIsVideo) {
-        mediaURL = await uploadToR2(pendingFiles[0], 'videos');
-        mediaType = 'video';
-      } else if (pendingFiles.length === 1) {
-        mediaURL = await uploadToR2(pendingFiles[0], 'images');
-        mediaType = 'image';
-      } else if (pendingFiles.length > 1) {
-        // Multi-image: upload all
-        imageURLs = [];
-        for (const f of pendingFiles) {
-          const url = await uploadToR2(f, 'images');
-          imageURLs.push(url);
-        }
-        mediaURL = imageURLs[0]; // First image as main
-        mediaType = 'collage';
+
+  const wirePostTab = () => {
+    const showPreviews = () => {
+      const pc = $('#create-preview-content');
+      if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
+      if (pendingIsVideo) {
+        pc.innerHTML = `<video src="${localPreview(pendingFiles[0])}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
+      } else {
+        const count = pendingFiles.length;
+        pc.className = `collage-preview-grid collage-${Math.min(count, 4)}`;
+        pc.innerHTML = pendingFiles.slice(0, 4).map((f, i) =>
+          `<div class="collage-preview-item${count > 4 && i === 3 ? ' collage-more' : ''}">
+            <img src="${localPreview(f)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">
+            ${count > 4 && i === 3 ? `<div class="collage-more-overlay">+${count - 4}</div>` : ''}
+          </div>`
+        ).join('');
       }
-      await db.collection('posts').add({
-        content: text,
-        imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
-        imageURLs: imageURLs || null,
-        videoURL: mediaType === 'video' ? mediaURL : null,
-        mediaType,
-        authorId: state.user.uid, authorName: state.profile.displayName,
-        authorPhoto: state.profile.photoURL || null, authorUni: state.profile.university || '',
-        visibility,
-        createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
-      });
-      toast('Posted!');
-    } catch (e) { toast('Failed'); console.error(e); }
+      $('#create-preview').style.display = 'block';
+    };
+    if ($('#create-file')) $('#create-file').onchange = e => {
+      if (e.target.files.length) {
+        pendingFiles = [...pendingFiles, ...Array.from(e.target.files)];
+        pendingIsVideo = false;
+        showPreviews();
+      }
+    };
+    if ($('#create-video-file')) $('#create-video-file').onchange = e => {
+      if (e.target.files[0]) {
+        pendingFiles = [e.target.files[0]];
+        pendingIsVideo = true;
+        showPreviews();
+      }
+    };
+    if ($('#create-submit')) $('#create-submit').onclick = async () => {
+      const text = $('#create-text').value.trim();
+      if (!text && !pendingFiles.length) return toast('Post cannot be empty');
+      const visibility = $('#create-visibility')?.value || 'public';
+      const isAnon = visibility === 'anonymous';
+      closeModal(); toast('Uploading...');
+      try {
+        let mediaURL = null, mediaType = 'text', imageURLs = null;
+        if (pendingFiles.length && pendingIsVideo) {
+          mediaURL = await uploadToR2(pendingFiles[0], 'videos');
+          mediaType = 'video';
+        } else if (pendingFiles.length === 1) {
+          mediaURL = await uploadToR2(pendingFiles[0], 'images');
+          mediaType = 'image';
+        } else if (pendingFiles.length > 1) {
+          imageURLs = [];
+          for (const f of pendingFiles) { imageURLs.push(await uploadToR2(f, 'images')); }
+          mediaURL = imageURLs[0];
+          mediaType = 'collage';
+        }
+        await db.collection('posts').add({
+          content: text,
+          imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
+          imageURLs: imageURLs || null,
+          videoURL: mediaType === 'video' ? mediaURL : null,
+          mediaType,
+          authorId: state.user.uid,
+          authorName: isAnon ? 'Anonymous' : state.profile.displayName,
+          authorPhoto: isAnon ? null : (state.profile.photoURL || null),
+          authorUni: state.profile.university || '',
+          isAnonymous: isAnon || false,
+          visibility: isAnon ? 'public' : visibility,
+          createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
+        });
+        toast('Posted!');
+      } catch (e) { toast('Failed'); console.error(e); }
+    };
   };
+
+  const wireEventTab = () => {
+    if ($('#ev-file')) $('#ev-file').onchange = e => {
+      const files = Array.from(e.target.files).slice(0, 4);
+      window._eventFiles = files;
+      const previewEl = $('#ev-img-preview');
+      if (previewEl && files.length) {
+        previewEl.innerHTML = files.map((f, i) => `<div class="ev-img-thumb"><img src="${URL.createObjectURL(f)}"><button type="button" class="ev-img-remove" onclick="removeEventImage(${i})">&times;</button></div>`).join('');
+      }
+    };
+    if ($('#ev-create-btn')) $('#ev-create-btn').onclick = async () => {
+      const title = $('#ev-title')?.value.trim();
+      const locationText = $('#ev-location-text')?.value.trim() || '';
+      const date = $('#ev-date')?.value;
+      const time = $('#ev-time')?.value || '';
+      const desc = $('#ev-desc')?.value.trim() || '';
+      if (!title || !date) return toast('Title and date required');
+      const filesToUpload = [...(window._eventFiles || [])];
+      window._eventFiles = [];
+      closeModal(); toast('Creating event...');
+      const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)','linear-gradient(135deg,#7C3AED,#C084FC)','linear-gradient(135deg,#8B5CF6,#D946EF)','linear-gradient(135deg,#6366F1,#818CF8)','linear-gradient(135deg,#D946EF,#E879F9)'];
+      try {
+        let imageURLs = [];
+        for (const f of filesToUpload) {
+          const url = await uploadToR2(f, 'events');
+          if (url) imageURLs.push(url);
+        }
+        await db.collection('events').add({
+          title, location: locationText, date, time, description: desc,
+          imageURLs,
+          gradient: gradients[Math.floor(Math.random() * gradients.length)],
+          createdBy: state.user.uid,
+          creatorName: state.profile.displayName,
+          going: [state.user.uid],
+          createdAt: FieldVal.serverTimestamp()
+        });
+        toast('Event created!');
+        await loadCampusEvents();
+        if (exploreView === 'radar') renderRadarView();
+      } catch (e) { toast('Failed'); console.error(e); }
+    };
+  };
+
+  openModal('<div></div>');
+  renderCreateInner();
 }
 
 // ══════════════════════════════════════════════════
@@ -1983,7 +2069,7 @@ function renderRadarView() {
         return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
           ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}">${ev.emoji || '📅'}</div>`}
           <div class="event-scroll-title">${esc(ev.title)}</div>
-          <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : ''}</div>
+          <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
         </div>`;
       }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
     </div>
@@ -2066,11 +2152,42 @@ function proximityCard(u) {
     : u.proximity === 'course' ? `📚 ${esc(u.major)}`
     : `🎓 ${esc(u.university || '')}`;
   return `
-    <div class="proximity-card" onclick="openProfile('${u.id}')">
+    <div class="proximity-card" onclick="showUserPreview('${u.id}')">
       <div class="proximity-card-avatar">${avatar(u.displayName, u.photoURL, 'avatar-md')}${online}</div>
       <div class="proximity-card-name">${esc(u.displayName)}</div>
       <div class="proximity-card-meta">${tag}</div>
     </div>`;
+}
+
+async function showUserPreview(uid) {
+  try {
+    let user;
+    if (uid === state.user.uid) { user = state.profile; }
+    else {
+      const doc = await db.collection('users').doc(uid).get();
+      if (!doc.exists) return toast('User not found');
+      user = { id: doc.id, ...doc.data() };
+    }
+    const isMe = uid === state.user.uid;
+    const isFriend = (state.profile.friends || []).includes(uid);
+    const modules = (user.modules || []).slice(0, 3);
+    openModal(`
+      <div class="modal-body" style="text-align:center;padding:24px">
+        <div style="margin-bottom:12px">${avatar(user.displayName, user.photoURL, 'avatar-xl')}</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(user.displayName)}</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}</div>
+        ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
+        ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
+        <div style="display:flex;gap:8px;justify-content:center">
+          ${isMe ? '' : isFriend
+            ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
+            : `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">👻 Anonymous</button>
+               <button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}
+          <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Profile</button>
+        </div>
+      </div>
+    `);
+  } catch (e) { toast('Could not load user'); console.error(e); }
 }
 
 function renderListView() {
@@ -2304,67 +2421,13 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
-  window._eventFiles = [];
-  openModal(`
-    <div class="modal-header"><h2>Create Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body">
-      <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session"></div>
-      <div class="form-group"><label>Emoji</label><input type="text" id="ev-emoji" value="📅" placeholder="📅" style="width:60px"></div>
-      <div class="form-group"><label>Location</label>
-        <select id="ev-location">
-          ${CAMPUS_LOCATIONS.map(l => `<option value="${l.id}" ${l.id === presetLoc ? 'selected' : ''}>${l.emoji} ${l.name}</option>`).join('')}
-        </select>
-      </div>
-      <div style="display:flex;gap:8px">
-        <div class="form-group" style="flex:1"><label>Date</label><input type="date" id="ev-date"></div>
-        <div class="form-group" style="flex:1"><label>Time</label><input type="time" id="ev-time"></div>
-      </div>
-      <div class="form-group"><label>Description (optional)</label><textarea id="ev-desc" placeholder="What's happening?" style="resize:none;height:60px"></textarea></div>
-      <div class="form-group"><label>Event Photos (up to 4)</label><input type="file" accept="image/*" id="ev-file" multiple></div>
-      <div id="ev-img-preview" class="ev-img-preview-grid"></div>
-      <button class="btn-primary btn-full" id="ev-create-btn">Create Event</button>
-    </div>
-  `);
-  $('#ev-file').onchange = e => {
-    const files = Array.from(e.target.files).slice(0, 4);
-    window._eventFiles = files;
-    const previewEl = $('#ev-img-preview');
-    if (previewEl && files.length) {
-      previewEl.innerHTML = files.map((f, i) => `<div class="ev-img-thumb"><img src="${URL.createObjectURL(f)}"><button type="button" class="ev-img-remove" onclick="removeEventImage(${i})">&times;</button></div>`).join('');
-    }
-  };
-  $('#ev-create-btn').onclick = async () => {
-    const title = $('#ev-title')?.value.trim();
-    const emoji = $('#ev-emoji')?.value.trim() || '📅';
-    const location = $('#ev-location')?.value;
-    const date = $('#ev-date')?.value;
-    const time = $('#ev-time')?.value || '';
-    const desc = $('#ev-desc')?.value.trim() || '';
-    if (!title || !date) return toast('Title and date required');
-    const filesToUpload = [...(window._eventFiles || [])];
-    window._eventFiles = [];
-    closeModal(); toast('Creating event...');
-    const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)','linear-gradient(135deg,#7C3AED,#C084FC)','linear-gradient(135deg,#8B5CF6,#D946EF)','linear-gradient(135deg,#6366F1,#818CF8)','linear-gradient(135deg,#D946EF,#E879F9)'];
-    try {
-      let imageURLs = [];
-      for (const f of filesToUpload) {
-        const url = await uploadToR2(f, 'events');
-        if (url) imageURLs.push(url);
-      }
-      await db.collection('events').add({
-        title, emoji, location, date, time, description: desc,
-        imageURLs,
-        gradient: gradients[Math.floor(Math.random() * gradients.length)],
-        createdBy: state.user.uid,
-        creatorName: state.profile.displayName,
-        going: [state.user.uid],
-        createdAt: FieldVal.serverTimestamp()
-      });
-      toast('Event created!');
-      await loadCampusEvents();
-      if (exploreView === 'radar') renderRadarView();
-    } catch (e) { toast('Failed'); console.error(e); }
-  };
+  // Open the create modal and switch to event tab
+  openCreateModal();
+  // Auto-switch to event tab after a tick (modal needs to render first)
+  setTimeout(() => {
+    const evTab = document.querySelector('.create-tab[data-ct="event"]');
+    if (evTab) evTab.click();
+  }, 50);
 }
 
 function removeEventImage(idx) {
@@ -2384,6 +2447,7 @@ async function openEventDetail(eventId) {
     if (!doc.exists) return toast('Event not found');
     const ev = { id: doc.id, ...doc.data() };
     const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+    const locName = loc ? loc.name : esc(ev.location || 'TBA');
     const amGoing = (ev.going || []).includes(state.user.uid);
     const goingCount = (ev.going || []).length;
     openModal(`
@@ -2392,7 +2456,7 @@ async function openEventDetail(eventId) {
         ${(ev.imageURLs && ev.imageURLs.length) ? `<div class="ev-detail-images ${ev.imageURLs.length === 1 ? 'single' : 'grid'}">${ev.imageURLs.map(url => `<img src="${url}" onclick="viewImage('${url}')" style="cursor:pointer">`).join('')}</div>` : ''}
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-          <span>📍 ${loc ? loc.name : esc(ev.location)}</span>
+          <span>📍 ${locName}</span>
           <span>📅 ${esc(ev.date)}</span>
           ${ev.time ? `<span>🕐 ${esc(ev.time)}</span>` : ''}
           <span>👥 ${goingCount} going</span>
@@ -2440,6 +2504,12 @@ function renderHustle() {
   c.innerHTML = `
     <div class="hustle-page">
       <div class="hustle-header"><h2>Marketplace</h2><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div>
+      <div style="padding:0 16px 12px">
+        <div class="search-bar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="hustle-search" placeholder="Search items...">
+        </div>
+      </div>
       <div class="category-tabs">
         <span class="chip active" data-cat="all">All</span>
         <span class="chip" data-cat="books">Books</span>
@@ -2454,20 +2524,33 @@ function renderHustle() {
     </div>
   `;
   loadListings();
+  let searchTimer;
+  $('#hustle-search')?.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const activeCat = document.querySelector('.category-tabs .chip.active')?.dataset.cat || 'all';
+      loadListings(activeCat, e.target.value.trim());
+    }, 300);
+  });
   $$('.category-tabs .chip').forEach(ch => {
     ch.onclick = () => {
       $$('.category-tabs .chip').forEach(c2 => c2.classList.remove('active'));
-      ch.classList.add('active'); loadListings(ch.dataset.cat);
+      ch.classList.add('active');
+      loadListings(ch.dataset.cat, $('#hustle-search')?.value.trim());
     };
   });
 }
 
-async function loadListings(cat = 'all') {
+async function loadListings(cat = 'all', query = '') {
   const grid = $('#listings-grid'); if (!grid) return;
   try {
     const snap = await db.collection('listings').where('status', '==', 'active').limit(50).get();
     let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (cat !== 'all') items = items.filter(i => (i.category || '').toLowerCase() === cat);
+    if (query) {
+      const q = query.toLowerCase();
+      items = items.filter(i => (i.title || '').toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q) || (i.sellerName || '').toLowerCase().includes(q));
+    }
     items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
     if (!items.length) {
@@ -4012,7 +4095,7 @@ async function openProfile(uid) {
 
     const isMe = uid === state.user.uid;
     const modules = user.modules || [];
-    const friendCount = (user.friends || []).length;
+    const showFriendCount = user.showFriendsCount !== false && isMe; // only show to self unless they opted in
 
     // KEY FIX: avatar-wrap is INSIDE profile-cover so position:absolute works relative to cover
     body.innerHTML = `
@@ -4036,7 +4119,7 @@ async function openProfile(uid) {
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
-          <div class="profile-stat"><div class="stat-num">${friendCount}</div><div class="stat-label">Friends</div></div>
+          ${showFriendCount ? `<div class="profile-stat"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></div>` : ''}
           ${modules.length ? `<div class="profile-stat"><div class="stat-num">${modules.length}</div><div class="stat-label">Modules</div></div>` : ''}
         </div>
 
@@ -4549,7 +4632,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing,
-    startAnonChat, removeEventImage,
+    startAnonChat, removeEventImage, showUserPreview,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     closeReelsViewer, toggleReelPlay, reelLike,
