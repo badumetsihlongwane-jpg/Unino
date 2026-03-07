@@ -1995,11 +1995,17 @@ input, select, textarea, button {
   border-radius: 8px;
   padding-top: 3px;
   padding-bottom: 3px;
+  cursor: pointer;
 }
 
 .msg-received .msg-reply-snippet {
   background: rgba(17,24,39,0.08);
   border-left-color: rgba(17,24,39,0.35);
+}
+
+.msg-jump-highlight .msg-bubble {
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.35);
+  transition: box-shadow .25s ease;
 }
 
 .msg-reply-btn {

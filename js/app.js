@@ -45,9 +45,28 @@ function resolvePostAuthorPhoto(post = {}) {
   _authorPhotoCache[post.authorId] = null;
   db.collection('users').doc(post.authorId).get().then(doc => {
     _authorPhotoCache[post.authorId] = doc.exists ? (doc.data().photoURL || null) : null;
-    if (state.page === 'feed') renderFeed();
+    updateFeedAuthorAvatars(post.authorId);
   }).catch(() => {});
   return null;
+}
+
+function updateFeedAuthorAvatars(authorId) {
+  if (!authorId) return;
+  const photo = _authorPhotoCache[authorId] || null;
+  document.querySelectorAll(`.feed-author-avatar[data-author-id="${authorId}"]`).forEach(el => {
+    const name = el.getAttribute('data-author-name') || 'User';
+    el.innerHTML = avatar(name, photo, 'avatar-md');
+  });
+}
+
+function jumpToMessage(messageId, containerId) {
+  if (!messageId) return;
+  const container = document.getElementById(containerId);
+  const row = document.getElementById(`msg-${messageId}`);
+  if (!container || !row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('msg-jump-highlight');
+  setTimeout(() => row.classList.remove('msg-jump-highlight'), 1200);
 }
 
 function scrollToLatest(msgsEl) {
@@ -1503,7 +1522,7 @@ function loadDiscoverPeople() {
           <div class="discover-card-name">${esc(u.displayName)}</div>
           <div class="discover-card-meta">${esc(u.major || 'Student')}</div>
           ${tag ? `<div class="discover-card-tag">${tag}</div>` : ''}
-          <button class="discover-card-btn" onclick="event.stopPropagation();${isFriend ? `startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')` : `sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')`}">${isFriend ? 'Message' : 'Add Friend'}</button>
+          <button class="discover-card-btn" onclick="event.stopPropagation();${isFriend ? `startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')` : `sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)`}">${isFriend ? 'Message' : 'Add Friend'}</button>
         </div>`;
     }).join('')}</div>`;
   }).catch(() => { el.innerHTML = '<div class="discover-empty"><p>Could not load</p></div>'; });
@@ -1863,7 +1882,7 @@ function renderPosts(posts) {
         <div class="post-header">
           ${post.isAnonymous
             ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer">👻</div>`
-            : `<div onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
+            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(post.authorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
             <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
@@ -3426,11 +3445,11 @@ async function openGroupChat(groupId, collection = 'groups') {
               ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
-            return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+            return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
-              ${replyMeta}
+              ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
               <button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
@@ -4206,7 +4225,7 @@ function openAsgChat(groupId) {
 // ══════════════════════════════════════════════════
 //  FRIEND REQUEST SYSTEM
 // ══════════════════════════════════════════════════
-async function sendFriendRequest(toUid, toName, toPhoto) {
+async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
   if (toUid === state.user.uid) return toast("That's you!");
   const myFriends = state.profile.friends || [];
   if (myFriends.includes(toUid)) return toast('Already friends!');
@@ -4235,10 +4254,12 @@ async function sendFriendRequest(toUid, toName, toPhoto) {
       sentRequests: FieldVal.arrayUnion(toUid)
     });
     state.profile.sentRequests = [...(state.profile.sentRequests || []), toUid];
+    if (btnEl) {
+      btnEl.textContent = 'Pending…';
+      btnEl.disabled = true;
+      btnEl.style.opacity = '0.6';
+    }
     toast('Friend request sent!');
-    // Refresh current page to update button states
-    if (state.page === 'feed') renderFeed();
-    else if (state.page === 'explore') renderExplore();
   } catch (e) { toast('Failed to send request'); console.error(e); }
 }
 
@@ -4817,9 +4838,9 @@ async function openChat(convoId) {
               ? `<div class="msg-reply-snippet">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
-            return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
+            return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${replyMeta}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(m.replyToName || 'Message')}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
           scrollToLatest(msgs);
@@ -5313,31 +5334,83 @@ async function adminDeletePost(postId) {
 function showAdminDataClear() {
   if (!_isAdmin) return toast('Admin only');
   openModal(`
-    <div class="modal-header"><h2>Clear Test Data</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>Kill Switch (Step 1/2)</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-      <p style="margin-bottom:14px;color:var(--text-secondary)">This removes posts, groups, conversations, events, and assignment groups.</p>
-      <button class="btn-danger btn-full" onclick="doAdminDataClear()">Clear Everything</button>
+      <p style="margin-bottom:10px;color:var(--text-secondary)">Type admin email to continue.</p>
+      <input id="admin-kill-email" type="email" placeholder="admin@mynwu.ac.za" style="width:100%;margin-bottom:12px">
+      <button class="btn-danger btn-full" onclick="adminDataClearStepTwo()">Continue</button>
     </div>
   `);
 }
 
+function adminDataClearStepTwo() {
+  const entered = ($('#admin-kill-email')?.value || '').trim().toLowerCase();
+  const me = (state.user?.email || '').toLowerCase();
+  if (!entered) return toast('Enter admin email');
+  if (entered !== ADMIN_EMAIL.toLowerCase() || me !== ADMIN_EMAIL.toLowerCase()) {
+    return toast('Admin email verification failed');
+  }
+  openModal(`
+    <div class="modal-header"><h2>Kill Switch (Step 2/2)</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <p style="margin-bottom:10px;color:var(--text-secondary)">Final check: type <b>DELETE ALL DATA</b> to wipe Firestore content for a clean launch.</p>
+      <input id="admin-kill-phrase" type="text" placeholder="DELETE ALL DATA" style="width:100%;margin-bottom:12px">
+      <button class="btn-danger btn-full" onclick="doAdminDataClear()">Confirm Wipe</button>
+    </div>
+  `);
+}
+
+async function _wipeCollection(path, limit = 200) {
+  while (true) {
+    const snap = await db.collection(path).limit(limit).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
 async function doAdminDataClear() {
   if (!_isAdmin) return toast('Admin only');
+  const phrase = ($('#admin-kill-phrase')?.value || '').trim();
+  if (phrase !== 'DELETE ALL DATA') return toast('Final confirmation phrase incorrect');
   closeModal();
-  toast('Clearing data...');
+  toast('Wiping data...');
   try {
-    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups'];
-    for (const col of collections) {
-      const snap = await db.collection(col).limit(500).get();
-      const batch = db.batch();
-      snap.docs.forEach(doc => batch.delete(doc.ref));
-      if (!snap.empty) await batch.commit();
+    // Delete nested message/comment/notification subcollections first
+    const [postSnap, convoSnap, groupSnap, asgSnap, userSnap] = await Promise.all([
+      db.collection('posts').get(),
+      db.collection('conversations').get(),
+      db.collection('groups').get(),
+      db.collection('assignmentGroups').get(),
+      db.collection('users').get()
+    ]);
+
+    for (const d of postSnap.docs) {
+      await _wipeCollection(`posts/${d.id}/comments`);
     }
-    toast('Data cleared');
+    for (const d of convoSnap.docs) {
+      await _wipeCollection(`conversations/${d.id}/messages`);
+    }
+    for (const d of groupSnap.docs) {
+      await _wipeCollection(`groups/${d.id}/messages`);
+    }
+    for (const d of asgSnap.docs) {
+      await _wipeCollection(`assignmentGroups/${d.id}/messages`);
+    }
+    for (const d of userSnap.docs) {
+      await _wipeCollection(`users/${d.id}/notifications`);
+    }
+
+    // Then wipe main collections
+    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups', 'stories', 'products', 'stats'];
+    for (const col of collections) await _wipeCollection(col);
+
+    toast('Kill switch complete. Data wiped.');
     navigate('feed');
   } catch (e) {
     console.error(e);
-    toast('Clear failed');
+    toast('Wipe failed');
   }
 }
 function renderProfileAbout(user) {
@@ -5678,7 +5751,8 @@ async function openAdminPanel() {
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllUsers()">\ud83d\udc65 View All Users</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">\ud83e\uddf9 Moderate Posts</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">\ud83d\udce2 Broadcast Notice</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">📢 Broadcast Notice</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">Kill Switch: Wipe Data</button>
       </div>
     </div>
   `);
@@ -5918,6 +5992,6 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
-    reportPost, submitPostReport, showAdminDataClear, doAdminDataClear
+    reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear
   });
 });
