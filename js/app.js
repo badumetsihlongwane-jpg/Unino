@@ -1167,10 +1167,6 @@ function listenForVerifiedUsers() {
     VERIFIED_UIDS.clear();
     snap.docs.forEach(d => VERIFIED_UIDS.add(d.id));
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
-    // Refresh active surfaces so badges update immediately for everyone.
-    if (state.page === 'feed') renderFeed();
-    else if (state.page === 'explore') renderExplore();
-    else if (state.page === 'chat') renderMessages();
   }, () => {
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
   });
@@ -3436,7 +3432,7 @@ async function openGroupChat(groupId, collection = 'groups') {
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
               ${replyMeta}
               ${content}
-              <button class="msg-reply-btn" onclick="setGroupReply('${m.id}')">Reply</button>
+              <button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
             </div></div>`;
           }).join('');
@@ -4823,7 +4819,7 @@ async function openChat(convoId) {
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${replyMeta}${content}<button class="msg-reply-btn" onclick="setDmReply('${m.id}')">Reply</button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${replyMeta}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
           scrollToLatest(msgs);

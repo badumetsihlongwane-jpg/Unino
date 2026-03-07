@@ -1849,13 +1849,19 @@ input, select, textarea, button {
 }
 
 .msg-bubble {
-  max-width: 75%;
-  padding: 10px 14px;
+  max-width: 82%;
+  padding: 7px 11px;
   border-radius: 18px;
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   word-wrap: break-word;
   transition: transform .14s ease, opacity .14s ease;
+}
+
+.msg-bubble:has(.vn-player) {
+  padding: 5px 9px;
 }
 
 .msg-bubble.msg-new {
@@ -1980,21 +1986,40 @@ input, select, textarea, button {
 }
 
 .msg-reply-snippet {
-  border-left: 2px solid rgba(255,255,255,0.5);
+  border-left: 2px solid rgba(255,255,255,0.55);
   padding-left: 8px;
   margin-bottom: 5px;
   font-size: 11px;
-  opacity: .9;
+  opacity: .96;
+  background: rgba(255,255,255,0.14);
+  border-radius: 8px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.msg-received .msg-reply-snippet {
+  background: rgba(17,24,39,0.08);
+  border-left-color: rgba(17,24,39,0.35);
 }
 
 .msg-reply-btn {
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 11px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  padding: 2px 0 0;
-  margin-top: 4px;
+  margin-top: 2px;
+  border-radius: 50%;
+}
+
+.msg-reply-btn:hover {
+  color: var(--accent);
+  background: rgba(99,102,241,0.12);
 }
 
 .chat-input-bar input:focus,
@@ -4473,15 +4498,15 @@ input, select, textarea, button {
 .vn-player {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-  min-width: 150px;
-  max-width: 240px;
+  gap: 10px;
+  padding: 2px 0;
+  min-width: 190px;
+  max-width: 320px;
 }
 
 .vn-play-btn {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: none;
   background: var(--accent);
@@ -4497,11 +4522,11 @@ input, select, textarea, button {
 
 .vn-track {
   flex: 1;
-  height: 4px;
+  height: 3px;
   border-radius: 2px;
   cursor: pointer;
   position: relative;
-  min-width: 60px;
+  min-width: 120px;
 }
 
 .vn-bar-bg {
