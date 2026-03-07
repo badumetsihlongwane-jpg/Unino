@@ -3401,6 +3401,7 @@ async function openGroupChat(groupId, collection = 'groups') {
       }
       if (!text && !audioURL) return;
       input.value = '';
+      input.focus();
       try {
         await db.collection(collection).doc(groupId).collection('messages').add({
           text: text || '', audioURL: audioURL || null,
@@ -3414,7 +3415,12 @@ async function openGroupChat(groupId, collection = 'groups') {
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
-    $('#gchat-input').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendGMsg(); } };
+    $('#gchat-input').onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendGMsg();
+      }
+    };
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       showScreen('app'); navigate('chat');
@@ -4693,6 +4699,7 @@ async function openChat(convoId) {
       const chatFile = window._chatFile || null;
       if (!text && !img && !window._chatVoiceBlob) return;
       input.value = ''; chatPendingImg = null; window._chatFile = null;
+      input.focus();
       const preview = $('#chat-img-preview'); if (preview) preview.style.display = 'none';
       try {
         // Upload image to R2 if file exists
@@ -4725,7 +4732,12 @@ async function openChat(convoId) {
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
-    input.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMsg(); } };
+    input.onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMsg();
+      }
+    };
 
     // Wire image upload button in chat
     const chatFileInput = $('#chat-file-input');
@@ -5027,15 +5039,76 @@ function renderProfilePosts(posts, user) {
   return html;
 }
 
-// ─── iOS-style Post Options (Delete) ─────────────
-// ─── Post Reports with Multi-Option Menu ────────\nasync function reportPost(postId) {\n  closModal();\n  openModal(`<div class=\"modal-body\" style=\"padding:16px\"><h3>Report this post</h3><div style=\"display:flex;flex-direction:column;gap:8px;margin:16px 0\"><label><input type=\"radio\" name=\"report-reason\" value=\"spam\"> Spam</label><label><input type=\"radio\" name=\"report-reason\" value=\"inappropriate\"> Inappropriate</label><label><input type=\"radio\" name=\"report-reason\" value=\"harassment\"> Harassment</label><label><input type=\"radio\" name=\"report-reason\" value=\"misinformation\"> Misinformation</label><label><input type=\"radio\" name=\"report-reason\" value=\"other\"> Other</label></div><div style=\"display:flex;gap:12px\"><button class=\"btn-secondary\" onclick=\"closeModal()\" style=\"flex:1\">Cancel</button><button class=\"btn-primary\" onclick=\"submitPostReport('${postId}')\" style=\"flex:1\">Report</button></div></div>`);\n}\n\nasync function submitPostReport(postId) {\n  const reason = document.querySelector('input[name=\"report-reason\"]:checked')?.value;\n  if (!reason) return toast('Select a reason');\n  try {\n    await db.collection('posts').doc(postId).update({reports: FieldVal.arrayUnion({reportedBy: state.user.uid, reason, reportedAt: FieldVal.serverTimestamp()})});\n    closeModal();\n    toast('Post reported, thank you!');\n  } catch (e) { toast('Report failed'); }\n}\n\nfunction showPostOptions(postId) {\n  db.collection('posts').doc(postId).get().then(doc => {\n    if (!doc.exists) return;\n    const post = doc.data();\n    const isOwner = post.authorId === state.user.uid;\n    const rc = (post.reports || []).length;\n    const opts = isOwner\n      ? `<button class=\"ios-action-btn\" onclick=\"confirmDeletePost('${postId}')\">\n        <svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"var(--red)\" stroke-width=\"2\"><polyline points=\"3 6 5 6 21 6\"/><path d=\"M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2\"/></svg>\n        <span style=\"color:var(--red)\">Delete</span></button>` \n      : `<button class=\"ios-action-btn\" onclick=\"reportPost('${postId}')\">\n        <span style=\"color:var(--orange)\">Report ${rc ? '(' + rc + ')' : ''}</span></button>`;\n    openModal(`<div class=\"modal-body\" style=\"padding:8px 0\">${opts}${_isAdmin ? `<div style=\"height:1px;background:var(--border);margin:4px 16px\"></div><button class=\"ios-action-btn\" onclick=\"adminDeletePost('${postId}')\" style=\"color:var(--red)\"><span>⚠Admin Delete</span></button>` : ''}<div style=\"height:1px;background:var(--border);margin:4px 16px\"></div><button class=\"ios-action-btn\" onclick=\"closeModal()\"><span>Cancel</span></button></div>`);\n  });\n}
+// ─── iOS-style Post Options + Reporting ─────────
+async function reportPost(postId) {
+  closeModal();
+  openModal(`
+    <div class="modal-header"><h2>Report Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+        <label><input type="radio" name="report-reason" value="spam"> Spam</label>
+        <label><input type="radio" name="report-reason" value="inappropriate"> Inappropriate content</label>
+        <label><input type="radio" name="report-reason" value="harassment"> Harassment</label>
+        <label><input type="radio" name="report-reason" value="misinformation"> Misinformation</label>
+        <label><input type="radio" name="report-reason" value="other"> Other</label>
+      </div>
+      <button class="btn-primary btn-full" onclick="submitPostReport('${postId}')">Submit Report</button>
+    </div>
+  `);
+}
+
+async function submitPostReport(postId) {
+  const reason = document.querySelector('input[name="report-reason"]:checked')?.value;
+  if (!reason) return toast('Select a reason');
+  try {
+    const postRef = db.collection('posts').doc(postId);
+    await postRef.update({
+      reportsCount: FieldVal.increment(1),
+      reportedBy: FieldVal.arrayUnion(state.user.uid),
+      lastReportReason: reason,
+      lastReportedAt: FieldVal.serverTimestamp()
+    });
+    closeModal();
+    toast('Post reported');
+  } catch (e) {
+    console.error(e);
+    toast('Report failed');
+  }
+}
+
+function showPostOptions(postId) {
+  db.collection('posts').doc(postId).get().then(doc => {
+    if (!doc.exists) return toast('Post not found');
+    const post = doc.data();
+    const isOwner = post.authorId === state.user.uid;
+    const reportsCount = post.reportsCount || 0;
+    const reportBtn = !isOwner
+      ? `<button class="ios-action-btn" onclick="reportPost('${postId}')"><span style="color:var(--orange)">Report${reportsCount ? ` (${reportsCount})` : ''}</span></button>`
+      : '';
+    const deleteBtn = isOwner
+      ? `<button class="ios-action-btn" onclick="confirmDeletePost('${postId}')"><span style="color:var(--red)">Delete Post</span></button>`
+      : '';
+    const adminBtn = _isAdmin
+      ? `<button class="ios-action-btn" onclick="adminDeletePost('${postId}')"><span style="color:var(--red)">Admin Remove</span></button>`
+      : '';
+    openModal(`
+      <div class="modal-body" style="padding:8px 0">
+        ${reportBtn}
+        ${deleteBtn}
+        ${adminBtn}
+        <div style="height:1px;background:var(--border);margin:4px 16px"></div>
+        <button class="ios-action-btn" onclick="closeModal()"><span>Cancel</span></button>
+      </div>
+    `);
+  }).catch(() => toast('Could not open options'));
+}
 
 async function confirmDeletePost(postId) {
   closeModal();
   openModal(`
     <div class="modal-body" style="text-align:center;padding:24px">
       <h3 style="margin-bottom:8px">Delete this post?</h3>
-      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:20px">This can't be undone.</p>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:20px">This cannot be undone.</p>
       <div style="display:flex;gap:12px;justify-content:center">
         <button class="btn-secondary" onclick="closeModal()" style="flex:1">Cancel</button>
         <button class="btn-danger" onclick="deletePost('${postId}')" style="flex:1;border-radius:var(--radius)">Delete</button>
@@ -5044,21 +5117,64 @@ async function confirmDeletePost(postId) {
   `);
 }
 
-async function adminDeletePost(postId) {\n  if (!_isAdmin) return toast('Admin only');\n  try {\n    await db.collection('posts').doc(postId).delete();\n    toast('Post deleted');\n    renderFeed();\n  } catch (e) { console.error(e); }\n}\n\nfunction showAdminDataClear() {\n  if (!_isAdmin) return toast('Admin only');\n  openModal(`\n    <div class=\"modal-body\" style=\"padding:24px;text-align:center\">\n      <h3 style=\"color:var(--red);margin-bottom:16px\">⚠️ Clear Test Data</h3>\n      <p style=\"font-size:14px;margin-bottom:20px\">Delete all posts, groups, messages, and events?</p>\n      <div style=\"background:var(--bg-secondary);padding:12px;margin-bottom:20px;border-radius:8px;font-size:12px;color:var(--orange)\">User profiles preserved</div>\n      <div style=\"display:flex;gap:12px\">\n        <button class=\"btn-secondary\" onclick=\"closeModal()\" style=\"flex:1\">Cancel</button>\n        <button class=\"btn-danger\" onclick=\"doAdminDataClear()\" style=\"flex:1\">Clear All</button>\n      </div>\n    </div>\n  `);\n}\n\nasync function doAdminDataClear() {\n  if (!_isAdmin) return;\n  closeModal();\n  toast('Clearing data...');\n  try {\n    const batch = db.batch();\n    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups'];\n    for (const col of collections) {\n      const snap = await db.collection(col).limit(500).get();\n      snap.docs.forEach(doc => batch.delete(doc.ref));\n    }\n    await batch.commit();\n    toast('Data cleared!');\n    navigate('feed');\n  } catch (e) { console.error(e); toast('Clear failed'); }\n}\n\n
+async function deletePost(postId) {
   closeModal();
   try {
     await db.collection('posts').doc(postId).delete();
     toast('Post deleted');
-    // Remove from DOM instead of navigating away
     const el = document.getElementById(`post-${postId}`);
     if (el) el.remove();
-    // If on profile, refresh it in place
-    if (document.getElementById('profile-view')?.classList.contains('active')) {
-      openProfile(state.user.uid);
-    }
-  } catch (e) { toast('Failed to delete'); console.error(e); }
+    if (document.getElementById('profile-view')?.classList.contains('active')) openProfile(state.user.uid);
+  } catch (e) {
+    console.error(e);
+    toast('Failed to delete');
+  }
 }
 
+async function adminDeletePost(postId) {
+  if (!_isAdmin) return toast('Admin only');
+  closeModal();
+  try {
+    await db.collection('posts').doc(postId).delete();
+    toast('Post removed');
+    const el = document.getElementById(`post-${postId}`);
+    if (el) el.remove();
+  } catch (e) {
+    console.error(e);
+    toast('Failed to remove post');
+  }
+}
+
+function showAdminDataClear() {
+  if (!_isAdmin) return toast('Admin only');
+  openModal(`
+    <div class="modal-header"><h2>Clear Test Data</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <p style="margin-bottom:14px;color:var(--text-secondary)">This removes posts, groups, conversations, events, and assignment groups.</p>
+      <button class="btn-danger btn-full" onclick="doAdminDataClear()">Clear Everything</button>
+    </div>
+  `);
+}
+
+async function doAdminDataClear() {
+  if (!_isAdmin) return toast('Admin only');
+  closeModal();
+  toast('Clearing data...');
+  try {
+    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups'];
+    for (const col of collections) {
+      const snap = await db.collection(col).limit(500).get();
+      const batch = db.batch();
+      snap.docs.forEach(doc => batch.delete(doc.ref));
+      if (!snap.empty) await batch.commit();
+    }
+    toast('Data cleared');
+    navigate('feed');
+  } catch (e) {
+    console.error(e);
+    toast('Clear failed');
+  }
+}
 function renderProfileAbout(user) {
   const modules = user.modules || [];
   const isMe = user.id === state.user?.uid;

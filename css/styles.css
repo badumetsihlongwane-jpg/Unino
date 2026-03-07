@@ -1928,7 +1928,9 @@ input, select, textarea, button {
 }
 
 .chat-input-bar input[type="text"],
-.chat-bar input[type="text"] {
+.chat-input-bar textarea,
+.chat-bar input[type="text"],
+.chat-bar textarea {
   flex: 1;
   padding: 12px 18px;
   background: var(--bg-tertiary);
@@ -1936,9 +1938,12 @@ input, select, textarea, button {
   border-radius: 100px;
   color: var(--text-primary);
   font-size: 14px;
+  line-height: 1.35;
 }
 
-.chat-input-bar input:focus {
+.chat-input-bar input:focus,
+.chat-input-bar textarea:focus,
+.chat-bar textarea:focus {
   border-color: var(--accent);
 }
 
@@ -3733,7 +3738,8 @@ input, select, textarea, button {
 }
 
 /* Chat bar polish */
-.chat-bar input[type="text"]:focus {
+.chat-bar input[type="text"]:focus,
+.chat-bar textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
