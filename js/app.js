@@ -3652,6 +3652,10 @@ function renderMessages() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           Assignments <span class="tab-badge" id="asg-tab-badge"></span>
         </button>
+        <button class="msg-tab" data-mt="archived">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+          Archived
+        </button>
       </div>
       <div id="msg-tab-content">
         <div class="convo-list" id="convo-list">
@@ -3669,12 +3673,14 @@ function renderMessages() {
       tab.classList.add('active');
       state.lastMsgTab = tab.dataset.mt;
       if (tab.dataset.mt === 'dm') loadDMList();
+      else if (tab.dataset.mt === 'archived') loadArchivedDMList();
       else loadAssignmentGroups();
     };
   });
   // Restore last active tab
   const restoreTab = state.lastMsgTab || 'dm';
   if (restoreTab === 'groups') state.lastMsgTab = 'dm';
+  if (restoreTab === 'archived') state.lastMsgTab = 'dm';
   const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
   if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
 }
@@ -4680,6 +4686,72 @@ function loadDMList() {
       if (el) el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">💬</div><h3>No chats yet</h3><p>Visit a profile to start a conversation</p></div>`;
     });
   state.unsubs.push(u);
+}
+
+// ─── Archived DM List ─────────────────────────────────────
+function loadArchivedDMList() {
+  const container = $('#msg-tab-content'); if (!container) return;
+  container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
+
+  unsub();
+  const u = db.collection('conversations')
+    .where('participants', 'array-contains', state.user.uid)
+    .onSnapshot(snap => {
+      const convos = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(c => (c.archived || []).includes(state.user.uid))
+        .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+
+      const el = $('#convo-list'); if (!el) return;
+
+      if (!convos.length) {
+        el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📦</div><h3>No archived chats</h3><p>Archived conversations will appear here</p></div>`;
+        return;
+      }
+
+      const uid = state.user.uid;
+      el.innerHTML = convos.map(c => {
+        const idx = c.participants.indexOf(uid) === 0 ? 1 : 0;
+        const otherUid = c.participants[idx];
+        const rawName = (c.participantNames || [])[idx] || 'User';
+        const rawPhoto = (c.participantPhotos || [])[idx] || null;
+        const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
+        const theirAnon = !!((c.anonymous || {})[otherUid]);
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
+        const displayPhoto = theirAnon ? null : rawPhoto;
+        const avatarHtml = theirAnon
+          ? '<div class="avatar-md anon-avatar">👻</div>'
+          : avatar(displayName, displayPhoto, 'avatar-md');
+        const unread = (c.unread || {})[uid] || 0;
+        return `
+          <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')">
+            <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
+            <div class="convo-info">
+              <div class="convo-name">${esc(displayName)}</div>
+              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+            </div>
+            <div class="convo-right">
+              <div class="convo-time">${timeAgo(c.updatedAt)}</div>
+              ${unread ? `<div class="convo-unread-badge">${unread}</div>` : ''}
+              <button class="btn-sm btn-outline" onclick="event.stopPropagation();unarchiveConvo('${c.id}')" style="margin-top:4px;padding:4px 8px;font-size:11px">Unarchive</button>
+            </div>
+          </div>`;
+      }).join('');
+    }, err => {
+      console.error('Archived messages query error:', err);
+      const el = $('#convo-list');
+      if (el) el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📦</div><h3>No archived chats</h3></div>`;
+    });
+  state.unsubs.push(u);
+}
+
+async function unarchiveConvo(convoId) {
+  try {
+    await db.collection('conversations').doc(convoId).update({
+      archived: FieldVal.arrayRemove(state.user.uid)
+    });
+    toast('Chat unarchived');
+  } catch (e) { toast('Failed to unarchive'); console.error(e); }
 }
 
 // ─── Chat View ───────────────────────────────────
@@ -6221,6 +6293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
-    showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal
+    showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
+    unarchiveConvo, loadArchivedDMList
   });
 });
