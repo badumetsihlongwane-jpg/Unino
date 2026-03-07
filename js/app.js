@@ -28,6 +28,8 @@ let _dmMsgLookup = new Map();
 let _gMsgLookup = new Map();
 let _chatViewportCleanup = null;
 let _gchatViewportCleanup = null;
+let _inAppBackInit = false;
+let _inAppBackListenerBound = false;
 const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
@@ -1177,6 +1179,11 @@ function enterApp() {
   listenForAssignmentAlerts();
   setupPresenceTracking();
   listenForOnlineCount();
+  if (!_inAppBackInit) {
+    history.replaceState({ app: true }, '');
+    history.pushState({ app: true }, '');
+    _inAppBackInit = true;
+  }
 }
 
 let _onlineCountSub = null;
@@ -1358,11 +1365,45 @@ function setupPresenceTracking() {
       refreshPresence(true).catch(() => {});
     }
   });
-  // Handle mobile back button
-  window.addEventListener('popstate', () => {
-    const current = state.page;
-    if (current !== 'feed') navigate('feed');
-  });
+  // Keep phone back navigation inside the app instead of leaving the site.
+  if (!_inAppBackListenerBound) {
+    window.addEventListener('popstate', () => {
+      if (!state.user) return;
+
+      if ($('#modal-bg')?.style.display === 'block') {
+        closeModal();
+        history.pushState({ app: true }, '');
+        return;
+      }
+
+      if ($('#chat-view')?.classList.contains('active')) {
+        $('#chat-back')?.click();
+        history.pushState({ app: true }, '');
+        return;
+      }
+
+      if ($('#group-chat-view')?.classList.contains('active')) {
+        $('#gchat-back')?.click();
+        history.pushState({ app: true }, '');
+        return;
+      }
+
+      if ($('#profile-view')?.classList.contains('active') || $('#settings-view')?.classList.contains('active')) {
+        showScreen('app');
+        history.pushState({ app: true }, '');
+        return;
+      }
+
+      if (state.page !== 'feed') {
+        navigate('feed');
+        history.pushState({ app: true }, '');
+        return;
+      }
+
+      history.pushState({ app: true }, '');
+    });
+    _inAppBackListenerBound = true;
+  }
   clearInterval(_presenceTimer);
   _presenceTimer = setInterval(() => refreshPresence().catch(() => {}), 30000);
   refreshPresence(true).catch(() => {});
@@ -3500,8 +3541,9 @@ async function openGroupChat(groupId, collection = 'groups') {
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             if (m.text) content += esc(m.text);
-            // Check if reply is to current user's message
-            const replyDisplayName = m.replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
+            // Support both new and legacy replies: infer original sender from replyToId when needed.
+            const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
+            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
             const replyMeta = m.replyToText
               ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
@@ -3652,16 +3694,15 @@ function renderMessages() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           Assignments <span class="tab-badge" id="asg-tab-badge"></span>
         </button>
-        <button class="msg-tab" data-mt="archived">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-          Archived
-        </button>
       </div>
       <div id="msg-tab-content">
         <div class="convo-list" id="convo-list">
           <div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div>
         </div>
       </div>
+      <button class="archive-fab" id="archive-fab" onclick="toggleArchiveDmView()" aria-label="Archived chats" title="Show archived chats">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+      </button>
     </div>
   `;
   // Compute DM unread count for the tab badge
@@ -3673,16 +3714,52 @@ function renderMessages() {
       tab.classList.add('active');
       state.lastMsgTab = tab.dataset.mt;
       if (tab.dataset.mt === 'dm') loadDMList();
-      else if (tab.dataset.mt === 'archived') loadArchivedDMList();
       else loadAssignmentGroups();
+      updateArchiveFabState();
     };
   });
   // Restore last active tab
   const restoreTab = state.lastMsgTab || 'dm';
   if (restoreTab === 'groups') state.lastMsgTab = 'dm';
-  if (restoreTab === 'archived') state.lastMsgTab = 'dm';
-  const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
-  if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
+  if (restoreTab === 'archived') {
+    $$('.msg-tab').forEach(t => t.classList.remove('active'));
+    loadArchivedDMList();
+  } else {
+    const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
+    if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
+  }
+  updateArchiveFabState();
+}
+
+function toggleArchiveDmView() {
+  if (state.lastMsgTab === 'archived') {
+    state.lastMsgTab = 'dm';
+    const dmTab = document.querySelector('.msg-tab[data-mt="dm"]');
+    if (dmTab) dmTab.click();
+    else loadDMList();
+  } else {
+    state.lastMsgTab = 'archived';
+    $$('.msg-tab').forEach(t => t.classList.remove('active'));
+    loadArchivedDMList();
+  }
+  updateArchiveFabState();
+}
+
+function updateArchiveFabState() {
+  const fab = $('#archive-fab');
+  if (!fab) return;
+  const active = state.lastMsgTab === 'archived';
+  fab.classList.toggle('active', active);
+  fab.title = active ? 'Back to DMs' : 'Show archived chats';
+  fab.setAttribute('aria-pressed', active ? 'true' : 'false');
+}
+
+function refreshCurrentMessageList() {
+  if (state.page !== 'chat') return;
+  if (state.lastMsgTab === 'archived') loadArchivedDMList();
+  else if (state.lastMsgTab === 'assignments') loadAssignmentGroups();
+  else loadDMList();
+  updateArchiveFabState();
 }
 
 function loadGroupList() {
@@ -4632,6 +4709,7 @@ async function viewPost(pid) {
 // ─── DM List ─────────────────────────────────────
 function loadDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
+  updateArchiveFabState();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   // KEY FIX: No .orderBy() — sort client-side to avoid Firestore index requirement
@@ -4691,6 +4769,7 @@ function loadDMList() {
 // ─── Archived DM List ─────────────────────────────────────
 function loadArchivedDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
+  updateArchiveFabState();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
@@ -4751,6 +4830,7 @@ async function unarchiveConvo(convoId) {
       archived: FieldVal.arrayRemove(state.user.uid)
     });
     toast('Chat unarchived');
+    refreshCurrentMessageList();
   } catch (e) { toast('Failed to unarchive'); console.error(e); }
 }
 
@@ -5017,8 +5097,9 @@ async function openChat(convoId) {
               ? '<div class="avatar-xs anon-avatar">👻</div>'
               : avatar(displayName, displayPhoto, 'avatar-xs');
 
-            // Check if reply is to current user's message
-            const replyDisplayName = m.replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
+            // Support both new and legacy replies: infer original sender from replyToId when needed.
+            const replyToSenderId = m.replyToSenderId || _dmMsgLookup.get(m.replyToId || '')?.senderId;
+            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
             const replyMeta = m.replyToText
               ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
@@ -5282,7 +5363,7 @@ async function archiveConvo(convoId) {
       archived: FieldVal.arrayUnion(state.user.uid)
     });
     toast('Chat archived');
-    if (state.lastMsgTab === 'dm') loadDMList();
+    refreshCurrentMessageList();
   } catch (e) { toast('Failed to archive'); console.error(e); }
 }
 
@@ -5306,7 +5387,7 @@ async function deleteConvo(convoId) {
       });
     }
     toast('Chat deleted');
-    if (state.lastMsgTab === 'dm') loadDMList();
+    refreshCurrentMessageList();
     showScreen('app');
   } catch (e) { toast('Failed to delete'); console.error(e); }
 }
@@ -5330,7 +5411,7 @@ async function blockUserFromChat(uid, name, convoId) {
     });
     state.profile.blockedUsers = [...(state.profile.blockedUsers || []), uid];
     toast(`${name} blocked`);
-    if (state.lastMsgTab === 'dm') loadDMList();
+    refreshCurrentMessageList();
     showScreen('app');
   } catch (e) { toast('Failed to block'); console.error(e); }
 }
@@ -6294,6 +6375,6 @@ document.addEventListener('DOMContentLoaded', () => {
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
-    unarchiveConvo, loadArchivedDMList
+    unarchiveConvo, loadArchivedDMList, toggleArchiveDmView
   });
 });

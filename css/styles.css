@@ -3757,6 +3757,35 @@ input, select, textarea, button {
   border-bottom-color: var(--accent);
 }
 
+.archive-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--accent-glow);
+  z-index: 100;
+  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  opacity: 0.95;
+}
+
+.archive-fab:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 22px var(--accent-glow);
+}
+
+.archive-fab.active {
+  background: linear-gradient(135deg, var(--green), #16a34a);
+}
+
 /* Group avatar icon */
 .group-avatar-icon {
   display: flex;
