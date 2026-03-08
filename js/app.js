@@ -1146,7 +1146,7 @@ function openAnonPostActions(uid, postId = null) {
   `);
 }
 
-async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId) {
+async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId, isAnon = false) {
   const uniqueTags = [...new Set(moduleTags)].slice(0, 3);
   if (!uniqueTags.length || !postId) return;
   const notified = new Set();
@@ -1154,15 +1154,17 @@ async function notifyRelevantModuleUsers(moduleTags = [], text = '', postId) {
     ? `shared notes in ${tag}`
     : `posted in ${tag}`;
   try {
-    const snap = await db.collection('users').limit(120).get();
+    const snap = await db.collection('users').limit(60).get();
+    const promises = [];
     for (const doc of snap.docs) {
       if (doc.id === state.user.uid || notified.has(doc.id)) continue;
       const userData = doc.data() || {};
       const matchedTag = uniqueTags.find(tag => normalizeModules(userData.modules || []).includes(tag));
       if (!matchedTag) continue;
       notified.add(doc.id);
-      await addNotification(doc.id, 'module', notifTextFor(matchedTag), { postId, moduleTag: matchedTag });
+      promises.push(addNotification(doc.id, 'module', notifTextFor(matchedTag), { postId, moduleTag: matchedTag }, { anonymous: isAnon }));
     }
+    await Promise.all(promises);
   } catch (e) { console.error(e); }
 }
 
@@ -1962,14 +1964,20 @@ function enterApp() {
 }
 
 let _onlineCountSub = null;
+let _onlineCountTimer = null;
 function listenForOnlineCount() {
   if (_onlineCountSub) _onlineCountSub();
-  _onlineCountSub = db.collection('users').where('status', '==', 'online').onSnapshot(snap => {
-    const count = snap.size || 0;
-    const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
-    const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
-    const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
-  }, () => {});
+  if (_onlineCountTimer) clearInterval(_onlineCountTimer);
+  const updateCount = () => {
+    db.collection('users').where('status', '==', 'online').get().then(snap => {
+      const count = snap.size || 0;
+      const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
+      const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
+      const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
+    }).catch(() => {});
+  };
+  updateCount();
+  _onlineCountTimer = setInterval(updateCount, 60000);
 }
 
 let _unreadDMSub = null;
@@ -3486,7 +3494,7 @@ async function postComment(postId) {
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     
-    if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId });
+    if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId }, { anonymous: commentAnon });
 
     // Reopen to show the new comment
     _pendingCommentImageFile = null;
@@ -3648,7 +3656,7 @@ function openCreateModal() {
           visibility: isAnon ? 'public' : visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
-        if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, text, postRef.id);
+        if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, text, postRef.id, isAnon);
         toast('Posted!');
       } catch (e) { toast('Failed'); console.error(e); }
     };
@@ -5710,6 +5718,7 @@ async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
       sentRequests: FieldVal.arrayUnion(toUid)
     });
     state.profile.sentRequests = [...(state.profile.sentRequests || []), toUid];
+    addNotification(toUid, 'friend_request', 'sent you a friend request', {});
     if (btnEl) {
       btnEl.textContent = 'Pending…';
       btnEl.disabled = true;
@@ -5732,6 +5741,7 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
       sentRequests: FieldVal.arrayRemove(uid)
     });
     await ensureFriendDMConversation(fromUid, fromName, fromPhoto);
+    addNotification(fromUid, 'friend_accept', 'accepted your friend request', {});
     // Update local state
     state.profile.friends = [...(state.profile.friends || []), fromUid];
     state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
@@ -5952,13 +5962,20 @@ async function markNotifRead(nid) {
   try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
 }
 
-async function addNotification(targetId, type, text, payload) {
+async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null } = {}) {
   if (targetId === state.user.uid) return;
   try {
-    await db.collection('users').doc(targetId).collection('notifications').add({
+    const data = {
       type, text, payload, read: false, createdAt: FieldVal.serverTimestamp(),
-      from: { uid: state.user.uid, name: state.profile.displayName, photo: state.profile.photoURL || null }
-    });
+      from: {
+        uid: anonymous ? 'anonymous' : state.user.uid,
+        name: anonymous ? 'Anonymous' : state.profile.displayName,
+        photo: anonymous ? null : (state.profile.photoURL || null)
+      }
+    };
+    const col = db.collection('users').doc(targetId).collection('notifications');
+    if (docId) await col.doc(docId).set(data);
+    else await col.add(data);
   } catch (e) { console.error(e); }
 }
 
@@ -6227,7 +6244,21 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     } else {
       banner.style.display = 'none';
     }
+
+    // Show accept button for anon chat recipient
+    if (convo.isAnonymous && !convo.anonAccepted && convo.anonStartedBy && convo.anonStartedBy !== uid) {
+      const acceptHtml = `<button class="btn-primary btn-sm" style="margin-left:8px" onclick="acceptAnonChat('${convo._id}')">Accept Chat</button>`;
+      banner.innerHTML += acceptHtml;
+      banner.style.display = 'flex';
+    }
   }
+}
+
+async function acceptAnonChat(convoId) {
+  try {
+    await db.collection('conversations').doc(convoId).update({ anonAccepted: true });
+    toast('Chat accepted — they can now send more messages');
+  } catch (e) { toast('Failed'); console.error(e); }
 }
 
 async function toggleAnonymous(convoId) {
@@ -6463,6 +6494,15 @@ async function openChat(convoId) {
         toast('This user has blocked you');
         return;
       }
+
+      // Per-recipient anonymous message limit
+      if (convo.isAnonymous && convo.anonStartedBy === uid && !convo.anonAccepted) {
+        const currentCount = convo.anonMsgCount || 0;
+        if (currentCount >= 2) {
+          toast('Limit reached — wait for them to accept the chat');
+          return;
+        }
+      }
       
       const text = input.value.trim();
       let img = chatPendingImg;
@@ -6494,9 +6534,13 @@ async function openChat(convoId) {
         }
         // Check if sender is currently anonymous
         let senderAnon = false;
+        let freshConvoData = null;
         try {
           const freshConvo = await db.collection('conversations').doc(convoId).get();
-          if (freshConvo.exists) senderAnon = !!(freshConvo.data().anonymous || {})[uid];
+          if (freshConvo.exists) {
+            freshConvoData = freshConvo.data();
+            senderAnon = !!(freshConvoData.anonymous || {})[uid];
+          }
         } catch (_) {}
         await db.collection('conversations').doc(convoId).collection('messages').add({
           text: text || '', imageURL: imageURL || null, audioURL: audioURL || null,
@@ -6504,10 +6548,17 @@ async function openChat(convoId) {
           createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
         const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (text || '📷 Photo') : text;
-        await db.collection('conversations').doc(convoId).set({
+        const mergeData = {
           lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
-        }, { merge: true });
+        };
+        // Increment anon msg counter for initiator
+        if (freshConvoData?.isAnonymous && freshConvoData?.anonStartedBy === uid && !freshConvoData?.anonAccepted) {
+          mergeData.anonMsgCount = FieldVal.increment(1);
+          convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
+        }
+        await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
+        addNotification(otherUid, 'message', lastMsg, { convoId }, { docId: 'dm-' + convoId, anonymous: senderAnon });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -6630,14 +6681,16 @@ async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId =
     // Create anonymous conversation
     const doc = await db.collection('conversations').add({
       participants: [state.user.uid, uid],
-      participantNames: [state.profile.displayName, targetName || 'User'],
-      participantPhotos: [state.profile.photoURL || null, targetPhoto || null],
+      participantNames: ['Anonymous', 'Anonymous'],
+      participantPhotos: [null, null],
       lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
       unread: { [uid]: 0, [state.user.uid]: 0 },
       participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' },
       isAnonymous: true,
       anonymous: { [state.user.uid]: true, [uid]: true },
       anonStartedBy: state.user.uid,
+      anonAccepted: false,
+      anonMsgCount: 0,
       replyToPost: replyToPostId || null,
       anonContext: forceNew ? 'profile' : 'discovery'
     });
