@@ -2714,36 +2714,11 @@ function renderExploreView() {
 
 function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
-  
-  // Apply search filter if exists
-  const searchQueryRaw = window._radarSearchQuery || '';
-  const searchQuery = searchQueryRaw.toLowerCase();
-  let filteredUsers = allExploreUsers;
-  if (searchQuery) {
-    filteredUsers = allExploreUsers.filter(u => 
-      (u.displayName || '').toLowerCase().includes(searchQuery) ||
-      (u.address || '').toLowerCase().includes(searchQuery) ||
-      (u.major || '').toLowerCase().includes(searchQuery) ||
-      (u.modules || []).some(m => m.toLowerCase().includes(searchQuery))
-    );
-  }
-  
-  const moduleUsers = filteredUsers.filter(u => u.proximity === 'module');
-  const nearbyUsers = filteredUsers.filter(u => u.proximity === 'nearby');
-  const courseUsers = filteredUsers.filter(u => u.proximity === 'course');
-  const otherUsers = filteredUsers.filter(u => u.proximity === 'far');
-
-  const eventsByLoc = {};
-  allCampusEvents.forEach(ev => {
-    if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
-    eventsByLoc[ev.location].push(ev);
-  });
-
   body.innerHTML = `
     <div style="padding:0 16px 12px">
       <div class="search-bar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(searchQueryRaw)}">
+        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(window._radarSearchQuery || '')}">
       </div>
     </div>
     <div class="radar-map-wrap">
@@ -2755,55 +2730,102 @@ function renderRadarView() {
         <div class="radar-sweep-anim"></div>
       </div>
     </div>
-    <div class="radar-legend" style="padding:0 16px">
-      <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-      <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
-      <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
-      <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
-    </div>
-
-    ${moduleUsers.length ? `
-    <div class="proximity-section">
-      <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span></div>
-      <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
-    </div>` : ''}
-
-    <div class="proximity-section">
-      <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span></div>
-      <div class="proximity-scroll">
-        ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
-          : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
-      </div>
-    </div>
-
-    ${courseUsers.length ? `
-    <div class="proximity-section">
-      <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span></div>
-      <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
-    </div>` : ''}
-
-    ${otherUsers.length ? `
-    <div class="proximity-section">
-      <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span></div>
-      <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
-    </div>` : ''}
-
-    <div class="proximity-section">
-      <div class="proximity-header"><h3>📅 Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
-      ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
-        const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-        const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
-        const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-        return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
-          ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}">${ev.emoji || '📅'}</div>`}
-          <div class="event-scroll-title">${esc(ev.title)}</div>
-          <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
-        </div>`;
-      }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
-    </div>
+    <div id="radar-dynamic"></div>
   `;
 
-  // Init Leaflet on radar
+  const applyRadarFilter = (queryRaw = '') => {
+    const searchQuery = (queryRaw || '').trim().toLowerCase();
+    let filteredUsers = allExploreUsers;
+    if (searchQuery) {
+      filteredUsers = allExploreUsers.filter(u =>
+        (u.displayName || '').toLowerCase().includes(searchQuery) ||
+        (u.address || '').toLowerCase().includes(searchQuery) ||
+        (u.major || '').toLowerCase().includes(searchQuery) ||
+        (u.modules || []).some(m => m.toLowerCase().includes(searchQuery))
+      );
+    }
+
+    const moduleUsers = filteredUsers.filter(u => u.proximity === 'module');
+    const nearbyUsers = filteredUsers.filter(u => u.proximity === 'nearby');
+    const courseUsers = filteredUsers.filter(u => u.proximity === 'course');
+    const otherUsers = filteredUsers.filter(u => u.proximity === 'far');
+
+    const dynamic = $('#radar-dynamic');
+    if (dynamic) {
+      dynamic.innerHTML = `
+        <div class="radar-legend" style="padding:0 16px">
+          <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
+          <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
+          <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
+          <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
+        </div>
+
+        ${moduleUsers.length ? `
+        <div class="proximity-section">
+          <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span></div>
+          <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
+        </div>` : ''}
+
+        <div class="proximity-section">
+          <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span></div>
+          <div class="proximity-scroll">
+            ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
+              : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
+          </div>
+        </div>
+
+        ${courseUsers.length ? `
+        <div class="proximity-section">
+          <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span></div>
+          <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
+        </div>` : ''}
+
+        ${otherUsers.length ? `
+        <div class="proximity-section">
+          <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span></div>
+          <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
+        </div>` : ''}
+
+        <div class="proximity-section">
+          <div class="proximity-header"><h3>📅 Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
+          ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+            const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+            const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+            const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+            return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+              ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}">${ev.emoji || '📅'}</div>`}
+              <div class="event-scroll-title">${esc(ev.title)}</div>
+              <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
+            </div>`;
+          }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+        </div>
+      `;
+    }
+
+    const eventsByLoc = {};
+    allCampusEvents.forEach(ev => {
+      if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
+      eventsByLoc[ev.location].push(ev);
+    });
+    renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc);
+  };
+
+  applyRadarFilter(window._radarSearchQuery || '');
+
+  // Wire up live search; update cards/map without recreating the input element.
+  const radarSearchInput = $('#radar-search');
+  if (radarSearchInput) {
+    let searchTimer = null;
+    radarSearchInput.addEventListener('input', e => {
+      const nextQuery = e.target.value;
+      window._radarSearchQuery = nextQuery;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => applyRadarFilter(nextQuery), 120);
+    });
+  }
+}
+
+function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc) {
   requestAnimationFrame(() => {
     const el = document.getElementById('radar-map');
     if (!el || typeof L === 'undefined') return;
@@ -2818,7 +2840,6 @@ function renderRadarView() {
       maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
     }).addTo(_leafletMap);
 
-    // My pin (center)
     const myIcon = L.divIcon({
       className: 'leaflet-user-pin',
       html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
@@ -2826,7 +2847,6 @@ function renderRadarView() {
     });
     L.marker([-26.6840, 27.0945], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
-    // Campus locations
     CAMPUS_LOCATIONS.forEach(loc => {
       const evts = eventsByLoc[loc.id] || [];
       const icon = L.divIcon({
@@ -2839,7 +2859,6 @@ function renderRadarView() {
         .on('click', () => openLocationDetail(loc.id));
     });
 
-    // User pins by proximity
     const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
     usersToPlot.forEach((u, i) => {
       const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
@@ -2859,33 +2878,6 @@ function renderRadarView() {
 
     setTimeout(() => _leafletMap?.invalidateSize(), 300);
   });
-  
-  // Wire up search input without rerendering on every keypress (prevents mobile keyboard blur).
-  const radarSearchInput = $('#radar-search');
-  if (radarSearchInput) {
-    radarSearchInput.addEventListener('input', e => {
-      window._radarSearchQuery = e.target.value;
-    });
-    radarSearchInput.addEventListener('keydown', e => {
-      if (e.key !== 'Enter') return;
-      e.preventDefault();
-      window._radarSearchQuery = e.target.value.trim();
-      renderRadarView();
-      requestAnimationFrame(() => {
-        const input = $('#radar-search');
-        if (!input) return;
-        input.focus({ preventScroll: true });
-        const pos = input.value.length;
-        input.setSelectionRange(pos, pos);
-      });
-    });
-    radarSearchInput.addEventListener('blur', () => {
-      const nextQuery = (radarSearchInput.value || '').trim();
-      if (nextQuery === (searchQueryRaw || '').trim()) return;
-      window._radarSearchQuery = nextQuery;
-      renderRadarView();
-    });
-  }
 }
 
 function renderRadarDots(users, radius, type) {
