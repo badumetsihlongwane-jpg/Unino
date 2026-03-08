@@ -35,6 +35,8 @@ let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
 let _reelCommentReplyTo = null;
 let _sendingReelComment = false;
+let _lastFeedCommentSubmit = { key: '', at: 0 };
+let _lastReelCommentSubmit = { key: '', at: 0 };
 const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
@@ -2217,23 +2219,29 @@ async function openReelComments(postId) {
     if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
     replyMap[r.replyTo].push(r);
   });
+  const commentById = {};
+  comments.forEach(c => { commentById[c.id] = c; });
 
   const renderComment = (c, isReply = false) => {
     const liked = (c.likes || []).includes(state.user.uid);
     const cReplies = replyMap[c.id] || [];
+    const target = c.replyTo ? commentById[c.replyTo] : null;
+    const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
+    const toLabel = target ? (target.authorId === state.user.uid ? 'me' : (target.authorName || 'User')) : '';
     return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}">
         <div class="comment-avatar-col">${avatar(c.authorName || 'User', c.authorPhoto, 'avatar-sm')}</div>
         <div class="comment-content-col">
           <div class="comment-bubble enhanced">
             <div class="comment-header"><span class="comment-author">${esc(c.authorName || 'User')}</span></div>
+            ${target ? `<div class="comment-reply-to">${esc(fromLabel)} &gt; ${esc(toLabel)}</div>` : ''}
             ${c.text ? `<div class="comment-text">${esc(c.text)}</div>` : ''}
             ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
             <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">Like ${c.likeCount > 0 ? c.likeCount : ''}</button>
-            <button class="c-act" onclick="setReelCommentReply('${c.replyTo || c.id}','${esc(c.authorName || 'User')}')">Reply</button>
+            <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
           </div>
           ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => renderComment(r, true)).join('')}</div>` : ''}
         </div>
@@ -2264,7 +2272,7 @@ async function openReelComments(postId) {
           <input type="file" hidden accept="image/*" id="reel-comment-image-input">
         </label>
         <textarea id="reel-comment-input" placeholder="Add a comment..." autocomplete="off"></textarea>
-        <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        <button class="send-btn" onclick="postReelComment('${postId}')"><svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 21l20-9L2 3v7l14 2-14 2z"/></svg></button>
       </div>
     </div>
   `;
@@ -2316,6 +2324,14 @@ async function postReelComment(postId) {
   }
   input.value = '';
   const replyTo = _reelCommentReplyTo ? _reelCommentReplyTo.id : null;
+  const fileSig = imgFile ? `${imgFile.name}:${imgFile.size}:${imgFile.lastModified}` : 'noimg';
+  const dedupeKey = `${postId}|${replyTo || 'root'}|${text || ''}|${fileSig}`;
+  if (_lastReelCommentSubmit.key === dedupeKey && (Date.now() - _lastReelCommentSubmit.at) < 8000) {
+    _sendingReelComment = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return;
+  }
+  _lastReelCommentSubmit = { key: dedupeKey, at: Date.now() };
   try {
     let imageURL = null;
     if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
@@ -2493,6 +2509,8 @@ async function openComments(postId) {
     if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
     replyMap[r.replyTo].push(r);
   });
+  const commentById = {};
+  comments.forEach(c => { commentById[c.id] = c; });
 
   _commentReplyTo = null;
   _pendingCommentImageFile = null;
@@ -2506,6 +2524,11 @@ async function openComments(postId) {
       const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
       const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
+      const target = c.replyTo ? commentById[c.replyTo] : null;
+      const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
+      const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
+      const fromLabel = c.authorId === state.user.uid ? 'me' : displayName;
+      const toLabel = target ? (target.authorId === state.user.uid ? 'me' : targetDisplayName) : '';
      
      return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}">
@@ -2517,6 +2540,7 @@ async function openComments(postId) {
               <div class="comment-header">
                   <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
               </div>
+                ${target ? `<div class="comment-reply-to">${esc(fromLabel)} &gt; ${esc(toLabel)}</div>` : ''}
               <div class="comment-text">${esc(c.text)}</div>
               ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
            </div>
@@ -2525,7 +2549,7 @@ async function openComments(postId) {
                <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
                   ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
                </button>
-            <button class="c-act" onclick="setCommentReply('${c.replyTo || c.id}','${esc(displayName)}')">Reply</button>
+            <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `<div class="comment-replies">
                ${cReplies.map(r => renderComment(r, true)).join('')}
@@ -2561,7 +2585,7 @@ async function openComments(postId) {
             <input type="file" hidden accept="image/*" id="comment-image-input">
           </label>
           <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off"></textarea>
-          <button class="send-btn" onclick="postComment('${postId}')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+          <button class="send-btn" onclick="postComment('${postId}')"><svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 21l20-9L2 3v7l14 2-14 2z"/></svg></button>
         </div>
       </div>
     </div>
@@ -2626,6 +2650,14 @@ async function postComment(postId) {
   }
   input.value = '';
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
+  const fileSig = imgFile ? `${imgFile.name}:${imgFile.size}:${imgFile.lastModified}` : 'noimg';
+  const dedupeKey = `${postId}|${replyTo || 'root'}|${text || ''}|${fileSig}`;
+  if (_lastFeedCommentSubmit.key === dedupeKey && (Date.now() - _lastFeedCommentSubmit.at) < 8000) {
+    _sendingComment = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return;
+  }
+  _lastFeedCommentSubmit = { key: dedupeKey, at: Date.now() };
   try {
     const pDoc = await db.collection('posts').doc(postId).get();
     const postData = pDoc.exists ? pDoc.data() : null;
