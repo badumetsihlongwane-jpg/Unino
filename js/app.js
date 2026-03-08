@@ -152,6 +152,128 @@ function addressMatchScore(a = '', b = '') {
   return left.filter(token => rightSet.has(token)).length;
 }
 
+function getUserCoords(profile = {}) {
+  const lat = Number(profile?.geoLat);
+  const lng = Number(profile?.geoLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function toRadians(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function distanceKmBetween(a, b) {
+  if (!a || !b) return Infinity;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(b.lat - a.lat);
+  const dLng = toRadians(b.lng - a.lng);
+  const s1 = Math.sin(dLat / 2);
+  const s2 = Math.sin(dLng / 2);
+  const aa = s1 * s1 + Math.cos(toRadians(a.lat)) * Math.cos(toRadians(b.lat)) * s2 * s2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+}
+
+function getNearbySignal(meProfile = {}, otherProfile = {}) {
+  const myCoords = getUserCoords(meProfile);
+  const theirCoords = getUserCoords(otherProfile);
+  if (myCoords && theirCoords) {
+    const distanceKm = distanceKmBetween(myCoords, theirCoords);
+    const score = distanceKm <= 0.35 ? 5
+      : distanceKm <= 0.75 ? 4
+      : distanceKm <= 1.5 ? 3
+      : distanceKm <= 3 ? 2
+      : distanceKm <= 5 ? 1
+      : 0;
+    return { score, distanceKm, source: 'gps' };
+  }
+  return {
+    score: addressMatchScore(meProfile.address || '', otherProfile.address || ''),
+    distanceKm: null,
+    source: 'address'
+  };
+}
+
+function getRadarCenterCoords() {
+  return getUserCoords(state.profile) || { lat: -26.6840, lng: 27.0945 };
+}
+
+function getLocationPromptKey(uid = '') {
+  return `unino-location-prompt-${uid}`;
+}
+
+async function saveCurrentGpsLocation(options = {}) {
+  const { silent = false } = options;
+  if (!state.user || !navigator.geolocation) {
+    if (!silent) toast('GPS location is not available on this device');
+    return null;
+  }
+  if (!silent) toast('Getting your GPS location...');
+  const coords = await new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      maximumAge: 60000,
+      timeout: 10000
+    });
+  });
+  const lat = Number(coords.coords.latitude.toFixed(6));
+  const lng = Number(coords.coords.longitude.toFixed(6));
+  const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+    const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+    return !best || dist < best.distanceKm ? { ...loc, distanceKm: dist } : best;
+  }, null);
+  const updates = {
+    geoLat: lat,
+    geoLng: lng,
+    geoSource: 'gps',
+    geoUpdatedAt: FieldVal.serverTimestamp(),
+    address: state.profile?.address || nearestCampus?.name || ''
+  };
+  await db.collection('users').doc(state.user.uid).update(updates);
+  Object.assign(state.profile, {
+    ...updates,
+    geoUpdatedAt: new Date()
+  });
+  localStorage.setItem(getLocationPromptKey(state.user.uid), 'granted');
+  const statusEl = $('#gps-location-status');
+  if (statusEl) statusEl.textContent = `GPS saved: ${lat}, ${lng}`;
+  if (state.page === 'explore') loadExploreUsers();
+  if (!silent) toast('Location saved. Unino will not track you continuously.');
+  return { lat, lng };
+}
+
+function maybePromptForGpsLocation() {
+  if (!state.user || !state.profile || getUserCoords(state.profile) || !navigator.geolocation) return;
+  const promptKey = getLocationPromptKey(state.user.uid);
+  if (localStorage.getItem(promptKey)) return;
+  localStorage.setItem(promptKey, 'seen');
+  setTimeout(async () => {
+    const allow = window.confirm('Use your current GPS location for radar and nearby students? This saves your location once and does not track you continuously.');
+    if (!allow) return;
+    try {
+      await saveCurrentGpsLocation();
+    } catch (err) {
+      console.error(err);
+      toast('Could not get GPS location');
+    }
+  }, 700);
+}
+
+async function clearAppCache() {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }
+  } catch (e) { console.error('cache clear', e); }
+  toast('Refreshing app...');
+  setTimeout(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('refresh', Date.now().toString());
+    window.location.replace(url.toString());
+  }, 250);
+}
+
 function sanitizeFriendRequests(requests = []) {
   const seen = new Set();
   return (requests || []).filter(req => {
@@ -1238,6 +1360,7 @@ function enterApp() {
   listenForGroupAlerts();
   setupPresenceTracking();
   listenForOnlineCount();
+  maybePromptForGpsLocation();
 }
 
 let _onlineCountSub = null;
@@ -1633,7 +1756,6 @@ function loadDiscoverPeople() {
   const el = $('#discover-content'); if (!el) return;
   const myMajor = state.profile.major || '';
   const myModules = normalizeModules(state.profile.modules || []);
-  const myAddress = state.profile.address || '';
 
   db.collection('users').limit(30).get().then(snap => {
     let users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== state.user.uid);
@@ -1643,12 +1765,13 @@ function loadDiscoverPeople() {
       let score = 0;
       const theirModules = normalizeModules(u.modules || []);
       const shared = myModules.filter(m => theirModules.includes(m));
-      const nearbyScore = addressMatchScore(myAddress, u.address || '');
+      const nearby = getNearbySignal(state.profile, u);
+      const nearbyScore = nearby.score;
       if (shared.length) score += 30 + shared.length * 10;
       if (nearbyScore > 0) score += 20 + nearbyScore * 6;
       if (u.major === myMajor) score += 10;
       if (u.status === 'online') score += 5;
-      return { ...u, score, sharedModules: shared, nearbyScore };
+      return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
     }).sort((a, b) => b.score - a.score).slice(0, 10);
 
     if (!users.length) {
@@ -2973,7 +3096,6 @@ async function loadExploreUsers() {
     ]);
     const myMajor = state.profile.major || '';
     const myModules = normalizeModules(state.profile.modules || []);
-    const myAddress = state.profile.address || '';
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
@@ -2981,12 +3103,13 @@ async function loadExploreUsers() {
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
-        const nearbyScore = addressMatchScore(myAddress, u.address || '');
+        const nearby = getNearbySignal(state.profile, u);
+        const nearbyScore = nearby.score;
         let proximity = 'far';
         if (shared.length > 0) proximity = 'module';
         else if (nearbyScore > 0) proximity = 'nearby';
         else if (u.major === myMajor) proximity = 'course';
-        return { ...u, sharedModules: shared, proximity, nearbyScore };
+        return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
       });
     renderExploreView();
   } catch (e) {
@@ -3222,7 +3345,9 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     if (!el || typeof L === 'undefined') return;
     if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
 
-    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
+    const center = getRadarCenterCoords();
+
+    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 16);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
@@ -3236,7 +3361,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
       iconSize: [36, 36], iconAnchor: [18, 18]
     });
-    L.marker([-26.6840, 27.0945], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
+    L.marker([center.lat, center.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
     CAMPUS_LOCATIONS.forEach(loc => {
       const evts = eventsByLoc[loc.id] || [];
@@ -3251,11 +3376,30 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     });
 
     const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
-    usersToPlot.forEach((u, i) => {
+    const plottedIds = new Set();
+
+    usersToPlot.forEach(u => {
+      const coords = getUserCoords(u);
+      if (!coords) return;
+      const distanceKm = distanceKmBetween(center, coords);
+      if (distanceKm > 5) return;
+      plottedIds.add(u.id);
+      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+      const uIcon = L.divIcon({
+        className: 'leaflet-user-pin',
+        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14]
+      });
+      L.marker([coords.lat, coords.lng], { icon: uIcon }).addTo(_leafletMap)
+        .bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>${Number.isFinite(distanceKm) ? `<br><small>📍 ${distanceKm.toFixed(1)} km away</small>` : ''}${u.sharedModules?.length ? `<br><small>🔗 ${u.sharedModules.join(', ')}</small>` : ''}`)
+        .on('click', () => openProfile(u.id));
+    });
+
+    usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
       const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
       const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
-      const lat = -26.6840 + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8);
-      const lng = 27.0945 + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8);
+      const lat = center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8);
+      const lng = center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8);
       const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
       const uIcon = L.divIcon({
         className: 'leaflet-user-pin',
@@ -6003,6 +6147,7 @@ async function openProfile(uid) {
         <div class="profile-actions">
           ${isMe
             ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+               <button class="btn-outline" onclick="clearAppCache()">Clear Cache</button>
                <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
             : (() => {
                 const isFriend = (state.profile.friends || []).includes(uid);
@@ -6360,12 +6505,23 @@ async function loadBlockedUsersList() {
 function editProfile() {
   const p = state.profile;
   const mods = (p.modules || []).join(', ');
+  const gpsStatus = getUserCoords(p)
+    ? `GPS saved: ${Number(p.geoLat).toFixed(5)}, ${Number(p.geoLng).toFixed(5)}`
+    : 'No GPS location saved yet';
   openModal(`
     <div class="modal-header"><h2>Edit Profile</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
       <div class="form-group"><label>Display Name</label><input type="text" id="edit-name" value="${esc(p.displayName)}"></div>
       <div class="form-group"><label>Bio</label><textarea id="edit-bio">${esc(p.bio || '')}</textarea></div>
       <div class="form-group"><label>Location / Res</label><input type="text" id="edit-address" value="${esc(p.address || '')}" placeholder="e.g. Potch Main Campus"></div>
+      <div class="form-group" style="margin-top:-6px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn-outline" onclick="saveCurrentGpsLocation()">Use Current GPS</button>
+          <button type="button" class="btn-secondary" onclick="clearAppCache()">Clear App Cache</button>
+        </div>
+        <p id="gps-location-status" style="color:var(--text-secondary);font-size:12px;margin-top:8px">${esc(gpsStatus)}</p>
+        <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unino does not track you continuously.</p>
+      </div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
@@ -6896,6 +7052,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifications, setCommentReply, clearCommentReply,
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
     setCommentAnonChoice, editAnonNickname,
+    saveCurrentGpsLocation, clearAppCache,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
