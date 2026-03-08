@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+# Android local machine files
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
