@@ -19,7 +19,7 @@ const ADMIN_EMAIL = 'admin@mynwu.ac.za';
 const VERIFIED_UIDS = new Set(); // populated on login
 let _isAdmin = false;
 let verifiedUsersUnsub = null;
-let _asgAlertUnsub = null;
+let _groupAlertUnsub = null;
 let _asgPendingAlerts = [];
 let _dmUnreadCount = 0;
 let _dmReplyTo = null;
@@ -1153,7 +1153,7 @@ function initAuth() {
       enterApp();
     } else {
       if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
-      if (_asgAlertUnsub) { _asgAlertUnsub(); _asgAlertUnsub = null; }
+      if (_groupAlertUnsub) { _groupAlertUnsub(); _groupAlertUnsub = null; }
       VERIFIED_UIDS.clear();
       _asgPendingAlerts = [];
       _dmUnreadCount = 0;
@@ -1376,13 +1376,6 @@ function setupPresenceTracking() {
       if (!state.user) {
         // Prevent going back before login
         history.pushState({ app: true }, '');
-        return;
-      }
-
-      // Check if we have app state - if not, we're at the fence
-      if (!e.state || !e.state.app) {
-        // Push back to current state to prevent leaving app
-        history.pushState({ app: true, screen: 'app', page: state.page, msgTab: state.lastMsgTab }, '');
         return;
       }
 
@@ -2723,7 +2716,8 @@ function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
   
   // Apply search filter if exists
-  const searchQuery = (window._radarSearchQuery || '').toLowerCase();
+  const searchQueryRaw = window._radarSearchQuery || '';
+  const searchQuery = searchQueryRaw.toLowerCase();
   let filteredUsers = allExploreUsers;
   if (searchQuery) {
     filteredUsers = allExploreUsers.filter(u => 
@@ -2749,7 +2743,7 @@ function renderRadarView() {
     <div style="padding:0 16px 12px">
       <div class="search-bar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(searchQuery)}">
+        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(searchQueryRaw)}">
       </div>
     </div>
     <div class="radar-map-wrap">
@@ -2866,15 +2860,32 @@ function renderRadarView() {
     setTimeout(() => _leafletMap?.invalidateSize(), 300);
   });
   
-  // Wire up search input
-  let searchTimer;
-  $('#radar-search')?.addEventListener('input', e => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
+  // Wire up search input without rerendering on every keypress (prevents mobile keyboard blur).
+  const radarSearchInput = $('#radar-search');
+  if (radarSearchInput) {
+    radarSearchInput.addEventListener('input', e => {
+      window._radarSearchQuery = e.target.value;
+    });
+    radarSearchInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
       window._radarSearchQuery = e.target.value.trim();
       renderRadarView();
-    }, 300);
-  });
+      requestAnimationFrame(() => {
+        const input = $('#radar-search');
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        const pos = input.value.length;
+        input.setSelectionRange(pos, pos);
+      });
+    });
+    radarSearchInput.addEventListener('blur', () => {
+      const nextQuery = (radarSearchInput.value || '').trim();
+      if (nextQuery === (searchQueryRaw || '').trim()) return;
+      window._radarSearchQuery = nextQuery;
+      renderRadarView();
+    });
+  }
 }
 
 function renderRadarDots(users, radius, type) {
