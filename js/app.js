@@ -94,7 +94,10 @@ async function syncNativeStatusBar() {
   try { await statusBar.setOverlaysWebView({ overlay: false }); } catch (e) {}
   try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) {}
   try { await statusBar.setStyle({ style: darkTheme ? 'LIGHT' : 'DARK' }); } catch (e) {}
-  document.documentElement.style.setProperty('--app-safe-top', '0px');
+  // Use the native-injected status bar height; fall back to a safe Android default
+  const injected = getComputedStyle(document.documentElement).getPropertyValue('--native-status-bar').trim();
+  const safePx = (injected && injected !== '0px') ? injected : '28px';
+  document.documentElement.style.setProperty('--app-safe-top', safePx);
 }
 
 async function savePushTokenForCurrentUser(token) {
@@ -221,36 +224,42 @@ async function scheduleLocalNotification(notification) {
 
 async function initNativePushNotifications() {
   if (!isNativeApp()) return;
-  const pushNotifications = getCapacitorPlugin('PushNotifications');
+  let pushNotifications;
+  try { pushNotifications = getCapacitorPlugin('PushNotifications'); } catch (e) { return; }
   if (!pushNotifications) return;
 
   if (!_nativePushListenersBound) {
     _nativePushListenersBound = true;
-    pushNotifications.addListener('registration', token => {
-      savePushTokenForCurrentUser(token.value).catch(() => {});
-    });
-    pushNotifications.addListener('registrationError', error => {
-      console.warn('Push registration failed', error);
-    });
-    pushNotifications.addListener('pushNotificationReceived', notification => {
-      if (!appIsForeground()) return;
-      const data = notification.data || {};
-      scheduleLocalNotification({
-        id: hashStringToId(`push-${data.convoId || data.groupId || data.postId || Date.now()}`),
-        title: notification.title || data.senderName || 'Unino',
-        body: notification.body || 'You have a new notification',
-        actionTypeId: (data.kind === 'dm' || data.kind === 'group') ? 'dm-preview' : 'app-preview',
-        extra: data
+    try {
+      pushNotifications.addListener('registration', token => {
+        _nativePushToken = token.value;
+        savePushTokenForCurrentUser(token.value).catch(() => {});
       });
-    });
-    pushNotifications.addListener('pushNotificationActionPerformed', event => {
-      handleNativeNotificationOpen(event.notification?.data || {}, event.actionId || 'tap');
-    });
+      pushNotifications.addListener('registrationError', error => {
+        console.warn('Push registration failed', error);
+      });
+      pushNotifications.addListener('pushNotificationReceived', notification => {
+        if (!appIsForeground()) return;
+        const data = notification.data || {};
+        scheduleLocalNotification({
+          id: hashStringToId(`push-${data.convoId || data.groupId || data.postId || Date.now()}`),
+          title: notification.title || data.senderName || 'Unino',
+          body: notification.body || 'You have a new notification',
+          actionTypeId: (data.kind === 'dm' || data.kind === 'group') ? 'dm-preview' : 'app-preview',
+          extra: data
+        });
+      });
+      pushNotifications.addListener('pushNotificationActionPerformed', event => {
+        handleNativeNotificationOpen(event.notification?.data || {}, event.actionId || 'tap');
+      });
+    } catch (e) { console.warn('Push listener setup failed', e); }
   }
 
   try {
-    let permission = await pushNotifications.checkPermissions();
-    if (permission.receive === 'prompt') permission = await pushNotifications.requestPermissions();
+    const permission = await pushNotifications.checkPermissions();
+    // Only register if permission was ALREADY granted from a prior session.
+    // Never auto-prompt — requesting permission + register can crash when
+    // google-services.json is absent from the build.
     if (permission.receive !== 'granted') return;
     await pushNotifications.register();
     if (_nativePushToken) await savePushTokenForCurrentUser(_nativePushToken);
@@ -429,8 +438,7 @@ async function initNativeShell() {
       });
     }
   }
-
-  await initNativePushNotifications();
+  // Push notifications are initialised later inside enterApp() after auth
 }
 
 function primeInlineVideoPreviews(root = document) {
@@ -1024,11 +1032,25 @@ function togglePostExpand(key) {
 
 function shiftTrendingRail(dir = 1) {
   const rail = document.getElementById('trending-post-scroll');
-  if (!rail) return;
+  if (!rail || rail.classList.contains('collapsed')) return;
   const amount = rail.clientWidth * 0.82;
   const atEnd = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 12;
   if (dir > 0 && atEnd) rail.scrollTo({ left: 0, behavior: 'smooth' });
   else rail.scrollBy({ left: amount * dir, behavior: 'smooth' });
+}
+
+function toggleTrendingRail() {
+  const rail = document.getElementById('trending-post-scroll');
+  const btn = document.querySelector('.trend-toggle-btn');
+  if (!rail) return;
+  const collapsed = rail.classList.toggle('collapsed');
+  if (btn) btn.classList.toggle('collapsed', collapsed);
+  if (collapsed && _trendingRailTimer) {
+    clearInterval(_trendingRailTimer);
+    _trendingRailTimer = null;
+  } else if (!collapsed) {
+    setupTrendingRail();
+  }
 }
 
 function setupTrendingRail() {
@@ -1074,6 +1096,7 @@ function renderTrendingPostsRail(posts = []) {
         <div class="trend-nav-actions">
           <button class="trend-nav-btn" onclick="shiftTrendingRail(-1)">‹</button>
           <button class="trend-nav-btn" onclick="shiftTrendingRail(1)">›</button>
+          <button class="trend-toggle-btn" onclick="toggleTrendingRail()" title="Collapse / Expand">⌃</button>
         </div>
       </div>
       <div class="trending-post-scroll" id="trending-post-scroll">
@@ -1514,6 +1537,7 @@ function initPlayer(id) {
   const markReady = () => {
     root.classList.add('ready');
     root.classList.remove('is-loading');
+    if (vid) vid.style.visibility = 'visible';
     loader.classList.remove('active');
   };
 
