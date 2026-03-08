@@ -65,9 +65,9 @@ async function sendPushToUser(userId, payload) {
     android: {
       priority: 'high',
       notification: {
-        channelId: payload.channelId || 'unino-general',
+        channelId: payload.channelId || 'unibo-general',
         imageUrl: payload.imageUrl || undefined,
-        clickAction: 'OPEN_UNINO'
+        clickAction: 'OPEN_UNIBO'
       }
     }
   };
@@ -101,7 +101,7 @@ exports.onDirectMessageCreated = onDocumentCreated('conversations/{convoId}/mess
   await Promise.all(recipients.map(uid => sendPushToUser(uid, {
     title: senderName,
     body: messagePreview(message),
-    channelId: 'unino-messages',
+    channelId: 'unibo-messages',
     imageUrl: senderPhoto || undefined,
     data: {
       kind: 'dm',
@@ -131,7 +131,7 @@ function createGroupMessageTrigger(collectionName) {
     await Promise.all(recipients.map(uid => sendPushToUser(uid, {
       title: `${groupName}`,
       body: `${senderName}: ${messagePreview(message)}`,
-      channelId: 'unino-messages',
+      channelId: 'unibo-messages',
       imageUrl: message.senderPhoto || undefined,
       data: {
         kind: 'group',
@@ -164,9 +164,9 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
         : 'app';
 
   await sendPushToUser(userId, {
-    title: from.name || 'Unino',
+    title: from.name || 'Unibo',
     body: clampText(notification.text || 'You have a new notification', 120),
-    channelId: kind === 'dm' || kind === 'group' ? 'unino-messages' : 'unino-general',
+    channelId: kind === 'dm' || kind === 'group' ? 'unibo-messages' : 'unibo-general',
     imageUrl: from.photo || undefined,
     data: {
       kind,

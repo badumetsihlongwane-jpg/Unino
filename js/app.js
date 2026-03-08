@@ -32,14 +32,12 @@ let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
-let _nativePushListenersBound = false;
 let _nativeShellReady = false;
 let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
 let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
-let _nativePushToken = '';
 let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
 const _nativeGeneralNotifIds = new Set();
@@ -100,19 +98,9 @@ async function syncNativeStatusBar() {
   document.documentElement.style.setProperty('--app-safe-top', safePx);
 }
 
-async function savePushTokenForCurrentUser(token) {
-  if (!token || !state.user?.uid) return;
-  _nativePushToken = token;
-  try {
-    await db.collection('users').doc(state.user.uid).collection('pushTokens').doc(tokenDocId(token)).set({
-      token,
-      platform: window.Capacitor?.getPlatform?.() || 'web',
-      updatedAt: FieldVal.serverTimestamp()
-    }, { merge: true });
-  } catch (e) {
-    console.warn('Failed to store push token', e);
-  }
-}
+// Push token storage is a no-op until @capacitor/push-notifications
+// is added back with a valid google-services.json in the build.
+async function savePushTokenForCurrentUser(_token) { /* disabled */ }
 
 function appIsForeground() {
   return _nativeAppIsActive && !document.hidden;
@@ -212,7 +200,7 @@ async function scheduleLocalNotification(notification) {
         title: notification.title,
         body: notification.body,
         schedule: { at: new Date(Date.now() + 50) },
-        channelId: notification.channelId || 'unino-general',
+        channelId: notification.channelId || 'unibo-general',
         actionTypeId: notification.actionTypeId || 'app-preview',
         extra: notification.extra || {}
       }]
@@ -222,49 +210,19 @@ async function scheduleLocalNotification(notification) {
   }
 }
 
-async function initNativePushNotifications() {
+// Push notifications disabled until google-services.json is in the build.
+async function initNativePushNotifications() { /* no-op */ }
+
+// Request local notification permission — called only after login.
+async function requestLocalNotificationPermission() {
   if (!isNativeApp()) return;
-  let pushNotifications;
-  try { pushNotifications = getCapacitorPlugin('PushNotifications'); } catch (e) { return; }
-  if (!pushNotifications) return;
-
-  if (!_nativePushListenersBound) {
-    _nativePushListenersBound = true;
-    try {
-      pushNotifications.addListener('registration', token => {
-        _nativePushToken = token.value;
-        savePushTokenForCurrentUser(token.value).catch(() => {});
-      });
-      pushNotifications.addListener('registrationError', error => {
-        console.warn('Push registration failed', error);
-      });
-      pushNotifications.addListener('pushNotificationReceived', notification => {
-        if (!appIsForeground()) return;
-        const data = notification.data || {};
-        scheduleLocalNotification({
-          id: hashStringToId(`push-${data.convoId || data.groupId || data.postId || Date.now()}`),
-          title: notification.title || data.senderName || 'Unino',
-          body: notification.body || 'You have a new notification',
-          actionTypeId: (data.kind === 'dm' || data.kind === 'group') ? 'dm-preview' : 'app-preview',
-          extra: data
-        });
-      });
-      pushNotifications.addListener('pushNotificationActionPerformed', event => {
-        handleNativeNotificationOpen(event.notification?.data || {}, event.actionId || 'tap');
-      });
-    } catch (e) { console.warn('Push listener setup failed', e); }
-  }
-
+  const localNotifications = getCapacitorPlugin('LocalNotifications');
+  if (!localNotifications) return;
   try {
-    const permission = await pushNotifications.checkPermissions();
-    // Only register if permission was ALREADY granted from a prior session.
-    // Never auto-prompt — requesting permission + register can crash when
-    // google-services.json is absent from the build.
-    if (permission.receive !== 'granted') return;
-    await pushNotifications.register();
-    if (_nativePushToken) await savePushTokenForCurrentUser(_nativePushToken);
+    const perm = await localNotifications.requestPermissions();
+    _nativeLocalNotificationsReady = perm.display === 'granted';
   } catch (e) {
-    console.warn('Push setup failed', e);
+    _nativeLocalNotificationsReady = false;
   }
 }
 
@@ -316,7 +274,7 @@ function maybeNotifyForUnreadDMs(conversations = []) {
       id: hashStringToId(`dm-${conversation.id}-${unread}`),
       title: senderName,
       body: clampText(conversation.lastMessage || 'Sent you a message', 110),
-      channelId: 'unino-messages',
+      channelId: 'unibo-messages',
       actionTypeId: 'dm-preview',
       extra: { kind: 'dm', convoId: conversation.id }
     });
@@ -341,7 +299,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       return;
     }
 
-    const fromName = notification.from?.name || 'Unino';
+    const fromName = notification.from?.name || 'Unibo';
     const kind = notification.payload?.convoId
       ? 'dm'
       : notification.payload?.groupId
@@ -353,7 +311,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       id: hashStringToId(`notif-${notification.id}`),
       title: fromName,
       body: clampText(notification.text || 'You have a new notification', 110),
-      channelId: kind === 'dm' || kind === 'group' ? 'unino-messages' : 'unino-general',
+      channelId: kind === 'dm' || kind === 'group' ? 'unibo-messages' : 'unibo-general',
       actionTypeId: 'app-preview',
       extra: {
         kind,
@@ -388,25 +346,21 @@ async function initNativeShell() {
     });
   }
 
+  // Local notification channels / action types are set up here but
+  // permission is NOT requested until after the user logs in (enterApp).
   if (localNotifications) {
     try {
-      const perm = await localNotifications.requestPermissions();
-      _nativeLocalNotificationsReady = perm.display === 'granted';
-    } catch (e) {
-      _nativeLocalNotificationsReady = false;
-    }
-    try {
       await localNotifications.createChannel({
-        id: 'unino-messages',
+        id: 'unibo-messages',
         name: 'Messages',
         description: 'Direct and group message notifications',
         importance: 5,
         visibility: 1
       });
       await localNotifications.createChannel({
-        id: 'unino-general',
+        id: 'unibo-general',
         name: 'Activity',
-        description: 'General Unino notifications',
+        description: 'General Unibo notifications',
         importance: 4,
         visibility: 1
       });
@@ -438,7 +392,6 @@ async function initNativeShell() {
       });
     }
   }
-  // Push notifications are initialised later inside enterApp() after auth
 }
 
 function primeInlineVideoPreviews(root = document) {
@@ -653,7 +606,7 @@ async function saveCurrentGpsLocation(options = {}) {
     const statusEl = $('#gps-location-status');
     if (statusEl) statusEl.textContent = `GPS saved: ${lat}, ${lng}`;
     if (state.page === 'explore') loadExploreUsers();
-    if (!silent) toast('Location saved. Unino will not track you continuously.');
+    if (!silent) toast('Location saved. Unibo will not track you continuously.');
     return { lat, lng };
   } catch (err) {
     console.error(err);
@@ -701,7 +654,7 @@ function openLocationHelpModal(message = '') {
   openModal(`
     <div class="modal-header"><h2>Location Needed</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:18px 16px">
-      <p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(message || 'Turn on location permissions so Unino can save your current GPS position once for radar and nearby matching.')}</p>
+      <p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(message || 'Turn on location permissions so Unibo can save your current GPS position once for radar and nearby matching.')}</p>
       <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.5">
         <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px">How to fix it</div>
         <div>1. Turn on Location/GPS in your phone settings.</div>
@@ -1992,8 +1945,7 @@ function friendlyErr(code) {
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
-  initNativePushNotifications().catch(() => {});
-  if (_nativePushToken) savePushTokenForCurrentUser(_nativePushToken).catch(() => {});
+  requestLocalNotificationPermission();
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
@@ -4480,7 +4432,7 @@ async function openEventDetail(eventId) {
           <div style="font-weight:600;font-size:13px;margin-bottom:8px">Created by</div>
           <div style="display:flex;align-items:center;gap:8px">
             ${avatar(ev.creatorName || 'System', null, 'avatar-sm')}
-            <span>${esc(ev.creatorName || 'Unino')}</span>
+            <span>${esc(ev.creatorName || 'Unibo')}</span>
           </div>
         </div>
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
@@ -5977,7 +5929,7 @@ function loadNotifications() {
         : n.payload?.groupId
           ? `openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
           : `markNotifRead('${n.id}')`;
-      const from = n.from || { name: 'Unino', photo: null };
+      const from = n.from || { name: 'Unibo', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
          <div style="position:relative">
@@ -7259,7 +7211,7 @@ function editProfile() {
           <button type="button" class="btn-secondary" onclick="clearAppCache()">Clear App Cache</button>
         </div>
         <p id="gps-location-status" style="color:var(--text-secondary);font-size:12px;margin-top:8px">${esc(gpsStatus)}</p>
-        <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unino does not track you continuously.</p>
+        <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
       </div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
@@ -7800,7 +7752,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
-    closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
+    closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail, toggleTrendingRail,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
