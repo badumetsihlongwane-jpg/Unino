@@ -5104,7 +5104,6 @@ async function openChat(convoId) {
     _dmReplyTo = null;
     const dmReply = $('#dm-reply-indicator');
     if (dmReply) dmReply.style.display = 'none';
-    const msgs = $('#chat-msgs');
     _chatViewportCleanup = setupViewportFollow(msgs);
     chatUnsub = db.collection('conversations').doc(convoId)
       .collection('messages').orderBy('createdAt', 'asc').limit(100)
