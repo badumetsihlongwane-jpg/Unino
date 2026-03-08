@@ -30,6 +30,9 @@ let _chatViewportCleanup = null;
 let _gchatViewportCleanup = null;
 let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
+let _exploreSearchQuery = '';
+let _pendingCommentImageFile = null;
+let _pendingReelCommentImageFile = null;
 const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
@@ -1127,6 +1130,48 @@ function initAuth() {
     } catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Create Account'; }
   });
 
+  // Suggest common addresses during signup.
+  const signupAddressInput = $('#s-address');
+  const signupAddressSuggestions = $('#s-address-suggestions');
+  if (signupAddressInput && signupAddressSuggestions) {
+    const staticAddressHints = [
+      ...CAMPUS_LOCATIONS.map(l => l.name),
+      'Potch Main Campus', 'Cachet Park', 'Bult', 'Die Bult', 'Mohadin',
+      'Student Village', 'Res Halls', 'Library Side', 'Engineering Block',
+      'Main Gate', 'North Gate', 'South Gate'
+    ];
+    const addressHints = Array.from(new Set(staticAddressHints));
+
+    const renderAddressHints = (query = '') => {
+      const q = query.trim().toLowerCase();
+      if (!q || q.length < 2) {
+        signupAddressSuggestions.style.display = 'none';
+        signupAddressSuggestions.innerHTML = '';
+        return;
+      }
+      const hits = addressHints.filter(a => a.toLowerCase().includes(q)).slice(0, 7);
+      if (!hits.length) {
+        signupAddressSuggestions.style.display = 'none';
+        signupAddressSuggestions.innerHTML = '';
+        return;
+      }
+      signupAddressSuggestions.innerHTML = hits.map(h => `<button type="button" class="address-suggestion-item" data-v="${esc(h)}">${esc(h)}</button>`).join('');
+      signupAddressSuggestions.style.display = 'block';
+      signupAddressSuggestions.querySelectorAll('.address-suggestion-item').forEach(btn => {
+        btn.onclick = () => {
+          signupAddressInput.value = btn.getAttribute('data-v') || '';
+          signupAddressSuggestions.style.display = 'none';
+        };
+      });
+    };
+
+    signupAddressInput.addEventListener('input', e => renderAddressHints(e.target.value));
+    signupAddressInput.addEventListener('focus', e => renderAddressHints(e.target.value));
+    signupAddressInput.addEventListener('blur', () => setTimeout(() => {
+      signupAddressSuggestions.style.display = 'none';
+    }, 120));
+  }
+
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
     if (user) {
@@ -2149,6 +2194,7 @@ function closeReelsViewer() {
 // ─── Inline Reel Comments ────────────────────────
 async function openReelComments(postId) {
   // Keep video playing while comments are open
+  _pendingReelCommentImageFile = null;
 
   const existing = document.getElementById('reel-comments-panel');
   if (existing) existing.remove();
@@ -2164,12 +2210,37 @@ async function openReelComments(postId) {
     </div>
     <div class="reel-comments-list" id="reel-comments-list"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
     <div class="reel-comments-input">
-      <input type="text" id="reel-comment-input" placeholder="Add a comment…" autocomplete="off">
+      <div id="reel-comment-img-preview" class="comment-img-preview" style="display:none"></div>
+      <div class="comment-compose-row">
+        <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <input type="file" hidden accept="image/*" id="reel-comment-image-input">
+        </label>
+        <textarea id="reel-comment-input" placeholder="Add a comment…" autocomplete="off"></textarea>
+      </div>
       <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
     </div>
   `;
   document.getElementById('reels-viewer')?.appendChild(panel);
-  document.getElementById('reel-comment-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') postReelComment(postId); });
+  document.getElementById('reel-comment-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      postReelComment(postId);
+    }
+  });
+  const reelImgInput = document.getElementById('reel-comment-image-input');
+  if (reelImgInput) {
+    reelImgInput.onchange = e => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      _pendingReelCommentImageFile = f;
+      const prev = document.getElementById('reel-comment-img-preview');
+      if (prev) {
+        prev.innerHTML = `<div class="comment-img-preview-item"><img src="${URL.createObjectURL(f)}"><button type="button" class="image-preview-remove" onclick="clearReelCommentImage()">&times;</button></div>`;
+        prev.style.display = 'block';
+      }
+    };
+  }
 
   // Load comments
   try {
@@ -2180,16 +2251,22 @@ async function openReelComments(postId) {
     if (!comments.length) {
       list.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.5);font-size:13px">No comments yet</div>';
     } else {
-      list.innerHTML = comments.map(c => `
+      list.innerHTML = comments.map(c => {
+        const liked = (c.likes || []).includes(state.user.uid);
+        const likeCount = (c.likes || []).length;
+        return `
         <div class="reel-comment-item">
           ${avatar(c.authorName, c.authorPhoto, 'avatar-xs')}
-          <div>
+          <div class="reel-comment-main">
             <span style="font-weight:600;font-size:12px">${esc(c.authorName)}</span>
-            <span style="font-size:13px;margin-left:4px">${esc(c.text)}</span>
+            ${c.text ? `<span style="font-size:13px;margin-left:4px">${esc(c.text)}</span>` : ''}
+            ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
             <div style="font-size:11px;opacity:0.5;margin-top:2px">${timeAgo(c.createdAt)}</div>
           </div>
+          <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">♥ ${likeCount || ''}</button>
         </div>
-      `).join('');
+      `;
+      }).join('');
       list.scrollTop = list.scrollHeight;
     }
   } catch (e) { console.error(e); }
@@ -2203,18 +2280,48 @@ function closeReelComments() {
 async function postReelComment(postId) {
   const input = document.getElementById('reel-comment-input');
   const text = input?.value.trim();
-  if (!text) return;
+  const imgFile = _pendingReelCommentImageFile;
+  if (!text && !imgFile) return;
   input.value = '';
   try {
+    let imageURL = null;
+    if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
     await db.collection('posts').doc(postId).collection('comments').add({
-      text, authorId: state.user.uid,
+      text: text || '', imageURL,
+      authorId: state.user.uid,
       authorName: state.profile.displayName,
       authorPhoto: state.profile.photoURL || null,
+      likes: [],
       createdAt: FieldVal.serverTimestamp()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
+    _pendingReelCommentImageFile = null;
+    clearReelCommentImage();
     openReelComments(postId); // refresh
   } catch (e) { console.error(e); toast('Failed'); }
+}
+
+function clearReelCommentImage() {
+  _pendingReelCommentImageFile = null;
+  const prev = document.getElementById('reel-comment-img-preview');
+  if (prev) { prev.style.display = 'none'; prev.innerHTML = ''; }
+  const inp = document.getElementById('reel-comment-image-input');
+  if (inp) inp.value = '';
+}
+
+async function toggleReelCommentLike(commentId, postId) {
+  try {
+    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    const doc = await ref.get();
+    if (!doc.exists) return;
+    const likes = doc.data().likes || [];
+    if (likes.includes(state.user.uid)) {
+      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
+    } else {
+      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
+    }
+    openReelComments(postId);
+  } catch (e) { console.error(e); }
 }
 
 async function reelLike(pid, btn) {
@@ -2335,6 +2442,7 @@ async function openComments(postId) {
   });
 
   _commentReplyTo = null;
+  _pendingCommentImageFile = null;
   const forceAnon = !!postData?.isAnonymous && postData?.authorId === state.user.uid;
   const supportsAnonChoice = !!postData?.isAnonymous && postData?.authorId !== state.user.uid;
   _commentAnonChoice = forceAnon ? true : (supportsAnonChoice ? true : false);
@@ -2357,6 +2465,7 @@ async function openComments(postId) {
                   <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
               </div>
               <div class="comment-text">${esc(c.text)}</div>
+              ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
            </div>
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
@@ -2379,24 +2488,54 @@ async function openComments(postId) {
 
   openModal(`
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:70vh;padding:0">
-      <div id="comments-container" class="comments-scroll" style="flex:1;overflow-y:auto;padding:16px">
+    <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:72vh;padding:0">
+      <div id="comments-container" class="comments-scroll" style="flex:1;overflow-y:auto;padding:16px 16px 8px">
         ${renderCommentTree()}
       </div>
       <div id="comment-reply-indicator" class="reply-indicator" style="display:none">
         <span id="comment-reply-label"></span>
         <button onclick="clearCommentReply()">&times;</button>
       </div>
-      <div class="comment-input-wrap" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
+      <div class="comment-input-wrap modern" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
         ${postData?.isAnonymous ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:10px">
           <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)">
           <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
         </label>` : ''}
-        <input type="text" id="comment-input" placeholder="Write a comment..." autocomplete="off">
+        <div id="comment-img-preview" class="comment-img-preview" style="display:none"></div>
+        <div class="comment-compose-row">
+          <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <input type="file" hidden accept="image/*" id="comment-image-input">
+          </label>
+          <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off"></textarea>
+        </div>
         <button onclick="postComment('${postId}')">Post</button>
       </div>
     </div>
   `);
+
+  const cInput = $('#comment-input');
+  if (cInput) {
+    cInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        postComment(postId);
+      }
+    });
+  }
+  const cImgInput = $('#comment-image-input');
+  if (cImgInput) {
+    cImgInput.onchange = e => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      _pendingCommentImageFile = f;
+      const prev = $('#comment-img-preview');
+      if (prev) {
+        prev.innerHTML = `<div class="comment-img-preview-item"><img src="${URL.createObjectURL(f)}"><button type="button" class="image-preview-remove" onclick="clearCommentImage()">&times;</button></div>`;
+        prev.style.display = 'block';
+      }
+    };
+  }
 }
 
 function setCommentAnonChoice(next) {
@@ -2419,7 +2558,10 @@ function clearCommentReply() {
 }
 
 async function postComment(postId) {
-  const input = $('#comment-input'); const text = input?.value.trim(); if (!text) return;
+  const input = $('#comment-input');
+  const text = input?.value.trim();
+  const imgFile = _pendingCommentImageFile;
+  if (!text && !imgFile) return;
   input.value = '';
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
   _commentReplyTo = null;
@@ -2429,9 +2571,13 @@ async function postComment(postId) {
     const isAnonThread = !!postData?.isAnonymous;
     const forceAnon = isAnonThread && postData?.authorId === state.user.uid;
     const commentAnon = forceAnon ? true : (isAnonThread ? !!_commentAnonChoice : false);
+    let imageURL = null;
+    if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
     await db.collection('posts').doc(postId).collection('comments').add({
-      text, authorId: state.user.uid, authorName: commentAnon ? 'Anonymous' : state.profile.displayName,
+      text: text || '', imageURL,
+      authorId: state.user.uid, authorName: commentAnon ? 'Anonymous' : state.profile.displayName,
       authorPhoto: commentAnon ? null : (state.profile.photoURL || null), isAnonymous: commentAnon,
+      likes: [],
       replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
@@ -2440,8 +2586,18 @@ async function postComment(postId) {
     if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId });
 
     // Reopen to show the new comment
+    _pendingCommentImageFile = null;
+    clearCommentImage();
     openComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
+}
+
+function clearCommentImage() {
+  _pendingCommentImageFile = null;
+  const prev = $('#comment-img-preview');
+  if (prev) { prev.style.display = 'none'; prev.innerHTML = ''; }
+  const inp = $('#comment-image-input');
+  if (inp) inp.value = '';
 }
 
 // ─── Image Viewer ────────────────────────────────
@@ -2716,10 +2872,12 @@ function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
   body.innerHTML = `
     <div style="padding:0 16px 12px">
-      <div class="search-bar">
+      <div class="search-bar radar-search-wrap">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(window._radarSearchQuery || '')}">
+        <button class="chip radar-go-btn" id="radar-go-btn" type="button">Go</button>
       </div>
+      <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
     </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
@@ -2810,18 +2968,96 @@ function renderRadarView() {
     renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc);
   };
 
+  const renderRadarSuggestions = (queryRaw = '') => {
+    const box = $('#radar-suggestions');
+    if (!box) return;
+    const q = (queryRaw || '').trim().toLowerCase();
+    if (!q) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      return;
+    }
+
+    const peopleHits = allExploreUsers
+      .filter(u => (u.displayName || '').toLowerCase().includes(q))
+      .slice(0, 4)
+      .map(u => ({ type: 'person', label: u.displayName || 'User', sub: u.major || u.address || '' }));
+
+    const addressPool = [
+      ...CAMPUS_LOCATIONS.map(l => l.name),
+      ...allExploreUsers.map(u => u.address || '').filter(Boolean)
+    ];
+    const addressHits = Array.from(new Set(addressPool))
+      .filter(a => a.toLowerCase().includes(q))
+      .slice(0, 4)
+      .map(a => ({ type: 'address', label: a, sub: 'Address' }));
+
+    const hits = [...peopleHits, ...addressHits].slice(0, 7);
+    if (!hits.length) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      return;
+    }
+
+    box.innerHTML = hits.map(h => `
+      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}">
+        <span class="radar-suggestion-main">${h.type === 'person' ? '👤 ' : '📍 '}${esc(h.label)}</span>
+        ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
+      </button>
+    `).join('');
+    box.style.display = 'block';
+    box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
+      btn.onclick = () => {
+        const selected = btn.getAttribute('data-v') || '';
+        const inp = $('#radar-search');
+        if (inp) inp.value = selected;
+        window._radarSearchQuery = selected;
+        _exploreSearchQuery = selected;
+        renderRadarSuggestions(selected);
+        applyRadarFilter(selected);
+      };
+    });
+  };
+
   applyRadarFilter(window._radarSearchQuery || '');
+  renderRadarSuggestions(window._radarSearchQuery || '');
 
   // Wire up live search; update cards/map without recreating the input element.
   const radarSearchInput = $('#radar-search');
+  const radarGoBtn = $('#radar-go-btn');
+  const switchToListWithQuery = (queryRaw = '') => {
+    const q = (queryRaw || '').trim();
+    window._radarSearchQuery = q;
+    _exploreSearchQuery = q;
+    exploreView = 'list';
+    $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+    renderListView(q);
+  };
+
   if (radarSearchInput) {
     let searchTimer = null;
     radarSearchInput.addEventListener('input', e => {
       const nextQuery = e.target.value;
       window._radarSearchQuery = nextQuery;
+      _exploreSearchQuery = nextQuery;
+      renderRadarSuggestions(nextQuery);
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => applyRadarFilter(nextQuery), 120);
     });
+    radarSearchInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      switchToListWithQuery(radarSearchInput.value);
+    });
+    radarSearchInput.addEventListener('focus', () => renderRadarSuggestions(radarSearchInput.value));
+    radarSearchInput.addEventListener('blur', () => setTimeout(() => {
+      const box = $('#radar-suggestions');
+      if (box) box.style.display = 'none';
+    }, 120));
+  }
+
+  if (radarGoBtn) {
+    radarGoBtn.onclick = () => switchToListWithQuery(radarSearchInput?.value || '');
   }
 }
 
@@ -2941,13 +3177,13 @@ async function showUserPreview(uid) {
   } catch (e) { toast('Could not load user'); console.error(e); }
 }
 
-function renderListView() {
+function renderListView(initialQuery = _exploreSearchQuery || window._radarSearchQuery || '') {
   const body = $('#explore-body'); if (!body) return;
   body.innerHTML = `
     <div style="padding:0 16px 16px">
       <div class="search-bar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="explore-search" placeholder="Search by name, module, course...">
+        <input type="text" id="explore-search" placeholder="Search by name, module, course..." value="${esc(initialQuery)}">
       </div>
       <div class="filter-chips">
         <span class="chip active" data-f="all">All</span>
@@ -2958,10 +3194,14 @@ function renderListView() {
       <div class="users-grid" id="explore-grid"></div>
     </div>
   `;
-  renderExploreGrid();
+  _exploreSearchQuery = initialQuery || '';
+  renderExploreGrid(_exploreSearchQuery);
   let timer;
   $('#explore-search')?.addEventListener('input', e => {
-    clearTimeout(timer); timer = setTimeout(() => renderExploreGrid(e.target.value), 300);
+    clearTimeout(timer); timer = setTimeout(() => {
+      _exploreSearchQuery = e.target.value;
+      renderExploreGrid(_exploreSearchQuery);
+    }, 160);
   });
   $$('#explore-body .filter-chips .chip').forEach(ch => {
     ch.onclick = () => {
@@ -2980,6 +3220,7 @@ function renderExploreGrid(query = '', filter = 'all') {
     const q = query.toLowerCase();
     users = users.filter(u =>
       (u.displayName || '').toLowerCase().includes(q) ||
+      (u.address || '').toLowerCase().includes(q) ||
       (u.major || '').toLowerCase().includes(q) ||
       (u.university || '').toLowerCase().includes(q) ||
       (u.modules || []).some(m => m.toLowerCase().includes(q))
@@ -6504,6 +6745,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
+    clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,

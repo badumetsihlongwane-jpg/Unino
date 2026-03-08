@@ -5384,6 +5384,180 @@ input, select, textarea, button {
 .c-act:hover { color: var(--text-primary); }
 .c-act.liked { color: var(--red); }
 
+.address-suggestion-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.address-suggestion-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.radar-search-wrap {
+  margin-bottom: 8px;
+}
+
+.radar-go-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.radar-suggestions {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.radar-suggestion-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.radar-suggestion-item + .radar-suggestion-item {
+  border-top: 1px solid var(--border);
+}
+
+.radar-suggestion-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.radar-suggestion-main {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.radar-suggestion-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.comment-input-wrap.modern {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 10px;
+}
+
+.comment-input-wrap.modern > button {
+  align-self: flex-end;
+}
+
+.comment-compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.comment-attach-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.comment-input-wrap textarea,
+.reel-comments-input textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 96px;
+  resize: none;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.comment-img-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comment-img-preview-item {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.comment-img-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comment-inline-image {
+  margin-top: 8px;
+  width: min(240px, 100%);
+  max-height: 220px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  cursor: pointer;
+  display: block;
+}
+
+.reel-comments-panel {
+  max-height: 72vh;
+}
+
+.reel-comments-input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.reel-comments-input .send-btn {
+  align-self: flex-end;
+}
+
+.reel-comment-main {
+  display: flex;
+  flex-direction: column;
+  color: rgba(255,255,255,0.92);
+}
+
+.reel-comment-item .c-act {
+  color: rgba(255,255,255,0.82);
+}
+
+.reel-comment-item .c-act.liked {
+  color: #ff6b81;
+}
+
 /* Threading visual — connected lines */
 .comment-replies {
   margin-top: 4px;
@@ -5690,6 +5864,26 @@ input, select, textarea, button {
   transition: transform 0.2s;
 }
 .reels-fab:active { transform: scale(0.9); }
+
+/* Final overrides for upgraded comments/reel UX */
+.reel-comments-panel {
+  max-height: 72vh;
+}
+
+.reel-comments-input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.reel-comments-input .send-btn {
+  align-self: flex-end;
+}
+
+.comment-input-wrap.modern > button {
+  align-self: flex-end;
+}
 
 /* ─── Leaflet Map Pins ───────────── */
 .leaflet-emoji-pin { background: none !important; border: none !important; }
