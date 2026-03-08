@@ -34,6 +34,7 @@ let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
 let _reelCommentReplyTo = null;
+let _sendingReelComment = false;
 const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
@@ -2263,7 +2264,7 @@ async function openReelComments(postId) {
           <input type="file" hidden accept="image/*" id="reel-comment-image-input">
         </label>
         <textarea id="reel-comment-input" placeholder="Add a comment..." autocomplete="off"></textarea>
-        <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
       </div>
     </div>
   `;
@@ -2300,13 +2301,21 @@ function closeReelComments() {
 }
 
 async function postReelComment(postId) {
+  if (_sendingReelComment) return; // Prevent double-sends
+  _sendingReelComment = true;
   const input = document.getElementById('reel-comment-input');
+  const sendBtn = input?.parentElement?.querySelector('.send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+  
   const text = input?.value.trim();
   const imgFile = _pendingReelCommentImageFile;
-  if (!text && !imgFile) return;
+  if (!text && !imgFile) { 
+    _sendingReelComment = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return; 
+  }
   input.value = '';
   const replyTo = _reelCommentReplyTo ? _reelCommentReplyTo.id : null;
-  _reelCommentReplyTo = null;
   try {
     let imageURL = null;
     if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
@@ -2321,10 +2330,12 @@ async function postReelComment(postId) {
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     _pendingReelCommentImageFile = null;
+    _reelCommentReplyTo = null;
     clearReelCommentImage();
     clearReelCommentReply();
     openReelComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
+  finally { _sendingReelComment = false; if (sendBtn) sendBtn.disabled = false; }
 }
 
 function clearReelCommentImage() {
@@ -2340,7 +2351,7 @@ function setReelCommentReply(commentId, authorName) {
   const ind = document.getElementById('reel-comment-reply-indicator');
   const label = document.getElementById('reel-comment-reply-label');
   if (ind) ind.style.display = 'flex';
-  if (label) label.textContent = `↩ Replying to ${authorName}`;
+  if (label) label.innerHTML = `<span style="font-weight:600">↩ Replying to:</span> ${esc(authorName)}`;
   document.getElementById('reel-comment-input')?.focus();
 }
 
@@ -2438,6 +2449,7 @@ async function toggleLike(pid) {
 
 // ─── Comments with Replies ────────────────────────────────────
 let _commentReplyTo = null; // { id, authorName } or null
+let _sendingComment = false;
 
 async function toggleCommentLike(cid, pid) {
   try {
@@ -2538,10 +2550,10 @@ async function openComments(postId) {
         <button onclick="clearCommentReply()">&times;</button>
       </div>
       <div class="comment-input-wrap modern" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0">
-        ${postData?.isAnonymous ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-          <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)">
+        ${postData?.isAnonymous ? `<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)" style="margin-top:2px;flex-shrink:0">
           <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
-        </label>` : ''}
+        </div>` : ''}
         <div id="comment-img-preview" class="comment-img-preview" style="display:none"></div>
         <div class="comment-compose-row compact">
           <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
@@ -2549,7 +2561,7 @@ async function openComments(postId) {
             <input type="file" hidden accept="image/*" id="comment-image-input">
           </label>
           <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off"></textarea>
-          <button class="send-btn" onclick="postComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+          <button class="send-btn" onclick="postComment('${postId}')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         </div>
       </div>
     </div>
@@ -2588,7 +2600,7 @@ function setCommentReply(commentId, authorName) {
   const ind = $('#comment-reply-indicator');
   const label = $('#comment-reply-label');
   if (ind) { ind.style.display = 'flex'; }
-  if (label) { label.textContent = `↩ Replying to ${authorName}`; }
+  if (label) { label.innerHTML = `<span style="font-weight:600">↩ Replying to:</span> ${esc(authorName)}`; }
   $('#comment-input')?.focus();
 }
 
@@ -2599,13 +2611,21 @@ function clearCommentReply() {
 }
 
 async function postComment(postId) {
+  if (_sendingComment) return; // Prevent double-sends
+  _sendingComment = true;
   const input = $('#comment-input');
+  const sendBtn = input?.parentElement?.querySelector('.send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+  
   const text = input?.value.trim();
   const imgFile = _pendingCommentImageFile;
-  if (!text && !imgFile) return;
+  if (!text && !imgFile) { 
+    _sendingComment = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return; 
+  }
   input.value = '';
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
-  _commentReplyTo = null;
   try {
     const pDoc = await db.collection('posts').doc(postId).get();
     const postData = pDoc.exists ? pDoc.data() : null;
@@ -2628,9 +2648,12 @@ async function postComment(postId) {
 
     // Reopen to show the new comment
     _pendingCommentImageFile = null;
+    _commentReplyTo = null;
     clearCommentImage();
+    clearCommentReply();
     openComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
+  finally { _sendingComment = false; if (sendBtn) sendBtn.disabled = false; }
 }
 
 function clearCommentImage() {

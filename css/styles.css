@@ -5904,12 +5904,15 @@ input, select, textarea, button {
   width: 40px;
   height: 40px;
   border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .comment-input-wrap textarea,
 .reel-comments-input textarea {
-  min-height: 40px;
-  max-height: 72px;
+  min-height: 36px;
+  max-height: 64px;
   border-radius: 12px;
   padding: 9px 11px;
 }
