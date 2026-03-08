@@ -2139,7 +2139,7 @@ function renderReelsUI() {
               <svg width="28" height="28" viewBox="0 0 24 24" fill="${liked ? '#ff4757' : 'none'}" stroke="${liked ? '#ff4757' : '#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <span>${lc || ''}</span>
             </button>
-            <button class="reel-act-btn" onclick="openReelComments('${p.id}')">
+            <button class="reel-act-btn" onclick="event.stopPropagation();openReelComments('${p.id}')">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               <span>${cc || ''}</span>
             </button>
@@ -2197,11 +2197,16 @@ function closeReelsViewer() {
 
 // ─── Inline Reel Comments ────────────────────────
 async function openReelComments(postId) {
+  const reelsScroll = document.querySelector('.reels-scroll');
+  const scrollPos = reelsScroll ? reelsScroll.scrollTop : 0;
+  
   _pendingReelCommentImageFile = null;
   _reelCommentReplyTo = null;
 
   const existing = document.getElementById('reel-comments-panel');
   if (existing) existing.remove();
+  
+  if (reelsScroll) reelsScroll.scrollTop = scrollPos;
 
   let comments = [];
   try {
@@ -3094,12 +3099,31 @@ function renderRadarView() {
       return;
     }
 
-    box.innerHTML = hits.map(h => `
-      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
-        <span class="radar-suggestion-main">${h.type === 'person' ? '👤 ' : '📍 '}${esc(h.label)}</span>
-        ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
-      </button>
-    `).join('');
+    box.innerHTML = hits.map(h => {
+      if (h.type === 'person') {
+        const user = allExploreUsers.find(u => u.id === h.uid);
+        const photo = user?.photoURL || null;
+        const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
+        return `
+          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+            ${avatarHTML}
+            <div class="radar-suggestion-text">
+              <span class="radar-suggestion-main">${esc(h.label)}</span>
+              ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
+            </div>
+          </button>
+        `;
+      }
+      return `
+        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+          <span class="radar-suggestion-icon">📍</span>
+          <div class="radar-suggestion-text">
+            <span class="radar-suggestion-main">${esc(h.label)}</span>
+            ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
+          </div>
+        </button>
+      `;
+    }).join('');
     box.style.display = 'block';
     box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
       btn.onclick = () => {
