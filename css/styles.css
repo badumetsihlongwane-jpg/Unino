@@ -5742,7 +5742,7 @@ input, select, textarea, button {
 .reel-actions {
   position: absolute;
   right: 12px;
-  bottom: 40px;
+  bottom: 68px;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -5868,21 +5868,79 @@ input, select, textarea, button {
 /* Final overrides for upgraded comments/reel UX */
 .reel-comments-panel {
   max-height: 72vh;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-.reel-comments-input {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
+.reel-comments-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.reel-comments-header h3,
+.reel-comments-header .icon-btn {
+  color: var(--text-primary);
+}
+
+.reel-comments-list {
+  padding: 12px 14px;
+}
+
+.reel-input-wrap {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+}
+
+.comment-compose-row.compact {
+  align-items: center;
+}
+
+.comment-compose-row.compact .send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+}
+
+.comment-input-wrap textarea,
+.reel-comments-input textarea {
+  min-height: 40px;
+  max-height: 72px;
+  border-radius: 12px;
+  padding: 9px 11px;
+}
+
+.comment-input-wrap.modern {
   gap: 8px;
 }
 
-.reel-comments-input .send-btn {
-  align-self: flex-end;
+.comment-attach-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
 }
 
-.comment-input-wrap.modern > button {
-  align-self: flex-end;
+.reel-comment-main,
+.reel-comment-item .reel-comment-main,
+.reel-comment-item .reel-comment-main span,
+.reel-comment-item .reel-comment-main div {
+  color: var(--text-primary) !important;
+}
+
+.reel-comment-item .c-act {
+  color: var(--text-secondary);
+}
+
+.reel-comment-item .c-act.liked {
+  color: var(--red);
+}
+
+.radar-go-btn {
+  display: none;
 }
 
 /* ─── Leaflet Map Pins ───────────── */

@@ -33,6 +33,7 @@ let _inAppBackListenerBound = false;
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
+let _reelCommentReplyTo = null;
 const _authorPhotoCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
@@ -2193,11 +2194,50 @@ function closeReelsViewer() {
 
 // ─── Inline Reel Comments ────────────────────────
 async function openReelComments(postId) {
-  // Keep video playing while comments are open
   _pendingReelCommentImageFile = null;
+  _reelCommentReplyTo = null;
 
   const existing = document.getElementById('reel-comments-panel');
   if (existing) existing.remove();
+
+  let comments = [];
+  try {
+    const snap = await db.collection('posts').doc(postId).collection('comments').limit(100).get();
+    comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.error(e); }
+
+  comments.forEach(c => { c.likeCount = (c.likes || []).length; });
+  const topLevel = comments.filter(c => !c.replyTo);
+  const replies = comments.filter(c => c.replyTo);
+  topLevel.sort((a, b) => b.likeCount - a.likeCount || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  replies.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+  const replyMap = {};
+  replies.forEach(r => {
+    if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
+    replyMap[r.replyTo].push(r);
+  });
+
+  const renderComment = (c, isReply = false) => {
+    const liked = (c.likes || []).includes(state.user.uid);
+    const cReplies = replyMap[c.id] || [];
+    return `
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}">
+        <div class="comment-avatar-col">${avatar(c.authorName || 'User', c.authorPhoto, 'avatar-sm')}</div>
+        <div class="comment-content-col">
+          <div class="comment-bubble enhanced">
+            <div class="comment-header"><span class="comment-author">${esc(c.authorName || 'User')}</span></div>
+            ${c.text ? `<div class="comment-text">${esc(c.text)}</div>` : ''}
+            ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
+          </div>
+          <div class="comment-actions-row">
+            <span class="comment-time">${timeAgo(c.createdAt)}</span>
+            <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">Like ${c.likeCount > 0 ? c.likeCount : ''}</button>
+            <button class="c-act" onclick="setReelCommentReply('${c.replyTo || c.id}','${esc(c.authorName || 'User')}')">Reply</button>
+          </div>
+          ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => renderComment(r, true)).join('')}</div>` : ''}
+        </div>
+      </div>`;
+  };
 
   const panel = document.createElement('div');
   panel.id = 'reel-comments-panel';
@@ -2208,26 +2248,37 @@ async function openReelComments(postId) {
       <h3>Comments</h3>
       <button class="icon-btn" onclick="closeReelComments()">✕</button>
     </div>
-    <div class="reel-comments-list" id="reel-comments-list"><div style="text-align:center;padding:20px"><span class="inline-spinner"></span></div></div>
-    <div class="reel-comments-input">
+    <div class="reel-comments-list" id="reel-comments-list">
+      ${topLevel.length ? topLevel.map(c => renderComment(c)).join('') : '<div class="empty-msg" style="text-align:center;padding:20px;color:var(--text-tertiary)">No comments yet</div>'}
+    </div>
+    <div id="reel-comment-reply-indicator" class="reply-indicator" style="display:none">
+      <span id="reel-comment-reply-label"></span>
+      <button onclick="clearReelCommentReply()">&times;</button>
+    </div>
+    <div class="comment-input-wrap modern reel-input-wrap">
       <div id="reel-comment-img-preview" class="comment-img-preview" style="display:none"></div>
-      <div class="comment-compose-row">
+      <div class="comment-compose-row compact">
         <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           <input type="file" hidden accept="image/*" id="reel-comment-image-input">
         </label>
-        <textarea id="reel-comment-input" placeholder="Add a comment…" autocomplete="off"></textarea>
+        <textarea id="reel-comment-input" placeholder="Add a comment..." autocomplete="off"></textarea>
+        <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
       </div>
-      <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
     </div>
   `;
   document.getElementById('reels-viewer')?.appendChild(panel);
+
+  const list = document.getElementById('reel-comments-list');
+  if (list) list.scrollTop = list.scrollHeight;
+
   document.getElementById('reel-comment-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       postReelComment(postId);
     }
   });
+
   const reelImgInput = document.getElementById('reel-comment-image-input');
   if (reelImgInput) {
     reelImgInput.onchange = e => {
@@ -2241,35 +2292,6 @@ async function openReelComments(postId) {
       }
     };
   }
-
-  // Load comments
-  try {
-    const snap = await db.collection('posts').doc(postId).collection('comments').orderBy('createdAt', 'asc').limit(50).get();
-    const list = document.getElementById('reel-comments-list');
-    if (!list) return;
-    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (!comments.length) {
-      list.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.5);font-size:13px">No comments yet</div>';
-    } else {
-      list.innerHTML = comments.map(c => {
-        const liked = (c.likes || []).includes(state.user.uid);
-        const likeCount = (c.likes || []).length;
-        return `
-        <div class="reel-comment-item">
-          ${avatar(c.authorName, c.authorPhoto, 'avatar-xs')}
-          <div class="reel-comment-main">
-            <span style="font-weight:600;font-size:12px">${esc(c.authorName)}</span>
-            ${c.text ? `<span style="font-size:13px;margin-left:4px">${esc(c.text)}</span>` : ''}
-            ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
-            <div style="font-size:11px;opacity:0.5;margin-top:2px">${timeAgo(c.createdAt)}</div>
-          </div>
-          <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">♥ ${likeCount || ''}</button>
-        </div>
-      `;
-      }).join('');
-      list.scrollTop = list.scrollHeight;
-    }
-  } catch (e) { console.error(e); }
 }
 
 function closeReelComments() {
@@ -2283,6 +2305,8 @@ async function postReelComment(postId) {
   const imgFile = _pendingReelCommentImageFile;
   if (!text && !imgFile) return;
   input.value = '';
+  const replyTo = _reelCommentReplyTo ? _reelCommentReplyTo.id : null;
+  _reelCommentReplyTo = null;
   try {
     let imageURL = null;
     if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
@@ -2292,12 +2316,14 @@ async function postReelComment(postId) {
       authorName: state.profile.displayName,
       authorPhoto: state.profile.photoURL || null,
       likes: [],
+      replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     _pendingReelCommentImageFile = null;
     clearReelCommentImage();
-    openReelComments(postId); // refresh
+    clearReelCommentReply();
+    openReelComments(postId);
   } catch (e) { console.error(e); toast('Failed'); }
 }
 
@@ -2307,6 +2333,21 @@ function clearReelCommentImage() {
   if (prev) { prev.style.display = 'none'; prev.innerHTML = ''; }
   const inp = document.getElementById('reel-comment-image-input');
   if (inp) inp.value = '';
+}
+
+function setReelCommentReply(commentId, authorName) {
+  _reelCommentReplyTo = { id: commentId, authorName };
+  const ind = document.getElementById('reel-comment-reply-indicator');
+  const label = document.getElementById('reel-comment-reply-label');
+  if (ind) ind.style.display = 'flex';
+  if (label) label.textContent = `↩ Replying to ${authorName}`;
+  document.getElementById('reel-comment-input')?.focus();
+}
+
+function clearReelCommentReply() {
+  _reelCommentReplyTo = null;
+  const ind = document.getElementById('reel-comment-reply-indicator');
+  if (ind) ind.style.display = 'none';
 }
 
 async function toggleReelCommentLike(commentId, postId) {
@@ -2496,20 +2537,20 @@ async function openComments(postId) {
         <span id="comment-reply-label"></span>
         <button onclick="clearCommentReply()">&times;</button>
       </div>
-      <div class="comment-input-wrap modern" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0">
-        ${postData?.isAnonymous ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:10px">
+      <div class="comment-input-wrap modern" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0">
+        ${postData?.isAnonymous ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
           <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)">
           <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
         </label>` : ''}
         <div id="comment-img-preview" class="comment-img-preview" style="display:none"></div>
-        <div class="comment-compose-row">
+        <div class="comment-compose-row compact">
           <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <input type="file" hidden accept="image/*" id="comment-image-input">
           </label>
           <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off"></textarea>
+          <button class="send-btn" onclick="postComment('${postId}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         </div>
-        <button onclick="postComment('${postId}')">Post</button>
       </div>
     </div>
   `);
@@ -2875,7 +2916,6 @@ function renderRadarView() {
       <div class="search-bar radar-search-wrap">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(window._radarSearchQuery || '')}">
-        <button class="chip radar-go-btn" id="radar-go-btn" type="button">Go</button>
       </div>
       <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
     </div>
@@ -2981,7 +3021,7 @@ function renderRadarView() {
     const peopleHits = allExploreUsers
       .filter(u => (u.displayName || '').toLowerCase().includes(q))
       .slice(0, 4)
-      .map(u => ({ type: 'person', label: u.displayName || 'User', sub: u.major || u.address || '' }));
+      .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
     const addressPool = [
       ...CAMPUS_LOCATIONS.map(l => l.name),
@@ -3000,7 +3040,7 @@ function renderRadarView() {
     }
 
     box.innerHTML = hits.map(h => `
-      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}">
+      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
         <span class="radar-suggestion-main">${h.type === 'person' ? '👤 ' : '📍 '}${esc(h.label)}</span>
         ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
       </button>
@@ -3009,6 +3049,13 @@ function renderRadarView() {
     box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
       btn.onclick = () => {
         const selected = btn.getAttribute('data-v') || '';
+        const kind = btn.getAttribute('data-type') || '';
+        const uid = btn.getAttribute('data-uid') || '';
+        if (kind === 'person' && uid) {
+          box.style.display = 'none';
+          openProfile(uid);
+          return;
+        }
         const inp = $('#radar-search');
         if (inp) inp.value = selected;
         window._radarSearchQuery = selected;
@@ -3024,7 +3071,6 @@ function renderRadarView() {
 
   // Wire up live search; update cards/map without recreating the input element.
   const radarSearchInput = $('#radar-search');
-  const radarGoBtn = $('#radar-go-btn');
   const switchToListWithQuery = (queryRaw = '') => {
     const q = (queryRaw || '').trim();
     window._radarSearchQuery = q;
@@ -3056,10 +3102,8 @@ function renderRadarView() {
     }, 120));
   }
 
-  if (radarGoBtn) {
-    radarGoBtn.onclick = () => switchToListWithQuery(radarSearchInput?.value || '');
-  }
 }
+
 
 function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc) {
   requestAnimationFrame(() => {
@@ -6746,6 +6790,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
+    setReelCommentReply, clearReelCommentReply,
     closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
