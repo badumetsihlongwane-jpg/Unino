@@ -2196,16 +2196,16 @@ function closeReelsViewer() {
 }
 
 // ─── Inline Reel Comments ────────────────────────
-async function openReelComments(postId) {
+async function openReelComments(postId, options = {}) {
   const reelsScroll = document.querySelector('.reels-scroll');
   const scrollPos = reelsScroll ? reelsScroll.scrollTop : 0;
+  const existing = document.getElementById('reel-comments-panel');
+  const prevList = existing?.querySelector('#reel-comments-list');
+  const prevListScroll = prevList ? prevList.scrollTop : 0;
   
   _pendingReelCommentImageFile = null;
   _reelCommentReplyTo = null;
 
-  const existing = document.getElementById('reel-comments-panel');
-  if (existing) existing.remove();
-  
   if (reelsScroll) reelsScroll.scrollTop = scrollPos;
 
   let comments = [];
@@ -2253,7 +2253,7 @@ async function openReelComments(postId) {
       </div>`;
   };
 
-  const panel = document.createElement('div');
+  const panel = existing || document.createElement('div');
   panel.id = 'reel-comments-panel';
   panel.className = 'reel-comments-panel';
   panel.onclick = e => e.stopPropagation();
@@ -2281,10 +2281,20 @@ async function openReelComments(postId) {
       </div>
     </div>
   `;
-  document.getElementById('reels-viewer')?.appendChild(panel);
+  if (!existing) document.getElementById('reels-viewer')?.appendChild(panel);
 
   const list = document.getElementById('reel-comments-list');
-  if (list) list.scrollTop = list.scrollHeight;
+  if (list) {
+    requestAnimationFrame(() => {
+      if (options.focusCommentId) {
+        document.getElementById(`rc-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
+      } else if (options.scrollMode === 'preserve') {
+        list.scrollTop = prevListScroll;
+      } else {
+        list.scrollTop = list.scrollHeight;
+      }
+    });
+  }
 
   document.getElementById('reel-comment-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2340,7 +2350,7 @@ async function postReelComment(postId) {
   try {
     let imageURL = null;
     if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
-    await db.collection('posts').doc(postId).collection('comments').add({
+    const docRef = await db.collection('posts').doc(postId).collection('comments').add({
       text: text || '', imageURL,
       authorId: state.user.uid,
       authorName: state.profile.displayName,
@@ -2354,7 +2364,7 @@ async function postReelComment(postId) {
     _reelCommentReplyTo = null;
     clearReelCommentImage();
     clearReelCommentReply();
-    openReelComments(postId);
+    openReelComments(postId, { focusCommentId: docRef.id, scrollMode: 'preserve' });
   } catch (e) { console.error(e); toast('Failed'); }
   finally { _sendingReelComment = false; if (sendBtn) sendBtn.disabled = false; }
 }
@@ -2393,7 +2403,7 @@ async function toggleReelCommentLike(commentId, postId) {
     } else {
       await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
     }
-    openReelComments(postId);
+    openReelComments(postId, { scrollMode: 'preserve' });
   } catch (e) { console.error(e); }
 }
 
@@ -2488,7 +2498,12 @@ async function toggleCommentLike(cid, pid) {
   } catch (e) { console.error(e); }
 }
 
-async function openComments(postId) {
+async function openComments(postId, options = {}) {
+  const modalBg = $('#modal-bg');
+  const modalInner = $('#modal-inner');
+  const existingList = $('#comments-container');
+  const prevListScroll = existingList ? existingList.scrollTop : 0;
+  const isExistingCommentsModal = modalBg?.style.display === 'flex' && !!modalInner?.querySelector('.comment-modal-body');
   let postData = null;
   let comments = [];
   try {
@@ -2568,7 +2583,7 @@ async function openComments(postId) {
     return topLevel.map(c => renderComment(c)).join('');
   }
 
-  openModal(`
+  const commentModalHtml = `
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:72vh;padding:0">
       <div id="comments-container" class="comments-scroll" style="flex:1;overflow-y:auto;padding:16px 16px 8px">
@@ -2594,7 +2609,13 @@ async function openComments(postId) {
         </div>
       </div>
     </div>
-  `);
+  `;
+
+  if (isExistingCommentsModal) {
+    modalInner.innerHTML = commentModalHtml;
+  } else {
+    openModal(commentModalHtml);
+  }
 
   const cInput = $('#comment-input');
   if (cInput) {
@@ -2617,6 +2638,17 @@ async function openComments(postId) {
         prev.style.display = 'block';
       }
     };
+  }
+
+  const commentsList = $('#comments-container');
+  if (commentsList) {
+    requestAnimationFrame(() => {
+      if (options.focusCommentId) {
+        document.getElementById(`c-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
+      } else if (options.scrollMode === 'preserve') {
+        commentsList.scrollTop = prevListScroll;
+      }
+    });
   }
 }
 
@@ -2671,7 +2703,7 @@ async function postComment(postId) {
     const commentAnon = forceAnon ? true : (isAnonThread ? !!_commentAnonChoice : false);
     let imageURL = null;
     if (imgFile) imageURL = await uploadToR2(imgFile, 'comments');
-    await db.collection('posts').doc(postId).collection('comments').add({
+    const docRef = await db.collection('posts').doc(postId).collection('comments').add({
       text: text || '', imageURL,
       authorId: state.user.uid, authorName: commentAnon ? 'Anonymous' : state.profile.displayName,
       authorPhoto: commentAnon ? null : (state.profile.photoURL || null), isAnonymous: commentAnon,
@@ -2688,7 +2720,7 @@ async function postComment(postId) {
     _commentReplyTo = null;
     clearCommentImage();
     clearCommentReply();
-    openComments(postId);
+    openComments(postId, { focusCommentId: docRef.id, scrollMode: 'preserve' });
   } catch (e) { console.error(e); toast('Failed'); }
   finally { _sendingComment = false; if (sendBtn) sendBtn.disabled = false; }
 }

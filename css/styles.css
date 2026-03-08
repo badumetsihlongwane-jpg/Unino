@@ -5922,7 +5922,7 @@ input, select, textarea, button {
   bottom: 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
 }
 
 .comment-reply-to {
@@ -5935,12 +5935,12 @@ input, select, textarea, button {
 }
 
 .comment-input-wrap.modern {
-  gap: 8px;
+  gap: 5px;
   background: var(--bg-secondary);
 }
 
 .comment-chat-bar {
-  padding: 10px 12px;
+  padding: 8px 12px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
 }
