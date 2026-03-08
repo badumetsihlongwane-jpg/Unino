@@ -190,21 +190,31 @@ function handleAppBackAction(options = {}) {
 }
 
 async function scheduleLocalNotification(notification) {
-  if (!_nativeLocalNotificationsReady || !isNativeApp()) return;
+  // Web fallback: use browser Notification API when not native
+  if (!isNativeApp()) {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        const opts = { body: notification.body, icon: notification.largeIcon || '/icons/icon-192.png', tag: String(notification.id) };
+        new Notification(notification.title, opts);
+      } catch (_) {}
+    }
+    return;
+  }
+  if (!_nativeLocalNotificationsReady) return;
   const localNotifications = getCapacitorPlugin('LocalNotifications');
   if (!localNotifications) return;
   try {
-    await localNotifications.schedule({
-      notifications: [{
-        id: notification.id,
-        title: notification.title,
-        body: notification.body,
-        schedule: { at: new Date(Date.now() + 50) },
-        channelId: notification.channelId || 'unibo-general',
-        actionTypeId: notification.actionTypeId || 'app-preview',
-        extra: notification.extra || {}
-      }]
-    });
+    const notifPayload = {
+      id: notification.id,
+      title: notification.title,
+      body: notification.body,
+      schedule: { at: new Date(Date.now() + 50) },
+      channelId: notification.channelId || 'unibo-general',
+      actionTypeId: notification.actionTypeId || 'app-preview',
+      extra: notification.extra || {}
+    };
+    if (notification.largeIcon) notifPayload.largeIcon = notification.largeIcon;
+    await localNotifications.schedule({ notifications: [notifPayload] });
   } catch (e) {
     console.warn('Local notification failed:', e);
   }
@@ -215,14 +225,17 @@ async function initNativePushNotifications() { /* no-op */ }
 
 // Request local notification permission — called only after login.
 async function requestLocalNotificationPermission() {
-  if (!isNativeApp()) return;
-  const localNotifications = getCapacitorPlugin('LocalNotifications');
-  if (!localNotifications) return;
-  try {
-    const perm = await localNotifications.requestPermissions();
-    _nativeLocalNotificationsReady = perm.display === 'granted';
-  } catch (e) {
-    _nativeLocalNotificationsReady = false;
+  if (isNativeApp()) {
+    const localNotifications = getCapacitorPlugin('LocalNotifications');
+    if (!localNotifications) return;
+    try {
+      const perm = await localNotifications.requestPermissions();
+      _nativeLocalNotificationsReady = perm.display === 'granted';
+    } catch (e) {
+      _nativeLocalNotificationsReady = false;
+    }
+  } else if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch (_) {}
   }
 }
 
@@ -247,7 +260,7 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
 }
 
 function maybeNotifyForUnreadDMs(conversations = []) {
-  if (!state.user || !isNativeApp()) return;
+  if (!state.user) return;
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
@@ -270,10 +283,12 @@ function maybeNotifyForUnreadDMs(conversations = []) {
     const otherUid = conversation.participants[index];
     const anonymousPeer = !!((conversation.anonymous || {})[otherUid]);
     const senderName = anonymousPeer ? getAnonDisplayName(conversation, myUid, otherUid) : ((conversation.participantNames || [])[index] || 'New message');
+    const senderPhoto = anonymousPeer ? null : ((conversation.participantPhotos || [])[index] || null);
     scheduleLocalNotification({
       id: hashStringToId(`dm-${conversation.id}-${unread}`),
       title: senderName,
       body: clampText(conversation.lastMessage || 'Sent you a message', 110),
+      largeIcon: senderPhoto || undefined,
       channelId: 'unibo-messages',
       actionTypeId: 'dm-preview',
       extra: { kind: 'dm', convoId: conversation.id }
@@ -284,7 +299,7 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 }
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
-  if (!state.user || !isNativeApp()) return;
+  if (!state.user) return;
   const unreadIds = new Set(notifications.filter(notification => !notification.read).map(notification => notification.id));
   if (!_nativeGeneralNotificationPrimed) {
     unreadIds.forEach(id => _nativeGeneralNotifIds.add(id));
@@ -300,6 +315,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
     }
 
     const fromName = notification.from?.name || 'Unibo';
+    const fromPhoto = notification.from?.photo || null;
     const kind = notification.payload?.convoId
       ? 'dm'
       : notification.payload?.groupId
@@ -311,6 +327,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       id: hashStringToId(`notif-${notification.id}`),
       title: fromName,
       body: clampText(notification.text || 'You have a new notification', 110),
+      largeIcon: fromPhoto || undefined,
       channelId: kind === 'dm' || kind === 'group' ? 'unibo-messages' : 'unibo-general',
       actionTypeId: 'app-preview',
       extra: {
@@ -5020,6 +5037,7 @@ function renderMessages() {
       </div>
       <button class="archive-fab" id="archive-fab" onclick="toggleArchiveDmView()" aria-label="Archived chats" title="Show archived chats">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+        <span class="archive-fab-badge" id="archive-fab-badge" style="display:none"></span>
       </button>
     </div>
   `;
@@ -5933,12 +5951,16 @@ function loadNotifications() {
   if (otherNotifs.length) {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : '🔔';
-      const clickAction = n.payload?.postId
-        ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
-        : n.payload?.groupId
-          ? `openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
-          : `markNotifRead('${n.id}')`;
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : '🔔';
+      const clickAction = n.payload?.convoId
+        ? `openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
+        : n.payload?.postId
+          ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+          : n.payload?.groupId
+            ? `openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+            : n.from?.uid && n.from.uid !== 'anonymous'
+              ? `openProfile('${n.from.uid}');markNotifRead('${n.id}')`
+              : `markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unibo', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
@@ -6057,6 +6079,16 @@ function loadDMList() {
       }
 
       const uid = state.user.uid;
+      // Update archive badge with unread count from archived convos
+      let archivedUnread = 0;
+      convos.forEach(c => {
+        if ((c.archived || []).includes(uid)) archivedUnread += (c.unread || {})[uid] || 0;
+      });
+      const archBadge = $('#archive-fab-badge');
+      if (archBadge) {
+        archBadge.textContent = archivedUnread || '';
+        archBadge.style.display = archivedUnread ? 'flex' : 'none';
+      }
       el.innerHTML = convos.map(c => {
         const idx = c.participants.indexOf(uid) === 0 ? 1 : 0;
         const otherUid = c.participants[idx];

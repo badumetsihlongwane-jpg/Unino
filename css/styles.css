@@ -3888,6 +3888,24 @@ video::-webkit-media-controls-start-playback-button {
   background: linear-gradient(135deg, var(--green), #16a34a);
 }
 
+.archive-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--red, #ef4444);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
 /* Group avatar icon */
 .group-avatar-icon {
   display: flex;
