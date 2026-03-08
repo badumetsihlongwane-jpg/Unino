@@ -2271,13 +2271,13 @@ async function openReelComments(postId) {
     </div>
     <div class="comment-input-wrap modern reel-input-wrap">
       <div id="reel-comment-img-preview" class="comment-img-preview" style="display:none"></div>
-      <div class="comment-compose-row compact">
-        <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
+      <div class="chat-bar comment-chat-bar reel-comment-chat-bar">
+        <label class="add-photo-btn chat-attach-btn comment-attach-btn" title="Add sticker/image">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           <input type="file" hidden accept="image/*" id="reel-comment-image-input">
         </label>
-        <textarea id="reel-comment-input" placeholder="Add a comment..." autocomplete="off"></textarea>
-        <button class="send-btn" onclick="postReelComment('${postId}')"><svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 21l20-9L2 3v7l14 2-14 2z"/></svg></button>
+        <textarea id="reel-comment-input" placeholder="Add a comment..." autocomplete="off" style="resize:none;overflow-y:auto;max-height:84px;min-height:40px;font-family:inherit;font-size:16px;line-height:1.3"></textarea>
+        <button class="send-btn" onclick="postReelComment('${postId}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
       </div>
     </div>
   `;
@@ -2578,19 +2578,19 @@ async function openComments(postId) {
         <span id="comment-reply-label"></span>
         <button onclick="clearCommentReply()">&times;</button>
       </div>
-      <div class="comment-input-wrap modern" style="position:sticky;bottom:0;background:var(--bg-secondary);padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0">
+      <div class="comment-input-wrap modern" style="position:sticky;bottom:0;flex-shrink:0">
         ${postData?.isAnonymous ? `<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
           <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)" style="margin-top:2px;flex-shrink:0">
           <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
         </div>` : ''}
         <div id="comment-img-preview" class="comment-img-preview" style="display:none"></div>
-        <div class="comment-compose-row compact">
-          <label class="add-photo-btn comment-attach-btn" title="Add sticker/image">
+        <div class="chat-bar comment-chat-bar">
+          <label class="add-photo-btn chat-attach-btn comment-attach-btn" title="Add sticker/image">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <input type="file" hidden accept="image/*" id="comment-image-input">
           </label>
-          <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off"></textarea>
-          <button class="send-btn" onclick="postComment('${postId}')"><svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 21l20-9L2 3v7l14 2-14 2z"/></svg></button>
+          <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off" style="resize:none;overflow-y:auto;max-height:84px;min-height:40px;font-family:inherit;font-size:16px;line-height:1.3"></textarea>
+          <button class="send-btn" onclick="postComment('${postId}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         </div>
       </div>
     </div>

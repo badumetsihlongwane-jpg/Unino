@@ -5934,44 +5934,43 @@ input, select, textarea, button {
   letter-spacing: 0.01em;
 }
 
-.comment-compose-row.compact {
-  align-items: center;
-}
-
-.comment-compose-row.compact .send-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.comment-compose-row.compact .send-btn .send-icon {
-  width: 22px;
-  height: 22px;
-  color: #fff;
-  display: block;
-}
-
-.comment-input-wrap textarea,
-.reel-comments-input textarea {
-  min-height: 40px;
-  max-height: 84px;
-  border-radius: 16px;
-  padding: 9px 14px;
-  font-size: 16px;
-  line-height: 1.35;
-}
-
 .comment-input-wrap.modern {
   gap: 8px;
+  background: var(--bg-secondary);
 }
 
-.comment-attach-btn {
+.comment-chat-bar {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+
+.comment-chat-bar textarea {
+  flex: 1;
+  padding: 9px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--text-primary);
+}
+
+.comment-chat-bar .comment-attach-btn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 12px;
+}
+
+.comment-chat-bar .send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+}
+
+.comment-chat-bar .send-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
 }
 
 .reel-comment-main,
