@@ -175,6 +175,12 @@ function distanceKmBetween(a, b) {
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
 }
 
+function formatDistanceText(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return '';
+  if (distanceKm < 1) return `${Math.max(50, Math.round(distanceKm * 1000))} m away`;
+  return `${distanceKm.toFixed(distanceKm < 10 ? 1 : 0)} km away`;
+}
+
 function getNearbySignal(meProfile = {}, otherProfile = {}) {
   const myCoords = getUserCoords(meProfile);
   const theirCoords = getUserCoords(otherProfile);
@@ -357,6 +363,116 @@ function getLocationDistanceBoost(coords) {
   if (dist <= 3) return 6;
   if (dist <= 5) return 3;
   return 0;
+}
+
+function offsetLatLng(base, offsetIndex = 0, step = 0.00022) {
+  const angle = (offsetIndex % 8) * (Math.PI / 4);
+  const ring = Math.floor(offsetIndex / 8) + 1;
+  return {
+    lat: base.lat + Math.cos(angle) * step * ring,
+    lng: base.lng + Math.sin(angle) * step * ring
+  };
+}
+
+function resolveMapPoint(base, occupied = [], anchor = null) {
+  if (!base) return null;
+  const threshold = 0.00018;
+  let candidate = { ...base };
+  let attempt = 0;
+  while (attempt < 24) {
+    const tooCloseToAnchor = anchor && distanceKmBetween(candidate, anchor) < 0.045;
+    const tooCloseToOthers = occupied.some(point => Math.abs(point.lat - candidate.lat) < threshold && Math.abs(point.lng - candidate.lng) < threshold);
+    if (!tooCloseToAnchor && !tooCloseToOthers) break;
+    attempt += 1;
+    candidate = offsetLatLng(base, attempt);
+  }
+  occupied.push(candidate);
+  return candidate;
+}
+
+function openCommentActionSheet(postId, commentId, source = 'feed') {
+  openModal(`
+    <div class="modal-header"><h2>Comment</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">Delete Comment</button>
+      <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+function bindCommentLongPress(container, postId, source = 'feed') {
+  if (!container) return;
+  container.querySelectorAll('.comment-item[data-author-id]').forEach(item => {
+    const authorId = item.getAttribute('data-author-id') || '';
+    const commentId = item.getAttribute('data-comment-id') || '';
+    if (!commentId || authorId !== state.user?.uid) return;
+    let timer = null;
+    let didOpen = false;
+    const start = () => {
+      clearTimeout(timer);
+      didOpen = false;
+      item.classList.add('comment-long-pressing');
+      timer = setTimeout(() => {
+        didOpen = true;
+        item.classList.remove('comment-long-pressing');
+        if (navigator.vibrate) navigator.vibrate(18);
+        openCommentActionSheet(postId, commentId, source);
+      }, 360);
+    };
+    const clear = () => {
+      clearTimeout(timer);
+      timer = null;
+      item.classList.remove('comment-long-pressing');
+    };
+    item.oncontextmenu = e => {
+      e.preventDefault();
+      if (navigator.vibrate) navigator.vibrate(18);
+      openCommentActionSheet(postId, commentId, source);
+    };
+    item.addEventListener('click', e => {
+      if (!didOpen) return;
+      e.preventDefault();
+      e.stopPropagation();
+      didOpen = false;
+    }, true);
+    item.addEventListener('touchstart', start, { passive: true });
+    item.addEventListener('touchend', clear);
+    item.addEventListener('touchmove', clear);
+    item.addEventListener('touchcancel', clear);
+    item.addEventListener('mousedown', start);
+    item.addEventListener('mouseup', clear);
+    item.addEventListener('mouseleave', clear);
+  });
+}
+
+async function deleteCommentThread(postId, commentId, source = 'feed') {
+  try {
+    const commentsRef = db.collection('posts').doc(postId).collection('comments');
+    const snap = await commentsRef.limit(200).get();
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const toDelete = new Set([commentId]);
+    let added = true;
+    while (added) {
+      added = false;
+      comments.forEach(comment => {
+        if (comment.replyTo && toDelete.has(comment.replyTo) && !toDelete.has(comment.id)) {
+          toDelete.add(comment.id);
+          added = true;
+        }
+      });
+    }
+    const batch = db.batch();
+    toDelete.forEach(id => batch.delete(commentsRef.doc(id)));
+    batch.update(db.collection('posts').doc(postId), { commentsCount: FieldVal.increment(-toDelete.size) });
+    await batch.commit();
+    closeModal();
+    if (source === 'reel') openReelComments(postId, { scrollMode: 'preserve' });
+    else openComments(postId, { scrollMode: 'preserve' });
+    toast('Comment deleted');
+  } catch (e) {
+    console.error(e);
+    toast('Could not delete comment');
+  }
 }
 
 function sanitizeFriendRequests(requests = []) {
@@ -2455,7 +2571,7 @@ async function openReelComments(postId, options = {}) {
     const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
     const toLabel = target ? (target.authorId === state.user.uid ? 'me' : (target.authorName || 'User')) : '';
     return `
-      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}">
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col">${avatar(c.authorName || 'User', c.authorPhoto, 'avatar-sm')}</div>
         <div class="comment-content-col">
           <div class="comment-bubble enhanced">
@@ -2506,6 +2622,7 @@ async function openReelComments(postId, options = {}) {
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
+    bindCommentLongPress(list, postId, 'reel');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`rc-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -2772,7 +2889,7 @@ async function openComments(postId, options = {}) {
       const toLabel = target ? (target.authorId === state.user.uid ? 'me' : targetDisplayName) : '';
      
      return `
-      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}">
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col">
           ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
         </div>
@@ -2863,6 +2980,7 @@ async function openComments(postId, options = {}) {
 
   const commentsList = $('#comments-container');
   if (commentsList) {
+    bindCommentLongPress(commentsList, postId, 'feed');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`c-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -3445,7 +3563,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
 
     const center = getRadarCenterCoords();
 
-    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 16);
+    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 17);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
     _leafletMap.dragging.enable();
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
@@ -3476,6 +3594,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
 
     const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
     const plottedIds = new Set();
+    const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
 
     usersToPlot.forEach(u => {
       const coords = getUserCoords(u);
@@ -3483,28 +3602,32 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       const distanceKm = distanceKmBetween(center, coords);
       if (distanceKm > 5) return;
       plottedIds.add(u.id);
+      const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
       const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
       const uIcon = L.divIcon({
         className: 'leaflet-user-pin',
         html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
         iconSize: [28, 28], iconAnchor: [14, 14]
       });
-      L.marker([coords.lat, coords.lng], { icon: uIcon }).addTo(_leafletMap)
+      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
         .on('click', () => showUserPreview(u.id));
     });
 
     usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
       const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
       const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
-      const lat = center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8);
-      const lng = center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8);
+      const rawPoint = {
+        lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8),
+        lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8)
+      };
+      const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
       const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
       const uIcon = L.divIcon({
         className: 'leaflet-user-pin',
         html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
         iconSize: [28, 28], iconAnchor: [14, 14]
       });
-      L.marker([lat, lng], { icon: uIcon }).addTo(_leafletMap)
+      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
         .on('click', () => showUserPreview(u.id));
     });
 
@@ -3562,11 +3685,20 @@ async function showUserPreview(uid) {
     const isFriend = (state.profile.friends || []).includes(uid);
     const isPending = (state.profile.sentRequests || []).includes(uid);
     const modules = (user.modules || []).slice(0, 3);
+    const myCoords = getUserCoords(state.profile);
+    const theirCoords = getUserCoords(user);
+    const distanceText = !isMe && myCoords && theirCoords ? formatDistanceText(distanceKmBetween(myCoords, theirCoords)) : '';
+    const detailChips = [
+      user.year ? `🎓 ${esc(user.year)}` : '',
+      user.address ? `📍 ${esc(user.address)}` : '',
+      distanceText ? `🧭 ${esc(distanceText)}` : ''
+    ].filter(Boolean);
     openModal(`
       <div class="modal-body" style="text-align:center;padding:24px">
         <div style="margin-bottom:12px">${avatar(user.displayName, user.photoURL, 'avatar-xl')}</div>
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(user.displayName)}</div>
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}</div>
+        ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
         ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
         ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
         <div style="display:flex;gap:8px;justify-content:center">
@@ -3787,7 +3919,7 @@ function initLeafletMap(eventsByLoc) {
     });
     const m = L.marker([u.lat, u.lng], { icon: userIcon }).addTo(_leafletMap);
     m.bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>`);
-    m.on('click', () => openProfile(u.id));
+    m.on('click', () => showUserPreview(u.id));
   });
 
   // Invalidate size after animation

@@ -5320,6 +5320,11 @@ input, select, textarea, button {
   gap: 12px;
   margin-bottom: 16px;
   animation: fadeIn 0.3s ease;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.comment-item.comment-long-pressing {
+  transform: scale(0.985);
+  opacity: 0.82;
 }
 .comment-avatar-col {
   flex-shrink: 0;
