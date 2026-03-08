@@ -38,6 +38,7 @@ let _sendingReelComment = false;
 let _lastFeedCommentSubmit = { key: '', at: 0 };
 let _lastReelCommentSubmit = { key: '', at: 0 };
 const _authorPhotoCache = {};
+const _userContextCache = {};
 function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
 
@@ -208,38 +209,44 @@ async function saveCurrentGpsLocation(options = {}) {
     if (!silent) toast('GPS location is not available on this device');
     return null;
   }
-  if (!silent) toast('Getting your GPS location...');
-  const coords = await new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      maximumAge: 60000,
-      timeout: 10000
+  try {
+    if (!silent) toast('Getting your GPS location...');
+    const coords = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: 10000
+      });
     });
-  });
-  const lat = Number(coords.coords.latitude.toFixed(6));
-  const lng = Number(coords.coords.longitude.toFixed(6));
-  const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
-    const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
-    return !best || dist < best.distanceKm ? { ...loc, distanceKm: dist } : best;
-  }, null);
-  const updates = {
-    geoLat: lat,
-    geoLng: lng,
-    geoSource: 'gps',
-    geoUpdatedAt: FieldVal.serverTimestamp(),
-    address: state.profile?.address || nearestCampus?.name || ''
-  };
-  await db.collection('users').doc(state.user.uid).update(updates);
-  Object.assign(state.profile, {
-    ...updates,
-    geoUpdatedAt: new Date()
-  });
-  localStorage.setItem(getLocationPromptKey(state.user.uid), 'granted');
-  const statusEl = $('#gps-location-status');
-  if (statusEl) statusEl.textContent = `GPS saved: ${lat}, ${lng}`;
-  if (state.page === 'explore') loadExploreUsers();
-  if (!silent) toast('Location saved. Unino will not track you continuously.');
-  return { lat, lng };
+    const lat = Number(coords.coords.latitude.toFixed(6));
+    const lng = Number(coords.coords.longitude.toFixed(6));
+    const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+      const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+      return !best || dist < best.distanceKm ? { ...loc, distanceKm: dist } : best;
+    }, null);
+    const updates = {
+      geoLat: lat,
+      geoLng: lng,
+      geoSource: 'gps',
+      geoUpdatedAt: FieldVal.serverTimestamp(),
+      address: state.profile?.address || nearestCampus?.name || ''
+    };
+    await db.collection('users').doc(state.user.uid).update(updates);
+    Object.assign(state.profile, {
+      ...updates,
+      geoUpdatedAt: new Date()
+    });
+    localStorage.setItem(getLocationPromptKey(state.user.uid), 'granted');
+    const statusEl = $('#gps-location-status');
+    if (statusEl) statusEl.textContent = `GPS saved: ${lat}, ${lng}`;
+    if (state.page === 'explore') loadExploreUsers();
+    if (!silent) toast('Location saved. Unino will not track you continuously.');
+    return { lat, lng };
+  } catch (err) {
+    console.error(err);
+    if (!silent) openLocationHelpModal(getLocationErrorMessage(err));
+    return null;
+  }
 }
 
 function maybePromptForGpsLocation() {
@@ -250,12 +257,7 @@ function maybePromptForGpsLocation() {
   setTimeout(async () => {
     const allow = window.confirm('Use your current GPS location for radar and nearby students? This saves your location once and does not track you continuously.');
     if (!allow) return;
-    try {
-      await saveCurrentGpsLocation();
-    } catch (err) {
-      console.error(err);
-      toast('Could not get GPS location');
-    }
+    await saveCurrentGpsLocation();
   }, 700);
 }
 
@@ -272,6 +274,89 @@ async function clearAppCache() {
     url.searchParams.set('refresh', Date.now().toString());
     window.location.replace(url.toString());
   }, 250);
+}
+
+function getLocationErrorMessage(err) {
+  if (!err) return 'Could not get your GPS location.';
+  if (err.code === 1) return 'Location permission was denied. Turn on browser location permission for this site.';
+  if (err.code === 2) return 'Your device location is off or unavailable. Turn on Location/GPS in your phone settings and try again.';
+  if (err.code === 3) return 'Location lookup timed out. Move to a clearer area or retry.';
+  return err.message || 'Could not get your GPS location.';
+}
+
+function openLocationHelpModal(message = '') {
+  openModal(`
+    <div class="modal-header"><h2>Location Needed</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:18px 16px">
+      <p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(message || 'Turn on location permissions so Unino can save your current GPS position once for radar and nearby matching.')}</p>
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.5">
+        <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px">How to fix it</div>
+        <div>1. Turn on Location/GPS in your phone settings.</div>
+        <div>2. Allow location access for your browser.</div>
+        <div>3. Tap Retry below.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-primary" onclick="closeModal();saveCurrentGpsLocation()">Retry GPS</button>
+        <button class="btn-outline" onclick="closeModal();editProfile()">Open Edit Profile</button>
+      </div>
+    </div>
+  `);
+}
+
+async function ensureUserContextCache(userIds = []) {
+  const missing = [...new Set((userIds || []).filter(Boolean))].filter(uid => !_userContextCache[uid]);
+  if (!missing.length) return;
+  await Promise.all(missing.map(async uid => {
+    _userContextCache[uid] = { pending: true };
+    try {
+      const doc = await db.collection('users').doc(uid).get();
+      _userContextCache[uid] = doc.exists ? { id: doc.id, ...doc.data() } : null;
+    } catch (e) {
+      console.error('user context', e);
+      _userContextCache[uid] = null;
+    }
+  }));
+}
+
+function buildInterestProfile() {
+  const modules = new Set(normalizeModules(state.profile?.modules || []));
+  const tags = new Set();
+  (state.posts || []).forEach(existingPost => {
+    if ((existingPost.likes || []).includes(state.user?.uid)) {
+      normalizeModules(existingPost.moduleTags || []).forEach(tag => modules.add(tag));
+      getPostHashTags(existingPost).forEach(tag => tags.add((tag || '').toLowerCase()));
+    }
+  });
+  const tokens = new Set();
+  modules.forEach(m => tokens.add(m.toLowerCase()));
+  tags.forEach(t => tokens.add(t.toLowerCase()));
+  return { modules, tags, tokens };
+}
+
+function textInterestScore(text = '', interestProfile = buildInterestProfile()) {
+  const hay = (text || '').toLowerCase();
+  if (!hay) return 0;
+  let score = 0;
+  interestProfile.modules.forEach(token => { if (hay.includes(token.toLowerCase())) score += 8; });
+  interestProfile.tags.forEach(token => { if (hay.includes(token.toLowerCase())) score += 4; });
+  return score;
+}
+
+function getCampusLocationById(locationId) {
+  return CAMPUS_LOCATIONS.find(l => l.id === locationId) || null;
+}
+
+function getLocationDistanceBoost(coords) {
+  const myCoords = getUserCoords(state.profile);
+  if (!myCoords || !coords) return 0;
+  const dist = distanceKmBetween(myCoords, coords);
+  if (!Number.isFinite(dist)) return 0;
+  if (dist <= 0.35) return 18;
+  if (dist <= 0.75) return 14;
+  if (dist <= 1.5) return 10;
+  if (dist <= 3) return 6;
+  if (dist <= 5) return 3;
+  return 0;
 }
 
 function sanitizeFriendRequests(requests = []) {
@@ -1678,7 +1763,7 @@ function renderFeed() {
 
   // Real-time posts
   const u = db.collection('posts').orderBy('createdAt', 'desc').limit(50)
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const myFriends = state.profile.friends || [];
       const uid = state.user.uid;
       const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1698,12 +1783,15 @@ function renderFeed() {
           getPostHashTags(existingPost).forEach(tag => likedTagPrefs.add(tag));
         }
       });
+      await ensureUserContextCache(visible.map(post => post.authorId));
 
       // Discovery ranking for new posts, while preserving the current on-screen order for existing ones.
       const scored = visible.map(p => {
         const likes = (p.likes || []).length;
         const comments = p.commentsCount || 0;
         const isFriend = myFriends.includes(p.authorId);
+        const authorContext = _userContextCache[p.authorId] || null;
+        const nearbyBoost = authorContext ? getNearbySignal(state.profile, authorContext).score * 4 : 0;
         const sharedModules = normalizeModules(p.moduleTags || []).filter(tag => likedModulePrefs.has(tag)).length;
         const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
         const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
@@ -1712,7 +1800,7 @@ function renderFeed() {
         const friendBoost = isFriend ? 8 : 0;
         const interestBoost = sharedModules * 10 + sharedTags * 5;
         const randomFactor = scoreSeed(p.id) * 10;
-        return { ...p, _score: engagement + freshness * 15 + friendBoost + interestBoost + randomFactor };
+        return { ...p, _score: engagement + freshness * 15 + friendBoost + nearbyBoost + interestBoost + randomFactor };
       });
       scored.sort((a, b) => {
         const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
@@ -1782,6 +1870,7 @@ function loadDiscoverPeople() {
     el.innerHTML = `<div class="discover-scroll">${users.map(u => {
       const tag = u.sharedModules?.length
         ? `🔗 ${u.sharedModules.length} shared module${u.sharedModules.length > 1 ? 's' : ''}`
+        : Number.isFinite(u.distanceKm) ? `📍 ${u.distanceKm.toFixed(1)} km away`
         : u.nearbyScore > 0 ? '📍 Nearby area'
         : u.major ? `📚 ${esc(u.major)}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
@@ -1816,9 +1905,18 @@ function loadDiscoverEvents() {
       el.innerHTML = `<div class="discover-empty"><span>📅</span><p>No events yet. Check the Campus map!</p></div>`;
       return;
     }
-    el.innerHTML = `<div class="discover-scroll">${events.slice(0, 8).map(ev => {
+    const interestProfile = buildInterestProfile();
+    const rankedEvents = [...events].map(ev => {
+      const loc = getCampusLocationById(ev.location);
+      const locationBoost = loc ? getLocationDistanceBoost({ lat: loc.lat, lng: loc.lng }) : 0;
+      const goingBoost = Math.min(10, (ev.going || []).length * 1.5);
+      const interestBoost = textInterestScore(`${ev.title || ''} ${ev.description || ''} ${ev.location || ''}`, interestProfile);
+      return { ...ev, _discoverScore: locationBoost + goingBoost + interestBoost };
+    }).sort((a, b) => b._discoverScore - a._discoverScore || (a.date || '').localeCompare(b.date || ''));
+    el.innerHTML = `<div class="discover-scroll">${rankedEvents.slice(0, 8).map(ev => {
       const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
       const locName = loc ? loc.name : esc(ev.location || '?');
+      const nearLabel = loc && getLocationDistanceBoost({ lat: loc.lat, lng: loc.lng }) > 0 ? ' · Near you' : '';
       const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
       const goingCount = (ev.going || []).length;
       const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
@@ -1827,7 +1925,7 @@ function loadDiscoverEvents() {
           ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div style="background:${grad};width:100%;height:120px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>`}
           <div class="discover-card-name">${esc(ev.title)}</div>
           <div class="discover-card-meta">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
-          <div class="discover-card-tag">📍 ${locName}</div>
+          <div class="discover-card-tag">📍 ${locName}${nearLabel}</div>
           ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">👥 ${goingCount} going</div>` : ''}
         </div>`;
     }).join('')}</div>`;
@@ -3349,6 +3447,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
 
     _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 16);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
+    _leafletMap.dragging.enable();
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
     }).addTo(_leafletMap);
@@ -3391,8 +3490,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         iconSize: [28, 28], iconAnchor: [14, 14]
       });
       L.marker([coords.lat, coords.lng], { icon: uIcon }).addTo(_leafletMap)
-        .bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>${Number.isFinite(distanceKm) ? `<br><small>📍 ${distanceKm.toFixed(1)} km away</small>` : ''}${u.sharedModules?.length ? `<br><small>🔗 ${u.sharedModules.join(', ')}</small>` : ''}`)
-        .on('click', () => openProfile(u.id));
+        .on('click', () => showUserPreview(u.id));
     });
 
     usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
@@ -3407,9 +3505,18 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         iconSize: [28, 28], iconAnchor: [14, 14]
       });
       L.marker([lat, lng], { icon: uIcon }).addTo(_leafletMap)
-        .bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>${u.sharedModules?.length ? `<br><small>🔗 ${u.sharedModules.join(', ')}</small>` : ''}`)
-        .on('click', () => openProfile(u.id));
+        .on('click', () => showUserPreview(u.id));
     });
+
+    const syncRadarOverlay = () => {
+      const overlay = document.querySelector('.radar-overlay');
+      if (!overlay || !_leafletMap) return;
+      const point = _leafletMap.latLngToContainerPoint([center.lat, center.lng]);
+      overlay.style.left = `${point.x}px`;
+      overlay.style.top = `${point.y}px`;
+    };
+    syncRadarOverlay();
+    _leafletMap.on('move zoom resize', syncRadarOverlay);
 
     setTimeout(() => _leafletMap?.invalidateSize(), 300);
   });
@@ -3422,7 +3529,7 @@ function renderRadarDots(users, radius, type) {
     const x = Math.cos(angle) * radius;
     const y = Math.sin(angle) * radius;
     const bg = colorFor(u.displayName);
-    return `<div class="radar-dot ${type}" style="transform:translate(${x}px,${y}px);background:${bg}" onclick="openProfile('${u.id}')" title="${esc(u.displayName)}">
+    return `<div class="radar-dot ${type}" style="transform:translate(${x}px,${y}px);background:${bg}" onclick="showUserPreview('${u.id}')" title="${esc(u.displayName)}">
       ${u.photoURL ? `<img src="${u.photoURL}" alt="">` : initials(u.displayName)}
     </div>`;
   }).join('');
@@ -3856,6 +3963,8 @@ async function loadListings(cat = 'all', query = '') {
   try {
     const snap = await db.collection('listings').where('status', '==', 'active').limit(50).get();
     let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    await ensureUserContextCache(items.map(item => item.sellerId));
+    const interestProfile = buildInterestProfile();
     
     // Calculate top categories for dynamic filters
     if (!window._categoryTabsBuilt && items.length) {
@@ -3893,7 +4002,13 @@ async function loadListings(cat = 'all', query = '') {
       const q = query.toLowerCase();
       items = items.filter(i => (i.title || '').toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q) || (i.sellerName || '').toLowerCase().includes(q));
     }
-    items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    items = items.map(item => {
+      const sellerContext = _userContextCache[item.sellerId] || null;
+      const nearbyBoost = sellerContext ? getNearbySignal(state.profile, sellerContext).score * 5 : 0;
+      const interestBoost = textInterestScore(`${item.title || ''} ${item.category || ''} ${item.description || ''}`, interestProfile);
+      return { ...item, _rank: nearbyBoost + interestBoost + ((item.createdAt?.seconds || 0) / 100000) };
+    });
+    items.sort((a, b) => b._rank - a._rank || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
     if (!items.length) {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🛒</div><h3>No listings yet</h3><p>Be the first to sell something!</p></div>`;
@@ -3905,7 +4020,7 @@ async function loadListings(cat = 'all', query = '') {
         <div class="listing-info">
           <div class="listing-price">R${esc(String(item.price))}</div>
           <div class="listing-title">${esc(item.title)}</div>
-          <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}</span></div>
+          <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
         </div>
       </div>
     `).join('');
