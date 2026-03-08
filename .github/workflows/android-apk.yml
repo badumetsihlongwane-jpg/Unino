@@ -21,6 +21,8 @@ jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Checkout
@@ -45,8 +47,8 @@ jobs:
         run: npm ci
 
       - name: Write Google Services Config
-        if: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON != '' }}
-        run: echo '${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+        if: ${{ env.ANDROID_GOOGLE_SERVICES_JSON != '' }}
+        run: printf '%s' "$ANDROID_GOOGLE_SERVICES_JSON" > android/app/google-services.json
 
       - name: Sync Capacitor Android assets
         run: npm run cap:sync
