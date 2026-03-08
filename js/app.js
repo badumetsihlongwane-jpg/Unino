@@ -30,6 +30,17 @@ let _chatViewportCleanup = null;
 let _gchatViewportCleanup = null;
 let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
+let _nativeBackListenerBound = false;
+let _nativeNotificationListenersBound = false;
+let _nativeShellReady = false;
+let _nativeLocalNotificationsReady = false;
+let _nativeAppIsActive = true;
+let _nativeDmNotificationPrimed = false;
+let _nativeGeneralNotificationPrimed = false;
+let _nativeDmUnreadMap = {};
+let _activeChatConvoId = '';
+let _activeGroupChat = { id: '', collection: '' };
+const _nativeGeneralNotifIds = new Set();
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
@@ -45,6 +56,299 @@ function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verifie
 function clampText(v = '', max = 80) {
   const t = (v || '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+function getCapacitorPlugin(name) {
+  return window.Capacitor?.Plugins?.[name] || null;
+}
+
+function isNativeApp() {
+  const cap = window.Capacitor;
+  if (!cap) return false;
+  if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform();
+  const platform = cap.getPlatform?.();
+  return platform === 'android' || platform === 'ios';
+}
+
+function hashStringToId(value = '') {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash % 2147480000) + 1;
+}
+
+async function syncNativeStatusBar() {
+  if (!isNativeApp()) return;
+  const statusBar = getCapacitorPlugin('StatusBar');
+  if (!statusBar) return;
+  const darkTheme = document.documentElement.getAttribute('data-theme') === 'dark';
+  try { await statusBar.setOverlaysWebView({ overlay: false }); } catch (e) {}
+  try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) {}
+  try { await statusBar.setStyle({ style: darkTheme ? 'LIGHT' : 'DARK' }); } catch (e) {}
+  document.documentElement.style.setProperty('--app-safe-top', '0px');
+}
+
+function appIsForeground() {
+  return _nativeAppIsActive && !document.hidden;
+}
+
+function clearTransientUi() {
+  const notifDropdown = $('#notif-dropdown');
+  if (notifDropdown?.style.display === 'block') {
+    notifDropdown.style.display = 'none';
+    return true;
+  }
+  const modal = $('#modal-bg');
+  if (modal?.style.display === 'block' || modal?.style.display === 'flex') {
+    closeModal();
+    return true;
+  }
+  const imageView = $('#img-view');
+  if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
+    imageView.style.display = 'none';
+    return true;
+  }
+  const storyViewer = $('#story-viewer');
+  if (storyViewer?.style.display === 'block' || storyViewer?.style.display === 'flex') {
+    closeStoryViewer();
+    return true;
+  }
+  if (document.getElementById('reel-comments-panel')) {
+    closeReelComments();
+    return true;
+  }
+  if (document.getElementById('reels-viewer')) {
+    closeReelsViewer();
+    return true;
+  }
+  return false;
+}
+
+function handleAppBackAction(options = {}) {
+  const { fromPopstate = false, allowExit = false } = options;
+  const appPlugin = getCapacitorPlugin('App');
+
+  if (!state.user) {
+    if (allowExit && isNativeApp()) {
+      appPlugin?.exitApp?.();
+      return true;
+    }
+    if (fromPopstate) history.pushState({ app: true }, '');
+    return true;
+  }
+
+  if (clearTransientUi()) return true;
+
+  if ($('#chat-view')?.classList.contains('active')) {
+    $('#chat-back')?.click();
+    return true;
+  }
+
+  if ($('#group-chat-view')?.classList.contains('active')) {
+    $('#gchat-back')?.click();
+    return true;
+  }
+
+  if ($('#profile-view')?.classList.contains('active')) {
+    $('#prof-back')?.click();
+    return true;
+  }
+
+  if ($('#settings-view')?.classList.contains('active')) {
+    showScreen('app');
+    return true;
+  }
+
+  if (state.page !== 'feed') {
+    navigate('feed');
+    return true;
+  }
+
+  if (allowExit && isNativeApp()) {
+    appPlugin?.exitApp?.();
+    return true;
+  }
+
+  if (fromPopstate) {
+    history.pushState({ app: true, screen: 'app', page: 'feed' }, '');
+  }
+  return true;
+}
+
+async function scheduleLocalNotification(notification) {
+  if (!_nativeLocalNotificationsReady || !isNativeApp()) return;
+  const localNotifications = getCapacitorPlugin('LocalNotifications');
+  if (!localNotifications) return;
+  try {
+    await localNotifications.schedule({
+      notifications: [{
+        id: notification.id,
+        title: notification.title,
+        body: notification.body,
+        schedule: { at: new Date(Date.now() + 50) },
+        actionTypeId: notification.actionTypeId || 'app-preview',
+        extra: notification.extra || {}
+      }]
+    });
+  } catch (e) {
+    console.warn('Local notification failed:', e);
+  }
+}
+
+function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
+  if (!extra || !state.user) return;
+  if (extra.notifDocId) markNotifRead(extra.notifDocId);
+  if (extra.kind === 'dm' && extra.convoId) {
+    openChat(extra.convoId);
+    if (actionId === 'reply') setTimeout(() => $('#chat-input')?.focus(), 250);
+    return;
+  }
+  if (extra.kind === 'group' && extra.groupId) {
+    openGroupChat(extra.groupId, extra.collection || 'groups');
+    if (actionId === 'reply') setTimeout(() => $('#gchat-input')?.focus(), 250);
+    return;
+  }
+  if (extra.postId) {
+    viewPost(extra.postId);
+    return;
+  }
+  if (extra.profileId && extra.profileId !== 'anonymous') openProfile(extra.profileId);
+}
+
+function maybeNotifyForUnreadDMs(conversations = []) {
+  if (!state.user || !isNativeApp()) return;
+  const nextUnreadMap = {};
+  const myUid = state.user.uid;
+  conversations.forEach(conversation => {
+    nextUnreadMap[conversation.id] = (conversation.unread || {})[myUid] || 0;
+  });
+
+  if (!_nativeDmNotificationPrimed) {
+    _nativeDmUnreadMap = nextUnreadMap;
+    _nativeDmNotificationPrimed = true;
+    return;
+  }
+
+  conversations.forEach(conversation => {
+    const unread = nextUnreadMap[conversation.id] || 0;
+    const previousUnread = _nativeDmUnreadMap[conversation.id] || 0;
+    if (unread <= previousUnread) return;
+    if (_activeChatConvoId === conversation.id && appIsForeground()) return;
+
+    const index = conversation.participants.indexOf(myUid) === 0 ? 1 : 0;
+    const otherUid = conversation.participants[index];
+    const anonymousPeer = !!((conversation.anonymous || {})[otherUid]);
+    const senderName = anonymousPeer ? getAnonDisplayName(conversation, myUid, otherUid) : ((conversation.participantNames || [])[index] || 'New message');
+    scheduleLocalNotification({
+      id: hashStringToId(`dm-${conversation.id}-${unread}`),
+      title: senderName,
+      body: clampText(conversation.lastMessage || 'Sent you a message', 110),
+      actionTypeId: 'dm-preview',
+      extra: { kind: 'dm', convoId: conversation.id }
+    });
+  });
+
+  _nativeDmUnreadMap = nextUnreadMap;
+}
+
+function maybeNotifyForGeneralNotifications(notifications = []) {
+  if (!state.user || !isNativeApp()) return;
+  const unreadIds = new Set(notifications.filter(notification => !notification.read).map(notification => notification.id));
+  if (!_nativeGeneralNotificationPrimed) {
+    unreadIds.forEach(id => _nativeGeneralNotifIds.add(id));
+    _nativeGeneralNotificationPrimed = true;
+    return;
+  }
+
+  notifications.forEach(notification => {
+    if (notification.read || _nativeGeneralNotifIds.has(notification.id)) return;
+    if (appIsForeground() && $('#notif-dropdown')?.style.display === 'block') {
+      _nativeGeneralNotifIds.add(notification.id);
+      return;
+    }
+
+    const fromName = notification.from?.name || 'Unino';
+    const kind = notification.payload?.convoId
+      ? 'dm'
+      : notification.payload?.groupId
+        ? 'group'
+        : notification.payload?.postId
+          ? 'post'
+          : 'app';
+    scheduleLocalNotification({
+      id: hashStringToId(`notif-${notification.id}`),
+      title: fromName,
+      body: clampText(notification.text || 'You have a new notification', 110),
+      actionTypeId: 'app-preview',
+      extra: {
+        kind,
+        convoId: notification.payload?.convoId || '',
+        groupId: notification.payload?.groupId || '',
+        collection: notification.payload?.collection || 'groups',
+        postId: notification.payload?.postId || '',
+        profileId: notification.from?.uid || '',
+        notifDocId: notification.id
+      }
+    });
+    _nativeGeneralNotifIds.add(notification.id);
+  });
+}
+
+async function initNativeShell() {
+  if (_nativeShellReady || !isNativeApp()) return;
+  _nativeShellReady = true;
+  await syncNativeStatusBar();
+
+  const appPlugin = getCapacitorPlugin('App');
+  const localNotifications = getCapacitorPlugin('LocalNotifications');
+
+  if (appPlugin && !_nativeBackListenerBound) {
+    _nativeBackListenerBound = true;
+    appPlugin.addListener('backButton', () => {
+      handleAppBackAction({ allowExit: true });
+    });
+    appPlugin.addListener('appStateChange', ({ isActive }) => {
+      _nativeAppIsActive = !!isActive;
+      if (isActive) markActivity();
+    });
+  }
+
+  if (localNotifications) {
+    try {
+      const perm = await localNotifications.requestPermissions();
+      _nativeLocalNotificationsReady = perm.display === 'granted';
+    } catch (e) {
+      _nativeLocalNotificationsReady = false;
+    }
+    try {
+      await localNotifications.registerActionTypes({
+        types: [
+          {
+            id: 'dm-preview',
+            actions: [
+              { id: 'open', title: 'Open' },
+              { id: 'reply', title: 'Reply' }
+            ]
+          },
+          {
+            id: 'app-preview',
+            actions: [
+              { id: 'open', title: 'Open' }
+            ]
+          }
+        ]
+      });
+    } catch (e) {}
+
+    if (!_nativeNotificationListenersBound) {
+      _nativeNotificationListenersBound = true;
+      localNotifications.addListener('localNotificationActionPerformed', event => {
+        handleNativeNotificationOpen(event.notification?.extra || {}, event.actionId || 'tap');
+      });
+    }
+  }
 }
 
 function resolvePostAuthorPhoto(post = {}) {
@@ -1394,10 +1698,12 @@ function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
 function initTheme() {
   const saved = localStorage.getItem('unino-theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
+  syncNativeStatusBar().catch(() => {});
   $('#theme-btn')?.addEventListener('click', () => {
     const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('unino-theme', next);
+    syncNativeStatusBar().catch(() => {});
   });
 }
 
@@ -1529,6 +1835,12 @@ function initAuth() {
       VERIFIED_UIDS.clear();
       _asgPendingAlerts = [];
       _dmUnreadCount = 0;
+      _activeChatConvoId = '';
+      _activeGroupChat = { id: '', collection: '' };
+      _nativeDmUnreadMap = {};
+      _nativeDmNotificationPrimed = false;
+      _nativeGeneralNotificationPrimed = false;
+      _nativeGeneralNotifIds.clear();
       state.user = null; state.profile = null; unsub(); showScreen('auth-screen');
     }
   });
@@ -1549,6 +1861,7 @@ function friendlyErr(code) {
 // ══════════════════════════════════════════════════
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
+  initNativeShell().catch(() => {});
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
@@ -1619,9 +1932,11 @@ function listenForUnreadDMs() {
     .where('participants', 'array-contains', state.user.uid)
     .onSnapshot(snap => {
       const uid = state.user.uid;
+      const conversations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       let total = 0;
-      snap.docs.forEach(d => { total += (d.data().unread || {})[uid] || 0; });
+      conversations.forEach(conversation => { total += (conversation.unread || {})[uid] || 0; });
       _dmUnreadCount = total;
+      maybeNotifyForUnreadDMs(conversations);
       refreshChatBadge();
     }, () => {});
 }
@@ -1733,6 +2048,7 @@ function setupPresenceTracking() {
     document.addEventListener(evt, markActivity, { passive: true });
   });
   document.addEventListener('visibilitychange', () => {
+    _nativeAppIsActive = !document.hidden;
     if (document.hidden) {
       if (state.manualStatus === 'online') {
         _lastActivityAt = 0;
@@ -1745,42 +2061,7 @@ function setupPresenceTracking() {
   });
   // Keep phone back navigation inside the app instead of leaving the site.
   if (!_inAppBackListenerBound) {
-    window.addEventListener('popstate', (e) => {
-      if (!state.user) {
-        // Prevent going back before login
-        history.pushState({ app: true }, '');
-        return;
-      }
-
-      // Handle back within app
-      if ($('#modal-bg')?.style.display === 'block') {
-        closeModal();
-        return;
-      }
-
-      if ($('#chat-view')?.classList.contains('active')) {
-        $('#chat-back')?.click();
-        return;
-      }
-
-      if ($('#group-chat-view')?.classList.contains('active')) {
-        $('#gchat-back')?.click();
-        return;
-      }
-
-      if ($('#profile-view')?.classList.contains('active') || $('#settings-view')?.classList.contains('active')) {
-        showScreen('app');
-        return;
-      }
-
-      if (state.page !== 'feed') {
-        navigate('feed');
-        return;
-      }
-
-      // At feed - prevent going further back
-      history.pushState({ app: true, screen: 'app', page: 'feed' }, '');
-    });
+    window.addEventListener('popstate', () => handleAppBackAction({ fromPopstate: true }));
     _inAppBackListenerBound = true;
   }
   clearInterval(_presenceTimer);
@@ -4384,6 +4665,8 @@ async function openGroupChat(groupId, collection = 'groups') {
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
 
     showScreen('group-chat-view');
+    _activeGroupChat = { id: groupId, collection };
+    _activeChatConvoId = '';
     $('#gchat-hdr-info').innerHTML = `
       <div class="group-header-info">
         <div class="group-icon">${gEmoji}</div>
@@ -4490,6 +4773,7 @@ async function openGroupChat(groupId, collection = 'groups') {
     $('#gchat-input').onfocus = () => scrollToLatest(msgs);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 80);
     $('#gchat-back').onclick = () => {
+      _activeGroupChat = { id: '', collection: '' };
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
       showScreen('app');
@@ -5382,6 +5666,7 @@ function listenForNotifications() {
       _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       _notifications.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
       _notifications = _notifications.slice(0, 20);
+      maybeNotifyForGeneralNotifications(_notifications);
       updateNotifBadge();
       const dd = $('#notif-dropdown');
       if (dd && dd.style.display === 'block') loadNotifications();
@@ -5857,6 +6142,8 @@ async function openChat(convoId) {
     const photo = (convo.participantPhotos || [])[idx] || null;
 
     showScreen('chat-view');
+    _activeChatConvoId = convoId;
+    _activeGroupChat = { id: '', collection: '' };
     
     // IMMEDIATELY clear old messages to prevent flash of previous chat
     const msgs = $('#chat-msgs');
@@ -6094,6 +6381,7 @@ async function openChat(convoId) {
 
     // Back button
     $('#chat-back').onclick = () => {
+      _activeChatConvoId = '';
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
       if (_anonUnsub) { _anonUnsub(); _anonUnsub = null; }
       if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
@@ -7259,6 +7547,7 @@ async function adminSendBroadcast() {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initAuth();
+  initNativeShell().catch(() => {});
 
   // Dismiss splash
   setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);

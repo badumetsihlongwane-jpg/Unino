@@ -4,9 +4,14 @@ const config: CapacitorConfig = {
   appId: 'com.unino.app',
   appName: 'Unino',
   webDir: 'dist',
-  bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
+  },
+  plugins: {
+    StatusBar: {
+      overlaysWebView: false,
+      backgroundColor: '#12121F'
+    }
   }
 };
 
