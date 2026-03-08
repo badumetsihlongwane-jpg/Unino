@@ -12,6 +12,9 @@
  *        allow create: if request.auth != null && request.auth.uid == userId;
  *        allow update: if request.auth != null && request.auth.uid == userId;
  *      }
+ *      match /users/{userId}/pushTokens/{tokenId} {
+ *        allow read, write: if request.auth != null && request.auth.uid == userId;
+ *      }
  *      match /posts/{postId} {
  *        allow read: if request.auth != null;
  *        allow create: if request.auth != null;

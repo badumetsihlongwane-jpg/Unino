@@ -32,15 +32,18 @@ let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
+let _nativePushListenersBound = false;
 let _nativeShellReady = false;
 let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
 let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
+let _nativePushToken = '';
 let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
 const _nativeGeneralNotifIds = new Set();
+let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
@@ -79,6 +82,10 @@ function hashStringToId(value = '') {
   return Math.abs(hash % 2147480000) + 1;
 }
 
+function tokenDocId(token = '') {
+  return btoa(token).replace(/[^a-zA-Z0-9]/g, '').slice(0, 120) || String(hashStringToId(token));
+}
+
 async function syncNativeStatusBar() {
   if (!isNativeApp()) return;
   const statusBar = getCapacitorPlugin('StatusBar');
@@ -88,6 +95,20 @@ async function syncNativeStatusBar() {
   try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) {}
   try { await statusBar.setStyle({ style: darkTheme ? 'LIGHT' : 'DARK' }); } catch (e) {}
   document.documentElement.style.setProperty('--app-safe-top', '0px');
+}
+
+async function savePushTokenForCurrentUser(token) {
+  if (!token || !state.user?.uid) return;
+  _nativePushToken = token;
+  try {
+    await db.collection('users').doc(state.user.uid).collection('pushTokens').doc(tokenDocId(token)).set({
+      token,
+      platform: window.Capacitor?.getPlatform?.() || 'web',
+      updatedAt: FieldVal.serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('Failed to store push token', e);
+  }
 }
 
 function appIsForeground() {
@@ -188,12 +209,53 @@ async function scheduleLocalNotification(notification) {
         title: notification.title,
         body: notification.body,
         schedule: { at: new Date(Date.now() + 50) },
+        channelId: notification.channelId || 'unino-general',
         actionTypeId: notification.actionTypeId || 'app-preview',
         extra: notification.extra || {}
       }]
     });
   } catch (e) {
     console.warn('Local notification failed:', e);
+  }
+}
+
+async function initNativePushNotifications() {
+  if (!isNativeApp()) return;
+  const pushNotifications = getCapacitorPlugin('PushNotifications');
+  if (!pushNotifications) return;
+
+  if (!_nativePushListenersBound) {
+    _nativePushListenersBound = true;
+    pushNotifications.addListener('registration', token => {
+      savePushTokenForCurrentUser(token.value).catch(() => {});
+    });
+    pushNotifications.addListener('registrationError', error => {
+      console.warn('Push registration failed', error);
+    });
+    pushNotifications.addListener('pushNotificationReceived', notification => {
+      if (!appIsForeground()) return;
+      const data = notification.data || {};
+      scheduleLocalNotification({
+        id: hashStringToId(`push-${data.convoId || data.groupId || data.postId || Date.now()}`),
+        title: notification.title || data.senderName || 'Unino',
+        body: notification.body || 'You have a new notification',
+        actionTypeId: (data.kind === 'dm' || data.kind === 'group') ? 'dm-preview' : 'app-preview',
+        extra: data
+      });
+    });
+    pushNotifications.addListener('pushNotificationActionPerformed', event => {
+      handleNativeNotificationOpen(event.notification?.data || {}, event.actionId || 'tap');
+    });
+  }
+
+  try {
+    let permission = await pushNotifications.checkPermissions();
+    if (permission.receive === 'prompt') permission = await pushNotifications.requestPermissions();
+    if (permission.receive !== 'granted') return;
+    await pushNotifications.register();
+    if (_nativePushToken) await savePushTokenForCurrentUser(_nativePushToken);
+  } catch (e) {
+    console.warn('Push setup failed', e);
   }
 }
 
@@ -245,6 +307,7 @@ function maybeNotifyForUnreadDMs(conversations = []) {
       id: hashStringToId(`dm-${conversation.id}-${unread}`),
       title: senderName,
       body: clampText(conversation.lastMessage || 'Sent you a message', 110),
+      channelId: 'unino-messages',
       actionTypeId: 'dm-preview',
       extra: { kind: 'dm', convoId: conversation.id }
     });
@@ -281,6 +344,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       id: hashStringToId(`notif-${notification.id}`),
       title: fromName,
       body: clampText(notification.text || 'You have a new notification', 110),
+      channelId: kind === 'dm' || kind === 'group' ? 'unino-messages' : 'unino-general',
       actionTypeId: 'app-preview',
       extra: {
         kind,
@@ -323,6 +387,22 @@ async function initNativeShell() {
       _nativeLocalNotificationsReady = false;
     }
     try {
+      await localNotifications.createChannel({
+        id: 'unino-messages',
+        name: 'Messages',
+        description: 'Direct and group message notifications',
+        importance: 5,
+        visibility: 1
+      });
+      await localNotifications.createChannel({
+        id: 'unino-general',
+        name: 'Activity',
+        description: 'General Unino notifications',
+        importance: 4,
+        visibility: 1
+      });
+    } catch (e) {}
+    try {
       await localNotifications.registerActionTypes({
         types: [
           {
@@ -349,6 +429,21 @@ async function initNativeShell() {
       });
     }
   }
+
+  await initNativePushNotifications();
+}
+
+function primeInlineVideoPreviews(root = document) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('video.inline-video-preview').forEach(video => {
+    if (video.dataset.previewBound === '1') return;
+    video.dataset.previewBound = '1';
+    const markReady = () => video.classList.add('ready');
+    video.addEventListener('loadeddata', markReady, { once: true });
+    video.addEventListener('canplay', markReady, { once: true });
+    video.addEventListener('error', markReady, { once: true });
+    if (video.readyState >= 2) markReady();
+  });
 }
 
 function resolvePostAuthorPhoto(post = {}) {
@@ -984,7 +1079,7 @@ function renderTrendingPostsRail(posts = []) {
       <div class="trending-post-scroll" id="trending-post-scroll">
         ${trending.map(post => `
           <div class="trending-post-card" onclick="viewPost('${post.id}')">
-            ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
+            ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video class="inline-video-preview" src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
             <div class="trending-post-meta-top">
               <span>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName || 'User')}</span>
               <span>${((post.likes || []).length + (post.commentsCount || 0))} reacts</span>
@@ -996,6 +1091,7 @@ function renderTrendingPostsRail(posts = []) {
       </div>
     </div>
   `;
+  primeInlineVideoPreviews(railHost);
   setupTrendingRail();
 }
 
@@ -1314,8 +1410,8 @@ let _playerIdCounter = 0;
 
 function buildPlayerHTML(src, id) {
   return `
-  <div class="unino-player show-controls" id="up-${id}" data-player-id="${id}">
-    <video preload="metadata" playsinline>
+  <div class="unino-player show-controls is-loading" id="up-${id}" data-player-id="${id}">
+    <video preload="metadata" playsinline webkit-playsinline disablepictureinpicture>
       <source src="${src}" type="video/mp4">
       <source src="${src}" type="video/webm">
     </video>
@@ -1414,6 +1510,12 @@ function initPlayer(id) {
   let isSeeking = false;
   const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
   let speedIdx = 2;
+
+  const markReady = () => {
+    root.classList.add('ready');
+    root.classList.remove('is-loading');
+    loader.classList.remove('active');
+  };
 
   // Format time
   const fmt = (s) => {
@@ -1525,9 +1627,10 @@ function initPlayer(id) {
   vid.addEventListener('timeupdate', updateProgress);
   vid.addEventListener('progress', updateBuffer);
   vid.addEventListener('loadedmetadata', () => { durTime.textContent = fmt(vid.duration); });
+  vid.addEventListener('loadeddata', markReady, { once: true });
   vid.addEventListener('ended', () => { root.classList.remove('playing'); root.classList.add('show-controls'); clearTimeout(controlsTimer); });
   vid.addEventListener('waiting', () => loader.classList.add('active'));
-  vid.addEventListener('canplay', () => loader.classList.remove('active'));
+  vid.addEventListener('canplay', markReady);
 
   // Controls hover/touch
   root.addEventListener('mousemove', showControls);
@@ -1661,6 +1764,9 @@ function initPlayer(id) {
 
   // Make focusable
   root.setAttribute('tabindex', '0');
+
+  if (vid.readyState >= 2) markReady();
+  else loader.classList.add('active');
 
   // Initial controls auto-hide
   controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 4000);
@@ -1862,6 +1968,8 @@ function friendlyErr(code) {
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
+  initNativePushNotifications().catch(() => {});
+  if (_nativePushToken) savePushTokenForCurrentUser(_nativePushToken).catch(() => {});
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
@@ -1912,7 +2020,7 @@ function listenForVerifiedUsers() {
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     // Refresh visible areas so badges appear as soon as verified list updates.
     if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
-      renderPosts(state.posts);
+      renderFeedResults(state.posts);
     }
     if (document.getElementById('profile-view')?.classList.contains('active')) {
       const pid = document.getElementById('prof-back')?.dataset?.uid;
@@ -1921,7 +2029,7 @@ function listenForVerifiedUsers() {
   }, () => {
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
-      renderPosts(state.posts);
+      renderFeedResults(state.posts);
     }
   });
 }
@@ -2087,6 +2195,59 @@ function navigate(page) {
   }
 }
 
+function filterFeedPosts(posts = [], query = _feedSearchQuery) {
+  const raw = (query || '').trim().toLowerCase();
+  if (!raw) return posts;
+  const needle = raw.replace(/^#/, '');
+  const isTagSearch = raw.startsWith('#');
+  return posts.filter(post => {
+    const tags = getPostHashTags(post).map(tag => tag.toLowerCase());
+    const modules = normalizeModules(post.moduleTags || []).map(tag => tag.toLowerCase());
+    const haystack = [
+      post.content || '',
+      post.authorName || '',
+      post.authorUni || '',
+      ...(post.moduleTags || []),
+      ...getPostHashTags(post)
+    ].join(' ').toLowerCase();
+    if (isTagSearch) return tags.some(tag => tag.includes(needle)) || modules.some(tag => tag.includes(needle));
+    return haystack.includes(needle) || tags.some(tag => tag.includes(needle)) || modules.some(tag => tag.includes(needle));
+  });
+}
+
+function clearFeedSearch() {
+  _feedSearchQuery = '';
+  const input = $('#feed-search-input');
+  if (input) input.value = '';
+  renderFeedResults(state.posts || []);
+}
+
+function renderFeedResults(posts = []) {
+  const filtered = filterFeedPosts(posts, _feedSearchQuery);
+  const meta = $('#feed-search-meta');
+  if (meta) {
+    if (_feedSearchQuery) {
+      meta.style.display = 'flex';
+      meta.innerHTML = `<span>${filtered.length} result${filtered.length === 1 ? '' : 's'} for <strong>${esc(_feedSearchQuery)}</strong></span><button class="feed-search-clear" onclick="clearFeedSearch()">Clear</button>`;
+    } else {
+      meta.style.display = 'none';
+      meta.innerHTML = '';
+    }
+  }
+
+  if (_feedSearchQuery) {
+    const trends = $('#module-trends');
+    const rail = $('#feed-trending-posts');
+    if (trends) trends.innerHTML = '';
+    if (rail) rail.innerHTML = '';
+  } else {
+    renderModuleTrends(posts);
+    renderTrendingPostsRail(posts);
+  }
+
+  renderPosts(filtered);
+}
+
 // ══════════════════════════════════════════════════
 //  FEED — Clean with unified Discover tabs
 // ══════════════════════════════════════════════════
@@ -2099,12 +2260,16 @@ function renderFeed() {
           <h2>Hey, ${esc(p.firstName || p.displayName?.split(' ')[0])} 👋</h2>
           <p>${esc(p.university || 'NWU Campus')}</p>
         </div>
-        <div class="welcome-stat">
-          <span class="dot green"></span> <span id="feed-online">0</span> online
+      </div>` : ''}
+
+      <div class="feed-toolbar">
+        <div class="feed-live-chip"><span class="dot green"></span> <span id="feed-online">0</span> online</div>
+        <div class="search-bar feed-search-bar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="feed-search-input" placeholder="Search posts or #hashtags" value="${esc(_feedSearchQuery)}">
         </div>
-      </div>` : `<div class="welcome-stat" style="padding:12px 16px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary)">
-        <span class="dot green"></span> <span id="feed-online">0</span> online
-      </div>`}
+      </div>
+      <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
 
       <div class="stories-row" id="stories-row">
         <div class="story-item add-story" onclick="openStoryCreator()">
@@ -2157,6 +2322,18 @@ function renderFeed() {
 
   loadDiscoverPeople();
   loadStories();
+
+  const searchInput = $('#feed-search-input');
+  if (searchInput) {
+    let timer = null;
+    searchInput.addEventListener('input', e => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        _feedSearchQuery = e.target.value || '';
+        renderFeedResults(state.posts || []);
+      }, 120);
+    });
+  }
 
   // Real-time posts
   const u = db.collection('posts').orderBy('createdAt', 'desc').limit(50)
@@ -2225,9 +2402,7 @@ function renderFeed() {
       // Save scroll position before re-render to prevent "jump to top"
       const contentEl = document.getElementById('content');
       const savedScroll = contentEl ? contentEl.scrollTop : 0;
-      renderPosts(scored);
-      renderModuleTrends(scored);
-      renderTrendingPostsRail(scored);
+      renderFeedResults(scored);
       // Restore scroll position after re-render
       if (contentEl && savedScroll > 0) {
         requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
@@ -2414,7 +2589,7 @@ function openStoryCreator() {
     if (isVideo) {
       window._storyVideoFile = file;
       window._storyFile = null;
-      content.innerHTML = `<video src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius)" controls></video>`;
+      content.innerHTML = `<video src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius);background:#000" autoplay muted loop playsinline></video>`;
     } else {
       window._storyFile = file;
       window._storyVideoFile = null;
@@ -2629,7 +2804,9 @@ function renderQuoteEmbed(rp) {
 function renderPosts(posts) {
   const el = $('#feed-posts'); if (!el) return;
   if (!posts.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📝</div><h3>No posts yet</h3><p>Be the first to share something!</p></div>`;
+    el.innerHTML = _feedSearchQuery
+      ? `<div class="empty-state"><div class="empty-state-icon">🔎</div><h3>No matches found</h3><p>Try another keyword or search with a hashtag like #nwu</p></div>`
+      : `<div class="empty-state"><div class="empty-state-icon">📝</div><h3>No posts yet</h3><p>Be the first to share something!</p></div>`;
     return;
   }
   const _videoPlayers = [];
@@ -3430,7 +3607,7 @@ function openCreateModal() {
       const pc = $('#create-preview-content');
       if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
       if (pendingIsVideo) {
-        pc.innerHTML = `<video src="${localPreview(pendingFiles[0])}" style="width:100%;max-height:200px;border-radius:var(--radius)" controls></video>`;
+        pc.innerHTML = `<video src="${localPreview(pendingFiles[0])}" style="width:100%;max-height:200px;border-radius:var(--radius);background:#000" autoplay muted loop playsinline></video>`;
       } else {
         const count = pendingFiles.length;
         pc.className = `collage-preview-grid collage-${Math.min(count, 4)}`;
@@ -6202,7 +6379,7 @@ async function openChat(convoId) {
               let mediaPreview = '';
               if (pl.mediaURL && pl.mediaType === 'video') {
                 mediaPreview = `<div style="position:relative;border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px">
-                  <video src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
+                  <video class="inline-video-preview" src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
                   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
@@ -6272,6 +6449,7 @@ async function openChat(convoId) {
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
             </div>`;
           }).join('');
+          primeInlineVideoPreviews(msgs);
           scrollToLatest(msgs);
         }
 
@@ -6722,8 +6900,10 @@ async function openProfile(uid) {
         tab.classList.add('active');
         const tc = $('#profile-tab-content');
         if (tab.dataset.pt === 'posts') tc.innerHTML = renderProfilePosts(posts, user);
-        else if (tab.dataset.pt === 'photos') tc.innerHTML = renderProfilePhotos(posts);
-        else {
+        else if (tab.dataset.pt === 'photos') {
+          tc.innerHTML = renderProfilePhotos(posts);
+          primeInlineVideoPreviews(tc);
+        } else {
           tc.innerHTML = renderProfileAbout(user);
           if (uid === state.user.uid && (state.profile.blockedUsers || []).length) {
             setTimeout(() => loadBlockedUsersList(), 100);
@@ -7008,7 +7188,7 @@ function renderProfilePhotos(posts) {
     if (m.type === 'img') {
       return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy"></div>`;
     }
-    return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><video src="${m.url}" preload="metadata"></video><div class="photo-grid-play">▶</div></div>`;
+    return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><video class="inline-video-preview" src="${m.url}" preload="metadata" muted playsinline></video><div class="photo-grid-play">▶</div></div>`;
   }).join('')}</div>`;
 }
 
@@ -7292,7 +7472,7 @@ async function openQuoteRepost(postId) {
           </div>
           ${orig.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(orig.content)}</div>` : ''}
           ${hasImg ? `<img src="${orig.imageURL}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px">` : ''}
-          ${hasVid && vidUrl ? `<video src="${vidUrl}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px" controls preload="metadata"></video>` : ''}
+          ${hasVid && vidUrl ? `<video class="inline-video-preview ready" src="${vidUrl}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px;background:#000" autoplay muted loop playsinline preload="metadata"></video>` : ''}
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:12px">
           <button class="btn-primary" id="quote-submit" style="padding:10px 28px">Post</button>
@@ -7593,6 +7773,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
+    clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
     closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail,
