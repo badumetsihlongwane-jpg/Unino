@@ -423,18 +423,18 @@ async function openTagFeed(tag) {
   `);
 }
 
-function openAnonPostActions(uid) {
+function openAnonPostActions(uid, postId = null) {
   if (!uid || uid === state.user.uid) return toast("That's you!");
   openModal(`
     <div class="modal-body" style="padding:20px 18px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
         <div class="avatar-md anon-avatar">👻</div>
         <div>
-          <h3 style="margin-bottom:4px">Anonymous post</h3>
-          <p style="color:var(--text-secondary);font-size:13px">Start a private anonymous chat. Both sides stay hidden until reveal.</p>
+          <h3 style="margin-bottom:4px">Anonymous ${postId ? 'Reply' : 'Message'}</h3>
+          <p style="color:var(--text-secondary);font-size:13px">${postId ? 'Reply anonymously to this post. Both identities stay hidden until reveal.' : 'Start a private anonymous chat. Both sides stay hidden until reveal.'}</p>
         </div>
       </div>
-      <button class="btn-primary btn-full" onclick="closeModal();startAnonChat('${uid}')">Send Anonymous Message</button>
+      <button class="btn-primary btn-full" onclick="closeModal();startAnonChat('${uid}', null, null, false, ${postId ? `'${postId}'` : 'null'})">Send Anonymous ${postId ? 'Reply' : 'Message'}</button>
       <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -1050,6 +1050,10 @@ function showScreen(id) {
   $$('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
+  // Push state for back navigation
+  if (_inAppBackInit && state.user) {
+    history.pushState({ app: true, screen: id, page: state.page, msgTab: state.lastMsgTab }, '');
+  }
 }
 
 function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
@@ -1172,18 +1176,19 @@ function friendlyErr(code) {
 //  ENTER APP
 // ══════════════════════════════════════════════════
 function enterApp() {
-  showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); navigate('feed');
+  showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
+  if (!_inAppBackInit) {
+    // Fence: replace current history with app state, then push initial state
+    history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
+    _inAppBackInit = true;
+  }
+  navigate('feed');
   listenForVerifiedUsers();
   listenForNotifications();
   listenForUnreadDMs();
-  listenForAssignmentAlerts();
+  listenForGroupAlerts();
   setupPresenceTracking();
   listenForOnlineCount();
-  if (!_inAppBackInit) {
-    history.replaceState({ app: true }, '');
-    history.pushState({ app: true }, '');
-    _inAppBackInit = true;
-  }
 }
 
 let _onlineCountSub = null;
@@ -1248,9 +1253,9 @@ function listenForUnreadDMs() {
     }, () => {});
 }
 
-function listenForAssignmentAlerts() {
-  if (_asgAlertUnsub) _asgAlertUnsub();
-  _asgAlertUnsub = db.collection('assignmentGroups')
+function listenForGroupAlerts() {
+  if (_groupAlertUnsub) _groupAlertUnsub();
+  _groupAlertUnsub = db.collection('assignmentGroups')
     .where('createdBy', '==', state.user.uid)
     .onSnapshot(snap => {
       _asgPendingAlerts = snap.docs
@@ -1367,40 +1372,48 @@ function setupPresenceTracking() {
   });
   // Keep phone back navigation inside the app instead of leaving the site.
   if (!_inAppBackListenerBound) {
-    window.addEventListener('popstate', () => {
-      if (!state.user) return;
+    window.addEventListener('popstate', (e) => {
+      if (!state.user) {
+        // Prevent going back before login
+        history.pushState({ app: true }, '');
+        return;
+      }
 
+      // Check if we have app state - if not, we're at the fence
+      if (!e.state || !e.state.app) {
+        // Push back to current state to prevent leaving app
+        history.pushState({ app: true, screen: 'app', page: state.page, msgTab: state.lastMsgTab }, '');
+        return;
+      }
+
+      // Handle back within app
       if ($('#modal-bg')?.style.display === 'block') {
         closeModal();
-        history.pushState({ app: true }, '');
         return;
       }
 
       if ($('#chat-view')?.classList.contains('active')) {
         $('#chat-back')?.click();
-        history.pushState({ app: true }, '');
         return;
       }
 
       if ($('#group-chat-view')?.classList.contains('active')) {
         $('#gchat-back')?.click();
-        history.pushState({ app: true }, '');
         return;
       }
 
       if ($('#profile-view')?.classList.contains('active') || $('#settings-view')?.classList.contains('active')) {
         showScreen('app');
-        history.pushState({ app: true }, '');
         return;
       }
 
       if (state.page !== 'feed') {
         navigate('feed');
-        history.pushState({ app: true }, '');
         return;
       }
 
-      history.pushState({ app: true }, '');
+      // At feed - prevent going further back
+      history.pushState({ app: true, screen: 'app', page: 'feed' }, '');
     });
     _inAppBackListenerBound = true;
   }
@@ -1420,6 +1433,10 @@ function navigate(page) {
     case 'explore': renderExplore(); break;
     case 'hustle': renderHustle(); break;
     case 'chat': renderMessages(); break;
+  }
+  // Push state for navigation
+  if (_inAppBackInit && state.user) {
+    history.pushState({ app: true, screen: 'app', page, msgTab: state.lastMsgTab }, '');
   }
 }
 
@@ -1978,10 +1995,10 @@ function renderPosts(posts) {
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
-            ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer">👻</div>`
+            ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
             : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(post.authorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
@@ -1999,7 +2016,7 @@ function renderPosts(posts) {
             ${cc ? `<span class="stat-item">${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
           </div>
           <div class="post-actions">
-            ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}')">👻 Message</button>` : ''}
+            ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">👻 Reply</button>` : ''}
             <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               ${lc || 'Like'}
@@ -2704,10 +2721,23 @@ function renderExploreView() {
 
 function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
-  const moduleUsers = allExploreUsers.filter(u => u.proximity === 'module');
-  const nearbyUsers = allExploreUsers.filter(u => u.proximity === 'nearby');
-  const courseUsers = allExploreUsers.filter(u => u.proximity === 'course');
-  const otherUsers = allExploreUsers.filter(u => u.proximity === 'far');
+  
+  // Apply search filter if exists
+  const searchQuery = (window._radarSearchQuery || '').toLowerCase();
+  let filteredUsers = allExploreUsers;
+  if (searchQuery) {
+    filteredUsers = allExploreUsers.filter(u => 
+      (u.displayName || '').toLowerCase().includes(searchQuery) ||
+      (u.address || '').toLowerCase().includes(searchQuery) ||
+      (u.major || '').toLowerCase().includes(searchQuery) ||
+      (u.modules || []).some(m => m.toLowerCase().includes(searchQuery))
+    );
+  }
+  
+  const moduleUsers = filteredUsers.filter(u => u.proximity === 'module');
+  const nearbyUsers = filteredUsers.filter(u => u.proximity === 'nearby');
+  const courseUsers = filteredUsers.filter(u => u.proximity === 'course');
+  const otherUsers = filteredUsers.filter(u => u.proximity === 'far');
 
   const eventsByLoc = {};
   allCampusEvents.forEach(ev => {
@@ -2716,6 +2746,12 @@ function renderRadarView() {
   });
 
   body.innerHTML = `
+    <div style="padding:0 16px 12px">
+      <div class="search-bar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(searchQuery)}">
+      </div>
+    </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
       <div class="radar-overlay">
@@ -2828,6 +2864,16 @@ function renderRadarView() {
     });
 
     setTimeout(() => _leafletMap?.invalidateSize(), 300);
+  });
+  
+  // Wire up search input
+  let searchTimer;
+  $('#radar-search')?.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      window._radarSearchQuery = e.target.value.trim();
+      renderRadarView();
+    }, 300);
   });
 }
 
@@ -3267,6 +3313,38 @@ async function loadListings(cat = 'all', query = '') {
   try {
     const snap = await db.collection('listings').where('status', '==', 'active').limit(50).get();
     let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Calculate top categories for dynamic filters
+    if (!window._categoryTabsBuilt && items.length) {
+      const categoryCounts = {};
+      items.forEach(i => {
+        const cat = (i.category || 'Other').trim();
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      });
+      const topCategories = Object.entries(categoryCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(e => e[0]);
+      
+      // Rebuild category tabs
+      const catTabs = document.querySelector('.category-tabs');
+      if (catTabs && topCategories.length) {
+        catTabs.innerHTML = `
+          <span class="chip active" data-cat="all">All</span>
+          ${topCategories.map(c => `<span class="chip" data-cat="${esc(c.toLowerCase())}">${esc(c)}</span>`).join('')}
+        `;
+        // Re-wire click events
+        $$('.category-tabs .chip').forEach(ch => {
+          ch.onclick = () => {
+            $$('.category-tabs .chip').forEach(c2 => c2.classList.remove('active'));
+            ch.classList.add('active');
+            loadListings(ch.dataset.cat, $('#hustle-search')?.value.trim());
+          };
+        });
+        window._categoryTabsBuilt = true;
+      }
+    }
+    
     if (cat !== 'all') items = items.filter(i => (i.category || '').toLowerCase() === cat);
     if (query) {
       const q = query.toLowerCase();
@@ -3301,7 +3379,8 @@ function openSellModal() {
     <div class="modal-body">
       <div class="form-group"><label>What are you selling?</label><input type="text" id="sell-title" placeholder="e.g. Calculus Textbook"></div>
       <div class="form-group"><label>Price (R)</label><input type="number" id="sell-price" placeholder="150"></div>
-      <div class="form-group"><label>Category</label><select id="sell-cat"><option>Books</option><option>Tech</option><option>Notes</option><option>Services</option><option>Other</option></select></div>
+      <div class="form-group"><label>Description</label><textarea id="sell-desc" placeholder="Details about your item..." rows="3"></textarea></div>
+      <div class="form-group"><label>Category</label><input type="text" id="sell-cat" placeholder="e.g. Books, Tech, Notes, Services"></div>
       <div class="form-group"><label>Photo</label><input type="file" accept="image/*" id="sell-file"></div>
       <div id="sell-preview" class="image-preview" style="display:none"><img src=""><button class="image-preview-remove" onclick="document.getElementById('sell-preview').style.display='none'">&times;</button></div>
       <button class="btn-primary btn-full" id="sell-submit">List Item</button>
@@ -3312,7 +3391,8 @@ function openSellModal() {
   };
   $('#sell-submit').onclick = async () => {
     const title = $('#sell-title').value.trim(), price = $('#sell-price').value.trim();
-    const category = $('#sell-cat').value;
+    const category = $('#sell-cat').value.trim() || 'Other';
+    const description = $('#sell-desc').value.trim() || '';
     if (!title || !price) return toast('Title and price required');
     const fileToUpload = window._sellFile || null;
     window._sellFile = null;
@@ -3321,7 +3401,7 @@ function openSellModal() {
       let sellImgURL = null;
       if (fileToUpload) { sellImgURL = await uploadToR2(fileToUpload, 'listings'); }
       await db.collection('listings').add({
-        title, price, category, imageURL: sellImgURL,
+        title, price, category, description, imageURL: sellImgURL,
         sellerId: state.user.uid, sellerName: state.profile.displayName,
         status: 'active', createdAt: FieldVal.serverTimestamp()
       });
@@ -3347,6 +3427,7 @@ function openProductDetail(itemId) {
       ${item.imageURL ? `<div style="border-radius:var(--radius);overflow:hidden;margin-bottom:16px"><img src="${item.imageURL}" style="width:100%;max-height:280px;object-fit:cover;cursor:pointer" onclick="viewImage('${item.imageURL}')"></div>` : ''}
       <div style="font-size:24px;font-weight:800;color:var(--accent);margin-bottom:4px">R${esc(String(item.price))}</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(item.title)}</div>
+      ${item.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(item.description)}</p>` : ''}
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         ${avatar(item.sellerName, null, 'avatar-sm')}
         <div>
@@ -3508,7 +3589,7 @@ async function openGroupChat(groupId, collection = 'groups') {
     if (!gDoc.exists) return toast('Group not found');
     const group = { id: groupId, ...gDoc.data() };
     const uid = state.user.uid;
-    const gName = group.name || group.assignmentTitle || 'Group';
+    const gName = group.name || group.groupTitle || 'Group';
     const gType = group.type || 'study';
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
 
@@ -3526,6 +3607,7 @@ async function openGroupChat(groupId, collection = 'groups') {
     const gReply = $('#gchat-reply-indicator');
     if (gReply) gReply.style.display = 'none';
     const msgs = $('#gchat-msgs');
+    if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
     _gchatViewportCleanup = setupViewportFollow(msgs);
     gchatUnsub = db.collection(collection).doc(groupId)
       .collection('messages').orderBy('createdAt','asc').limit(100)
@@ -3620,7 +3702,8 @@ async function openGroupChat(groupId, collection = 'groups') {
     $('#gchat-back').onclick = () => {
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
-      showScreen('app'); navigate('chat');
+      showScreen('app');
+      if (state.page !== 'chat') navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open group'); }
 }
@@ -3690,9 +3773,9 @@ function renderMessages() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           DMs <span class="tab-badge" id="dm-tab-badge"></span>
         </button>
-        <button class="msg-tab" data-mt="assignments">
+        <button class="msg-tab" data-mt="groups">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Assignments <span class="tab-badge" id="asg-tab-badge"></span>
+          Groups <span class="tab-badge" id="asg-tab-badge"></span>
         </button>
       </div>
       <div id="msg-tab-content">
@@ -3714,7 +3797,7 @@ function renderMessages() {
       tab.classList.add('active');
       state.lastMsgTab = tab.dataset.mt;
       if (tab.dataset.mt === 'dm') loadDMList();
-      else loadAssignmentGroups();
+      else loadGroups();
       updateArchiveFabState();
     };
   });
@@ -3757,7 +3840,7 @@ function updateArchiveFabState() {
 function refreshCurrentMessageList() {
   if (state.page !== 'chat') return;
   if (state.lastMsgTab === 'archived') loadArchivedDMList();
-  else if (state.lastMsgTab === 'assignments') loadAssignmentGroups();
+  else if (state.lastMsgTab === 'groups') loadGroups();
   else loadDMList();
   updateArchiveFabState();
 }
@@ -3793,15 +3876,15 @@ function loadGroupList() {
 }
 
 // ══════════════════════════════════════════════════
-//  ASSIGNMENT GROUPS — Intent-Based, Temporary
+//  GROUPS — Intent-Based, Temporary
 // ══════════════════════════════════════════════════
-function loadAssignmentGroups() {
+function loadGroups() {
   const container = $('#msg-tab-content'); if (!container) return;
   const myModules = state.profile.modules || [];
   container.innerHTML = `
     <div class="asg-page">
       <div style="padding:12px 16px;display:flex;gap:8px">
-        <button class="btn-primary" style="flex:1" onclick="openCreateAssignmentGroup()">+ New Assignment Group</button>
+        <button class="btn-primary" style="flex:1" onclick="openCreateModuleGroup()">+ New Group</button>
       </div>
       <div class="asg-filter-row">
         <span class="chip active" data-af="my">My Modules</span>
@@ -3839,7 +3922,7 @@ async function loadAsgList(filter = 'my') {
     groups.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
     if (!groups.length) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><h3>No assignment groups</h3><p>${filter === 'my' ? 'None for your modules yet' : 'Create one to get started!'}</p></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><h3>No groups</h3><p>${filter === 'my' ? 'None for your modules yet' : 'Create one to get started!'}</p></div>`;
       return;
     }
     el.innerHTML = groups.map(g => {
@@ -3864,12 +3947,12 @@ async function loadAsgList(filter = 'my') {
       const canSeeMembers = isMember || _isAdmin;
 
       return `
-        <div class="asg-card ${isMember ? 'is-member' : ''} ${g.status === 'archived' ? 'is-archived' : ''}" onclick="openAssignmentDetail('${g.id}')">
+        <div class="asg-card ${isMember ? 'is-member' : ''} ${g.status === 'archived' ? 'is-archived' : ''}" onclick="openGroupDetail('${g.id}')">
           <div class="asg-card-top">
             <div class="asg-card-module">${esc(g.moduleCode || '???')}</div>
             ${statusBadge}
           </div>
-          <div class="asg-card-title">${esc(g.assignmentTitle)}</div>
+          <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
           <div class="asg-card-meta">
             <span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span>
             <span>\u00b7</span>
@@ -3890,20 +3973,20 @@ async function loadAsgList(filter = 'my') {
   } catch (e) { console.error(e); el.innerHTML = '<div class="empty-state"><h3>Could not load</h3></div>'; }
 }
 
-function openCreateAssignmentGroup() {
+function openCreateModuleGroup() {
   const myModules = state.profile.modules || [];
   const moduleOptions = myModules.length
     ? myModules.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')
     : '<option value="">Add modules in your profile first</option>';
 
   openModal(`
-    <div class="modal-header"><h2>New Assignment Group</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>New Group</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
       <div class="form-group"><label>Module</label>
         <select id="asg-module">${moduleOptions}<option value="_custom">Other (type below)</option></select>
       </div>
       <div class="form-group" id="asg-custom-wrap" style="display:none"><label>Module Code</label><input type="text" id="asg-custom-module" placeholder="e.g. BIO214"></div>
-      <div class="form-group"><label>Assignment Title</label><input type="text" id="asg-title" placeholder="e.g. Genetics Project"></div>
+      <div class="form-group"><label>Group Title</label><input type="text" id="asg-title" placeholder="e.g. Genetics Project"></div>
       <div class="form-group"><label>Max Group Size</label>
         <select id="asg-size"><option value="3">3</option><option value="4">4</option><option value="5" selected>5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option></select>
       </div>
@@ -3943,11 +4026,11 @@ function openCreateAssignmentGroup() {
     const visibility = $('#asg-vis')?.value || 'public';
     const autoFillEnabled = $('#asg-autofill-toggle')?.checked || false;
     if (!moduleCode || !title) return toast('Module and title required');
-    closeModal(); toast('Creating assignment group...');
+    closeModal(); toast('Creating group...');
     const uid = state.user.uid;
     try {
       const doc = await db.collection('assignmentGroups').add({
-        moduleCode, assignmentTitle: title, maxSize, dueDate, joinMode, visibility,
+        moduleCode, groupTitle: title, assignmentTitle: title, maxSize, dueDate, joinMode, visibility,
         autoFillEnabled,
         createdBy: uid, status: 'open', locked: false,
         members: [uid],
@@ -3958,13 +4041,13 @@ function openCreateAssignmentGroup() {
         lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
         createdAt: FieldVal.serverTimestamp()
       });
-      toast('Assignment group created!');
-      openAssignmentDetail(doc.id);
+      toast('Group created!');
+      openGroupDetail(doc.id);
     } catch (e) { toast('Failed'); console.error(e); }
   };
 }
 
-async function openAssignmentDetail(groupId) {
+async function openGroupDetail(groupId) {
   try {
     const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
     if (!gDoc.exists) return toast('Not found');
@@ -4044,7 +4127,7 @@ async function openAssignmentDetail(groupId) {
     openModal(`
       <div class="modal-header"><h2>${esc(g.moduleCode)}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body asg-detail">
-        <div class="asg-detail-title">${esc(g.assignmentTitle)}</div>
+        <div class="asg-detail-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
         <div class="asg-detail-meta">
           <span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span>
           <span>${g.joinMode === 'open' ? '\ud83d\udd13 Open' : g.joinMode === 'invite' ? '\ud83d\udd12 Invite' : '\ud83e\udd16 Auto-fill'}</span>
@@ -4071,7 +4154,7 @@ async function joinAsg(groupId) {
       [`memberPhotos.${uid}`]: state.profile.photoURL || ''
     });
     closeModal(); toast('Joined!');
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4084,7 +4167,7 @@ async function requestJoinAsg(groupId) {
       pendingRequests: FieldVal.arrayUnion({ uid, name: state.profile.displayName, photo: state.profile.photoURL || '' })
     });
     if (g.createdBy && g.createdBy !== uid) {
-      addNotification(g.createdBy, 'assignment', `requested to join ${g.assignmentTitle || g.moduleCode || 'your assignment group'}`, { groupId, kind: 'asg_join_request' });
+      addNotification(g.createdBy, 'group', `requested to join ${g.groupTitle || g.assignmentTitle || g.moduleCode || 'your group'}`, { groupId, kind: 'asg_join_request' });
     }
     closeModal(); toast('Request sent! The host will review it.');
   } catch (e) { toast('Failed'); console.error(e); }
@@ -4112,9 +4195,9 @@ async function approveAsgRequest(groupId, reqUid, reqName, reqPhoto) {
       [`memberPhotos.${reqUid}`]: reqPhoto || '',
       pendingRequests: newPending
     });
-    addNotification(reqUid, 'assignment', `approved your request to join ${g.assignmentTitle || g.moduleCode || 'an assignment group'}`, { groupId, kind: 'asg_approved' });
+    addNotification(reqUid, 'group', `approved your request to join ${g.groupTitle || g.assignmentTitle || g.moduleCode || 'a group'}`, { groupId, kind: 'asg_approved' });
     closeModal(); toast(`${reqName} approved!`);
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4126,10 +4209,10 @@ async function rejectAsgRequest(groupId, reqUid) {
     const newPending = (g.pendingRequests||[]).filter(r => r.uid !== reqUid);
     await db.collection('assignmentGroups').doc(groupId).update({ pendingRequests: newPending });
     if (req?.uid) {
-      addNotification(req.uid, 'assignment', `declined your request for ${g.assignmentTitle || g.moduleCode || 'an assignment group'}`, { groupId, kind: 'asg_declined' });
+      addNotification(req.uid, 'group', `declined your request for ${g.groupTitle || g.assignmentTitle || g.moduleCode || 'a group'}`, { groupId, kind: 'asg_declined' });
     }
     closeModal(); toast('Request declined');
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4139,7 +4222,7 @@ async function removeFromAsg(groupId, memberUid) {
       members: FieldVal.arrayRemove(memberUid)
     });
     closeModal(); toast('Removed');
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4150,7 +4233,7 @@ async function leaveAsg(groupId) {
       members: FieldVal.arrayRemove(uid)
     });
     closeModal(); toast('Left group');
-    loadAssignmentGroups();
+    loadGroups();
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4158,7 +4241,7 @@ async function toggleAsgLock(groupId, lock) {
   try {
     await db.collection('assignmentGroups').doc(groupId).update({ locked: lock });
     closeModal(); toast(lock ? 'Group locked' : 'Group unlocked');
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4179,7 +4262,7 @@ async function doArchiveAsg(groupId) {
   try {
     await db.collection('assignmentGroups').doc(groupId).update({ status: 'archived', locked: true });
     closeModal(); toast('Group archived');
-    loadAssignmentGroups();
+    loadGroups();
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -4189,7 +4272,7 @@ async function autoFillAsg(groupId) {
     const g = gDoc.data();
     const spotsLeft = (g.maxSize || 10) - (g.members || []).length;
     if (spotsLeft <= 0) return toast('Group is already full');
-    // Find students in same module who aren't in any group for this assignment
+    // Find students in same module who aren't in any group for this
     const allSnap = await db.collection('users').where('modules', 'array-contains', g.moduleCode).limit(50).get();
     const candidates = allSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
@@ -4200,7 +4283,7 @@ async function autoFillAsg(groupId) {
     const hostPrefs = (g.preferences || {})[g.createdBy] || {};
     const dontWant = hostPrefs.dontWant || [];
     const filtered = consented.filter(c => !dontWant.includes(c.id));
-    // Check if they're already in another group for the same assignment
+    // Check if they're already in another group with the same module
     const existingSnap = await db.collection('assignmentGroups')
       .where('moduleCode', '==', g.moduleCode)
       .where('status', '==', 'open').limit(50).get();
@@ -4220,7 +4303,7 @@ async function autoFillAsg(groupId) {
     });
     await db.collection('assignmentGroups').doc(groupId).update(updates);
     closeModal(); toast(`Added ${toAdd.length} student${toAdd.length > 1 ? 's' : ''}!`);
-    openAssignmentDetail(groupId);
+    openGroupDetail(groupId);
   } catch (e) { toast('Auto-fill failed'); console.error(e); }
 }
 
@@ -4302,7 +4385,7 @@ async function openAsgPreferences(groupId) {
     groups.forEach(grp => {
       if (grp.id === groupId) return;
       (grp.members || []).forEach(mid => {
-        takenMap[mid] = { groupName: grp.assignmentTitle || grp.moduleCode, groupId: grp.id };
+        takenMap[mid] = { groupName: grp.groupTitle || grp.assignmentTitle || grp.moduleCode, groupId: grp.id };
       });
     });
     groupedPeople = Object.entries(takenMap);
@@ -4583,15 +4666,15 @@ function loadNotifications() {
 
   if (asgAlerts.length) {
     if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
-    html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Assignment Requests</div>`;
+    html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Group Requests</div>`;
     html += asgAlerts.map(g => `
-      <div class="notif-item unread" onclick="openAssignmentDetail('${g.id}')">
+      <div class="notif-item unread" onclick="openGroupDetail('${g.id}')">
         <div style="position:relative">
           <div class="avatar-md group-avatar-icon">📋</div>
           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">⏳</div>
         </div>
         <div class="notif-content">
-          <div class="notif-text"><strong>${esc(g.assignmentTitle || g.moduleCode || 'Assignment Group')}</strong> has ${(g.pendingRequests || []).length} pending request${(g.pendingRequests || []).length === 1 ? '' : 's'}</div>
+          <div class="notif-text"><strong>${esc(g.groupTitle || g.assignmentTitle || g.moduleCode || 'Group')}</strong> has ${(g.pendingRequests || []).length} pending request${(g.pendingRequests || []).length === 1 ? '' : 's'}</div>
           <div class="notif-time">Tap to review</div>
           <div class="notif-actions" style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
             ${(g.pendingRequests || []).slice(0, 3).map(r => `
@@ -4612,11 +4695,11 @@ function loadNotifications() {
   if (otherNotifs.length) {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'assignment' ? '📋' : '🔔';
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : '🔔';
       const clickAction = n.payload?.postId
         ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
         : n.payload?.groupId
-          ? `openAssignmentDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+          ? `openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
           : `markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unino', photo: null };
       return `
@@ -4984,6 +5067,10 @@ async function openChat(convoId) {
     const photo = (convo.participantPhotos || [])[idx] || null;
 
     showScreen('chat-view');
+    
+    // IMMEDIATELY clear old messages to prevent flash of previous chat
+    const msgs = $('#chat-msgs');
+    if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
 
     // Only show anon toggle for anonymous conversations (non-friend chats)
     const anonBtn = $('#chat-anon-toggle');
@@ -5223,7 +5310,8 @@ async function openChat(convoId) {
       if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
       const banner = $('#anon-reveal-banner'); if (banner) banner.style.display = 'none';
       showScreen('app');
-      navigate('chat');
+      // Don't navigate, just ensure current state is right
+      if (state.page !== 'chat') navigate('chat');
     };
   } catch (e) { console.error(e); toast('Could not open chat'); }
 }
@@ -5260,7 +5348,7 @@ async function startChat(uid, name, photo) {
 // Anonymous messaging for non-friends (shy users)
 const ANON_DAILY_LIMIT = 5;
 
-async function startAnonChat(uid, name, photo, forceNew = false) {
+async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId = null) {
   if (uid === state.user.uid) return toast("That's you!");
   
   // Check if blocked (anon chats also blocked)
@@ -5319,6 +5407,7 @@ async function startAnonChat(uid, name, photo, forceNew = false) {
       isAnonymous: true,
       anonymous: { [state.user.uid]: true, [uid]: true },
       anonStartedBy: state.user.uid,
+      replyToPost: replyToPostId || null,
       anonContext: forceNew ? 'profile' : 'discovery'
     });
     toast(`Anonymous chat started (${todayCount + 1}/${ANON_DAILY_LIMIT} today)`);
@@ -5416,7 +5505,16 @@ async function blockUserFromChat(uid, name, convoId) {
   } catch (e) { toast('Failed to block'); console.error(e); }
 }
 
-async function unblockUser(uid, name) {
+async function unblockUser(uid, name = '') {
+  if (!name) {
+    // Get name from blocked list
+    try {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) name = userDoc.data().displayName || 'this user';
+    } catch (e) {
+      name = 'this user';
+    }
+  }
   if (!window.confirm(`Unblock ${name}?`)) return;
   closeModal();
   try {
@@ -5428,6 +5526,10 @@ async function unblockUser(uid, name) {
     });
     state.profile.blockedUsers = (state.profile.blockedUsers || []).filter(b => b !== uid);
     toast(`${name} unblocked`);
+    // Refresh the blocked list if it's visible
+    if ($('#blocked-users-list')) {
+      setTimeout(() => loadBlockedUsersList(), 100);
+    }
   } catch (e) { toast('Failed to unblock'); console.error(e); }
 }
 
@@ -5543,7 +5645,12 @@ async function openProfile(uid) {
         const tc = $('#profile-tab-content');
         if (tab.dataset.pt === 'posts') tc.innerHTML = renderProfilePosts(posts, user);
         else if (tab.dataset.pt === 'photos') tc.innerHTML = renderProfilePhotos(posts);
-        else tc.innerHTML = renderProfileAbout(user);
+        else {
+          tc.innerHTML = renderProfileAbout(user);
+          if (uid === state.user.uid && (state.profile.blockedUsers || []).length) {
+            setTimeout(() => loadBlockedUsersList(), 100);
+          }
+        }
       };
     });
   } catch (e) {
@@ -5797,6 +5904,7 @@ async function doAdminDataClear() {
 function renderProfileAbout(user) {
   const modules = user.modules || [];
   const isMe = user.id === state.user?.uid;
+  const blockedUsers = isMe ? (user.blockedUsers || []) : [];
   return `
     <div class="profile-about">
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
@@ -5805,7 +5913,8 @@ function renderProfileAbout(user) {
       ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
-    </div>`;
+      ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
+    </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
 function renderProfilePhotos(posts) {
@@ -5825,6 +5934,30 @@ function renderProfilePhotos(posts) {
   }).join('')}</div>`;
 }
 
+async function loadBlockedUsersList() {
+  const blockedUsers = state.profile.blockedUsers || [];
+  if (!blockedUsers.length) {
+    $('#blocked-users-list').innerHTML = 'None';
+    return;
+  }
+  try {
+    const userDocs = await Promise.all(blockedUsers.map(uid => db.collection('users').doc(uid).get()));
+    const users = userDocs.filter(d => d.exists).map(d => ({ id: d.id, ...d.data() }));
+    $('#blocked-users-list').innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+        <div style="flex:1">
+          <div style="font-weight:500;font-size:14px">${esc(u.displayName)}</div>
+        </div>
+        <button class="btn-outline" style="padding:4px 12px;font-size:12px" onclick="unblockUser('${u.id}')">Unblock</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load blocked users:', e);
+    $('#blocked-users-list').innerHTML = 'Error loading list';
+  }
+}
+
 // ─── Edit Profile (with modules) ─────────────────
 function editProfile() {
   const p = state.profile;
@@ -5839,9 +5972,9 @@ function editProfile() {
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="edit-autofill" style="width:auto" ${p.allowAutoFill !== false ? 'checked' : ''}>
-        <label for="edit-autofill" style="margin:0;font-size:14px">Allow auto-fill into assignment groups</label>
+        <label for="edit-autofill" style="margin:0;font-size:14px">Allow auto-fill into groups</label>
       </div>
-      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">When enabled, group hosts can auto-fill you into their assignment groups for your modules.</p>
+      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">When enabled, group hosts can auto-fill you into their groups for your modules.</p>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
@@ -6128,7 +6261,7 @@ async function openAdminPanel() {
       <div class="admin-stats" id="admin-stats"><div class="inline-spinner" style="margin:16px auto"></div></div>
       <div class="admin-section">
         <h4>Quick Actions</h4>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllGroups()">\ud83d\udccb View All Assignment Groups</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllGroups()">\ud83d\udccb View All Groups</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllUsers()">\ud83d\udc65 View All Users</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">\ud83e\uddf9 Moderate Posts</button>
@@ -6153,7 +6286,7 @@ async function openAdminPanel() {
           <div class="admin-stat-card"><div class="admin-stat-num">${onlineCount}</div><div class="admin-stat-label">Online Now</div></div>
           <div class="admin-stat-card"><div class="admin-stat-num">${postsSnap.size}</div><div class="admin-stat-label">Total Posts</div></div>
           <div class="admin-stat-card"><div class="admin-stat-num">${groupsSnap.size}</div><div class="admin-stat-label">Groups</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${asgSnap.size}</div><div class="admin-stat-label">Assignment Groups</div></div>
+          <div class="admin-stat-card"><div class="admin-stat-num">${asgSnap.size}</div><div class="admin-stat-label">Groups</div></div>
         </div>`;
     }
   } catch (e) { console.error(e); }
@@ -6163,7 +6296,7 @@ async function adminViewAllGroups() {
   if (!_isAdmin) return;
   closeModal();
   openModal(`
-    <div class="modal-header"><h2>All Assignment Groups</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>All Groups</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" id="admin-groups-body"><div class="inline-spinner" style="margin:24px auto"></div></div>
   `);
   try {
@@ -6171,12 +6304,12 @@ async function adminViewAllGroups() {
     const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const body = $('#admin-groups-body');
     body.innerHTML = groups.length ? groups.map(g => `
-      <div class="asg-card" style="margin:8px 0;cursor:pointer" onclick="closeModal();openAssignmentDetail('${g.id}')">
+      <div class="asg-card" style="margin:8px 0;cursor:pointer" onclick="closeModal();openGroupDetail('${g.id}')">
         <div class="asg-card-top"><div class="asg-card-module">${esc(g.moduleCode || '?')}</div><span class="asg-badge ${g.status === 'archived' ? 'archived' : 'open'}">${g.status || 'open'}</span></div>
-        <div class="asg-card-title">${esc(g.assignmentTitle)}</div>
+        <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
         <div class="asg-card-meta"><span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span><span>\u00b7 ${timeAgo(g.createdAt)}</span></div>
       </div>
-    `).join('') : '<p style="padding:16px;color:var(--text-secondary)">No assignment groups yet.</p>';
+    `).join('') : '<p style="padding:16px;color:var(--text-secondary)">No groups yet.</p>';
   } catch (e) { console.error(e); }
 }
 
@@ -6357,10 +6490,10 @@ document.addEventListener('DOMContentLoaded', () => {
     showPostOptions, confirmDeletePost, deletePost, openProductDetail,
     openStoryCreator, viewStory, closeStoryViewer, advanceStory, deleteStory,
     openCreateGroup, openGroupChat, joinGroup, loadStories,
-    openCreateAssignmentGroup, openAssignmentDetail, joinAsg, requestJoinAsg,
+    openCreateModuleGroup, openGroupDetail, joinAsg, requestJoinAsg,
     approveAsgRequest, approveAsgRequestByUid, rejectAsgRequest, removeFromAsg, leaveAsg,
     toggleAsgLock, archiveAsg, doArchiveAsg, autoFillAsg,
-    openAsgPreferences, openAsgChat, loadAssignmentGroups,
+    openAsgPreferences, openAsgChat, loadGroups,
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
@@ -6375,6 +6508,6 @@ document.addEventListener('DOMContentLoaded', () => {
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
-    unarchiveConvo, loadArchivedDMList, toggleArchiveDmView
+    unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList
   });
 });
