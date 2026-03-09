@@ -1934,6 +1934,11 @@ function initAuth() {
     } else {
       if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
       if (_groupAlertUnsub) { _groupAlertUnsub(); _groupAlertUnsub = null; }
+      if (notifUnsub) { notifUnsub(); notifUnsub = null; }
+      if (generalNotifUnsub) { generalNotifUnsub(); generalNotifUnsub = null; }
+      if (_unreadDMSub) { _unreadDMSub(); _unreadDMSub = null; }
+      if (_onlineCountTimer) { clearInterval(_onlineCountTimer); _onlineCountTimer = null; }
+      if (_presenceTimer) { clearInterval(_presenceTimer); _presenceTimer = null; }
       VERIFIED_UIDS.clear();
       _asgPendingAlerts = [];
       _dmUnreadCount = 0;
@@ -1947,9 +1952,10 @@ function initAuth() {
     }
   });
 
-  db.collection('stats').doc('global').onSnapshot(doc => {
+  // One-time fetch instead of permanent listener for auth screen count
+  db.collection('stats').doc('global').get().then(doc => {
     const el = $('#auth-count'); if (el && !state.user) el.textContent = '0';
-  });
+  }).catch(() => {});
 }
 
 function friendlyErr(code) {
@@ -1977,6 +1983,7 @@ function enterApp() {
   listenForGroupAlerts();
   setupPresenceTracking();
   listenForOnlineCount();
+  cleanupExpiredStories();
   maybePromptForGpsLocation();
 }
 
@@ -2510,6 +2517,13 @@ function loadDiscoverEvents() {
 }
 
 // ─── Stories System ──────────────────────────────
+function cleanupExpiredStories() {
+  const cutoff = new Date();
+  db.collection('stories').where('expiresAt', '<=', cutoff).limit(50).get()
+    .then(snap => { snap.docs.forEach(d => d.ref.delete().catch(() => {})); })
+    .catch(() => {});
+}
+
 function loadStories() {
   const row = $('#stories-row'); if (!row) return;
   // Clear all but the add-story button
@@ -2646,8 +2660,16 @@ async function viewStory(userId) {
   try {
     const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').get();
     const byUser = {};
+    const myFriends = state.profile.friends || [];
     snap.docs.forEach(d => {
       const s = { id: d.id, ...d.data() };
+      // Only show own stories and friends' stories
+      if (s.authorId !== state.user.uid && !myFriends.includes(s.authorId)) return;
+      // Delete expired stories encountered (cleanup)
+      if (s.expiresAt?.toDate && s.expiresAt.toDate() < new Date()) {
+        db.collection('stories').doc(d.id).delete().catch(() => {});
+        return;
+      }
       if (!byUser[s.authorId]) byUser[s.authorId] = [];
       byUser[s.authorId].push(s);
     });
@@ -2723,6 +2745,29 @@ function showStoryFrame() {
   clearTimeout(storyViewerData.timer);
   storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
 
+  // Story reply bar (only for others' stories)
+  const replyBar = $('#story-reply-bar');
+  const replyInput = $('#story-reply-input');
+  const replySend = $('#story-reply-send');
+  if (replyBar) {
+    if (!isMyStory) {
+      replyBar.style.display = 'flex';
+      replyInput.value = '';
+      replyInput.onfocus = () => clearTimeout(storyViewerData.timer);
+      replyInput.onblur = () => { storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
+      const doReply = () => {
+        const text = replyInput.value.trim();
+        if (!text) return;
+        replyInput.value = '';
+        sendStoryReply(story, text);
+      };
+      replySend.onclick = doReply;
+      replyInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doReply(); } };
+    } else {
+      replyBar.style.display = 'none';
+    }
+  }
+
   // Navigation
   $('#story-prev').onclick = () => advanceStory(-1);
   $('#story-next').onclick = () => advanceStory(1);
@@ -2749,6 +2794,58 @@ function closeStoryViewer() {
   $('#story-viewer').style.display = 'none';
 }
 
+async function sendStoryReply(story, text) {
+  const authorId = story.authorId;
+  if (!authorId || authorId === state.user.uid) return;
+  try {
+    // Find or create a regular (non-anon) DM with the story author
+    const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
+    let convoId = null;
+    const existing = snap.docs.find(d => {
+      const data = d.data();
+      return data.participants.includes(authorId) && !data.isAnonymous;
+    });
+    if (existing) {
+      convoId = existing.id;
+    } else {
+      // Create regular conversation
+      const doc = await db.collection('conversations').add({
+        participants: [state.user.uid, authorId],
+        participantNames: [state.profile.displayName, story.authorName || 'User'],
+        participantPhotos: [state.profile.photoURL || null, story.authorPhoto || null],
+        lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
+        unread: { [authorId]: 0, [state.user.uid]: 0 },
+        participantStatuses: { [state.user.uid]: state.status, [authorId]: 'offline' }
+      });
+      convoId = doc.id;
+    }
+    // Build a preview URL for the story
+    const storyPreview = story.type === 'photo' ? story.imageURL : (story.type === 'video' ? story.videoURL : null);
+    await db.collection('conversations').doc(convoId).collection('messages').add({
+      text,
+      senderId: state.user.uid,
+      senderAnon: false,
+      type: 'story_reply',
+      payload: {
+        storyId: story.id,
+        storyType: story.type,
+        storyPreview: storyPreview || null,
+        storyCaption: story.caption || story.text || '',
+        storyAuthorName: story.authorName || 'User'
+      },
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent'
+    });
+    const lastMsg = `Replied to story: ${text}`;
+    await db.collection('conversations').doc(convoId).set({
+      lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
+      unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
+    }, { merge: true });
+    addNotification(authorId, 'message', lastMsg, { convoId });
+    toast('Reply sent!');
+  } catch (e) { console.error(e); toast('Failed to send reply'); }
+}
+
 async function deleteStory(storyId) {
   if (!storyId) return;
   if (!window.confirm('Delete this story?')) return;
@@ -2767,13 +2864,14 @@ async function deleteStory(storyId) {
 function renderCollage(urls) {
   if (!urls || urls.length <= 1) return '';
   const count = urls.length;
+  const allJson = JSON.stringify(urls).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
   const cls = `collage-grid collage-${Math.min(count, 4)}`;
   return `<div class="${cls}">${urls.slice(0, 4).map((url, i) =>
-    `<div class="collage-item${count > 4 && i === 3 ? ' collage-more-item' : ''}" onclick="viewImage('${url}')">
+    `<div class="collage-item${count > 4 && i === 3 ? ' collage-more-item' : ''}" onclick="openGallery(JSON.parse(this.closest('.collage-grid').dataset.urls),${i})">
       <img src="${url}" loading="lazy">
       ${count > 4 && i === 3 ? `<div class="collage-more-overlay">+${count - 4}</div>` : ''}
     </div>`
-  ).join('')}</div>`;
+  ).join('')}</div>`.replace('class="collage-grid', `data-urls="${allJson}" class="collage-grid`);
 }
 
 // ─── Quote Embed Renderer ────────────────────────
@@ -3532,7 +3630,33 @@ function clearCommentImage() {
 }
 
 // ─── Image Viewer ────────────────────────────────
-function viewImage(url) { const v = $('#img-view'); if (!v) return; $('#img-full').src = url; v.style.display = 'flex'; }
+let _galleryUrls = [];
+let _galleryIdx = 0;
+function viewImage(url) { openGallery([url], 0); }
+function openGallery(urls, startIdx = 0) {
+  _galleryUrls = urls || [];
+  _galleryIdx = startIdx;
+  const v = $('#img-view'); if (!v) return;
+  _renderGalleryFrame();
+  v.style.display = 'flex';
+}
+function _renderGalleryFrame() {
+  if (!_galleryUrls.length) return;
+  $('#img-full').src = _galleryUrls[_galleryIdx];
+  const counter = $('#img-counter');
+  const prev = $('#img-prev');
+  const next = $('#img-next');
+  if (_galleryUrls.length > 1) {
+    counter.textContent = `${_galleryIdx + 1} / ${_galleryUrls.length}`;
+    counter.style.display = 'block';
+    prev.style.display = _galleryIdx > 0 ? 'flex' : 'none';
+    next.style.display = _galleryIdx < _galleryUrls.length - 1 ? 'flex' : 'none';
+  } else {
+    counter.style.display = 'none';
+    prev.style.display = 'none';
+    next.style.display = 'none';
+  }
+}
 
 // ─── Create Post ─────────────────────────────────
 function openCreateModal() {
@@ -6226,8 +6350,8 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     `;
   } else {
     hdrInfo.innerHTML = `
-      ${avatar(otherName, otherPhoto, 'avatar-sm')}
-      <div><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3><span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'}</span></div>
+      <div onclick="openProfile('${otherUid}')" style="cursor:pointer">${avatar(otherName, otherPhoto, 'avatar-sm')}</div>
+      <div onclick="openProfile('${otherUid}')" style="cursor:pointer"><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3><span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'}</span></div>
     `;
   }
 
@@ -6437,6 +6561,27 @@ async function openChat(convoId) {
                 ${snippetHTML}
                 <div style="font-size:11px;color:var(--text-tertiary)">Tap to view</div>
               </div>`;
+            } else if (m.type === 'story_reply' && m.payload) {
+              const sp = m.payload;
+              let storyThumb = '';
+              if (sp.storyPreview && sp.storyType === 'photo') {
+                storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px;display:block">`;
+              } else if (sp.storyPreview && sp.storyType === 'video') {
+                storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;margin-bottom:6px;max-height:100px">
+                  <video src="${sp.storyPreview}" style="width:100%;max-height:100px;object-fit:cover;display:block" preload="metadata" muted></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </div>
+                </div>`;
+              }
+              const captionSnip = sp.storyCaption ? `<div style="font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.storyCaption)}</div>` : '';
+              content = `<div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:6px;border-left:3px solid var(--accent)">
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span style="font-size:11px;font-weight:600;color:var(--accent)">Replied to story</span>
+                </div>
+                ${storyThumb}${captionSnip}
+              </div>${esc(m.text)}`;
             } else if (m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
             } else if (m.text && m.text.startsWith('shared post::')) {
@@ -6590,7 +6735,7 @@ async function openChat(convoId) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
-        addNotification(otherUid, 'message', lastMsg, { convoId }, { docId: 'dm-' + convoId, anonymous: senderAnon });
+        addNotification(otherUid, 'message', lastMsg, { convoId }, { anonymous: senderAnon });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -7793,8 +7938,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dismiss splash
   setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);
 
-  // Image viewer close
-  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; });
+  // Image viewer close + gallery navigation + swipe
+  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; _galleryUrls = []; });
+  $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
+  $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
+  // Touch swipe support for gallery
+  let _galTouchX = 0;
+  const imgView = $('#img-view');
+  if (imgView) {
+    imgView.addEventListener('touchstart', e => { _galTouchX = e.touches[0].clientX; }, { passive: true });
+    imgView.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - _galTouchX;
+      if (Math.abs(dx) > 60 && _galleryUrls.length > 1) {
+        if (dx < 0 && _galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); }
+        else if (dx > 0 && _galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); }
+      }
+    });
+  }
 
   // Notifications dropdown toggle
   $('#notif-btn')?.addEventListener('click', (e) => {

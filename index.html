@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=22">
+  <link rel="stylesheet" href="css/styles.css?v=23">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
@@ -210,6 +210,10 @@
     <div class="story-nav-prev" id="story-prev"></div>
     <div class="story-nav-next" id="story-next"></div>
   </div>
+  <div class="story-reply-bar" id="story-reply-bar" style="display:none">
+    <input type="text" id="story-reply-input" placeholder="Reply to story..." maxlength="500" autocomplete="off">
+    <button class="story-reply-send" id="story-reply-send">Send</button>
+  </div>
 </div>
 
 <!-- ══ NOTIFICATION DROPDOWN ══ -->
@@ -226,6 +230,9 @@
 <!-- ══ IMAGE VIEWER ══ -->
 <div id="img-view" class="img-view" style="display:none">
   <button class="img-close" id="img-close">&times;</button>
+  <div class="img-gallery-counter" id="img-counter" style="display:none"></div>
+  <div class="img-gallery-prev" id="img-prev" style="display:none">‹</div>
+  <div class="img-gallery-next" id="img-next" style="display:none">›</div>
   <img id="img-full" src="" alt="">
 </div>
 
@@ -238,6 +245,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="js/firebase-config.js"></script>
-<script src="js/app.js?v=22"></script>
+<script src="js/app.js?v=23"></script>
 </body>
 </html>
