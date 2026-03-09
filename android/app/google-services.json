@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "174182514516",
+    "project_id": "unino-b215f",
+    "storage_bucket": "unino-b215f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:174182514516:android:a7777adac831ac2f7bd2c1",
+        "android_client_info": {
+          "package_name": "com.unino.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCmFuTGbshmE8njg_uqHC4hazCoXtI2CQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
