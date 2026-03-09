@@ -38,6 +38,9 @@ let _nativeNotificationListenersBound = false;
 let _nativeShellReady = false;
 let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
+let _nativePushReady = false;
+let _nativePushToken = '';
+let _nativePushListenersBound = false;
 let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
@@ -101,9 +104,35 @@ async function syncNativeStatusBar() {
   document.documentElement.style.setProperty('--app-safe-top', safePx);
 }
 
-// Push token storage is a no-op until @capacitor/push-notifications
-// is added back with a valid google-services.json in the build.
-async function savePushTokenForCurrentUser(_token) { /* disabled */ }
+async function savePushTokenForCurrentUser(token) {
+  if (!token || !state.user) return;
+  _nativePushToken = token;
+  try {
+    const previousOwner = localStorage.getItem('unino-push-owner') || '';
+    if (previousOwner && previousOwner !== state.user.uid) {
+      await db.collection('users').doc(previousOwner).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
+    }
+    await db.collection('users').doc(state.user.uid).collection('pushTokens').doc(tokenDocId(token)).set({
+      token,
+      platform: window.Capacitor?.getPlatform?.() || 'android',
+      updatedAt: FieldVal.serverTimestamp(),
+      createdAt: FieldVal.serverTimestamp()
+    }, { merge: true });
+    localStorage.setItem('unino-push-owner', state.user.uid);
+  } catch (e) {
+    console.warn('Push token save failed:', e);
+  }
+}
+
+async function removePushTokenForUser(userId, token = _nativePushToken) {
+  if (!userId || !token) return;
+  try {
+    await db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
+    if ((localStorage.getItem('unino-push-owner') || '') === userId) localStorage.removeItem('unino-push-owner');
+  } catch (e) {
+    console.warn('Push token cleanup failed:', e);
+  }
+}
 
 function appIsForeground() {
   return _nativeAppIsActive && !document.hidden;
@@ -223,8 +252,62 @@ async function scheduleLocalNotification(notification) {
   }
 }
 
-// Push notifications disabled until google-services.json is in the build.
-async function initNativePushNotifications() { /* no-op */ }
+async function initNativePushNotifications() {
+  if (!isNativeApp() || !state.user) return;
+  const pushNotifications = getCapacitorPlugin('PushNotifications');
+  if (!pushNotifications) {
+    console.warn('PushNotifications plugin unavailable');
+    return;
+  }
+
+  if (!_nativePushListenersBound) {
+    _nativePushListenersBound = true;
+
+    pushNotifications.addListener('registration', token => {
+      _nativePushReady = true;
+      savePushTokenForCurrentUser(token?.value || '');
+    });
+
+    pushNotifications.addListener('registrationError', error => {
+      _nativePushReady = false;
+      console.warn('Push registration error:', error);
+    });
+
+    pushNotifications.addListener('pushNotificationReceived', notification => {
+      if (!appIsForeground()) return;
+      const extra = notification?.data || {};
+      scheduleLocalNotification({
+        id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
+        title: notification?.title || 'Unino',
+        body: clampText(notification?.body || 'You have a new notification', 110),
+        channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
+        actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
+        extra
+      });
+    });
+
+    pushNotifications.addListener('pushNotificationActionPerformed', event => {
+      handleNativeNotificationOpen(event.notification?.data || {}, event.actionId || 'tap');
+    });
+  }
+
+  try {
+    const permStatus = await pushNotifications.checkPermissions();
+    let receive = permStatus.receive;
+    if (receive === 'prompt') {
+      const requested = await pushNotifications.requestPermissions();
+      receive = requested.receive;
+    }
+    if (receive !== 'granted') {
+      _nativePushReady = false;
+      return;
+    }
+    await pushNotifications.register();
+  } catch (e) {
+    _nativePushReady = false;
+    console.warn('Push init failed:', e);
+  }
+}
 
 // Request local notification permission — called only after login.
 async function requestLocalNotificationPermission() {
@@ -264,6 +347,11 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
 
 function maybeNotifyForUnreadDMs(conversations = []) {
   if (!state.user) return;
+  if (_nativePushReady && isNativeApp()) {
+    _nativeDmUnreadMap = Object.fromEntries(conversations.map(conversation => [conversation.id, (conversation.unread || {})[state.user.uid] || 0]));
+    _nativeDmNotificationPrimed = true;
+    return;
+  }
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
@@ -323,6 +411,11 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
+  if (_nativePushReady && isNativeApp()) {
+    notifications.filter(notification => !notification.read).forEach(notification => _nativeGeneralNotifIds.add(notification.id));
+    _nativeGeneralNotificationPrimed = true;
+    return;
+  }
   const unreadIds = new Set(notifications.filter(notification => !notification.read).map(notification => notification.id));
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
@@ -1958,6 +2051,7 @@ function initAuth() {
       if (state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
     } else {
+      if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
       if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
       if (_groupAlertUnsub) { _groupAlertUnsub(); _groupAlertUnsub = null; }
       if (notifUnsub) { notifUnsub(); notifUnsub = null; }
@@ -1971,6 +2065,8 @@ function initAuth() {
       _activeChatConvoId = '';
       _activeGroupChat = { id: '', collection: '' };
       _nativeDmUnreadMap = {};
+      _nativePushReady = false;
+      _nativePushToken = '';
       _nativeDmNotificationPrimed = false;
       _nativeGeneralNotificationPrimed = false;
       _nativeGeneralNotifIds.clear();
@@ -1997,6 +2093,7 @@ function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
   requestLocalNotificationPermission();
+  initNativePushNotifications();
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
@@ -7605,7 +7702,10 @@ function stopVoiceAndSend(ctx = '') {
   _voiceRecorder.stop();
 }
 
-function doLogout() { auth.signOut().then(() => window.location.reload()); }
+async function doLogout() {
+  if (state.user?.uid && _nativePushToken) await removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
+  auth.signOut().then(() => window.location.reload());
+}
 
 // ─── Modal System ────────────────────────────────
 function openModal(innerHtml) {
