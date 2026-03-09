@@ -30,6 +30,9 @@ let _chatViewportCleanup = null;
 let _gchatViewportCleanup = null;
 let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
+let _presenceListenersAdded = false;
+let _feedAutoplayObserver = null;
+let _reelsObserver = null;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
 let _nativeShellReady = false;
@@ -268,8 +271,28 @@ function maybeNotifyForUnreadDMs(conversations = []) {
   });
 
   if (!_nativeDmNotificationPrimed) {
-    _nativeDmUnreadMap = nextUnreadMap;
     _nativeDmNotificationPrimed = true;
+    // On first load, notify for any already-unread conversations (messages while app was closed)
+    conversations.forEach(conversation => {
+      const unread = nextUnreadMap[conversation.id] || 0;
+      if (unread <= 0) return;
+      if (_activeChatConvoId === conversation.id) return;
+      const index = conversation.participants.indexOf(myUid) === 0 ? 1 : 0;
+      const otherUid = conversation.participants[index];
+      const anonymousPeer = !!((conversation.anonymous || {})[otherUid]);
+      const senderName = anonymousPeer ? getAnonDisplayName(conversation, myUid, otherUid) : ((conversation.participantNames || [])[index] || 'New message');
+      const senderPhoto = anonymousPeer ? null : ((conversation.participantPhotos || [])[index] || null);
+      scheduleLocalNotification({
+        id: hashStringToId(`dm-${conversation.id}-${unread}`),
+        title: senderName,
+        body: clampText(conversation.lastMessage || 'Sent you a message', 110),
+        largeIcon: senderPhoto || undefined,
+        channelId: 'unibo-messages',
+        actionTypeId: 'dm-preview',
+        extra: { kind: 'dm', convoId: conversation.id }
+      });
+    });
+    _nativeDmUnreadMap = nextUnreadMap;
     return;
   }
 
@@ -302,9 +325,8 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
   const unreadIds = new Set(notifications.filter(notification => !notification.read).map(notification => notification.id));
   if (!_nativeGeneralNotificationPrimed) {
-    unreadIds.forEach(id => _nativeGeneralNotifIds.add(id));
     _nativeGeneralNotificationPrimed = true;
-    return;
+    // Fall through to process existing unreads instead of silently priming
   }
 
   notifications.forEach(notification => {
@@ -1402,6 +1424,7 @@ function formatContent(text) {
 
 // ─── Custom Video Player Engine ──────────────────
 let _playerIdCounter = 0;
+let _activePlayerDestroys = [];
 
 function buildPlayerHTML(src, id) {
   return `
@@ -1654,6 +1677,8 @@ function initPlayer(id) {
 
   // Progress scrubbing
   let scrubbing = false;
+  const _ac = new AbortController();
+  const _acSig = { signal: _ac.signal };
   progressWrap.addEventListener('mousedown', (e) => {
     e.stopPropagation();
     scrubbing = true;
@@ -1663,10 +1688,10 @@ function initPlayer(id) {
   document.addEventListener('mousemove', (e) => {
     if (!scrubbing) return;
     seekFromEvent(e);
-  });
+  }, _acSig);
   document.addEventListener('mouseup', () => {
     if (scrubbing) { scrubbing = false; isSeeking = false; }
-  });
+  }, _acSig);
   // Touch scrubbing
   progressWrap.addEventListener('touchstart', (e) => {
     e.stopPropagation();
@@ -1742,8 +1767,8 @@ function initPlayer(id) {
     iconFs.style.display = fs ? 'none' : 'block';
     iconFsExit.style.display = fs ? 'block' : 'none';
   };
-  document.addEventListener('fullscreenchange', onFsChange);
-  document.addEventListener('webkitfullscreenchange', onFsChange);
+  document.addEventListener('fullscreenchange', onFsChange, _acSig);
+  document.addEventListener('webkitfullscreenchange', onFsChange, _acSig);
 
   // Keyboard shortcuts when player focused
   root.addEventListener('keydown', (e) => {
@@ -1767,7 +1792,8 @@ function initPlayer(id) {
   // Initial controls auto-hide
   controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 4000);
 
-  return { root, vid, togglePlay };
+  const destroy = () => { _ac.abort(); clearTimeout(controlsTimer); vid.pause(); vid.removeAttribute('src'); vid.load(); };
+  return { root, vid, togglePlay, destroy };
 }
 
 function createVideoPlayer(src) {
@@ -2160,21 +2186,24 @@ function markActivity() {
 }
 
 function setupPresenceTracking() {
-  ['mousemove','keydown','click','touchstart','scroll'].forEach(evt => {
-    document.addEventListener(evt, markActivity, { passive: true });
-  });
-  document.addEventListener('visibilitychange', () => {
-    _nativeAppIsActive = !document.hidden;
-    if (document.hidden) {
-      if (state.manualStatus === 'online') {
-        _lastActivityAt = 0;
+  if (!_presenceListenersAdded) {
+    _presenceListenersAdded = true;
+    ['mousemove','keydown','click','touchstart','scroll'].forEach(evt => {
+      document.addEventListener(evt, markActivity, { passive: true });
+    });
+    document.addEventListener('visibilitychange', () => {
+      _nativeAppIsActive = !document.hidden;
+      if (document.hidden) {
+        if (state.manualStatus === 'online') {
+          _lastActivityAt = 0;
+          refreshPresence(true).catch(() => {});
+        }
+      } else {
+        markActivity();
         refreshPresence(true).catch(() => {});
       }
-    } else {
-      markActivity();
-      refreshPresence(true).catch(() => {});
-    }
-  });
+    });
+  }
   // Keep phone back navigation inside the app instead of leaving the site.
   if (!_inAppBackListenerBound) {
     window.addEventListener('popstate', () => handleAppBackAction({ fromPopstate: true }));
@@ -2189,6 +2218,33 @@ function setupPresenceTracking() {
 function navigate(page) {
   state.page = page; unsub();
   stopAllVideos();
+
+  // Destroy leaked video players and observers
+  _activePlayerDestroys.forEach(fn => fn());
+  _activePlayerDestroys = [];
+  if (_feedAutoplayObserver) { _feedAutoplayObserver.disconnect(); _feedAutoplayObserver = null; }
+
+  // Clean up chat listeners if navigating away from chat view
+  if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  if (_anonUnsub) { _anonUnsub(); _anonUnsub = null; }
+  if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
+  _activeChatConvoId = '';
+
+  // Clean up voice recording
+  cancelVoiceRecord('nav');
+
+  // Clean up audio cache
+  Object.values(_vnAudios).forEach(a => { try { a.pause(); a.src = ''; } catch (_) {} });
+  Object.keys(_vnAudios).forEach(k => delete _vnAudios[k]);
+
+  // Prune caches to prevent unbounded growth
+  const _pruneObj = (obj, max) => { const keys = Object.keys(obj); if (keys.length > max) keys.slice(0, keys.length - max).forEach(k => delete obj[k]); };
+  _pruneObj(_authorPhotoCache, 200);
+  _pruneObj(_userContextCache, 200);
+  _pruneObj(_expandedPostKeys, 100);
+  _pruneObj(_postTextStore, 100);
+  _pruneObj(_postTextLimit, 100);
+
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   switch (page) {
@@ -2972,8 +3028,16 @@ function renderPosts(posts) {
 
   // Initialize all custom video players after DOM update
   requestAnimationFrame(() => {
-    _videoPlayers.forEach(p => initPlayer(p.id));
-    _pendingQuotePlayers.forEach(p => initPlayer(p.id));
+    _activePlayerDestroys.forEach(fn => fn());
+    _activePlayerDestroys = [];
+    _videoPlayers.forEach(p => {
+      const result = initPlayer(p.id);
+      if (result?.destroy) _activePlayerDestroys.push(result.destroy);
+    });
+    _pendingQuotePlayers.forEach(p => {
+      const result = initPlayer(p.id);
+      if (result?.destroy) _activePlayerDestroys.push(result.destroy);
+    });
     _pendingQuotePlayers.length = 0;
     setupFeedVideoAutoplay();
   });
@@ -3051,7 +3115,8 @@ function renderReelsUI() {
 
   const scrollEl = document.getElementById('reels-scroll');
   // Intersection observer for auto-play
-  const observer = new IntersectionObserver(entries => {
+  if (_reelsObserver) { _reelsObserver.disconnect(); _reelsObserver = null; }
+  _reelsObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const video = entry.target.querySelector('.reel-video');
       if (!video) return;
@@ -3064,7 +3129,7 @@ function renderReelsUI() {
     });
   }, { root: scrollEl, threshold: [0.7] });
 
-  scrollEl.querySelectorAll('.reel-slide').forEach(slide => observer.observe(slide));
+  scrollEl.querySelectorAll('.reel-slide').forEach(slide => _reelsObserver.observe(slide));
 
   // Play first reel
   requestAnimationFrame(() => {
@@ -3082,6 +3147,7 @@ function toggleReelPlay(overlay) {
 
 function closeReelsViewer() {
   _reelsActive = false;
+  if (_reelsObserver) { _reelsObserver.disconnect(); _reelsObserver = null; }
   const el = document.getElementById('reels-viewer');
   if (el) {
     el.querySelectorAll('video').forEach(v => v.pause());
@@ -3329,9 +3395,10 @@ async function reelLike(pid, btn) {
 
 // ─── Auto-play videos on scroll in feed ─────────
 function setupFeedVideoAutoplay() {
+  if (_feedAutoplayObserver) { _feedAutoplayObserver.disconnect(); _feedAutoplayObserver = null; }
   const feedEl = document.getElementById('feed-posts');
   if (!feedEl) return;
-  const observer = new IntersectionObserver(entries => {
+  _feedAutoplayObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
@@ -3342,7 +3409,7 @@ function setupFeedVideoAutoplay() {
       }
     });
   }, { threshold: [0.6] });
-  feedEl.querySelectorAll('.unino-player').forEach(p => observer.observe(p));
+  feedEl.querySelectorAll('.unino-player').forEach(p => _feedAutoplayObserver.observe(p));
 }
 
 // ─── Like ────────────────────────────────────────
