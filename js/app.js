@@ -50,6 +50,7 @@ let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
 let _pendingFeedScrollRestore = null;
 let _notifDropdownCloseHandler = null;
+let _feedRestorePendingPaint = false;
 const _nativeGeneralNotifIds = new Set();
 let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
@@ -2776,6 +2777,7 @@ function navigate(page, options = {}) {
   const { pushHistory = true, refresh = true, restoreFeed = false } = options;
   const previousPage = state.page;
   if (previousPage === page && !refresh) return;
+  closeNotifDropdown();
   if (previousPage === 'feed') {
     const contentEl = document.getElementById('content');
     if (contentEl) _feedScrollTop = contentEl.scrollTop || 0;
@@ -2813,6 +2815,7 @@ function navigate(page, options = {}) {
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
   if (page === 'feed') {
     _pendingFeedScrollRestore = restoreFeed ? _feedScrollTop : 0;
+    _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
   }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   switch (page) {
@@ -2885,6 +2888,8 @@ function renderFeedResults(posts = []) {
 // ══════════════════════════════════════════════════
 function renderFeed() {
   const c = $('#content'), p = state.profile;
+  if (_feedRestorePendingPaint) c.style.opacity = '0';
+  else c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
       ${!window._greetingShown ? `<div class="welcome-banner" id="welcome-banner">
@@ -3028,7 +3033,14 @@ function renderFeed() {
       state.posts = scored;
       renderFeedResults(scored);
       if (contentEl) {
-        requestAnimationFrame(() => { contentEl.scrollTop = restoreScroll; });
+        requestAnimationFrame(() => {
+          contentEl.scrollTop = restoreScroll;
+          c.style.opacity = '';
+          _feedRestorePendingPaint = false;
+        });
+      } else {
+        c.style.opacity = '';
+        _feedRestorePendingPaint = false;
       }
       _pendingFeedScrollRestore = null;
       window._lastLikedPost = null;
@@ -3042,9 +3054,15 @@ function loadDiscoverPeople() {
   const el = $('#discover-content'); if (!el) return;
   const myMajor = state.profile.major || '';
   const myModules = normalizeModules(state.profile.modules || []);
+  const myYear = state.profile.year || '';
+  const blockedUsers = new Set(state.profile.blockedUsers || []);
+  const blockedBy = new Set(state.profile.blockedBy || []);
+  const myFriends = new Set(state.profile.friends || []);
 
   db.collection('users').limit(30).get().then(snap => {
-    let users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.id !== state.user.uid);
+    let users = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id));
 
     // Score & sort by relevance
     users = users.map(u => {
@@ -3053,12 +3071,14 @@ function loadDiscoverPeople() {
       const shared = myModules.filter(m => theirModules.includes(m));
       const nearby = getNearbySignal(state.profile, u);
       const nearbyScore = nearby.score;
-      if (shared.length) score += 30 + shared.length * 10;
-      if (nearbyScore > 0) score += 20 + nearbyScore * 6;
-      if (u.major === myMajor) score += 10;
+      if (shared.length) score += 36 + shared.length * 14;
+      if (u.major === myMajor) score += 22;
+      if (u.year && myYear && u.year === myYear) score += 8;
+      if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
+      if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
       return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
-    }).sort((a, b) => b.score - a.score).slice(0, 10);
+    }).sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -4498,10 +4518,13 @@ async function loadExploreUsers() {
     ]);
     const myMajor = state.profile.major || '';
     const myModules = normalizeModules(state.profile.modules || []);
+    const myYear = state.profile.year || '';
+    const blockedUsers = new Set(state.profile.blockedUsers || []);
+    const blockedBy = new Set(state.profile.blockedBy || []);
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid)
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
@@ -4511,8 +4534,14 @@ async function loadExploreUsers() {
         if (shared.length > 0) proximity = 'module';
         else if (nearbyScore > 0) proximity = 'nearby';
         else if (u.major === myMajor) proximity = 'course';
-        return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
-      });
+        const affinityScore = (shared.length * 20)
+          + (u.major === myMajor ? 18 : 0)
+          + (u.year && myYear && u.year === myYear ? 6 : 0)
+          + (nearbyScore * 8)
+          + (u.status === 'online' ? 4 : 0);
+        return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
+      })
+      .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
     renderExploreView();
   } catch (e) {
     console.error(e);
@@ -8062,10 +8091,11 @@ async function doAdminDataClear() {
     }
     for (const d of userSnap.docs) {
       await _wipeCollection(`users/${d.id}/notifications`);
+      await _wipeCollection(`users/${d.id}/pushTokens`);
     }
 
     // Then wipe main collections
-    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups', 'stories', 'products', 'stats'];
+    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups', 'stories', 'listings', 'stats', 'users'];
     for (const col of collections) await _wipeCollection(col);
 
     toast('Kill switch complete. Data wiped.');
@@ -8691,6 +8721,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
+
+  document.addEventListener('scroll', event => {
+    const dd = $('#notif-dropdown');
+    const trigger = $('#notif-btn');
+    if (!dd || dd.style.display !== 'block') return;
+    const target = event.target;
+    if (target === dd || dd.contains(target) || target === trigger || trigger?.contains(target)) return;
+    closeNotifDropdown();
+  }, true);
 
   // Expose globals for inline onclick
   Object.assign(window, {

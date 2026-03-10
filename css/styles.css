@@ -2399,7 +2399,7 @@ video::-webkit-media-controls-start-playback-button {
 
 .listing-title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   margin-bottom: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -2410,7 +2410,7 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .listing-price {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--accent);
 }
@@ -2421,6 +2421,7 @@ video::-webkit-media-controls-start-playback-button {
   gap: 6px;
   margin-top: 8px;
   color: var(--text-secondary);
+  font-size: 12px;
 }
 .post-like-action.react-holding {
   transform: scale(0.98);
