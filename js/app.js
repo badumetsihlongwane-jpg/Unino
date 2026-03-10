@@ -120,6 +120,42 @@ function getLocalPostById(postId) {
     || null;
 }
 
+function getLocalMessageById(scope, messageId) {
+  const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+  return lookup.get(messageId) || null;
+}
+
+function syncLocalMessageReactionState(scope, messageId, reactions, likes = []) {
+  const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+  const existing = lookup.get(messageId);
+  if (!existing) return;
+  lookup.set(messageId, { ...existing, reactions, likes });
+}
+
+function refreshMessageReactionUI(scope, primaryId, messageId, collection = '') {
+  const message = getLocalMessageById(scope, messageId);
+  const row = document.getElementById(`msg-${messageId}`);
+  if (!message || !row) return;
+  const stack = row.querySelector('.msg-stack');
+  if (!stack) return;
+  const reactionSummary = renderReactionSummary(message.reactions || {}, message.likes || [], 'msg-inline');
+  let line = stack.querySelector('.msg-reaction-line');
+  if (!reactionSummary) {
+    if (line) line.remove();
+    return;
+  }
+  const action = scope === 'group'
+    ? `event.stopPropagation();openMessageActionSheet('group','${primaryId}','${messageId}','${collection}')`
+    : `event.stopPropagation();openMessageActionSheet('dm','${primaryId}','${messageId}')`;
+  if (!line) {
+    line = document.createElement('div');
+    line.className = 'msg-reaction-line';
+    stack.appendChild(line);
+  }
+  line.setAttribute('onclick', action);
+  line.innerHTML = reactionSummary;
+}
+
 function buildLocalReactionResult(post = {}, emoji = '') {
   const uid = state.user?.uid;
   if (!uid) return { reactions: post.reactions || {}, likes: post.likes || [], nextReaction: '' };
@@ -451,7 +487,7 @@ async function initNativePushNotifications() {
       const extra = notification?.data || {};
       scheduleLocalNotification({
         id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
-        title: notification?.title || 'Unino',
+        title: notification?.title || 'Unibo',
         body: clampText(notification?.body || 'You have a new notification', 110),
         channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
         actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
@@ -1160,10 +1196,25 @@ function openMessageActionSheet(scope, primaryId, messageId, collection = '') {
 }
 
 async function reactToMessage(scope, primaryId, messageId, emoji, collection = '') {
+  const localMessage = getLocalMessageById(scope, messageId);
+  if (!localMessage) return;
+  const previousState = {
+    reactions: normalizeReactionMap(localMessage.reactions, localMessage.likes || []),
+    likes: [...(localMessage.likes || [])]
+  };
+  closeModal();
   try {
-    await updateDocReaction(getMessageDocRef(scope, primaryId, messageId, collection), emoji);
-    closeModal();
+    const optimistic = buildLocalReactionResult(localMessage, emoji);
+    syncLocalMessageReactionState(scope, messageId, optimistic.reactions, optimistic.likes);
+    refreshMessageReactionUI(scope, primaryId, messageId, collection);
+    const result = await updateDocReaction(getMessageDocRef(scope, primaryId, messageId, collection), emoji, { includeLikes: true });
+    if (result) {
+      syncLocalMessageReactionState(scope, messageId, result.reactions, result.likes);
+      refreshMessageReactionUI(scope, primaryId, messageId, collection);
+    }
   } catch (e) {
+    syncLocalMessageReactionState(scope, messageId, previousState.reactions, previousState.likes);
+    refreshMessageReactionUI(scope, primaryId, messageId, collection);
     console.error(e);
     toast('Could not react right now');
   }
@@ -1556,7 +1607,7 @@ function renderTrendingPostsRail(posts = []) {
   }
   const trending = [...posts]
     .filter(post => (post.content || post.imageURL) && !(post.videoURL || post.mediaType === 'video'))
-    .sort((a, b) => (((b.likes || []).length + (b.commentsCount || 0) * 2) - (((a.likes || []).length + (a.commentsCount || 0) * 2))))
+    .sort((a, b) => ((getReactionSummary(b.reactions, b.likes || []).total + (b.commentsCount || 0) * 2) - (getReactionSummary(a.reactions, a.likes || []).total + (a.commentsCount || 0) * 2)))
     .slice(0, 10);
   if (trending.length === 0) {
     if (_trendingRailTimer) clearInterval(_trendingRailTimer);
@@ -1583,7 +1634,7 @@ function renderTrendingPostsRail(posts = []) {
             ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video class="inline-video-preview" src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
             <div class="trending-post-meta-top">
               <span>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName || 'User')}</span>
-              <span>${((post.likes || []).length + (post.commentsCount || 0))} reacts</span>
+              <span>${getReactionSummary(post.reactions, post.likes || []).total} reacts</span>
             </div>
             ${post.content ? `<div class="trending-post-copy">${formatContent((post.content || '').slice(0, 150) + ((post.content || '').length > 150 ? '...' : ''))}</div>` : ''}
             ${renderPostModuleTags((post.moduleTags || []).slice(0, 2))}
@@ -2323,7 +2374,7 @@ function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
 //  THEME
 // ══════════════════════════════════════════════════
 function initTheme() {
-  const saved = localStorage.getItem('unino-theme') || 'dark';
+  const saved = localStorage.getItem('unino-theme') || 'light';
   document.documentElement.setAttribute('data-theme', saved);
   syncNativeStatusBar().catch(() => {});
   $('#theme-btn')?.addEventListener('click', () => {
@@ -8225,25 +8276,58 @@ let _voiceInterval = null;
 let _voiceStartTime = 0;
 let _voiceContext = ''; // '' for DM, 'gchat' for group
 
-function startVoiceRecord(ctx = '') {
+async function ensureMicrophoneStream() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Microphone is not supported on this device');
+    return null;
+  }
+  try {
+    if (navigator.permissions?.query) {
+      const status = await navigator.permissions.query({ name: 'microphone' });
+      if (status.state === 'denied') {
+        toast('Enable microphone permission in app settings');
+        return null;
+      }
+    }
+  } catch (_) {}
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    toast(err?.name === 'NotAllowedError' ? 'Microphone access denied' : 'Could not access microphone');
+    return null;
+  }
+}
+
+async function startVoiceRecord(ctx = '') {
+  if (_voiceRecorder && _voiceRecorder.state !== 'inactive') return;
   _voiceContext = ctx;
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+  const stream = await ensureMicrophoneStream();
+  if (!stream) return;
+  try {
     _voiceRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    _voiceChunks = [];
-    _voiceRecorder.ondataavailable = e => { if (e.data.size > 0) _voiceChunks.push(e.data); };
-    _voiceRecorder.start();
-    _voiceStartTime = Date.now();
-    const timerId = ctx ? 'gchat-voice-timer' : 'voice-timer';
-    const recId = ctx ? 'gchat-voice-recorder' : 'voice-recorder';
-    const el = document.getElementById(recId);
-    if (el) el.style.display = 'flex';
-    _voiceInterval = setInterval(() => {
-      const secs = Math.floor((Date.now() - _voiceStartTime) / 1000);
-      const m = Math.floor(secs / 60), s = secs % 60;
-      const te = document.getElementById(timerId);
-      if (te) te.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-    }, 500);
-  }).catch(() => toast('Microphone access denied'));
+  } catch (_) {
+    try {
+      _voiceRecorder = new MediaRecorder(stream);
+    } catch (err) {
+      stream.getTracks().forEach(track => track.stop());
+      toast('Voice notes are not supported on this device');
+      return;
+    }
+  }
+  _voiceChunks = [];
+  _voiceRecorder.ondataavailable = e => { if (e.data.size > 0) _voiceChunks.push(e.data); };
+  _voiceRecorder.start();
+  _voiceStartTime = Date.now();
+  const timerId = ctx ? 'gchat-voice-timer' : 'voice-timer';
+  const recId = ctx ? 'gchat-voice-recorder' : 'voice-recorder';
+  const el = document.getElementById(recId);
+  if (el) el.style.display = 'flex';
+  _voiceInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - _voiceStartTime) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    const te = document.getElementById(timerId);
+    if (te) te.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+  }, 500);
 }
 
 function cancelVoiceRecord(ctx = '') {
