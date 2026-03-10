@@ -5017,6 +5017,11 @@ video::-webkit-media-controls-start-playback-button {
   font-weight: 600;
 }
 
+.quote-embed-repost {
+  margin-right: 14px !important;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
+}
+
 /* ── Shared Post Card in Chat ─── */
 .shared-post-card {
   background: var(--bg-tertiary);

@@ -47,6 +47,9 @@ let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
 let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
+let _feedScrollTop = 0;
+let _pendingFeedScrollRestore = null;
+let _notifDropdownCloseHandler = null;
 const _nativeGeneralNotifIds = new Set();
 let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
@@ -103,6 +106,68 @@ function renderReactionSummary(raw = {}, likes = [], extraClass = '') {
 function syncLocalPostReactionState(postId, reactions, likes) {
   state.posts = (state.posts || []).map(post => post.id === postId ? { ...post, reactions, likes } : post);
   _reelVideos = (_reelVideos || []).map(post => post.id === postId ? { ...post, reactions, likes } : post);
+}
+
+function getLocalPostById(postId) {
+  return (state.posts || []).find(post => post.id === postId)
+    || (_reelVideos || []).find(post => post.id === postId)
+    || null;
+}
+
+function buildLocalReactionResult(post = {}, emoji = '') {
+  const uid = state.user?.uid;
+  if (!uid) return { reactions: post.reactions || {}, likes: post.likes || [], nextReaction: '' };
+  const reactions = normalizeReactionMap(post.reactions, post.likes || []);
+  const current = reactions[uid] || '';
+  if (!emoji || current === emoji) delete reactions[uid];
+  else reactions[uid] = emoji;
+  return {
+    reactions,
+    likes: Object.entries(reactions).filter(([, value]) => value === '❤️').map(([userId]) => userId),
+    nextReaction: reactions[uid] || ''
+  };
+}
+
+function renderPostStatsMarkup(post = {}) {
+  const reactionSummary = renderReactionSummary(post.reactions, post.likes || [], 'compact');
+  const commentCount = post.commentsCount || 0;
+  return `${reactionSummary ? `<span class="stat-item">${reactionSummary}</span>` : ''}${commentCount ? `<span class="stat-item">${commentCount} comment${commentCount > 1 ? 's' : ''}</span>` : ''}`;
+}
+
+function renderPostLikeMarkup(post = {}) {
+  const liked = (post.likes || []).includes(state.user?.uid);
+  const myReaction = getUserReaction(post.reactions, post.likes || []);
+  const { total } = getReactionSummary(post.reactions, post.likes || []);
+  return `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+    ${myReaction && myReaction !== '❤️' ? myReaction : (total || 'Like')}
+  `;
+}
+
+function refreshPostCardsUI(postId) {
+  const post = getLocalPostById(postId);
+  if (!post) return;
+  const liked = (post.likes || []).includes(state.user?.uid);
+  const myReaction = getUserReaction(post.reactions, post.likes || []);
+  document.querySelectorAll(`.post-card[data-post-id="${postId}"]`).forEach(card => {
+    const stats = card.querySelector('.post-stats');
+    if (stats) stats.innerHTML = renderPostStatsMarkup(post);
+    card.querySelectorAll('.post-like-action').forEach(btn => {
+      btn.classList.toggle('liked', liked);
+      btn.classList.toggle('reacted', !!myReaction && myReaction !== '❤️');
+      btn.innerHTML = renderPostLikeMarkup(post);
+    });
+    card.querySelectorAll('.modal-like-action').forEach(btn => {
+      btn.classList.toggle('liked', liked);
+      btn.textContent = `❤ ${getReactionSummary(post.reactions, post.likes || []).total || 'Like'}`;
+    });
+  });
+}
+
+function initProfilePostInteractions() {
+  const host = $('#profile-tab-content');
+  if (!host) return;
+  requestAnimationFrame(() => bindPostReactionLongPress(host));
 }
 
 async function updateDocReaction(ref, emoji, options = {}) {
@@ -234,6 +299,10 @@ function appIsForeground() {
 function closeNotifDropdown() {
   const dd = $('#notif-dropdown');
   if (dd) dd.style.display = 'none';
+  if (_notifDropdownCloseHandler) {
+    document.removeEventListener('click', _notifDropdownCloseHandler, true);
+    _notifDropdownCloseHandler = null;
+  }
 }
 
 function clearTransientUi() {
@@ -304,7 +373,7 @@ function handleAppBackAction(options = {}) {
   }
 
   if (state.page !== 'feed') {
-    navigate('feed');
+    navigate('feed', { restoreFeed: true });
     return true;
   }
 
@@ -1005,17 +1074,33 @@ function openPostReactionPicker(postId, source = 'feed') {
 }
 
 async function reactToPost(postId, emoji, source = 'feed') {
+  const localPost = getLocalPostById(postId);
+  const previousState = localPost ? {
+    reactions: normalizeReactionMap(localPost.reactions, localPost.likes || []),
+    likes: [...(localPost.likes || [])]
+  } : null;
+  closeModal();
+  if (localPost) {
+    const optimistic = buildLocalReactionResult(localPost, emoji);
+    syncLocalPostReactionState(postId, optimistic.reactions, optimistic.likes);
+    refreshPostCardsUI(postId);
+    if (source === 'reel') refreshReelReactionUI(postId);
+  }
   try {
     const result = await updateDocReaction(db.collection('posts').doc(postId), emoji, { includeLikes: true });
     if (!result) return;
     syncLocalPostReactionState(postId, result.reactions, result.likes);
+    refreshPostCardsUI(postId);
     if (result.nextReaction && result.before.authorId && result.before.authorId !== state.user?.uid) {
       addNotification(result.before.authorId, 'like', 'reacted to your post', { postId });
     }
-    closeModal();
     if (source === 'reel') refreshReelReactionUI(postId);
-    else if (state.page === 'feed') renderFeed();
   } catch (e) {
+    if (previousState) {
+      syncLocalPostReactionState(postId, previousState.reactions, previousState.likes);
+      refreshPostCardsUI(postId);
+      if (source === 'reel') refreshReelReactionUI(postId);
+    }
     console.error(e);
     toast('Could not react right now');
   }
@@ -1464,7 +1549,7 @@ function renderTrendingPostsRail(posts = []) {
     return;
   }
   const trending = [...posts]
-    .filter(post => post.content || post.imageURL || post.videoURL)
+    .filter(post => (post.content || post.imageURL) && !(post.videoURL || post.mediaType === 'video'))
     .sort((a, b) => (((b.likes || []).length + (b.commentsCount || 0) * 2) - (((a.likes || []).length + (a.commentsCount || 0) * 2))))
     .slice(0, 10);
   if (trending.length === 0) {
@@ -2599,7 +2684,11 @@ function setupNav() {
     btn.addEventListener('click', () => {
       const p = btn.dataset.p;
       if (p === 'create') return openCreateModal();
-      navigate(p);
+      if (p === state.page) {
+        if (p === 'feed') navigate('feed', { refresh: true, restoreFeed: false });
+        return;
+      }
+      navigate(p, { restoreFeed: p === 'feed' });
     });
   });
 }
@@ -2683,7 +2772,15 @@ function setupPresenceTracking() {
 }
 
 // ─── Navigation ──────────────────────────────────
-function navigate(page) {
+function navigate(page, options = {}) {
+  const { pushHistory = true, refresh = true, restoreFeed = false } = options;
+  const previousPage = state.page;
+  if (previousPage === page && !refresh) return;
+  if (previousPage === 'feed') {
+    const contentEl = document.getElementById('content');
+    if (contentEl) _feedScrollTop = contentEl.scrollTop || 0;
+  }
+
   state.page = page; unsub();
   stopAllVideos();
 
@@ -2714,6 +2811,9 @@ function navigate(page) {
   _pruneObj(_postTextLimit, 100);
 
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+  if (page === 'feed') {
+    _pendingFeedScrollRestore = restoreFeed ? _feedScrollTop : 0;
+  }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   switch (page) {
     case 'feed': renderFeed(); break;
@@ -2722,7 +2822,7 @@ function navigate(page) {
     case 'chat': renderMessages(); break;
   }
   // Push state for navigation
-  if (_inAppBackInit && state.user) {
+  if (_inAppBackInit && state.user && pushHistory) {
     history.pushState({ app: true, screen: 'app', page, msgTab: state.lastMsgTab }, '');
   }
 }
@@ -2880,7 +2980,8 @@ function renderFeed() {
         return true; // public or no visibility set
       });
 
-      const previousOrder = new Map((state.posts || []).map((post, index) => [post.id, index]));
+      const previousPosts = state.posts || [];
+      const previousOrder = new Map(previousPosts.map((post, index) => [post.id, index]));
       const likedTagPrefs = new Set();
       const likedModulePrefs = new Set(normalizeModules(state.profile.modules || []));
       (state.posts || []).forEach(existingPost => {
@@ -2917,28 +3018,21 @@ function renderFeed() {
         return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
       });
 
-      // Keep feed position stable for like updates by patching only one card.
-      if (window._lastLikedPost && state.posts?.length) {
-        const prevIds = state.posts.map(p => p.id).join(',');
-        const nextIds = scored.map(p => p.id).join(',');
-        if (prevIds === nextIds) {
-          state.posts = scored;
-          const likedPost = scored.find(p => p.id === window._lastLikedPost);
-          if (likedPost) patchPostEngagement(likedPost);
-          window._lastLikedPost = null;
-          return;
-        }
-      }
+      const prevIds = previousPosts.map(post => post.id).join(',');
+      const nextIds = scored.map(post => post.id).join(',');
+      const contentEl = document.getElementById('content');
+      const restoreScroll = _pendingFeedScrollRestore !== null
+        ? _pendingFeedScrollRestore
+        : (contentEl ? contentEl.scrollTop : _feedScrollTop);
 
       state.posts = scored;
-      // Save scroll position before re-render to prevent "jump to top"
-      const contentEl = document.getElementById('content');
-      const savedScroll = contentEl ? contentEl.scrollTop : 0;
       renderFeedResults(scored);
-      // Restore scroll position after re-render
-      if (contentEl && savedScroll > 0) {
-        requestAnimationFrame(() => { contentEl.scrollTop = savedScroll; });
+      if (contentEl) {
+        requestAnimationFrame(() => { contentEl.scrollTop = restoreScroll; });
       }
+      _pendingFeedScrollRestore = null;
+      window._lastLikedPost = null;
+      if (prevIds === nextIds) return;
     });
   state.unsubs.push(u);
 }
@@ -3408,8 +3502,9 @@ function renderCollage(urls) {
 
 // ─── Quote Embed Renderer ────────────────────────
 const _pendingQuotePlayers = [];
-function renderQuoteEmbed(rp) {
+function renderQuoteEmbed(rp, options = {}) {
   if (!rp) return '';
+  const { repostStyle = false } = options;
   const hasImg = rp.imageURL && rp.mediaType !== 'video';
   const hasVid = rp.videoURL || (rp.mediaType === 'video');
   const vidUrl = hasVid ? (rp.videoURL || rp.imageURL) : null;
@@ -3420,7 +3515,7 @@ function renderQuoteEmbed(rp) {
     vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;max-height:200px">${vpd.html}</div>`;
   }
   return `
-    <div class="quote-embed" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
+    <div class="quote-embed${repostStyle ? ' quote-embed-repost' : ''}" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         ${avatar(rp.authorName || 'User', rp.authorPhoto, 'avatar-sm')}
         <span style="font-weight:600;font-size:13px">${esc(rp.authorName || 'User')}</span>
@@ -3458,10 +3553,10 @@ function renderPosts(posts) {
       _videoPlayers.push(videoPlayerData);
     }
     return `
-      <div class="post-card" id="post-${post.id}">
+      <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          <span>${esc(post.authorName)} reposted</span>
+          <span>Reposted by ${esc(post.authorName)}</span>
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
@@ -3479,18 +3574,12 @@ function renderPosts(posts) {
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
-        ${post.repostOf ? renderQuoteEmbed(post.repostOf) : ''}
+        ${post.repostOf ? renderQuoteEmbed(post.repostOf, { repostStyle: true }) : ''}
         <div class="post-engagement">
-          <div class="post-stats">
-            ${reactionSummary ? `<span class="stat-item">${reactionSummary}</span>` : ''}
-            ${cc ? `<span class="stat-item">${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
-          </div>
+          <div class="post-stats">${renderPostStatsMarkup(post)}</div>
           <div class="post-actions">
             ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">👻 Reply</button>` : ''}
-            <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="feed" onclick="toggleLike('${post.id}')">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-              ${myReaction && myReaction !== '❤️' ? myReaction : (lc || 'Like')}
-            </button>
+            <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="feed" onclick="toggleLike('${post.id}')">${renderPostLikeMarkup(post)}</button>
             <button class="post-action" onclick="openComments('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               ${cc || 'Comment'}
@@ -6683,10 +6772,10 @@ async function viewPost(pid) {
     openModal(`
       <div class="modal-header"><h2>Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body" style="padding:16px">
-        <div class="post-card" style="box-shadow:none;border:none;margin:0;padding:0">
+        <div class="post-card" data-post-id="${p.id}" style="box-shadow:none;border:none;margin:0;padding:0">
           ${p.repostOf ? `<div class="repost-badge" style="margin:-0 -0 10px">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <span>Reposted</span>
+            <span>Reposted by ${esc(p.authorName || 'User')}</span>
           </div>` : ''}
           <div class="post-header">
             ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
@@ -6700,10 +6789,10 @@ async function viewPost(pid) {
           ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
           ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
           ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
-          ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
+          ${p.repostOf ? renderQuoteEmbed(p.repostOf, { repostStyle: true }) : ''}
           <div class="post-actions" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
             ${p.isAnonymous && p.authorId !== state.user.uid ? `<button class="post-action anon-inline-action" onclick="closeModal();openAnonPostActions('${p.authorId}')">👻 Message</button>` : ''}
-            <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${p.id}');closeModal()">❤ ${lc || 'Like'}</button>
+            <button class="post-action post-like-action modal-like-action ${liked ? 'liked' : ''}" data-post-id="${p.id}" onclick="toggleLike('${p.id}')">❤ ${lc || 'Like'}</button>
             <button class="post-action" onclick="closeModal();openComments('${p.id}')">💬 ${cc || 'Comment'}</button>
             <button class="post-action" onclick="closeModal();openShareModal('${p.id}')">↗ Share</button>
           </div>
@@ -7450,11 +7539,13 @@ async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId =
 
     // Check for existing anon conversation
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
-    const existing = forceNew ? null : snap.docs.find(d => {
-      const data = d.data();
-      const stillAnonymous = !!((data.anonymous || {})[state.user.uid]) || !!((data.anonymous || {})[uid]);
-      return data.participants.includes(uid) && data.isAnonymous && stillAnonymous;
-    });
+    const existing = snap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(data => {
+        const stillAnonymous = !!((data.anonymous || {})[state.user.uid]) || !!((data.anonymous || {})[uid]);
+        return (data.participants || []).includes(uid) && data.isAnonymous && stillAnonymous;
+      })
+      .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))[0];
     if (existing) { openChat(existing.id); return; }
 
     // Increment anon usage
@@ -7707,6 +7798,7 @@ async function openProfile(uid) {
       </div>
       <div id="profile-tab-content">${renderProfilePosts(posts, user)}</div>
     `;
+    initProfilePostInteractions();
 
     // Wire tabs
     $$('.profile-tab').forEach(tab => {
@@ -7714,7 +7806,10 @@ async function openProfile(uid) {
         $$('.profile-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const tc = $('#profile-tab-content');
-        if (tab.dataset.pt === 'posts') tc.innerHTML = renderProfilePosts(posts, user);
+        if (tab.dataset.pt === 'posts') {
+          tc.innerHTML = renderProfilePosts(posts, user);
+          initProfilePostInteractions();
+        }
         else if (tab.dataset.pt === 'photos') {
           tc.innerHTML = renderProfilePhotos(posts);
           primeInlineVideoPreviews(tc);
@@ -7740,6 +7835,9 @@ function renderProfilePosts(posts, user) {
   if (!visiblePosts.length) return '<div class="empty-state"><h3>No posts yet</h3></div>';
   const _profPlayers = [];
   const html = `<div class="profile-posts">${visiblePosts.map(p => {
+    const liked = (p.likes || []).includes(state.user.uid);
+    const myReaction = getUserReaction(p.reactions, p.likes || []);
+    const commentCount = p.commentsCount || 0;
     const hasVideo = p.videoURL || (p.mediaType === 'video');
     const hasImage = p.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
@@ -7749,10 +7847,10 @@ function renderProfilePosts(posts, user) {
       _profPlayers.push(videoPlayerData);
     }
     return `
-    <div class="post-card">
+    <div class="post-card" data-post-id="${p.id}">
       ${p.repostOf ? `<div style="padding-bottom:6px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-         ${esc(user.displayName)} reposted
+         Reposted by ${esc(user.displayName)}
        </div>` : ''}
       <div class="post-header">
         ${p.isAnonymous ? `<div class="avatar-md anon-avatar">👻</div>` : avatar(user.displayName, user.photoURL, 'avatar-md')}
@@ -7769,10 +7867,13 @@ function renderProfilePosts(posts, user) {
       ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
       ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
       ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
-      ${p.repostOf ? renderQuoteEmbed(p.repostOf) : ''}
+      ${p.repostOf ? renderQuoteEmbed(p.repostOf, { repostStyle: true }) : ''}
+      <div class="post-engagement">
+        <div class="post-stats">${renderPostStatsMarkup(p)}</div>
+      </div>
       <div class="post-actions">
-        <button class="post-action ${(p.likes||[]).includes(state.user.uid)?'liked':''}" onclick="toggleLike('${p.id}')">❤ ${(p.likes||[]).length||'Like'}</button>
-        <button class="post-action" onclick="openComments('${p.id}')">💬 ${p.commentsCount||'Comment'}</button>
+        <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${p.id}" data-source="profile" onclick="toggleLike('${p.id}')">${renderPostLikeMarkup(p)}</button>
+        <button class="post-action" onclick="openComments('${p.id}')">💬 ${commentCount || 'Comment'}</button>
         <button class="post-action" onclick="openShareModal('${p.id}')">↗ Share</button>
       </div>
     </div>`;
@@ -8176,7 +8277,7 @@ async function openShareModal(postId) {
   openModal(`
     <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Quote Repost</button>
+       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Repost</button>
        <div style="height:1px;background:var(--border);margin:16px 0"></div>
        <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
        <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
@@ -8282,11 +8383,11 @@ async function openQuoteRepost(postId) {
     const hasVid = orig.videoURL || (orig.mediaType === 'video');
     const vidUrl = hasVid ? (orig.videoURL || orig.imageURL) : null;
     openModal(`
-      <div class="modal-header"><h2>Quote Repost</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-header"><h2>Repost</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body" style="padding:16px">
         <div style="display:flex;gap:10px;margin-bottom:12px">
           ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
-          <div><div style="font-weight:600">${esc(state.profile.displayName)}</div><div style="font-size:12px;color:var(--text-secondary)">Quoting post</div></div>
+          <div><div style="font-weight:600">${esc(state.profile.displayName)}</div><div style="font-size:12px;color:var(--text-secondary)">Reposting this post</div></div>
         </div>
         <textarea id="quote-text" placeholder="Add your thoughts…" style="width:100%;min-height:80px;border:none;background:transparent;color:var(--text-primary);font-size:15px;resize:none;outline:none;margin-bottom:12px"></textarea>
         <div class="quote-embed-preview" style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--bg-secondary)">
@@ -8299,7 +8400,7 @@ async function openQuoteRepost(postId) {
           ${hasVid && vidUrl ? `<video class="inline-video-preview ready" src="${vidUrl}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px;background:#000" autoplay muted loop playsinline preload="metadata"></video>` : ''}
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:12px">
-          <button class="btn-primary" id="quote-submit" style="padding:10px 28px">Post</button>
+          <button class="btn-primary" id="quote-submit" style="padding:10px 28px">Repost</button>
         </div>
       </div>
     `);
@@ -8577,26 +8678,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Notifications dropdown toggle
   $('#notif-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    requestLocalNotificationPermission().catch(() => {});
     const dd = $('#notif-dropdown');
-    if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+    if (dd.style.display === 'block') { closeNotifDropdown(); return; }
     loadNotifications();
     dd.style.display = 'block';
-    // Close on outside click
-    const closeDD = (ev) => {
-      if (!dd.contains(ev.target) && ev.target !== $('#notif-btn') && !$('#notif-btn').contains(ev.target)) {
-        dd.style.display = 'none';
-        document.removeEventListener('click', closeDD);
+    _notifDropdownCloseHandler = ev => {
+      const trigger = $('#notif-btn');
+      if (!dd.contains(ev.target) && ev.target !== trigger && !trigger?.contains(ev.target)) {
+        closeNotifDropdown();
       }
     };
-    setTimeout(() => document.addEventListener('click', closeDD), 10);
+    setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
-
-  document.addEventListener('scroll', (event) => {
-    const dd = $('#notif-dropdown');
-    if (!dd || dd.style.display !== 'block') return;
-    if (dd.contains(event.target)) return;
-    closeNotifDropdown();
-  }, true);
 
   // Expose globals for inline onclick
   Object.assign(window, {
