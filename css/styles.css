@@ -2084,7 +2084,7 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .msg-bubble {
-  max-width: 82%;
+  max-width: 100%;
   padding: 7px 11px;
   border-radius: 18px;
   font-size: 15px;
@@ -2302,6 +2302,17 @@ video::-webkit-media-controls-start-playback-button {
   height: 44px;
   background: var(--gradient);
   border: none;
+.msg-stack {
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+}
+.msg-stack-sent {
+  align-items: flex-end;
+}
+.msg-stack-received {
+  align-items: flex-start;
+}
   border-radius: var(--radius-full);
   color: #fff;
   display: flex;
@@ -2409,8 +2420,11 @@ video::-webkit-media-controls-start-playback-button {
   align-items: center;
   gap: 6px;
   margin-top: 8px;
-  font-size: 12px;
   color: var(--text-secondary);
+}
+.post-like-action.react-holding {
+  transform: scale(0.98);
+  opacity: 0.82;
 }
 
 /* ── Profile View ──────────────────────────────────────── */

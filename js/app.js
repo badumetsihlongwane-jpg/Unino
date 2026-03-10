@@ -1142,6 +1142,50 @@ function bindMessageLongPress(container, scope, primaryId, collection = '') {
   });
 }
 
+function bindPostReactionLongPress(container) {
+  if (!container) return;
+  container.querySelectorAll('.post-like-action[data-post-id]').forEach(item => {
+    const postId = item.getAttribute('data-post-id') || '';
+    const source = item.getAttribute('data-source') || 'feed';
+    if (!postId) return;
+    let timer = null;
+    let didOpen = false;
+    const start = () => {
+      clearTimeout(timer);
+      didOpen = false;
+      timer = setTimeout(() => {
+        didOpen = true;
+        item.classList.add('react-holding');
+        if (navigator.vibrate) navigator.vibrate(18);
+        openPostReactionPicker(postId, source);
+      }, 360);
+    };
+    const clear = () => {
+      clearTimeout(timer);
+      timer = null;
+      item.classList.remove('react-holding');
+    };
+    item.oncontextmenu = e => {
+      e.preventDefault();
+      if (navigator.vibrate) navigator.vibrate(18);
+      openPostReactionPicker(postId, source);
+    };
+    item.addEventListener('click', e => {
+      if (!didOpen) return;
+      e.preventDefault();
+      e.stopPropagation();
+      didOpen = false;
+    }, true);
+    item.addEventListener('touchstart', start, { passive: true });
+    item.addEventListener('touchend', clear);
+    item.addEventListener('touchmove', clear);
+    item.addEventListener('touchcancel', clear);
+    item.addEventListener('mousedown', start);
+    item.addEventListener('mouseup', clear);
+    item.addEventListener('mouseleave', clear);
+  });
+}
+
 function bindCommentLongPress(container, postId, source = 'feed') {
   if (!container) return;
   container.querySelectorAll('.comment-item[data-author-id]').forEach(item => {
@@ -3443,13 +3487,9 @@ function renderPosts(posts) {
           </div>
           <div class="post-actions">
             ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">👻 Reply</button>` : ''}
-            <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
+            <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="feed" onclick="toggleLike('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-              ${lc || 'Like'}
-            </button>
-            <button class="post-action ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openPostReactionPicker('${post.id}','feed')">
-              <span class="post-reaction-emoji">${myReaction && myReaction !== '❤️' ? myReaction : '😊'}</span>
-              React
+              ${myReaction && myReaction !== '❤️' ? myReaction : (lc || 'Like')}
             </button>
             <button class="post-action" onclick="openComments('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -3478,6 +3518,7 @@ function renderPosts(posts) {
     });
     _pendingQuotePlayers.length = 0;
     setupFeedVideoAutoplay();
+    bindPostReactionLongPress(el);
   });
 }
 
@@ -5494,14 +5535,15 @@ async function openGroupChat(groupId, collection = 'groups') {
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
               ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
               ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-              ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
-            </div></div>`;
+            </div>
+            ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}</div></div>`;
           }).join('');
           bindMessageLongPress(msgs, 'group', groupId, collection);
           scrollToLatest(msgs);
@@ -7195,7 +7237,7 @@ async function openChat(convoId) {
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
