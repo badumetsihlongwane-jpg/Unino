@@ -65,7 +65,7 @@ const _userContextCache = {};
 function isVerifiedUser(uid) {
   if (!uid) return false;
   if (VERIFIED_UIDS.has(uid)) return true;
-  if (uid === state.profile?.id) return _isAdmin || !!state.profile?.isVerified;
+  if (uid === state.profile?.id) return _isAdmin || !!state.profile?.manualVerified;
   return false;
 }
 function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Verified">✔</span>' : ''; }
@@ -2468,6 +2468,7 @@ function initAuth() {
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
         isVerified: false,
+        manualVerified: false,
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
       await cred.user.updateProfile({ displayName });
@@ -2542,7 +2543,7 @@ function initAuth() {
       state.status = state.profile.status || state.manualStatus;
       // Admin detection
       _isAdmin = isAdminUser;
-      if (_isAdmin || state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
+      if (_isAdmin || state.profile.manualVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
     } else {
       if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
@@ -2645,7 +2646,7 @@ function listenForVerifiedUsers() {
     VERIFIED_UIDS.clear();
     snap.docs.forEach(d => {
       const data = d.data() || {};
-      if (data.isVerified) VERIFIED_UIDS.add(d.id);
+      if (data.manualVerified) VERIFIED_UIDS.add(d.id);
     });
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     // Refresh visible areas so badges appear as soon as verified list updates.
@@ -8691,7 +8692,7 @@ async function adminViewAllUsers() {
         <div class="pref-person" onclick="closeModal();openProfile('${u.id}')" style="cursor:pointer">
           ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
           <div class="pref-person-info">
-            <div class="pref-person-name">${esc(u.displayName)}${u.isVerified || VERIFIED_UIDS.has(u.id) ? '<span class="verified-badge">\u2714</span>' : ''}</div>
+            <div class="pref-person-name">${esc(u.displayName)}${u.manualVerified || VERIFIED_UIDS.has(u.id) ? '<span class="verified-badge">\u2714</span>' : ''}</div>
             <div class="pref-person-meta">${esc(u.email || '')} \u00b7 ${esc(u.major || '')} \u00b7 ${u.status || 'offline'}</div>
           </div>
         </div>
@@ -8731,10 +8732,10 @@ function adminVerifyUser() {
           <div class="pref-person" style="cursor:pointer">
             ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
             <div class="pref-person-info">
-              <div class="pref-person-name">${esc(u.displayName)}${u.isVerified || VERIFIED_UIDS.has(u.id) ? '<span class="verified-badge">\u2714</span>' : ''}</div>
+              <div class="pref-person-name">${esc(u.displayName)}${u.manualVerified || VERIFIED_UIDS.has(u.id) ? '<span class="verified-badge">\u2714</span>' : ''}</div>
               <div class="pref-person-meta">${esc(u.email || '')}</div>
             </div>
-            <button class="btn-sm ${u.isVerified ? 'btn-ghost' : 'btn-primary'}" onclick="event.stopPropagation();doVerifyUser('${u.id}', ${!u.isVerified})">${u.isVerified ? 'Unverify' : 'Verify'}</button>
+            <button class="btn-sm ${u.manualVerified ? 'btn-ghost' : 'btn-primary'}" onclick="event.stopPropagation();doVerifyUser('${u.id}', ${!u.manualVerified})">${u.manualVerified ? 'Unverify' : 'Verify'}</button>
           </div>
         `).join('') || '<p style="color:var(--text-tertiary)">No matches.</p>';
       } catch (e) { console.error(e); }
@@ -8745,7 +8746,7 @@ function adminVerifyUser() {
 async function doVerifyUser(uid, verify) {
   if (!_isAdmin) return;
   try {
-    await db.collection('users').doc(uid).update({ isVerified: verify });
+    await db.collection('users').doc(uid).update({ manualVerified: verify, isVerified: verify });
     if (verify) VERIFIED_UIDS.add(uid); else VERIFIED_UIDS.delete(uid);
     toast(verify ? 'User verified!' : 'Verification removed');
     adminVerifyUser(); // refresh
