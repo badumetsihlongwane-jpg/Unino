@@ -33,6 +33,7 @@ let _inAppBackListenerBound = false;
 let _presenceListenersAdded = false;
 let _feedAutoplayObserver = null;
 let _reelsObserver = null;
+let _reelsSoundEnabled = false;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
 let _nativeShellReady = false;
@@ -63,6 +64,98 @@ function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verifie
 function clampText(v = '', max = 80) {
   const t = (v || '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+const REACTION_OPTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
+
+function normalizeReactionMap(raw = {}, likes = []) {
+  const map = {};
+  if (raw && typeof raw === 'object') {
+    Object.entries(raw).forEach(([uid, emoji]) => {
+      if (uid && REACTION_OPTIONS.includes(emoji)) map[uid] = emoji;
+    });
+  }
+  (likes || []).forEach(uid => {
+    if (uid && !map[uid]) map[uid] = '❤️';
+  });
+  return map;
+}
+
+function getReactionSummary(raw = {}, likes = []) {
+  const map = normalizeReactionMap(raw, likes);
+  const counts = {};
+  Object.values(map).forEach(emoji => { counts[emoji] = (counts[emoji] || 0) + 1; });
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return { map, entries, total: Object.keys(map).length };
+}
+
+function getUserReaction(raw = {}, likes = []) {
+  return normalizeReactionMap(raw, likes)[state.user?.uid || ''] || '';
+}
+
+function renderReactionSummary(raw = {}, likes = [], extraClass = '') {
+  const { entries, total } = getReactionSummary(raw, likes);
+  if (!total) return '';
+  const cls = extraClass ? ` ${extraClass}` : '';
+  return `<span class="reaction-summary${cls}">${entries.slice(0, 3).map(([emoji, count]) => `<span class="reaction-chip">${emoji}${count > 1 ? `<b>${count}</b>` : ''}</span>`).join('')}<span class="reaction-total">${total}</span></span>`;
+}
+
+function syncLocalPostReactionState(postId, reactions, likes) {
+  state.posts = (state.posts || []).map(post => post.id === postId ? { ...post, reactions, likes } : post);
+  _reelVideos = (_reelVideos || []).map(post => post.id === postId ? { ...post, reactions, likes } : post);
+}
+
+async function updateDocReaction(ref, emoji, options = {}) {
+  const uid = state.user?.uid;
+  if (!uid) return null;
+  let result = null;
+  await db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const reactions = normalizeReactionMap(data.reactions, options.includeLikes ? (data.likes || []) : []);
+    const current = reactions[uid] || '';
+    if (!emoji || current === emoji) delete reactions[uid];
+    else reactions[uid] = emoji;
+    const update = { reactions };
+    if (options.includeLikes) {
+      update.likes = Object.entries(reactions).filter(([, value]) => value === '❤️').map(([userId]) => userId);
+    }
+    tx.update(ref, update);
+    result = {
+      before: data,
+      reactions,
+      likes: update.likes || data.likes || [],
+      nextReaction: reactions[uid] || ''
+    };
+  });
+  return result;
+}
+
+function refreshReelReactionUI(postId) {
+  const post = (_reelVideos || []).find(item => item.id === postId);
+  const slide = document.querySelector(`.reel-slide[data-post-id="${postId}"]`);
+  if (!post || !slide) return;
+  const { total } = getReactionSummary(post.reactions, post.likes || []);
+  const liked = (post.likes || []).includes(state.user?.uid);
+  const myReaction = getUserReaction(post.reactions, post.likes || []);
+  const likeBtn = slide.querySelector('.reel-like-btn');
+  if (likeBtn) {
+    likeBtn.classList.toggle('liked', liked);
+    const svg = likeBtn.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('fill', liked ? '#ff4757' : 'none');
+      svg.setAttribute('stroke', liked ? '#ff4757' : '#fff');
+    }
+    const count = likeBtn.querySelector('span');
+    if (count) count.textContent = total || '';
+  }
+  const reactBtn = slide.querySelector('.reel-react-btn');
+  if (reactBtn) {
+    reactBtn.classList.toggle('reacted', !!myReaction && myReaction !== '❤️');
+    const label = reactBtn.querySelector('span');
+    if (label) label.textContent = myReaction && myReaction !== '❤️' ? myReaction : 'React';
+  }
 }
 
 function getCapacitorPlugin(name) {
@@ -895,6 +988,158 @@ function openCommentActionSheet(postId, commentId, source = 'feed') {
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
+}
+
+function openPostReactionPicker(postId, source = 'feed') {
+  const post = (state.posts || []).find(item => item.id === postId) || (_reelVideos || []).find(item => item.id === postId) || {};
+  const current = getUserReaction(post.reactions, post.likes || []);
+  openModal(`
+    <div class="modal-header"><h2>React</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <div class="reaction-picker-row">
+        ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToPost('${postId}','${emoji}','${source}')">${emoji}</button>`).join('')}
+      </div>
+      <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function reactToPost(postId, emoji, source = 'feed') {
+  try {
+    const result = await updateDocReaction(db.collection('posts').doc(postId), emoji, { includeLikes: true });
+    if (!result) return;
+    syncLocalPostReactionState(postId, result.reactions, result.likes);
+    if (result.nextReaction && result.before.authorId && result.before.authorId !== state.user?.uid) {
+      addNotification(result.before.authorId, 'like', 'reacted to your post', { postId });
+    }
+    closeModal();
+    if (source === 'reel') refreshReelReactionUI(postId);
+    else if (state.page === 'feed') renderFeed();
+  } catch (e) {
+    console.error(e);
+    toast('Could not react right now');
+  }
+}
+
+function openCommentReactionPicker(postId, commentId, source = 'feed', current = '') {
+  openModal(`
+    <div class="modal-header"><h2>React</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <div class="reaction-picker-row">
+        ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToComment('${postId}','${commentId}','${emoji}','${source}')">${emoji}</button>`).join('')}
+      </div>
+      <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function reactToComment(postId, commentId, emoji, source = 'feed') {
+  try {
+    await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    closeModal();
+    if (source === 'reel') openReelComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
+    else openComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
+  } catch (e) {
+    console.error(e);
+    toast('Could not react right now');
+  }
+}
+
+function getMessageDocRef(scope, primaryId, messageId, collection = '') {
+  if (scope === 'group') return db.collection(collection).doc(primaryId).collection('messages').doc(messageId);
+  return db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
+}
+
+function openMessageActionSheet(scope, primaryId, messageId, collection = '') {
+  const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+  const message = lookup.get(messageId);
+  if (!message) return;
+  const current = getUserReaction(message.reactions);
+  const isMine = message.senderId === state.user?.uid;
+  openModal(`
+    <div class="modal-header"><h2>Message</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <div class="reaction-picker-row">
+        ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToMessage('${scope}','${primaryId}','${messageId}','${emoji}','${collection}')">${emoji}</button>`).join('')}
+      </div>
+      ${isMine ? `<button class="btn-primary btn-full" style="margin-top:12px;background:var(--red);border:none" onclick="deleteMessage('${scope}','${primaryId}','${messageId}','${collection}')">Delete Message</button>` : ''}
+      <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function reactToMessage(scope, primaryId, messageId, emoji, collection = '') {
+  try {
+    await updateDocReaction(getMessageDocRef(scope, primaryId, messageId, collection), emoji);
+    closeModal();
+  } catch (e) {
+    console.error(e);
+    toast('Could not react right now');
+  }
+}
+
+async function deleteMessage(scope, primaryId, messageId, collection = '') {
+  try {
+    await getMessageDocRef(scope, primaryId, messageId, collection).set({
+      deleted: true,
+      deletedAt: FieldVal.serverTimestamp(),
+      text: '',
+      imageURL: null,
+      audioURL: null,
+      type: 'deleted',
+      payload: null,
+      reactions: {}
+    }, { merge: true });
+    closeModal();
+    toast('Message deleted');
+  } catch (e) {
+    console.error(e);
+    toast('Could not delete message');
+  }
+}
+
+function bindMessageLongPress(container, scope, primaryId, collection = '') {
+  if (!container) return;
+  container.querySelectorAll('.msg-bubble[data-message-id]').forEach(item => {
+    const messageId = item.getAttribute('data-message-id') || '';
+    if (!messageId) return;
+    let timer = null;
+    let didOpen = false;
+    const start = () => {
+      clearTimeout(timer);
+      didOpen = false;
+      item.classList.add('message-long-pressing');
+      timer = setTimeout(() => {
+        didOpen = true;
+        item.classList.remove('message-long-pressing');
+        if (navigator.vibrate) navigator.vibrate(18);
+        openMessageActionSheet(scope, primaryId, messageId, collection);
+      }, 360);
+    };
+    const clear = () => {
+      clearTimeout(timer);
+      timer = null;
+      item.classList.remove('message-long-pressing');
+    };
+    item.oncontextmenu = e => {
+      e.preventDefault();
+      if (navigator.vibrate) navigator.vibrate(18);
+      openMessageActionSheet(scope, primaryId, messageId, collection);
+    };
+    item.addEventListener('click', e => {
+      if (!didOpen) return;
+      e.preventDefault();
+      e.stopPropagation();
+      didOpen = false;
+    }, true);
+    item.addEventListener('touchstart', start, { passive: true });
+    item.addEventListener('touchend', clear);
+    item.addEventListener('touchmove', clear);
+    item.addEventListener('touchcancel', clear);
+    item.addEventListener('mousedown', start);
+    item.addEventListener('mouseup', clear);
+    item.addEventListener('mouseleave', clear);
+  });
 }
 
 function bindCommentLongPress(container, postId, source = 'feed') {
@@ -1974,35 +2219,15 @@ function initAuth() {
   $('#forgot-pass-btn')?.addEventListener('click', async () => {
     const email = loginEmailValue();
     if (!email) return toast('Enter your email first');
-    if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
+    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Use your @mynwu.ac.za student email');
     const btn = $('#forgot-pass-btn');
     btn.disabled = true;
     try {
       await auth.sendPasswordResetEmail(email);
-      toast('Password reset email sent. Check your inbox.');
+      toast('If that account exists, a recovery email has been sent. Check your inbox.');
     } catch (err) {
-      toast(friendlyErr(err.code));
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  $('#resend-verify-btn')?.addEventListener('click', async () => {
-    const email = loginEmailValue();
-    if (!email) return toast('Enter your email first');
-    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Use your @mynwu.ac.za student email');
-    const btn = $('#resend-verify-btn');
-    btn.disabled = true;
-    try {
-      const methods = await auth.fetchSignInMethodsForEmail(email);
-      if (!methods.length) {
-        toast('Account not found');
-      } else {
-        await auth.sendPasswordResetEmail(email);
-        toast('Recovery email sent. Reset the password if needed, then verify from your inbox.');
-      }
-    } catch (err) {
-      toast(friendlyErr(err.code));
+      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-email') toast('If that account exists, a recovery email has been sent. Check your inbox.');
+      else toast(friendlyErr(err.code));
     } finally {
       btn.disabled = false;
     }
@@ -3174,7 +3399,9 @@ function renderPosts(posts) {
   const _videoPlayers = [];
   el.innerHTML = posts.map(post => {
     const liked = (post.likes || []).includes(state.user.uid);
-    const lc = (post.likes || []).length, cc = post.commentsCount || 0;
+    const myReaction = getUserReaction(post.reactions, post.likes || []);
+    const reactionSummary = renderReactionSummary(post.reactions, post.likes || [], 'compact');
+    const lc = getReactionSummary(post.reactions, post.likes || []).total, cc = post.commentsCount || 0;
     const canAnonMessage = post.isAnonymous && post.authorId !== state.user.uid;
     const hasCollage = post.imageURLs && post.imageURLs.length > 1 && !post.repostOf;
     const hasVideo = post.videoURL || (post.mediaType === 'video');
@@ -3211,7 +3438,7 @@ function renderPosts(posts) {
         ${post.repostOf ? renderQuoteEmbed(post.repostOf) : ''}
         <div class="post-engagement">
           <div class="post-stats">
-            ${lc ? `<span class="stat-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> ${lc}</span>` : ''}
+            ${reactionSummary ? `<span class="stat-item">${reactionSummary}</span>` : ''}
             ${cc ? `<span class="stat-item">${cc} comment${cc > 1 ? 's' : ''}</span>` : ''}
           </div>
           <div class="post-actions">
@@ -3219,6 +3446,10 @@ function renderPosts(posts) {
             <button class="post-action ${liked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               ${lc || 'Like'}
+            </button>
+            <button class="post-action ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openPostReactionPicker('${post.id}','feed')">
+              <span class="post-reaction-emoji">${myReaction && myReaction !== '❤️' ? myReaction : '😊'}</span>
+              React
             </button>
             <button class="post-action" onclick="openComments('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -3281,17 +3512,21 @@ function renderReelsUI() {
   container.innerHTML = `
     <div class="reels-header">
       <h3>Clips</h3>
-      <button class="reels-close-btn" onclick="closeReelsViewer()">&times;</button>
+      <div class="reels-header-actions">
+        <button class="reels-sound-btn" onclick="toggleReelsSound()">${_reelsSoundEnabled ? 'Sound on' : 'Sound off'}</button>
+        <button class="reels-close-btn" onclick="closeReelsViewer()">&times;</button>
+      </div>
     </div>
     <div class="reels-scroll" id="reels-scroll">
       ${_reelVideos.map((p, i) => {
         const url = p.videoURL || p.imageURL;
         const liked = (p.likes || []).includes(state.user.uid);
-        const lc = (p.likes || []).length;
+        const myReaction = getUserReaction(p.reactions, p.likes || []);
+        const lc = getReactionSummary(p.reactions, p.likes || []).total;
         const cc = p.commentsCount || 0;
         return `
-        <div class="reel-slide" data-idx="${i}">
-          <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
+        <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
+          <video class="reel-video" src="${url}" loop playsinline preload="metadata" ${_reelsSoundEnabled ? '' : 'muted'}></video>
           <div class="reel-overlay-bottom">
             <div class="reel-author" onclick="closeReelsViewer();openProfile('${p.authorId}')">
               ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
@@ -3300,9 +3535,12 @@ function renderReelsUI() {
             ${p.content ? `<p class="reel-caption">${esc(p.content)}</p>` : ''}
           </div>
           <div class="reel-actions">
-            <button class="reel-act-btn ${liked ? 'liked' : ''}" onclick="reelLike('${p.id}', this)">
+            <button class="reel-act-btn reel-like-btn ${liked ? 'liked' : ''}" onclick="reelLike('${p.id}', this)">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="${liked ? '#ff4757' : 'none'}" stroke="${liked ? '#ff4757' : '#fff'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <span>${lc || ''}</span>
+            </button>
+            <button class="reel-act-btn reel-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="event.stopPropagation();openPostReactionPicker('${p.id}','reel')">
+              <span>${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</span>
             </button>
             <button class="reel-act-btn" onclick="event.stopPropagation();openReelComments('${p.id}')">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -3328,6 +3566,7 @@ function renderReelsUI() {
       const video = entry.target.querySelector('.reel-video');
       if (!video) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
+        video.muted = !_reelsSoundEnabled;
         video.play().catch(() => {});
       } else {
         video.pause();
@@ -3340,15 +3579,34 @@ function renderReelsUI() {
   // Play first reel
   requestAnimationFrame(() => {
     const firstVid = scrollEl.querySelector('.reel-slide:first-child .reel-video');
-    if (firstVid) { firstVid.play().catch(() => {}); }
+    if (firstVid) {
+      firstVid.muted = !_reelsSoundEnabled;
+      firstVid.play().catch(() => {});
+    }
   });
 }
 
 function toggleReelPlay(overlay) {
   const vid = overlay.parentElement.querySelector('.reel-video');
   if (!vid) return;
-  if (vid.paused) { vid.muted = false; vid.play().catch(() => {}); overlay.classList.remove('paused'); }
+  if (vid.paused) {
+    _reelsSoundEnabled = true;
+    document.querySelectorAll('.reel-video').forEach(video => { video.muted = false; });
+    const soundBtn = document.querySelector('.reels-sound-btn');
+    if (soundBtn) soundBtn.textContent = 'Sound on';
+    vid.play().catch(() => {});
+    overlay.classList.remove('paused');
+  }
   else { vid.pause(); overlay.classList.add('paused'); }
+}
+
+function toggleReelsSound() {
+  _reelsSoundEnabled = !_reelsSoundEnabled;
+  document.querySelectorAll('.reel-video').forEach(video => {
+    video.muted = !_reelsSoundEnabled;
+  });
+  const btn = document.querySelector('.reels-sound-btn');
+  if (btn) btn.textContent = _reelsSoundEnabled ? 'Sound on' : 'Sound off';
 }
 
 function closeReelsViewer() {
@@ -3380,7 +3638,7 @@ async function openReelComments(postId, options = {}) {
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error(e); }
 
-  comments.forEach(c => { c.likeCount = (c.likes || []).length; });
+  comments.forEach(c => { c.likeCount = getReactionSummary(c.reactions, c.likes || []).total; });
   const topLevel = comments.filter(c => !c.replyTo);
   const replies = comments.filter(c => c.replyTo);
   topLevel.sort((a, b) => b.likeCount - a.likeCount || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -3395,6 +3653,8 @@ async function openReelComments(postId, options = {}) {
 
   const renderComment = (c, isReply = false) => {
     const liked = (c.likes || []).includes(state.user.uid);
+    const myReaction = getUserReaction(c.reactions, c.likes || []);
+    const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
     const cReplies = replyMap[c.id] || [];
     const target = c.replyTo ? commentById[c.replyTo] : null;
     const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
@@ -3411,7 +3671,9 @@ async function openReelComments(postId, options = {}) {
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
+            ${reactionSummary}
             <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">Like ${c.likeCount > 0 ? c.likeCount : ''}</button>
+            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
           </div>
           ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => renderComment(r, true)).join('')}</div>` : ''}
@@ -3560,43 +3822,11 @@ function clearReelCommentReply() {
 }
 
 async function toggleReelCommentLike(commentId, postId) {
-  try {
-    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
-    const doc = await ref.get();
-    if (!doc.exists) return;
-    const likes = doc.data().likes || [];
-    if (likes.includes(state.user.uid)) {
-      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-    } else {
-      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
-    }
-    openReelComments(postId, { scrollMode: 'preserve' });
-  } catch (e) { console.error(e); }
+  await reactToComment(postId, commentId, '❤️', 'reel');
 }
 
 async function reelLike(pid, btn) {
-  try {
-    const ref = db.collection('posts').doc(pid);
-    const doc = await ref.get(); if (!doc.exists) return;
-    const data = doc.data();
-    const likes = data.likes || [];
-    const svgEl = btn.querySelector('svg');
-    const spanEl = btn.querySelector('span');
-    if (likes.includes(state.user.uid)) {
-      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-      btn.classList.remove('liked');
-      svgEl.setAttribute('fill', 'none');
-      svgEl.setAttribute('stroke', '#fff');
-      spanEl.textContent = likes.length - 1 || '';
-    } else {
-      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
-      btn.classList.add('liked');
-      svgEl.setAttribute('fill', '#ff4757');
-      svgEl.setAttribute('stroke', '#ff4757');
-      spanEl.textContent = likes.length + 1;
-      addNotification(data.authorId, 'like', 'liked your reel', { postId: pid });
-    }
-  } catch (e) { console.error(e); }
+  await reactToPost(pid, '❤️', 'reel');
 }
 
 // ─── Auto-play videos on scroll in feed ─────────
@@ -3620,30 +3850,8 @@ function setupFeedVideoAutoplay() {
 
 // ─── Like ────────────────────────────────────────
 async function toggleLike(pid) {
-  const ref = db.collection('posts').doc(pid);
   window._lastLikedPost = pid;
-  // Optimistic UI: update DOM instantly before Firestore round-trip
-  const postEl = document.getElementById('post-' + pid);
-  if (postEl) {
-    const likeBtn = postEl.querySelector('.post-action.liked, .post-action:first-child');
-    if (likeBtn) {
-      const isLiked = likeBtn.classList.contains('liked');
-      likeBtn.classList.toggle('liked', !isLiked);
-      const svg = likeBtn.querySelector('svg');
-      if (svg) { svg.setAttribute('fill', !isLiked ? 'var(--red)' : 'none'); svg.setAttribute('stroke', !isLiked ? 'var(--red)' : 'currentColor'); }
-    }
-  }
-  try {
-    const doc = await ref.get(); if (!doc.exists) return;
-    const data = doc.data();
-    const likes = data.likes || [];
-    if (likes.includes(state.user.uid)) {
-      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-    } else {
-      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
-      addNotification(data.authorId, 'like', 'liked your post', { postId: pid });
-    }
-  } catch (e) { console.error(e); }
+  await reactToPost(pid, '❤️', 'feed');
 }
 
 // ─── Comments with Replies ────────────────────────────────────
@@ -3651,19 +3859,7 @@ let _commentReplyTo = null; // { id, authorName } or null
 let _sendingComment = false;
 
 async function toggleCommentLike(cid, pid) {
-  try {
-    const ref = db.collection('posts').doc(pid).collection('comments').doc(cid);
-    const doc = await ref.get();
-    if (!doc.exists) return;
-    const d = doc.data();
-    const likes = d.likes || [];
-    if (likes.includes(state.user.uid)) {
-      await ref.update({ likes: FieldVal.arrayRemove(state.user.uid) });
-    } else {
-      await ref.update({ likes: FieldVal.arrayUnion(state.user.uid) });
-    }
-    openComments(pid); // Refresh
-  } catch (e) { console.error(e); }
+  await reactToComment(pid, cid, '❤️', 'feed');
 }
 
 async function openComments(postId, options = {}) {
@@ -3681,8 +3877,8 @@ async function openComments(postId, options = {}) {
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (e) { console.error(e); }
 
-  // Process likes
-  comments.forEach(c => { c.likeCount = (c.likes || []).length; });
+  // Process reactions
+  comments.forEach(c => { c.likeCount = getReactionSummary(c.reactions, c.likes || []).total; });
 
   const topLevel = comments.filter(c => !c.replyTo);
   const replies = comments.filter(c => c.replyTo);
@@ -3708,6 +3904,8 @@ async function openComments(postId, options = {}) {
 
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
+      const myReaction = getUserReaction(c.reactions, c.likes || []);
+      const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
      const cReplies = replyMap[c.id] || [];
       const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
@@ -3734,9 +3932,11 @@ async function openComments(postId, options = {}) {
            </div>
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
+              ${reactionSummary}
                <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
                   ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
                </button>
+            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `<div class="comment-replies">
@@ -5278,9 +5478,12 @@ async function openGroupChat(groupId, collection = 'groups') {
           msgs.innerHTML = messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
+            if (m.deleted || m.type === 'deleted') {
+              content = '<span class="msg-deleted">Message deleted</span>';
+            }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
-            if (m.text) content += esc(m.text);
+            if (!m.deleted && m.text) content += esc(m.text);
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
             const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
@@ -5288,16 +5491,19 @@ async function openGroupChat(groupId, collection = 'groups') {
               ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
+            const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">
               ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
               ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
-              <button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>
+              ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
               <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+              ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
             </div></div>`;
           }).join('');
+          bindMessageLongPress(msgs, 'group', groupId, collection);
           scrollToLatest(msgs);
         }
       });
@@ -6889,10 +7095,13 @@ async function openChat(convoId) {
           msgs.innerHTML = messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
+            if (m.deleted || m.type === 'deleted') {
+              content = '<span class="msg-deleted">Message deleted</span>';
+            }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             // Handle shared post messages
-            if (m.type === 'share_post' && m.payload?.postId) {
+            if (!m.deleted && m.type === 'share_post' && m.payload?.postId) {
               const pl = m.payload;
               let mediaPreview = '';
               if (pl.mediaURL && pl.mediaType === 'video') {
@@ -6916,7 +7125,7 @@ async function openChat(convoId) {
                 ${snippetHTML}
                 <div style="font-size:11px;color:var(--text-tertiary)">Tap to view</div>
               </div>`;
-            } else if (m.type === 'story_reply' && m.payload) {
+            } else if (!m.deleted && m.type === 'story_reply' && m.payload) {
               const sp = m.payload;
               let storyThumb = '';
               if (sp.storyPreview && sp.storyType === 'photo') {
@@ -6937,9 +7146,9 @@ async function openChat(convoId) {
                 </div>
                 ${storyThumb}${captionSnip}
               </div>${esc(m.text)}`;
-            } else if (m.text && !m.text.startsWith('shared post::')) {
+            } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
-            } else if (m.text && m.text.startsWith('shared post::')) {
+            } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
               const spId = m.text.replace('shared post::','');
               content = `<div class="shared-post-card" onclick="viewPost('${spId}')">
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
@@ -6983,12 +7192,14 @@ async function openChat(convoId) {
               ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
+            const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button><div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
+          bindMessageLongPress(msgs, 'dm', convoId);
           scrollToLatest(msgs);
         }
 
@@ -8369,7 +8580,9 @@ document.addEventListener('DOMContentLoaded', () => {
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
-    closeReelsViewer, toggleReelPlay, reelLike, togglePostExpand, shiftTrendingRail, toggleTrendingRail,
+    closeReelsViewer, toggleReelPlay, toggleReelsSound, reelLike, togglePostExpand, shiftTrendingRail, toggleTrendingRail,
+    openPostReactionPicker, reactToPost, openCommentReactionPicker, reactToComment,
+    openMessageActionSheet, reactToMessage, deleteMessage,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,

@@ -1500,9 +1500,72 @@ video::-webkit-media-controls-start-playback-button {
   color: var(--red);
 }
 
+.post-action.reacted {
+  color: var(--accent);
+}
+
+.post-reaction-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+
 .post-action.liked svg {
   fill: var(--red);
   stroke: var(--red);
+}
+
+.reaction-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reaction-total {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.reaction-summary.compact .reaction-chip,
+.reaction-summary.inline .reaction-chip,
+.reaction-summary.msg-inline .reaction-chip {
+  padding: 1px 7px;
+  font-size: 11px;
+}
+
+.reaction-picker-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reaction-option {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.reaction-option.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 /* Comments Section */
@@ -2046,6 +2109,11 @@ video::-webkit-media-controls-start-playback-button {
   animation: msg-pop .14s ease-out;
 }
 
+.msg-bubble.message-long-pressing {
+  transform: scale(0.985);
+  opacity: 0.82;
+}
+
 @keyframes msg-pop {
   from { opacity: .85; transform: translateY(4px) scale(.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -2076,6 +2144,20 @@ video::-webkit-media-controls-start-playback-button {
 
 .msg-sent .msg-time {
   justify-content: flex-end;
+}
+
+.msg-reaction-line {
+  margin-top: 6px;
+  display: flex;
+}
+
+.msg-sent .msg-reaction-line {
+  justify-content: flex-end;
+}
+
+.msg-deleted {
+  opacity: 0.72;
+  font-style: italic;
 }
 
 /* ─── Chat Date Separators ───────────── */
@@ -5667,6 +5749,7 @@ video::-webkit-media-controls-start-playback-button {
 }
 .c-act:hover { color: var(--text-primary); }
 .c-act.liked { color: var(--red); }
+.c-act.reacted { color: var(--accent); }
 
 .address-suggestion-item {
   width: 100%;
@@ -5945,6 +6028,22 @@ video::-webkit-media-controls-start-playback-button {
   padding: 12px 16px;
   background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
 }
+
+.reels-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reels-sound-btn {
+  border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-radius: 999px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
 .reels-header h3 {
   color: #fff;
   font-size: 18px;
@@ -6083,6 +6182,10 @@ video::-webkit-media-controls-start-playback-button {
 .reel-act-btn.liked svg {
   filter: drop-shadow(0 0 6px rgba(255,71,87,0.6));
   animation: heartPop 0.3s ease;
+}
+
+.reel-act-btn.reacted span {
+  color: #ffd166;
 }
 @keyframes heartPop {
   0%, 100% { transform: scale(1); }
