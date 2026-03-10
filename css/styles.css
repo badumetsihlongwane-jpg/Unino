@@ -6312,6 +6312,17 @@ video::-webkit-media-controls-start-playback-button {
   position: relative;
   transition: all 0.3s ease;
 }
+.anon-pref-btn {
+  transition: all 0.2s ease;
+}
+.anon-pref-btn.pref-off {
+  color: var(--text-tertiary);
+}
+.anon-pref-btn.pref-on {
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.12);
+  border-radius: 50%;
+}
 .anon-toggle-btn.anon-active {
   color: #D946EF;
   background: rgba(217, 70, 239, 0.15);

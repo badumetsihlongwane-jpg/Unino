@@ -977,6 +977,14 @@ function sanitizeFriendRequests(requests = []) {
   });
 }
 
+function allowAnonymousDMsFor(user = {}) {
+  return user.allowAnonymousMessages !== false;
+}
+
+function bellNotifications(notifications = _notifications) {
+  return (notifications || []).filter(notification => notification?.type !== 'message');
+}
+
 function anonNicknameKey(viewerUid, otherUid) {
   return `${viewerUid}_${otherUid}`;
 }
@@ -1261,8 +1269,14 @@ async function openTagFeed(tag) {
   `);
 }
 
-function openAnonPostActions(uid, postId = null) {
+async function openAnonPostActions(uid, postId = null) {
   if (!uid || uid === state.user.uid) return toast("That's you!");
+  try {
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists && !allowAnonymousDMsFor(userDoc.data() || {})) {
+      return toast('This user only accepts messages from friends');
+    }
+  } catch (_) {}
   openModal(`
     <div class="modal-body" style="padding:20px 18px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
@@ -1977,6 +1991,7 @@ function initAuth() {
         email, university: uni, major, year, modules, address,
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
+        allowAnonymousMessages: true,
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
       await cred.user.updateProfile({ displayName });
@@ -2994,7 +3009,6 @@ async function sendStoryReply(story, text) {
       lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
       unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
     }, { merge: true });
-    addNotification(authorId, 'message', lastMsg, { convoId });
     toast('Reply sent!');
   } catch (e) { console.error(e); toast('Failed to send reply'); }
 }
@@ -4431,6 +4445,7 @@ async function showUserPreview(uid) {
     const isMe = uid === state.user.uid;
     const isFriend = (state.profile.friends || []).includes(uid);
     const isPending = (state.profile.sentRequests || []).includes(uid);
+    const allowsAnon = allowAnonymousDMsFor(user);
     const modules = (user.modules || []).slice(0, 3);
     const myCoords = getUserCoords(state.profile);
     const theirCoords = getUserCoords(user);
@@ -4451,7 +4466,7 @@ async function showUserPreview(uid) {
         <div style="display:flex;gap:8px;justify-content:center">
           ${isMe ? '' : isFriend
             ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-            : `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>
+            : `${allowsAnon ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anon Off</button>`}
                ${isPending
                  ? `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`
                  : `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}`}
@@ -6124,6 +6139,7 @@ function listenForNotifications() {
     state.profile.sentRequests = data.sentRequests || [];
     state.profile.blockedUsers = data.blockedUsers || [];
     state.profile.blockedBy = data.blockedBy || [];
+    state.profile.allowAnonymousMessages = data.allowAnonymousMessages !== false;
     updateNotifBadge();
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display === 'block') loadNotifications();
@@ -6135,7 +6151,7 @@ function listenForNotifications() {
       _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       _notifications.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
       _notifications = _notifications.slice(0, 20);
-      maybeNotifyForGeneralNotifications(_notifications);
+      maybeNotifyForGeneralNotifications(bellNotifications(_notifications));
       updateNotifBadge();
       const dd = $('#notif-dropdown');
       if (dd && dd.style.display === 'block') loadNotifications();
@@ -6144,9 +6160,10 @@ function listenForNotifications() {
 
 function updateNotifBadge() {
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
-  const unreadCount = _notifications.filter(n => !n.read).length;
+  const bellNotifs = bellNotifications(_notifications);
+  const unreadCount = bellNotifs.filter(n => !n.read).length;
   const pendingAsg = _asgPendingAlerts.reduce((sum, g) => sum + (g.pendingRequests || []).length, 0);
-  const revealCount = _notifications.filter(n => n.type === 'reveal_request' && !n.read).length;
+  const revealCount = bellNotifs.filter(n => n.type === 'reveal_request' && !n.read).length;
   const dot = $('#notif-dot');
   if (dot) dot.style.display = (requests.length > 0 || unreadCount > 0 || pendingAsg > 0 || revealCount > 0) ? 'block' : 'none';
 }
@@ -6155,7 +6172,7 @@ function loadNotifications() {
   const dd = $('#notif-dropdown');
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const asgAlerts = _asgPendingAlerts;
-  const notifs = _notifications;
+  const notifs = bellNotifications(_notifications);
   
   // Separate reveal requests (top priority)
   const revealRequests = notifs.filter(n => n.type === 'reveal_request');
@@ -6634,6 +6651,46 @@ async function mutualReveal(convoId) {
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
+function updateAnonPrefButton() {
+  const btn = $('#chat-anon-pref');
+  if (!btn) return;
+  const enabled = allowAnonymousDMsFor(state.profile || {});
+  btn.classList.toggle('pref-on', enabled);
+  btn.classList.toggle('pref-off', !enabled);
+  btn.title = enabled ? 'Anonymous messages allowed' : 'Anonymous messages disabled';
+}
+
+function openAnonDmSettings() {
+  const enabled = allowAnonymousDMsFor(state.profile || {});
+  openModal(`
+    <div class="modal-header"><h2>Anonymous Messages</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="about-item" style="margin-bottom:14px">
+        <span class="about-icon">👻</span>
+        <div>
+          <div class="about-label">Current Rule</div>
+          <div class="about-value">${enabled ? 'Non-friends can start anonymous chats' : 'Only friends can message you'}</div>
+        </div>
+      </div>
+      <button class="btn-primary btn-full" onclick="setAllowAnonymousMessages(${enabled ? 'false' : 'true'})">${enabled ? 'Turn Off Anonymous Messages' : 'Turn On Anonymous Messages'}</button>
+      <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Close</button>
+    </div>
+  `);
+}
+
+async function setAllowAnonymousMessages(enabled) {
+  try {
+    await db.collection('users').doc(state.user.uid).update({ allowAnonymousMessages: !!enabled });
+    state.profile.allowAnonymousMessages = !!enabled;
+    updateAnonPrefButton();
+    closeModal();
+    toast(enabled ? 'Anonymous messages enabled' : 'Anonymous messages turned off');
+  } catch (e) {
+    console.error(e);
+    toast('Failed to update setting');
+  }
+}
+
 async function openChat(convoId) {
   try {
     const convoDoc = await db.collection('conversations').doc(convoId).get();
@@ -6662,6 +6719,12 @@ async function openChat(convoId) {
       } else {
         anonBtn.style.display = 'none';
       }
+    }
+    const anonPrefBtn = $('#chat-anon-pref');
+    if (anonPrefBtn) {
+      anonPrefBtn.style.display = '';
+      anonPrefBtn.onclick = openAnonDmSettings;
+      updateAnonPrefButton();
     }
 
     // Set initial header (will be updated by anon listener)
@@ -6899,7 +6962,6 @@ async function openChat(convoId) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
-        addNotification(otherUid, 'message', lastMsg, { convoId }, { anonymous: senderAnon });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -6993,14 +7055,17 @@ async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId =
   try {
     let targetName = name;
     let targetPhoto = photo;
-    if (!targetName || targetName === 'Anonymous' || targetName.includes('Anonymous')) {
-      const userDoc = await db.collection('users').doc(uid).get();
-      if (userDoc.exists) {
-        const userData = userDoc.data() || {};
+    let targetAllowsAnon = true;
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data() || {};
+      if (!targetName || targetName === 'Anonymous' || targetName.includes('Anonymous')) {
         targetName = userData.displayName || userData.firstName || 'User';
         targetPhoto = userData.photoURL || '';
       }
+      targetAllowsAnon = allowAnonymousDMsFor(userData);
     }
+    if (!targetAllowsAnon) return toast('This user only accepts messages from friends');
 
     // Check for existing anon conversation
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
@@ -7249,7 +7314,7 @@ async function openProfile(uid) {
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-                  : `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>`;
+                  : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
                 return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>
@@ -7540,6 +7605,7 @@ function renderProfileAbout(user) {
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
       ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
+      ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
@@ -7614,6 +7680,11 @@ function editProfile() {
         <label for="edit-autofill" style="margin:0;font-size:14px">Allow auto-fill into groups</label>
       </div>
       <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">When enabled, group hosts can auto-fill you into their groups for your modules.</p>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="edit-anon-dm" style="width:auto" ${allowAnonymousDMsFor(p) ? 'checked' : ''}>
+        <label for="edit-anon-dm" style="margin:0;font-size:14px">Allow anonymous messages from non-friends</label>
+      </div>
+      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
@@ -7630,7 +7701,8 @@ function editProfile() {
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
-    const updates = { displayName: name, bio, modules, address, allowAutoFill };
+    const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
+    const updates = { displayName: name, bio, modules, address, allowAutoFill, allowAnonymousMessages };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
@@ -8170,6 +8242,7 @@ document.addEventListener('DOMContentLoaded', () => {
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
-    unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList
+    unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
+    openAnonDmSettings, setAllowAnonymousMessages
   });
 });
