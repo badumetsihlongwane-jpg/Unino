@@ -65,10 +65,10 @@ const _userContextCache = {};
 function isVerifiedUser(uid) {
   if (!uid) return false;
   if (VERIFIED_UIDS.has(uid)) return true;
-  if (uid === state.profile?.id) return _isAdmin || isStudentEmail(state.profile?.email || state.user?.email || '');
+  if (uid === state.profile?.id) return _isAdmin || !!state.profile?.isVerified;
   return false;
 }
-function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Campus verified">✔</span>' : ''; }
+function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Verified">✔</span>' : ''; }
 
 function clampText(v = '', max = 80) {
   const t = (v || '').replace(/\s+/g, ' ').trim();
@@ -2467,11 +2467,10 @@ function initAuth() {
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
-        isVerified: isStudentEmail(email),
+        isVerified: false,
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
       await cred.user.updateProfile({ displayName });
-      VERIFIED_UIDS.add(uid);
       toast('Account created.');
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
       btn.disabled = false; btn.textContent = 'Create Account';
@@ -2543,7 +2542,7 @@ function initAuth() {
       state.status = state.profile.status || state.manualStatus;
       // Admin detection
       _isAdmin = isAdminUser;
-      if (_isAdmin || isStudentEmail(user.email || '') || state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
+      if (_isAdmin || state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
     } else {
       if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
@@ -2646,7 +2645,7 @@ function listenForVerifiedUsers() {
     VERIFIED_UIDS.clear();
     snap.docs.forEach(d => {
       const data = d.data() || {};
-      if (data.isVerified || isStudentEmail(data.email || '')) VERIFIED_UIDS.add(d.id);
+      if (data.isVerified) VERIFIED_UIDS.add(d.id);
     });
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     // Refresh visible areas so badges appear as soon as verified list updates.
