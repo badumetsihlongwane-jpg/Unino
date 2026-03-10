@@ -117,6 +117,8 @@ input, select, textarea, button {
   z-index: 1;
   flex-direction: column;
   padding-top: var(--app-safe-top);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .screen.active {
@@ -289,6 +291,26 @@ input, select, textarea, button {
 
 .auth-form input::placeholder {
   color: var(--text-tertiary);
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 72px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .input-row,
@@ -1870,6 +1892,7 @@ video::-webkit-media-controls-start-playback-button {
 #group-chat-view {
   background: var(--bg-primary);
   z-index: 60;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Sub-Header (Chat & Profile back bars) */
@@ -3639,6 +3662,9 @@ video::-webkit-media-controls-start-playback-button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding-top: var(--app-safe-top);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
 }
 .story-viewer-overlay[style*="display: flex"],
 .story-viewer-overlay[style*="display:flex"] {
@@ -3647,7 +3673,7 @@ video::-webkit-media-controls-start-playback-button {
 
 .story-progress-bar {
   position: absolute;
-  top: 0;
+  top: var(--app-safe-top);
   left: 0;
   right: 0;
   display: flex;
@@ -3680,7 +3706,7 @@ video::-webkit-media-controls-start-playback-button {
 
 .story-viewer-header {
   position: absolute;
-  top: 16px;
+  top: calc(var(--app-safe-top) + 16px);
   left: 0;
   right: 0;
   display: flex;
@@ -3753,9 +3779,24 @@ video::-webkit-media-controls-start-playback-button {
 
 .story-viewer-nav {
   position: absolute;
-  inset: 80px 0 40px;
+  inset: calc(var(--app-safe-top) + 80px) 0 40px;
   display: flex;
   z-index: 305;
+}
+.story-sound-toggle {
+  position: absolute;
+  right: 16px;
+  bottom: 92px;
+  z-index: 311;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
 }
 .story-nav-prev,
 .story-nav-next {

@@ -138,6 +138,11 @@ function appIsForeground() {
   return _nativeAppIsActive && !document.hidden;
 }
 
+function closeNotifDropdown() {
+  const dd = $('#notif-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
 function clearTransientUi() {
   const notifDropdown = $('#notif-dropdown');
   if (notifDropdown?.style.display === 'block') {
@@ -1670,6 +1675,10 @@ function initPlayer(id) {
   // Toggle play/pause
   const togglePlay = () => {
     if (vid.paused) {
+      if (vid.muted && root.dataset.userMuted !== '1') {
+        vid.muted = false;
+        if (volSlider && (!Number.isFinite(parseFloat(volSlider.value)) || parseFloat(volSlider.value) <= 0)) volSlider.value = '1';
+      }
       vid.play().catch(() => {});
     } else {
       vid.pause();
@@ -1830,12 +1839,14 @@ function initPlayer(id) {
       e.stopPropagation();
       vid.volume = parseFloat(volSlider.value);
       vid.muted = vid.volume === 0;
+      root.dataset.userMuted = vid.muted ? '1' : '0';
     });
     const volBtn = root.querySelector('.vol-btn');
     if (volBtn) {
       volBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         vid.muted = !vid.muted;
+        root.dataset.userMuted = vid.muted ? '1' : '0';
         volSlider.value = vid.muted ? 0 : vid.volume || 1;
       });
     }
@@ -1916,6 +1927,7 @@ function stopAllVideos() {
 
 function showScreen(id) {
   stopAllVideos();
+  closeNotifDropdown();
   $$('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
@@ -1946,6 +1958,16 @@ function initTheme() {
 //  AUTH
 // ══════════════════════════════════════════════════
 function initAuth() {
+  $$('.password-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.dataset.target || '');
+      if (!target) return;
+      const nextType = target.type === 'password' ? 'text' : 'password';
+      target.type = nextType;
+      btn.textContent = nextType === 'password' ? 'Show' : 'Hide';
+    });
+  });
+
   $('#to-signup')?.addEventListener('click', e => {
     e.preventDefault();
     $('#login-form').classList.remove('active');
@@ -1964,7 +1986,17 @@ function initAuth() {
     if (!email || !pass) return toast('Enter email and password');
     if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
-    try { await auth.signInWithEmailAndPassword(email, pass); }
+    try {
+      const cred = await auth.signInWithEmailAndPassword(email, pass);
+      await cred.user.reload();
+      if (!auth.currentUser?.emailVerified) {
+        try { await auth.currentUser.sendEmailVerification(); } catch (_) {}
+        await auth.signOut().catch(() => {});
+        toast('Verify your email first. A new verification email was sent.');
+        btn.disabled = false; btn.textContent = 'Log In';
+        return;
+      }
+    }
     catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Log In'; }
   });
 
@@ -1995,7 +2027,13 @@ function initAuth() {
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
       await cred.user.updateProfile({ displayName });
+      await cred.user.sendEmailVerification().catch(() => {});
+      await auth.signOut().catch(() => {});
+      $('#signup-form').classList.remove('active');
+      $('#login-form').classList.add('active');
+      toast('Account created. Verify your email, then log in.');
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
+      btn.disabled = false; btn.textContent = 'Create Account';
     } catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Create Account'; }
   });
 
@@ -2044,6 +2082,12 @@ function initAuth() {
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
     if (user) {
+      try { await user.reload(); } catch (_) {}
+      if (!user.emailVerified) {
+        toast('Verify your email to continue');
+        await auth.signOut().catch(() => {});
+        return;
+      }
       if (!isStudentEmail(user.email || '')) {
         toast('Only @mynwu.ac.za accounts are allowed');
         await auth.signOut().catch(() => {});
@@ -2885,6 +2929,7 @@ function showStoryFrame() {
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
       <video src="${story.videoURL}" class="story-full-video" autoplay muted playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
+      <button class="story-sound-toggle" id="story-sound-toggle" onclick="toggleStoryViewerSound()">Unmute</button>
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
@@ -2960,6 +3005,14 @@ function advanceStory(dir) {
 function closeStoryViewer() {
   clearTimeout(storyViewerData.timer);
   $('#story-viewer').style.display = 'none';
+}
+
+function toggleStoryViewerSound() {
+  const vid = $('#story-viewer-content video');
+  const btn = $('#story-sound-toggle');
+  if (!vid || !btn) return;
+  vid.muted = !vid.muted;
+  btn.textContent = vid.muted ? 'Unmute' : 'Mute';
 }
 
 async function sendStoryReply(story, text) {
@@ -3251,7 +3304,7 @@ function renderReelsUI() {
 function toggleReelPlay(overlay) {
   const vid = overlay.parentElement.querySelector('.reel-video');
   if (!vid) return;
-  if (vid.paused) { vid.play().catch(() => {}); overlay.classList.remove('paused'); }
+  if (vid.paused) { vid.muted = false; vid.play().catch(() => {}); overlay.classList.remove('paused'); }
   else { vid.pause(); overlay.classList.add('paused'); }
 }
 
@@ -4970,6 +5023,10 @@ function openProductDetail(itemId) {
   if (!item) return toast('Product not found');
   const isSelf = item.sellerId === state.user.uid;
   const isFriend = (state.profile.friends || []).includes(item.sellerId);
+  const myCoords = getUserCoords(state.profile);
+  const sellerContext = _userContextCache[item.sellerId] || null;
+  const sellerCoords = getUserCoords(sellerContext || {});
+  const distanceText = (!isSelf && myCoords && sellerCoords) ? formatDistanceText(distanceKmBetween(myCoords, sellerCoords)) : '';
 
   openModal(`
     <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -4989,6 +5046,7 @@ function openProductDetail(itemId) {
         <span>📁 ${esc(item.category || 'Other')}</span>
         <span>·</span>
         <span>📅 ${timeAgo(item.createdAt)}</span>
+        <span id="product-distance-meta">${distanceText ? `· 📍 ${esc(distanceText)}` : ''}</span>
       </div>
       <div style="display:flex;gap:12px;margin-top:16px">
         ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
@@ -5002,6 +5060,17 @@ function openProductDetail(itemId) {
       </div>
     </div>
   `);
+
+  if (!distanceText && !isSelf && myCoords) {
+    db.collection('users').doc(item.sellerId).get().then(doc => {
+      if (!doc.exists) return;
+      const seller = { id: doc.id, ...doc.data() };
+      const sellerCoordsLive = getUserCoords(seller);
+      const sellerDistanceText = sellerCoordsLive ? formatDistanceText(distanceKmBetween(myCoords, sellerCoordsLive)) : '';
+      const target = document.getElementById('product-distance-meta');
+      if (target) target.textContent = sellerDistanceText ? `· 📍 ${sellerDistanceText}` : '';
+    }).catch(() => {});
+  }
 }
 
 async function hustleBuyInterest(itemId) {
@@ -5055,16 +5124,10 @@ async function hustleBuyInterest(itemId) {
     }, { merge: true });
 
     // 4. Send notification to seller
-    await db.collection('users').doc(sellerId).collection('notifications').add({
-      type: 'hustle_interest',
-      fromUid: uid,
-      fromName: state.profile.displayName,
-      fromPhoto: state.profile.photoURL || null,
+    await addNotification(sellerId, 'hustle_interest', `is interested in your listing "${item.title}"`, {
+      itemId,
       itemTitle: item.title,
-      itemPrice: item.price,
-      message: `${state.profile.displayName} is interested in your listing "${item.title}"`,
-      read: false,
-      createdAt: FieldVal.serverTimestamp()
+      itemPrice: item.price
     });
 
     closeModal();
@@ -6055,6 +6118,7 @@ async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
 async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
   const uid = state.user.uid;
   try {
+    closeNotifDropdown();
     // Add to both friends arrays
     await db.collection('users').doc(uid).update({
       friends: FieldVal.arrayUnion(fromUid),
@@ -6098,6 +6162,7 @@ async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
 async function rejectFriendRequest(fromUid) {
   const uid = state.user.uid;
   try {
+    closeNotifDropdown();
     await db.collection('users').doc(uid).update({
       friendRequests: (state.profile.friendRequests || []).filter(r => r.uid !== fromUid)
     });
@@ -6200,7 +6265,7 @@ function loadNotifications() {
       const from = n.from || { name: 'Someone', photo: null };
       const convoId = n.payload?.convoId || '';
       return `
-       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="openChat('${convoId}');markNotifRead('${n.id}')">
+      <div class="notif-item ${n.read ? '' : 'unread'}" onclick="closeNotifDropdown();openChat('${convoId}');markNotifRead('${n.id}')">
          <div style="position:relative">
            <div class="avatar-md anon-avatar">👻</div>
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">🎭</div>
@@ -6216,7 +6281,7 @@ function loadNotifications() {
   if (requests.length) {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Friend Requests</div>`;
     html += requests.map(r => `
-      <div class="notif-item unread" onclick="openProfile('${r.uid}')">
+      <div class="notif-item unread" onclick="closeNotifDropdown();openProfile('${r.uid}')">
         ${avatar(r.name, r.photo, 'avatar-md')}
         <div class="notif-content">
           <div class="notif-text"><strong>${esc(r.name)}</strong> sent you a friend request</div>
@@ -6232,7 +6297,7 @@ function loadNotifications() {
     if (requests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Group Requests</div>`;
     html += asgAlerts.map(g => `
-      <div class="notif-item unread" onclick="openGroupDetail('${g.id}')">
+      <div class="notif-item unread" onclick="closeNotifDropdown();openGroupDetail('${g.id}')">
         <div style="position:relative">
           <div class="avatar-md group-avatar-icon">📋</div>
           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">⏳</div>
@@ -6261,14 +6326,14 @@ function loadNotifications() {
     html += otherNotifs.map(n => {
       const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : '🔔';
       const clickAction = n.payload?.convoId
-        ? `openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
+        ? `closeNotifDropdown();openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
         : n.payload?.postId
-          ? `viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+          ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
           : n.payload?.groupId
-            ? `openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+            ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
             : n.from?.uid && n.from.uid !== 'anonymous'
-              ? `openProfile('${n.from.uid}');markNotifRead('${n.id}')`
-              : `markNotifRead('${n.id}')`;
+              ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
+              : `closeNotifDropdown();markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unibo', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
@@ -8230,6 +8295,13 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', closeDD), 10);
   });
 
+  document.addEventListener('scroll', (event) => {
+    const dd = $('#notif-dropdown');
+    if (!dd || dd.style.display !== 'block') return;
+    if (dd.contains(event.target)) return;
+    closeNotifDropdown();
+  }, true);
+
   // Expose globals for inline onclick
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
@@ -8261,6 +8333,6 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown
   });
 });
