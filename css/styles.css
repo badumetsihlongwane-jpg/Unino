@@ -1745,6 +1745,12 @@ video::-webkit-media-controls-start-playback-button {
   border-bottom: 1px solid var(--border);
 }
 
+.messages-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .messages-header h2 {
   font-size: 22px;
   font-weight: 800;

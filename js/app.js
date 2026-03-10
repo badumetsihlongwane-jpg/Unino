@@ -1536,7 +1536,7 @@ let _activePlayerDestroys = [];
 function buildPlayerHTML(src, id) {
   return `
   <div class="unino-player show-controls is-loading" id="up-${id}" data-player-id="${id}">
-    <video preload="metadata" playsinline webkit-playsinline disablepictureinpicture>
+    <video preload="metadata" playsinline webkit-playsinline disablepictureinpicture muted>
       <source src="${src}" type="video/mp4">
       <source src="${src}" type="video/webm">
     </video>
@@ -2884,7 +2884,7 @@ function showStoryFrame() {
   let autoAdvanceMs = 5000;
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
-      <video src="${story.videoURL}" class="story-full-video" autoplay playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
+      <video src="${story.videoURL}" class="story-full-video" autoplay muted playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
@@ -3232,7 +3232,6 @@ function renderReelsUI() {
       const video = entry.target.querySelector('.reel-video');
       if (!video) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
-        video.muted = false;
         video.play().catch(() => {});
       } else {
         video.pause();
@@ -3245,7 +3244,7 @@ function renderReelsUI() {
   // Play first reel
   requestAnimationFrame(() => {
     const firstVid = scrollEl.querySelector('.reel-slide:first-child .reel-video');
-    if (firstVid) { firstVid.muted = false; firstVid.play().catch(() => {}); }
+    if (firstVid) { firstVid.play().catch(() => {}); }
   });
 }
 
@@ -4452,7 +4451,6 @@ async function showUserPreview(uid) {
     const distanceText = !isMe && myCoords && theirCoords ? formatDistanceText(distanceKmBetween(myCoords, theirCoords)) : '';
     const detailChips = [
       user.year ? `🎓 ${esc(user.year)}` : '',
-      user.address ? `📍 ${esc(user.address)}` : '',
       distanceText ? `🧭 ${esc(distanceText)}` : ''
     ].filter(Boolean);
     openModal(`
@@ -5322,7 +5320,7 @@ function renderMessages() {
   const c = $('#content');
   c.innerHTML = `
     <div class="messages-page">
-      <div class="messages-header"><h2>Messages</h2></div>
+      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
       <div class="msg-tabs">
         <button class="msg-tab active" data-mt="dm">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -5347,6 +5345,11 @@ function renderMessages() {
   // Compute DM unread count for the tab badge
   _updateDMTabBadge();
   refreshChatBadge();
+  const anonPrefBtn = $('#messages-anon-pref');
+  if (anonPrefBtn) {
+    anonPrefBtn.onclick = openAnonDmSettings;
+    updateAnonPrefButton('messages-anon-pref');
+  }
   $$('.msg-tab').forEach(tab => {
     tab.onclick = () => {
       $$('.msg-tab').forEach(t => t.classList.remove('active'));
@@ -6560,7 +6563,7 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
           [`anonymous.${uid}`]: false,
           [`anonymous.${otherUid}`]: false,
           revealRequests: {}
-        }).catch(() => {});
+        }).then(() => syncConversationIdentities(convo._id)).catch(() => {});
       } else if (iRequested) {
         banner.innerHTML = `<span>⏳ Waiting for them to reveal too...</span>`;
         banner.className = 'anon-reveal-banner reveal-waiting';
@@ -6610,6 +6613,7 @@ async function toggleAnonymous(convoId) {
       // Clear reveal requests when toggling
       revealRequests: {}
     });
+    if (currentAnon) await syncConversationIdentities(convoId);
     toast(!currentAnon ? 'You are now Anonymous 👻' : 'Identity revealed');
   } catch (e) { toast('Failed'); console.error(e); }
 }
@@ -6651,8 +6655,30 @@ async function mutualReveal(convoId) {
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
-function updateAnonPrefButton() {
-  const btn = $('#chat-anon-pref');
+async function syncConversationIdentities(convoId) {
+  try {
+    const convoSnap = await db.collection('conversations').doc(convoId).get();
+    if (!convoSnap.exists) return;
+    const convo = convoSnap.data() || {};
+    const participants = convo.participants || [];
+    if (participants.length !== 2) return;
+    const anonMap = convo.anonymous || {};
+    const anyStillAnon = participants.some(participantId => !!anonMap[participantId]);
+    const userDocs = await Promise.all(participants.map(participantId => db.collection('users').doc(participantId).get()));
+    const participantNames = userDocs.map(doc => doc.exists ? (doc.data().displayName || doc.data().firstName || 'User') : 'User');
+    const participantPhotos = userDocs.map(doc => doc.exists ? (doc.data().photoURL || null) : null);
+    await db.collection('conversations').doc(convoId).update({
+      participantNames,
+      participantPhotos,
+      isAnonymous: anyStillAnon
+    });
+  } catch (e) {
+    console.warn('syncConversationIdentities failed', e);
+  }
+}
+
+function updateAnonPrefButton(buttonId = 'messages-anon-pref') {
+  const btn = document.getElementById(buttonId);
   if (!btn) return;
   const enabled = allowAnonymousDMsFor(state.profile || {});
   btn.classList.toggle('pref-on', enabled);
@@ -6682,7 +6708,7 @@ async function setAllowAnonymousMessages(enabled) {
   try {
     await db.collection('users').doc(state.user.uid).update({ allowAnonymousMessages: !!enabled });
     state.profile.allowAnonymousMessages = !!enabled;
-    updateAnonPrefButton();
+    updateAnonPrefButton('messages-anon-pref');
     closeModal();
     toast(enabled ? 'Anonymous messages enabled' : 'Anonymous messages turned off');
   } catch (e) {
@@ -6719,12 +6745,6 @@ async function openChat(convoId) {
       } else {
         anonBtn.style.display = 'none';
       }
-    }
-    const anonPrefBtn = $('#chat-anon-pref');
-    if (anonPrefBtn) {
-      anonPrefBtn.style.display = '';
-      anonPrefBtn.onclick = openAnonDmSettings;
-      updateAnonPrefButton();
     }
 
     // Set initial header (will be updated by anon listener)
@@ -7295,7 +7315,6 @@ async function openProfile(uid) {
         <div class="profile-actions">
           ${isMe
             ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
-               <button class="btn-outline" onclick="clearAppCache()">Clear Cache</button>
                <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
             : (() => {
                 const isFriend = (state.profile.friends || []).includes(uid);
@@ -7668,7 +7687,6 @@ function editProfile() {
       <div class="form-group" style="margin-top:-6px">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button type="button" class="btn-outline" onclick="saveCurrentGpsLocation()">Use Current GPS</button>
-          <button type="button" class="btn-secondary" onclick="clearAppCache()">Clear App Cache</button>
         </div>
         <p id="gps-location-status" style="color:var(--text-secondary);font-size:12px;margin-top:8px">${esc(gpsStatus)}</p>
         <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
