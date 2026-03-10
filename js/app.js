@@ -6597,11 +6597,21 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
+function isConversationWithUser(data = {}, otherUid, { anonymous = null } = {}) {
+  const participants = data.participants || [];
+  if (!participants.includes(otherUid) || !participants.includes(state.user?.uid)) return false;
+  if (anonymous === null) return true;
+  return !!data.isAnonymous === !!anonymous;
+}
+
 async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
   const myUid = state.user.uid;
   const snap = await db.collection('conversations').where('participants', 'array-contains', myUid).get();
-  const existing = snap.docs.find(d => (d.data().participants || []).includes(otherUid));
-  if (existing) return existing.id;
+  const existing = snap.docs.find(d => isConversationWithUser(d.data() || {}, otherUid, { anonymous: false }));
+  if (existing) {
+    await existing.ref.set({ archived: FieldVal.arrayRemove(myUid, otherUid) }, { merge: true }).catch(() => {});
+    return existing.id;
+  }
   const ref = await db.collection('conversations').add({
     participants: [myUid, otherUid],
     participantNames: [state.profile.displayName, otherName || 'Friend'],
@@ -6609,9 +6619,54 @@ async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
     lastMessage: '',
     updatedAt: FieldVal.serverTimestamp(),
     unread: { [otherUid]: 0, [myUid]: 0 },
-    participantStatuses: { [myUid]: state.status || 'online', [otherUid]: 'offline' }
+    participantStatuses: { [myUid]: state.status || 'online', [otherUid]: 'offline' },
+    isAnonymous: false,
+    anonymous: { [myUid]: false, [otherUid]: false },
+    archived: []
   });
   return ref.id;
+}
+
+async function openFriendsList(uid = state.user?.uid, name = state.profile?.displayName || 'Friends') {
+  if (!uid) return;
+  try {
+    const userDoc = uid === state.user?.uid
+      ? { exists: true, data: () => state.profile }
+      : await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) return toast('Could not load friends');
+    const user = userDoc.data() || {};
+    const friends = user.friends || [];
+    openModal(`
+      <div class="modal-header"><h2>${esc(name)}'s Friends</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px"><div id="friends-list-modal"><div style="text-align:center;padding:24px"><span class="inline-spinner"></span></div></div></div>
+    `);
+    const host = $('#friends-list-modal');
+    if (!host) return;
+    if (!friends.length) {
+      host.innerHTML = '<div class="empty-state"><h3>No friends yet</h3></div>';
+      return;
+    }
+    const docs = await Promise.all(friends.map(friendId => db.collection('users').doc(friendId).get().catch(() => null)));
+    const users = docs.filter(doc => doc?.exists).map(doc => ({ id: doc.id, ...doc.data() }));
+    host.innerHTML = users.length ? users.map(friend => {
+      const isMe = friend.id === state.user?.uid;
+      const isFriend = (state.profile?.friends || []).includes(friend.id);
+      const canMessage = !isMe && isFriend;
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div onclick="closeModal();openProfile('${friend.id}')" style="cursor:pointer">${avatar(friend.displayName, friend.photoURL, 'avatar-sm')}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(friend.displayName)}${verifiedBadge(friend.id)}</div>
+            <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(friend.major || 'Student')}</div>
+          </div>
+          <button class="btn-outline btn-sm" onclick="closeModal();openProfile('${friend.id}')">View</button>
+          ${canMessage ? `<button class="btn-primary btn-sm" onclick="closeModal();startChat('${friend.id}','${esc(friend.displayName)}','${friend.photoURL || ''}')">Message</button>` : ''}
+        </div>`;
+    }).join('') : '<div class="empty-state"><h3>No friends yet</h3></div>';
+  } catch (e) {
+    console.error(e);
+    toast('Could not load friends');
+  }
 }
 
 async function rejectFriendRequest(fromUid) {
@@ -6717,7 +6772,6 @@ function loadNotifications() {
   if (revealRequests.length) {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">🎭 Identity Reveal Requests</div>`;
     html += revealRequests.map(n => {
-      const from = n.from || { name: 'Someone', photo: null };
       const convoId = n.payload?.convoId || '';
       return `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="closeNotifDropdown();openChat('${convoId}');markNotifRead('${n.id}')">
@@ -6875,7 +6929,6 @@ async function viewPost(pid) {
       </div>
     `);
 
-    // Init video players inside modal
     requestAnimationFrame(() => {
       if (videoPlayerData) initPlayer(videoPlayerData.id);
       _pendingQuotePlayers.forEach(p => initPlayer(p.id));
@@ -6890,8 +6943,7 @@ function loadDMList() {
   updateArchiveFabState();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
-  // KEY FIX: No .orderBy() — sort client-side to avoid Firestore index requirement
-  unsub(); // clear old listeners before adding new
+  unsub();
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
     .onSnapshot(snap => {
@@ -6907,7 +6959,6 @@ function loadDMList() {
       }
 
       const uid = state.user.uid;
-      // Update archive badge with unread count from archived convos
       let archivedUnread = 0;
       convos.forEach(c => {
         if ((c.archived || []).includes(uid)) archivedUnread += (c.unread || {})[uid] || 0;
@@ -7559,8 +7610,11 @@ async function startChat(uid, name, photo) {
   
   try {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
-    const existing = snap.docs.find(d => d.data().participants.includes(uid));
-    if (existing) { openChat(existing.id); }
+    const existing = snap.docs.find(d => isConversationWithUser(d.data() || {}, uid, { anonymous: false }));
+    if (existing) {
+      await existing.ref.set({ archived: FieldVal.arrayRemove(state.user.uid, uid) }, { merge: true }).catch(() => {});
+      openChat(existing.id);
+    }
     else {
       const doc = await db.collection('conversations').add({
         participants: [state.user.uid, uid],
@@ -7568,7 +7622,10 @@ async function startChat(uid, name, photo) {
         participantPhotos: [state.profile.photoURL || null, photo || null],
         lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
         unread: { [uid]: 0, [state.user.uid]: 0 },
-        participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' }
+        participantStatuses: { [state.user.uid]: state.status, [uid]: 'offline' },
+        isAnonymous: false,
+        anonymous: { [state.user.uid]: false, [uid]: false },
+        archived: []
       });
       openChat(doc.id);
     }
@@ -7835,7 +7892,7 @@ async function openProfile(uid) {
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
-          ${showFriendCount ? `<div class="profile-stat"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></div>` : ''}
+          ${showFriendCount ? `<button class="profile-stat profile-stat-btn" onclick="openFriendsList('${uid}','${esc(user.displayName)}')"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></button>` : ''}
           ${modules.length ? `<div class="profile-stat"><div class="stat-num">${modules.length}</div><div class="stat-label">Modules</div></div>` : ''}
         </div>
 
@@ -8241,6 +8298,7 @@ function editProfile() {
         <label for="edit-anon-dm" style="margin:0;font-size:14px">Allow anonymous messages from non-friends</label>
       </div>
       <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
+      <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user.uid}','${esc(p.displayName)}')" style="margin-bottom:12px">View Friends</button>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);

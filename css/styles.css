@@ -2591,6 +2591,14 @@ video::-webkit-media-controls-start-playback-button {
   transition: background 0.15s;
   border-radius: var(--radius);
 }
+
+.profile-stat-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+
 .profile-stat:hover {
   background: var(--bg-secondary);
 }

@@ -66,8 +66,16 @@ async function sendPushToUser(userId, payload) {
       priority: 'high',
       notification: {
         channelId: payload.channelId || 'unibo-general',
+        sound: 'default',
         imageUrl: payload.imageUrl || undefined,
         clickAction: 'OPEN_UNIBO'
+      }
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default'
+        }
       }
     }
   };
