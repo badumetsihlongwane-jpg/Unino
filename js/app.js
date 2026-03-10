@@ -16,7 +16,7 @@ const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C0
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
-const VERIFIED_UIDS = new Set(); // populated on login
+const VERIFIED_UIDS = new Set(); // campus-verified users
 let _isAdmin = false;
 let verifiedUsersUnsub = null;
 let _groupAlertUnsub = null;
@@ -62,8 +62,13 @@ let _lastFeedCommentSubmit = { key: '', at: 0 };
 let _lastReelCommentSubmit = { key: '', at: 0 };
 const _authorPhotoCache = {};
 const _userContextCache = {};
-function isVerifiedUser(uid) { return VERIFIED_UIDS.has(uid) || uid === state.profile?.id && _isAdmin; }
-function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Official">✔</span>' : ''; }
+function isVerifiedUser(uid) {
+  if (!uid) return false;
+  if (VERIFIED_UIDS.has(uid)) return true;
+  if (uid === state.profile?.id) return _isAdmin || isStudentEmail(state.profile?.email || state.user?.email || '');
+  return false;
+}
+function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Campus verified">✔</span>' : ''; }
 
 function clampText(v = '', max = 80) {
   const t = (v || '').replace(/\s+/g, ' ').trim();
@@ -2382,15 +2387,7 @@ function initAuth() {
     if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try {
-      const cred = await auth.signInWithEmailAndPassword(email, pass);
-      await cred.user.reload();
-      if (!isAdminLoginEmail(email) && !auth.currentUser?.emailVerified) {
-        try { await auth.currentUser.sendEmailVerification(); } catch (_) {}
-        await auth.signOut().catch(() => {});
-        toast('Verify your email first. A new verification email was sent.');
-        btn.disabled = false; btn.textContent = 'Log In';
-        return;
-      }
+      await auth.signInWithEmailAndPassword(email, pass);
     }
     catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Log In'; }
   });
@@ -2419,14 +2416,12 @@ function initAuth() {
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
+        isVerified: isStudentEmail(email),
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
       await cred.user.updateProfile({ displayName });
-      await cred.user.sendEmailVerification().catch(() => {});
-      await auth.signOut().catch(() => {});
-      $('#signup-form').classList.remove('active');
-      $('#login-form').classList.add('active');
-      toast('Account created. Verify your email, then log in.');
+      VERIFIED_UIDS.add(uid);
+      toast('Account created.');
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
       btn.disabled = false; btn.textContent = 'Create Account';
     } catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Create Account'; }
@@ -2479,11 +2474,6 @@ function initAuth() {
     if (user) {
       try { await user.reload(); } catch (_) {}
       const isAdminUser = isAdminLoginEmail(user.email || '');
-      if (!user.emailVerified && !isAdminUser) {
-        toast('Verify your email to continue');
-        await auth.signOut().catch(() => {});
-        return;
-      }
       if (!isStudentEmail(user.email || '')) {
         toast('Only @mynwu.ac.za accounts are allowed');
         await auth.signOut().catch(() => {});
@@ -2502,8 +2492,7 @@ function initAuth() {
       state.status = state.profile.status || state.manualStatus;
       // Admin detection
       _isAdmin = isAdminUser;
-      if (_isAdmin) VERIFIED_UIDS.add(user.uid);
-      if (state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
+      if (_isAdmin || isStudentEmail(user.email || '') || state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
     } else {
       if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
@@ -2602,9 +2591,12 @@ function refreshChatBadge() {
 
 function listenForVerifiedUsers() {
   if (verifiedUsersUnsub) verifiedUsersUnsub();
-  verifiedUsersUnsub = db.collection('users').where('isVerified', '==', true).onSnapshot(snap => {
+  verifiedUsersUnsub = db.collection('users').limit(500).onSnapshot(snap => {
     VERIFIED_UIDS.clear();
-    snap.docs.forEach(d => VERIFIED_UIDS.add(d.id));
+    snap.docs.forEach(d => {
+      const data = d.data() || {};
+      if (data.isVerified || isStudentEmail(data.email || '')) VERIFIED_UIDS.add(d.id);
+    });
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     // Refresh visible areas so badges appear as soon as verified list updates.
     if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
@@ -3078,7 +3070,8 @@ function loadDiscoverPeople() {
       if (u.status === 'online') score += 5;
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
       return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
-    }).sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
+    }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
+      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -4521,10 +4514,11 @@ async function loadExploreUsers() {
     const myYear = state.profile.year || '';
     const blockedUsers = new Set(state.profile.blockedUsers || []);
     const blockedBy = new Set(state.profile.blockedBy || []);
+    const myFriends = new Set(state.profile.friends || []);
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id))
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
@@ -4541,6 +4535,7 @@ async function loadExploreUsers() {
           + (u.status === 'online' ? 4 : 0);
         return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
       })
+      .filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.proximity === 'course' || u.affinityScore >= 18)
       .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
     renderExploreView();
   } catch (e) {
