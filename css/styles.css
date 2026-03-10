@@ -313,6 +313,28 @@ input, select, textarea, button {
   cursor: pointer;
 }
 
+.auth-links-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -4px;
+}
+
+.text-link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.text-link-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .input-row,
 .row2 {
   display: grid;

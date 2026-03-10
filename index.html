@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=27">
+  <link rel="stylesheet" href="css/styles.css?v=28">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
@@ -37,6 +37,10 @@
     <form id="login-form" class="auth-form active" autocomplete="off">
       <input type="email" id="l-email" placeholder="University email" required>
       <div class="password-field"><input type="password" id="l-pass" placeholder="Password" required><button type="button" class="password-toggle" data-target="l-pass">Show</button></div>
+      <div class="auth-links-row">
+        <button type="button" class="text-link-btn" id="forgot-pass-btn">Forgot password?</button>
+        <button type="button" class="text-link-btn" id="resend-verify-btn">Recover account</button>
+      </div>
       <button type="submit" class="btn-accent w100" id="l-btn">Log In</button>
       <p class="switch-text">No account? <a href="#" id="to-signup">Sign Up</a></p>
     </form>
@@ -244,6 +248,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="js/firebase-config.js"></script>
-<script src="js/app.js?v=27"></script>
+<script src="js/app.js?v=28"></script>
 </body>
 </html>

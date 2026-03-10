@@ -1958,6 +1958,9 @@ function initTheme() {
 //  AUTH
 // ══════════════════════════════════════════════════
 function initAuth() {
+  const isAdminLoginEmail = email => (email || '').trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const loginEmailValue = () => ($('#l-email')?.value || '').trim();
+
   $$('.password-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
       const target = document.getElementById(btn.dataset.target || '');
@@ -1966,6 +1969,43 @@ function initAuth() {
       target.type = nextType;
       btn.textContent = nextType === 'password' ? 'Show' : 'Hide';
     });
+  });
+
+  $('#forgot-pass-btn')?.addEventListener('click', async () => {
+    const email = loginEmailValue();
+    if (!email) return toast('Enter your email first');
+    if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
+    const btn = $('#forgot-pass-btn');
+    btn.disabled = true;
+    try {
+      await auth.sendPasswordResetEmail(email);
+      toast('Password reset email sent. Check your inbox.');
+    } catch (err) {
+      toast(friendlyErr(err.code));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#resend-verify-btn')?.addEventListener('click', async () => {
+    const email = loginEmailValue();
+    if (!email) return toast('Enter your email first');
+    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Use your @mynwu.ac.za student email');
+    const btn = $('#resend-verify-btn');
+    btn.disabled = true;
+    try {
+      const methods = await auth.fetchSignInMethodsForEmail(email);
+      if (!methods.length) {
+        toast('Account not found');
+      } else {
+        await auth.sendPasswordResetEmail(email);
+        toast('Recovery email sent. Reset the password if needed, then verify from your inbox.');
+      }
+    } catch (err) {
+      toast(friendlyErr(err.code));
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   $('#to-signup')?.addEventListener('click', e => {
@@ -1989,7 +2029,7 @@ function initAuth() {
     try {
       const cred = await auth.signInWithEmailAndPassword(email, pass);
       await cred.user.reload();
-      if (!auth.currentUser?.emailVerified) {
+      if (!isAdminLoginEmail(email) && !auth.currentUser?.emailVerified) {
         try { await auth.currentUser.sendEmailVerification(); } catch (_) {}
         await auth.signOut().catch(() => {});
         toast('Verify your email first. A new verification email was sent.');
@@ -2083,7 +2123,8 @@ function initAuth() {
   auth.onAuthStateChanged(async user => {
     if (user) {
       try { await user.reload(); } catch (_) {}
-      if (!user.emailVerified) {
+      const isAdminUser = isAdminLoginEmail(user.email || '');
+      if (!user.emailVerified && !isAdminUser) {
         toast('Verify your email to continue');
         await auth.signOut().catch(() => {});
         return;
@@ -2105,7 +2146,7 @@ function initAuth() {
       state.manualStatus = state.profile.manualStatus || state.profile.status || 'online';
       state.status = state.profile.status || state.manualStatus;
       // Admin detection
-      _isAdmin = (user.email || '').toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      _isAdmin = isAdminUser;
       if (_isAdmin) VERIFIED_UIDS.add(user.uid);
       if (state.profile.isVerified) VERIFIED_UIDS.add(user.uid);
       enterApp();
@@ -2142,7 +2183,9 @@ function initAuth() {
 function friendlyErr(code) {
   return { 'auth/user-not-found':'Account not found','auth/wrong-password':'Incorrect password',
     'auth/email-already-in-use':'Email already registered','auth/weak-password':'Password too weak',
-    'auth/invalid-email':'Invalid email' }[code] || 'Something went wrong';
+    'auth/invalid-email':'Invalid email','auth/invalid-login-credentials':'Incorrect email or password',
+    'auth/too-many-requests':'Too many attempts. Wait a bit and try again.',
+    'auth/network-request-failed':'Network issue' }[code] || 'Something went wrong';
 }
 
 // ══════════════════════════════════════════════════
