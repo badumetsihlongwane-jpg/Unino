@@ -5887,12 +5887,6 @@ async function openGroupChat(groupId, collection = 'groups') {
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
-    $('#gchat-input').onkeydown = e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendGMsg();
-      }
-    };
     $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
     $('#gchat-back').onclick = () => {
@@ -7701,12 +7695,6 @@ async function openChat(convoId) {
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
-    input.onkeydown = e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMsg();
-      }
-    };
     input.onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     input.onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -8467,19 +8455,6 @@ function editProfile() {
   };
 }
 
-// ─── Insert Newline (for chat new-line button) ───
-function insertNewline(inputId) {
-  const el = document.getElementById(inputId);
-  if (!el) return;
-  const start = el.selectionStart;
-  const end = el.selectionEnd;
-  el.value = el.value.substring(0, start) + '\n' + el.value.substring(end);
-  el.selectionStart = el.selectionEnd = start + 1;
-  el.style.height = '40px';
-  el.style.height = `${Math.min(el.scrollHeight, 84)}px`;
-  el.focus();
-}
-
 // ─── Voice Recording ─────────────────────────────
 let _voiceRecorder = null;
 let _voiceChunks = [];
@@ -9052,7 +9027,6 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
-    insertNewline
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown
   });
 });
