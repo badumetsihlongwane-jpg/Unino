@@ -60,8 +60,42 @@ let _reelCommentReplyTo = null;
 let _sendingReelComment = false;
 let _lastFeedCommentSubmit = { key: '', at: 0 };
 let _lastReelCommentSubmit = { key: '', at: 0 };
+let _sessionRecoveryInFlight = false;
 const _authorPhotoCache = {};
 const _userContextCache = {};
+
+function isPermissionDeniedError(err) {
+  return err?.code === 'permission-denied' || /missing or insufficient permissions/i.test(err?.message || '');
+}
+
+function isInvalidSessionError(err) {
+  const code = String(err?.code || '').toLowerCase();
+  const message = String(err?.message || '').toLowerCase();
+  return [
+    'auth/id-token-expired',
+    'auth/user-token-expired',
+    'auth/user-disabled',
+    'auth/invalid-user-token',
+    'auth/user-not-found',
+    'auth/requires-recent-login'
+  ].includes(code) || /securetoken|invalid grant|token.*expired|user token/i.test(message);
+}
+
+async function recoverInvalidSession(err, context = 'Firebase startup') {
+  if (!isInvalidSessionError(err)) return false;
+  console.error(`${context}:`, err);
+  if (_sessionRecoveryInFlight) return true;
+  _sessionRecoveryInFlight = true;
+  try { await auth.signOut(); } catch (_) {}
+  state.user = null;
+  state.profile = null;
+  VERIFIED_UIDS.clear();
+  showScreen('auth-screen');
+  toast('Session expired. Log in again.');
+  _sessionRecoveryInFlight = false;
+  return true;
+}
+
 function isVerifiedUser(uid) {
   if (!uid) return false;
   if (VERIFIED_UIDS.has(uid)) return true;
@@ -950,6 +984,7 @@ async function saveCurrentGpsLocation(options = {}) {
     if (!silent) toast('Location saved. Unibo will not track you continuously.');
     return { lat, lng };
   } catch (err) {
+    if (await recoverInvalidSession(err, 'GPS save failed')) return null;
     console.error(err);
     if (!silent) openLocationHelpModal(getLocationErrorMessage(err));
     return null;
@@ -2523,7 +2558,13 @@ function initAuth() {
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
     if (user) {
-      try { await user.reload(); } catch (_) {}
+      _sessionRecoveryInFlight = false;
+      try {
+        await user.reload();
+        await user.getIdToken(true);
+      } catch (err) {
+        if (await recoverInvalidSession(err, 'Auth refresh failed')) return;
+      }
       const isAdminUser = isAdminLoginEmail(user.email || '');
       if (!isStudentEmail(user.email || '')) {
         toast('Only @mynwu.ac.za accounts are allowed');
@@ -2536,7 +2577,14 @@ function initAuth() {
         state.profile = doc.exists
           ? { id: doc.id, ...doc.data() }
           : { id: user.uid, displayName: user.displayName, email: user.email, status: 'online', modules: [] };
-      } catch {
+      } catch (err) {
+        if (await recoverInvalidSession(err, 'Profile load failed')) return;
+        if (isPermissionDeniedError(err)) {
+          console.error('Profile load denied:', err);
+          toast('Could not access your profile. Log in again.');
+          await auth.signOut().catch(() => {});
+          return;
+        }
         state.profile = { id: user.uid, displayName: user.displayName, email: user.email, status: 'online', modules: [] };
       }
       state.manualStatus = state.profile.manualStatus || state.profile.status || 'online';
@@ -2765,7 +2813,10 @@ async function syncConversationPresence(status) {
   try {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     await Promise.all(snap.docs.map(d => d.ref.set({ participantStatuses: { [state.user.uid]: status } }, { merge: true })));
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    if (await recoverInvalidSession(e, 'Conversation presence sync failed')) return;
+    console.error(e);
+  }
 }
 
 async function refreshPresence(force = false) {
@@ -2778,7 +2829,10 @@ async function refreshPresence(force = false) {
   try {
     await db.collection('users').doc(state.user.uid).update({ status: effective, manualStatus: state.manualStatus, lastActiveAt: FieldVal.serverTimestamp() });
     syncConversationPresence(effective);
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    if (await recoverInvalidSession(e, 'Presence update failed')) return;
+    console.error(e);
+  }
 }
 
 function markActivity() {
@@ -3088,6 +3142,17 @@ function renderFeed() {
       _pendingFeedScrollRestore = null;
       window._lastLikedPost = null;
       if (prevIds === nextIds) return;
+    }, err => {
+      console.error('Feed listener error:', err);
+      c.style.opacity = '';
+      _feedRestorePendingPaint = false;
+      const postsEl = document.getElementById('feed-posts');
+      if (postsEl) {
+        postsEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load posts</h3><p>${isInvalidSessionError(err) ? 'Your session expired. Log in again.' : (isPermissionDeniedError(err) ? 'This account cannot load posts right now.' : 'Reopen the app or try again in a moment.')}</p></div>`;
+      }
+      if (isInvalidSessionError(err)) {
+        recoverInvalidSession(err, 'Feed listener denied').catch(() => {});
+      }
     });
   state.unsubs.push(u);
 }
@@ -6721,6 +6786,9 @@ function listenForNotifications() {
     updateNotifBadge();
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display === 'block') loadNotifications();
+  }, err => {
+    console.warn('User listener error:', err);
+    recoverInvalidSession(err, 'User profile listener denied').catch(() => {});
   });
 
   generalNotifUnsub = db.collection('users').doc(state.user.uid).collection('notifications')
@@ -6733,7 +6801,12 @@ function listenForNotifications() {
       updateNotifBadge();
       const dd = $('#notif-dropdown');
       if (dd && dd.style.display === 'block') loadNotifications();
-    }, err => { console.warn('Notif listener error:', err); });
+    }, err => {
+      console.warn('Notif listener error:', err);
+      _notifications = [];
+      updateNotifBadge();
+      recoverInvalidSession(err, 'Notifications listener denied').catch(() => {});
+    });
 }
 
 function updateNotifBadge() {
