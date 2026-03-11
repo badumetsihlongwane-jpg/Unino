@@ -838,17 +838,23 @@ function patchPostEngagement(post) {
 
 function scrollToLatest(msgsEl) {
   if (!msgsEl) return;
-  requestAnimationFrame(() => { msgsEl.scrollTop = msgsEl.scrollHeight; });
+  requestAnimationFrame(() => {
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    // Double-ensure on mobile after layout settles
+    setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 50);
+  });
 }
 
 function setupViewportFollow(msgsEl) {
   if (!msgsEl || !window.visualViewport) return () => {};
-  const onVv = () => setTimeout(() => scrollToLatest(msgsEl), 20);
+  let vvTimer;
+  const onVv = () => {
+    clearTimeout(vvTimer);
+    vvTimer = setTimeout(() => scrollToLatest(msgsEl), 60);
+  };
   window.visualViewport.addEventListener('resize', onVv);
-  window.visualViewport.addEventListener('scroll', onVv);
   return () => {
     window.visualViewport.removeEventListener('resize', onVv);
-    window.visualViewport.removeEventListener('scroll', onVv);
   };
 }
 
@@ -3176,7 +3182,7 @@ function loadDiscoverPeople() {
   const blockedBy = new Set(state.profile.blockedBy || []);
   const myFriends = new Set(state.profile.friends || []);
 
-  db.collection('users').limit(30).get().then(snap => {
+  db.collection('users').get().then(snap => {
     let users = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id));
@@ -3548,6 +3554,11 @@ function advanceStory(dir) {
 
 function closeStoryViewer() {
   clearTimeout(storyViewerData.timer);
+  // Stop any playing video/audio
+  const vid = $('#story-viewer-content video');
+  if (vid) { vid.pause(); vid.src = ''; }
+  const aud = $('#story-viewer-content audio');
+  if (aud) { aud.pause(); aud.src = ''; }
   $('#story-viewer').style.display = 'none';
 }
 
@@ -4654,7 +4665,7 @@ async function loadExploreUsers() {
   try {
     // Load events in parallel with users
     const [snap] = await Promise.all([
-      db.collection('users').limit(50).get(),
+      db.collection('users').get(),
       loadCampusEvents()
     ]);
     const myMajor = state.profile.major || '';
@@ -4683,7 +4694,6 @@ async function loadExploreUsers() {
           + (u.status === 'online' ? 4 : 0);
         return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
       })
-      .filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.proximity === 'course' || u.affinityScore >= 18)
       .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
     renderExploreView();
   } catch (e) {
@@ -5108,8 +5118,10 @@ function renderListView(initialQuery = _exploreSearchQuery || window._radarSearc
   });
 }
 
-function renderExploreGrid(query = '', filter = 'all') {
+async function renderExploreGrid(query = '', filter = 'all') {
   const grid = $('#explore-grid'); if (!grid) return;
+  const blockedUsers = new Set(state.profile.blockedUsers || []);
+  const blockedBy = new Set(state.profile.blockedBy || []);
   let users = [...allExploreUsers];
 
   if (query) {
@@ -5121,13 +5133,30 @@ function renderExploreGrid(query = '', filter = 'all') {
       (u.university || '').toLowerCase().includes(q) ||
       (u.modules || []).some(m => m.toLowerCase().includes(q))
     );
+    // If no local matches and query is 2+ chars, search Firestore directly
+    if (!users.length && q.length >= 2) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><span class="inline-spinner" style="width:24px;height:24px"></span></div>';
+      try {
+        const snap = await db.collection('users').get();
+        const uid = state.user.uid;
+        users = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(u => u.id !== uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
+          .filter(u =>
+            (u.displayName || '').toLowerCase().includes(q) ||
+            (u.major || '').toLowerCase().includes(q) ||
+            (u.university || '').toLowerCase().includes(q) ||
+            (u.modules || []).some(m => m.toLowerCase().includes(q))
+          );
+      } catch (_) {}
+    }
   }
   if (filter === 'nearby') users = users.filter(u => u.proximity === 'nearby');
   else if (filter === 'module') users = users.filter(u => u.sharedModules?.length > 0);
   else if (filter === 'course') users = users.filter(u => u.major === state.profile.major);
 
   if (!users.length) {
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No matches</h3><p>Try different filters</p></div>';
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No matches</h3><p>Try a different search</p></div>';
     return;
   }
 
@@ -5864,8 +5893,8 @@ async function openGroupChat(groupId, collection = 'groups') {
         sendGMsg();
       }
     };
-    $('#gchat-input').onfocus = () => scrollToLatest(msgs);
-    $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 80);
+    $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
+    $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
     $('#gchat-back').onclick = () => {
       _activeGroupChat = { id: '', collection: '' };
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
@@ -7672,8 +7701,8 @@ async function openChat(convoId) {
         sendMsg();
       }
     };
-    input.onfocus = () => scrollToLatest(msgs);
-    input.onblur = () => setTimeout(() => scrollToLatest(msgs), 80);
+    input.onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
+    input.onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
     // Wire image upload button in chat
     const chatFileInput = $('#chat-file-input');
@@ -8444,36 +8473,13 @@ async function ensureMicrophoneStream() {
     toast('Microphone is not supported on this device');
     return null;
   }
-  // On native Android, request the runtime permission explicitly before getUserMedia
-  if (isNativeApp()) {
-    try {
-      const Permissions = getCapacitorPlugin('Permissions');
-      if (Permissions) {
-        const status = await Permissions.query({ name: 'microphone' });
-        if (status?.state === 'denied') {
-          toast('Enable microphone in your device Settings → Apps → Unibo → Permissions');
-          return null;
-        }
-      }
-    } catch (_) {}
-  } else {
-    try {
-      if (navigator.permissions?.query) {
-        const status = await navigator.permissions.query({ name: 'microphone' });
-        if (status.state === 'denied') {
-          toast('Enable microphone permission in app settings');
-          return null;
-        }
-      }
-    } catch (_) {}
-  }
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
     if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
       toast(isNativeApp()
-        ? 'Microphone blocked. Go to Settings → Apps → Unibo → Permissions and enable Microphone'
-        : 'Microphone access denied. Allow it in your browser settings');
+        ? 'Microphone blocked — open Settings → Apps → Unino → Permissions and enable Microphone'
+        : 'Microphone access denied. Allow microphone in your browser settings');
     } else {
       toast('Could not access microphone');
     }
