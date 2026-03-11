@@ -6670,7 +6670,13 @@ async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
     // Check if they sent US a request (auto-accept)
     const myRequests = state.profile.friendRequests || [];
     if (myRequests.some(r => r.uid === toUid)) {
-      return acceptFriendRequest(toUid, toName, toPhoto);
+      await acceptFriendRequest(toUid, toName, toPhoto);
+      if (btnEl) {
+        btnEl.textContent = '✓ Friends';
+        btnEl.disabled = true;
+        btnEl.style.opacity = '0.6';
+      }
+      return;
     }
     // Add request to their profile
     await db.collection('users').doc(toUid).update({
@@ -6699,7 +6705,6 @@ async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
 async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
   const uid = state.user.uid;
   try {
-    closeNotifDropdown();
     // Add to both friends arrays
     await db.collection('users').doc(uid).update({
       friends: FieldVal.arrayUnion(fromUid),
@@ -6715,10 +6720,11 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
     state.profile.friends = [...(state.profile.friends || []), fromUid];
     state.profile.friendRequests = (state.profile.friendRequests || []).filter(r => r.uid !== fromUid);
     toast(`You and ${fromName} are now friends!`);
-    // Auto-close dropdown if no more requests
-    loadNotifications();
-    if (!(state.profile.friendRequests || []).length) {
-      const dd = $('#notif-dropdown'); if (dd) dd.style.display = 'none';
+    // Only refresh dropdown if it's actually open
+    const dd = $('#notif-dropdown');
+    if (dd && dd.style.display === 'block') {
+      loadNotifications();
+      if (!(state.profile.friendRequests || []).length) dd.style.display = 'none';
     }
   } catch (e) { toast('Failed'); console.error(e); }
 }
@@ -8461,6 +8467,19 @@ function editProfile() {
   };
 }
 
+// ─── Insert Newline (for chat new-line button) ───
+function insertNewline(inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  el.value = el.value.substring(0, start) + '\n' + el.value.substring(end);
+  el.selectionStart = el.selectionEnd = start + 1;
+  el.style.height = '40px';
+  el.style.height = `${Math.min(el.scrollHeight, 84)}px`;
+  el.focus();
+}
+
 // ─── Voice Recording ─────────────────────────────
 let _voiceRecorder = null;
 let _voiceChunks = [];
@@ -8990,6 +9009,15 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
 
+  // Close notification dropdown when scrolling the main content
+  const contentEl = $('#content');
+  if (contentEl) {
+    contentEl.addEventListener('scroll', () => {
+      const dd = $('#notif-dropdown');
+      if (dd && dd.style.display === 'block') closeNotifDropdown();
+    }, true);
+  }
+
   // Expose globals for inline onclick
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
@@ -9024,6 +9052,7 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    insertNewline
   });
 });

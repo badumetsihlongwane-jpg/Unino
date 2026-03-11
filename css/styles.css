@@ -4845,6 +4845,23 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 /* ═══ VOICE RECORDING ═══ */
+.newline-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.newline-btn:active {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
 .voice-btn {
   background: none;
   border: none;
