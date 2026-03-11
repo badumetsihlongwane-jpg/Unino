@@ -17,7 +17,8 @@ for (const relativePath of includePaths) {
 const topLevelFiles = readdirSync(rootDir, { withFileTypes: true })
   .filter(entry => entry.isFile())
   .map(entry => entry.name)
-  .filter(name => !['package.json', 'package-lock.json', 'capacitor.config.ts'].includes(name));
+  .filter(name => !['package.json', 'package-lock.json', 'capacitor.config.ts'].includes(name))
+  .filter(name => !name.endsWith('.apk'));
 
 for (const fileName of topLevelFiles) {
   cpSync(join(rootDir, fileName), join(distDir, fileName));

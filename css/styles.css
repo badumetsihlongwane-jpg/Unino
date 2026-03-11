@@ -2084,7 +2084,6 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .msg-bubble {
-  max-width: 75%;
   padding: 7px 11px;
   border-radius: 18px;
   font-size: 15px;
@@ -2093,7 +2092,6 @@ video::-webkit-media-controls-start-playback-button {
   letter-spacing: 0.01em;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: break-word;
   transition: transform .14s ease, opacity .14s ease;
 }
 
@@ -2299,15 +2297,10 @@ video::-webkit-media-controls-start-playback-button {
   border-color: var(--accent);
 }
 
-.send-btn {
-  width: 44px;
-  height: 44px;
-  background: var(--gradient);
-  border: none;
 .msg-stack {
   display: flex;
   flex-direction: column;
-  max-width: 75%;
+  max-width: 80%;
   min-width: 0;
 }
 .msg-stack-sent {
@@ -2316,6 +2309,12 @@ video::-webkit-media-controls-start-playback-button {
 .msg-stack-received {
   align-items: flex-start;
 }
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  background: var(--gradient);
+  border: none;
   border-radius: var(--radius-full);
   color: #fff;
   display: flex;
