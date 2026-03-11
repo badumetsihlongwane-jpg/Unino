@@ -2084,7 +2084,7 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .msg-bubble {
-  max-width: 100%;
+  max-width: 75%;
   padding: 7px 11px;
   border-radius: 18px;
   font-size: 15px;
@@ -2092,6 +2092,8 @@ video::-webkit-media-controls-start-playback-button {
   font-weight: 500;
   letter-spacing: 0.01em;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
   transition: transform .14s ease, opacity .14s ease;
 }
 
@@ -2305,7 +2307,8 @@ video::-webkit-media-controls-start-playback-button {
 .msg-stack {
   display: flex;
   flex-direction: column;
-  max-width: 82%;
+  max-width: 75%;
+  min-width: 0;
 }
 .msg-stack-sent {
   align-items: flex-end;
@@ -4896,6 +4899,25 @@ video::-webkit-media-controls-start-playback-button {
   50% { opacity: 0.4; transform: scale(0.8); }
 }
 
+/* Recording waveform bars animation */
+.voice-rec-indicator::after {
+  content: '';
+  display: flex;
+  gap: 2px;
+  width: 60px;
+  height: 20px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      var(--red) 0px, var(--red) 2px,
+      transparent 2px, transparent 5px
+    );
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='20'%3E%3Crect x='0' y='6' width='2' height='8' rx='1'%3E%3Canimate attributeName='height' values='8;18;8' dur='0.8s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='6;1;6' dur='0.8s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='5' y='3' width='2' height='14' rx='1'%3E%3Canimate attributeName='height' values='14;6;14' dur='0.6s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='3;7;3' dur='0.6s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='10' y='5' width='2' height='10' rx='1'%3E%3Canimate attributeName='height' values='10;18;10' dur='0.7s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='5;1;5' dur='0.7s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='15' y='2' width='2' height='16' rx='1'%3E%3Canimate attributeName='height' values='16;6;16' dur='0.5s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='2;7;2' dur='0.5s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='20' y='7' width='2' height='6' rx='1'%3E%3Canimate attributeName='height' values='6;16;6' dur='0.9s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='7;2;7' dur='0.9s' repeatCount='indefinite'/%3E%3C/rect%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation: recWave 1s ease-in-out infinite alternate;
+}
+
 .voice-cancel-btn {
   background: none;
   border: 1px solid var(--border);
@@ -4923,75 +4945,109 @@ video::-webkit-media-controls-start-playback-button {
   display: none;
 }
 
-/* ── Custom Voice Note Player ─── */
+/* ── iPhone-style Waveform Voice Note Player ─── */
 .vn-player {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
-  min-width: 230px;
-  max-width: min(78vw, 420px);
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: min(78vw, 380px);
 }
 
 .vn-play-btn {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: none;
-  background: var(--accent);
+  background: rgba(255,255,255,0.2);
   color: #fff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: transform 0.15s;
+  transition: transform 0.15s, background 0.15s;
+}
+.msg-received .vn-play-btn {
+  background: var(--accent);
+  color: #fff;
 }
 .vn-play-btn:active { transform: scale(0.9); }
 
-.vn-track {
+.vn-waveform-wrap {
   flex: 1;
-  height: 3px;
-  border-radius: 2px;
+  height: 32px;
   cursor: pointer;
   position: relative;
-  min-width: 170px;
+  overflow: hidden;
+  border-radius: 4px;
 }
 
-.vn-bar-bg {
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.2);
-  border-radius: 2px;
+.vn-waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  position: relative;
+  z-index: 1;
 }
-.msg-received .vn-bar-bg {
+
+.vn-waveform-bar {
+  flex: 1;
+  min-width: 2.5px;
+  max-width: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.35);
+  transition: background 0.15s;
+}
+
+.msg-received .vn-waveform-bar {
   background: var(--border);
 }
 
-.vn-progress {
+/* Played portion overlay — clips the bars to show progress */
+.vn-waveform-played {
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
   width: 0%;
+  overflow: hidden;
+  z-index: 2;
+  pointer-events: none;
   transition: width 0.1s linear;
 }
+.vn-waveform-played::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.65);
+}
+.msg-received .vn-waveform-played::after {
+  background: var(--accent);
+  opacity: 0.5;
+}
 
-.vn-dot {
+/* Scrub dot like iMessage */
+.vn-scrub-dot {
   position: absolute;
   top: 50%;
   left: 0%;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #fff;
   transform: translate(-50%, -50%);
+  z-index: 3;
   opacity: 0;
+  box-shadow: 0 0 4px rgba(0,0,0,0.25);
   transition: left 0.1s linear, opacity 0.2s;
 }
-.vn-player.playing .vn-dot {
+.msg-received .vn-scrub-dot {
+  background: var(--accent);
+}
+.vn-player.playing .vn-scrub-dot {
   opacity: 1;
 }
 
@@ -5944,9 +6000,9 @@ video::-webkit-media-controls-start-playback-button {
 
 .comment-inline-image {
   margin-top: 8px;
-  width: min(240px, 100%);
-  max-height: 220px;
-  border-radius: 12px;
+  width: min(120px, 100%);
+  max-height: 120px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   object-fit: cover;
   cursor: pointer;
@@ -5992,6 +6048,30 @@ video::-webkit-media-controls-start-playback-button {
   flex-direction: column;
   gap: 0;
   border-left: none;
+}
+
+.toggle-replies-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.toggle-replies-btn:hover {
+  color: var(--accent-hover);
+}
+.toggle-replies-btn svg {
+  transition: transform 0.2s;
+}
+.toggle-replies-btn.expanded svg {
+  transform: rotate(180deg);
 }
 .comment-replies::before {
   content: '';

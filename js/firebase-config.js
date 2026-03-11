@@ -4,7 +4,7 @@
  *
  *  FIRESTORE SECURITY RULES (paste in Firestore → Rules tab):
  *
- *  rules_version = '2';
+ *  rules_version = '2';.. and can
  *  service cloud.firestore {
  *    match /databases/{database}/documents {
  *      match /users/{userId} {

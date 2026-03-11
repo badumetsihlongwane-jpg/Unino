@@ -499,7 +499,8 @@ async function initNativePushNotifications() {
   if (!isNativeApp() || !state.user) return;
   const pushNotifications = getCapacitorPlugin('PushNotifications');
   if (!pushNotifications) {
-    console.warn('PushNotifications plugin unavailable');
+    console.warn('PushNotifications plugin unavailable — using local notification fallback');
+    _nativePushReady = false;
     return;
   }
 
@@ -514,6 +515,7 @@ async function initNativePushNotifications() {
     pushNotifications.addListener('registrationError', error => {
       _nativePushReady = false;
       console.warn('Push registration error:', error);
+      // Still allow local notification fallback to work
     });
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
@@ -537,12 +539,13 @@ async function initNativePushNotifications() {
   try {
     const permStatus = await pushNotifications.checkPermissions();
     let receive = permStatus.receive;
-    if (receive === 'prompt') {
+    if (receive === 'prompt' || receive === 'prompt-with-rationale') {
       const requested = await pushNotifications.requestPermissions();
       receive = requested.receive;
     }
     if (receive !== 'granted') {
       _nativePushReady = false;
+      console.warn('Push permission not granted:', receive);
       return;
     }
     await pushNotifications.register();
@@ -590,11 +593,7 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
 
 function maybeNotifyForUnreadDMs(conversations = []) {
   if (!state.user) return;
-  if (_nativePushReady && isNativeApp()) {
-    _nativeDmUnreadMap = Object.fromEntries(conversations.map(conversation => [conversation.id, (conversation.unread || {})[state.user.uid] || 0]));
-    _nativeDmNotificationPrimed = true;
-    return;
-  }
+  // Always track and notify — don't skip when FCM is ready since it may fail
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
@@ -654,15 +653,12 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
-  if (_nativePushReady && isNativeApp()) {
-    notifications.filter(notification => !notification.read).forEach(notification => _nativeGeneralNotifIds.add(notification.id));
-    _nativeGeneralNotificationPrimed = true;
-    return;
-  }
-  const unreadIds = new Set(notifications.filter(notification => !notification.read).map(notification => notification.id));
+  // Always process notifications regardless of push status — FCM may fail silently
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
-    // Fall through to process existing unreads instead of silently priming
+    // On first run, mark existing unreads as already seen to avoid flooding
+    notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
+    return;
   }
 
   notifications.forEach(notification => {
@@ -1830,14 +1826,19 @@ const _vnAudios = {};
 
 function renderVoiceMsg(audioURL) {
   const id = `vn-${++_vnCounter}`;
+  // Generate 40 random waveform bar heights for visual fidelity
+  const bars = Array.from({ length: 40 }, () => {
+    const h = Math.max(4, Math.floor(Math.random() * 24) + 4);
+    return `<div class="vn-waveform-bar" style="height:${h}px"></div>`;
+  }).join('');
   return `<div class="vn-player" id="${id}" data-src="${audioURL}">
     <button class="vn-play-btn" onclick="toggleVN('${id}')">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
     </button>
-    <div class="vn-track" onclick="seekVN(event,'${id}')">
-      <div class="vn-bar-bg"></div>
-      <div class="vn-progress"></div>
-      <div class="vn-dot"></div>
+    <div class="vn-waveform-wrap" onclick="seekVN(event,'${id}')">
+      <div class="vn-waveform">${bars}</div>
+      <div class="vn-waveform-played"></div>
+      <div class="vn-scrub-dot"></div>
     </div>
     <span class="vn-time">0:00</span>
   </div>`;
@@ -1866,15 +1867,19 @@ function toggleVN(id) {
     audio.addEventListener('timeupdate', () => {
       if (!audio.duration) return;
       const pct = (audio.currentTime / audio.duration) * 100;
-      el.querySelector('.vn-progress').style.width = pct + '%';
-      el.querySelector('.vn-dot').style.left = pct + '%';
+      const playedOverlay = el.querySelector('.vn-waveform-played');
+      if (playedOverlay) playedOverlay.style.width = pct + '%';
+      const scrubDot = el.querySelector('.vn-scrub-dot');
+      if (scrubDot) scrubDot.style.left = pct + '%';
       el.querySelector('.vn-time').textContent = fmtDur(audio.duration - audio.currentTime);
     });
     audio.addEventListener('ended', () => {
       el.classList.remove('playing');
       el.querySelector('.vn-play-btn').innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
-      el.querySelector('.vn-progress').style.width = '0%';
-      el.querySelector('.vn-dot').style.left = '0%';
+      const playedOverlay = el.querySelector('.vn-waveform-played');
+      if (playedOverlay) playedOverlay.style.width = '0%';
+      const scrubDot = el.querySelector('.vn-scrub-dot');
+      if (scrubDot) scrubDot.style.left = '0%';
       if (audio.duration && isFinite(audio.duration)) el.querySelector('.vn-time').textContent = fmtDur(audio.duration);
     });
   }
@@ -1894,7 +1899,7 @@ function toggleVN(id) {
 function seekVN(e, id) {
   const el = document.getElementById(id);
   if (!el || !_vnAudios[id]) return;
-  const track = el.querySelector('.vn-track');
+  const track = el.querySelector('.vn-waveform-wrap');
   const rect = track.getBoundingClientRect();
   const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   _vnAudios[id].currentTime = pct * _vnAudios[id].duration;
@@ -2637,8 +2642,12 @@ function friendlyErr(code) {
 function enterApp() {
   showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
-  requestLocalNotificationPermission();
-  initNativePushNotifications();
+  // Request notification permissions eagerly then init push
+  requestLocalNotificationPermission().then(() => {
+    initNativePushNotifications();
+  }).catch(() => {
+    initNativePushNotifications();
+  });
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');
@@ -3935,7 +3944,12 @@ async function openReelComments(postId, options = {}) {
             <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
           </div>
-          ${cReplies.length ? `<div class="comment-replies">${cReplies.map(r => renderComment(r, true)).join('')}</div>` : ''}
+          ${cReplies.length ? `
+            <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              View ${cReplies.length} repl${cReplies.length === 1 ? 'y' : 'ies'}
+            </button>
+            <div class="comment-replies" style="display:none">${cReplies.map(r => renderComment(r, true)).join('')}</div>` : ''}
         </div>
       </div>`;
   };
@@ -4198,9 +4212,14 @@ async function openComments(postId, options = {}) {
             <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
            </div>
-           ${cReplies.length ? `<div class="comment-replies">
+           ${cReplies.length ? `
+             <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
+               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+               View ${cReplies.length} repl${cReplies.length === 1 ? 'y' : 'ies'}
+             </button>
+             <div class="comment-replies" style="display:none">
                ${cReplies.map(r => renderComment(r, true)).join('')}
-           </div>` : ''}
+             </div>` : ''}
         </div>
       </div>`;
   }
@@ -4282,6 +4301,19 @@ async function openComments(postId, options = {}) {
 
 function setCommentAnonChoice(next) {
   _commentAnonChoice = !!next;
+}
+
+function toggleCommentReplies(btn) {
+  const repliesDiv = btn.nextElementSibling;
+  if (!repliesDiv) return;
+  const isHidden = repliesDiv.style.display === 'none';
+  repliesDiv.style.display = isHidden ? 'flex' : 'none';
+  btn.classList.toggle('expanded', isHidden);
+  const count = repliesDiv.querySelectorAll('.comment-item').length;
+  const svg = isHidden
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 15 12 9 18 15"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+  btn.innerHTML = `${svg} ${isHidden ? 'Hide' : 'View'} ${count} repl${count === 1 ? 'y' : 'ies'}`;
 }
 
 function setCommentReply(commentId, authorName) {
@@ -8412,19 +8444,39 @@ async function ensureMicrophoneStream() {
     toast('Microphone is not supported on this device');
     return null;
   }
-  try {
-    if (navigator.permissions?.query) {
-      const status = await navigator.permissions.query({ name: 'microphone' });
-      if (status.state === 'denied') {
-        toast('Enable microphone permission in app settings');
-        return null;
+  // On native Android, request the runtime permission explicitly before getUserMedia
+  if (isNativeApp()) {
+    try {
+      const Permissions = getCapacitorPlugin('Permissions');
+      if (Permissions) {
+        const status = await Permissions.query({ name: 'microphone' });
+        if (status?.state === 'denied') {
+          toast('Enable microphone in your device Settings → Apps → Unibo → Permissions');
+          return null;
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  } else {
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({ name: 'microphone' });
+        if (status.state === 'denied') {
+          toast('Enable microphone permission in app settings');
+          return null;
+        }
+      }
+    } catch (_) {}
+  }
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
-    toast(err?.name === 'NotAllowedError' ? 'Microphone access denied' : 'Could not access microphone');
+    if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+      toast(isNativeApp()
+        ? 'Microphone blocked. Go to Settings → Apps → Unibo → Permissions and enable Microphone'
+        : 'Microphone access denied. Allow it in your browser settings');
+    } else {
+      toast('Could not access microphone');
+    }
     return null;
   }
 }
@@ -8932,15 +8984,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
 
-  document.addEventListener('scroll', event => {
-    const dd = $('#notif-dropdown');
-    const trigger = $('#notif-btn');
-    if (!dd || dd.style.display !== 'block') return;
-    const target = event.target;
-    if (target === dd || dd.contains(target) || target === trigger || trigger?.contains(target)) return;
-    closeNotifDropdown();
-  }, true);
-
   // Expose globals for inline onclick
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
@@ -8957,6 +9000,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifications, setCommentReply, clearCommentReply,
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
     setCommentAnonChoice, editAnonNickname,
+    toggleCommentReplies,
     saveCurrentGpsLocation, clearAppCache,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,

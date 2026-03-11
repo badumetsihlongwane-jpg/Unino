@@ -6,4 +6,4 @@ android/.gradle/
 android/local.properties
 android/app/build/
 android/build/
-android/app/google-services.json
+android/app/google-services.json.firebase/

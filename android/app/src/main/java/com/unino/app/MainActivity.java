@@ -1,13 +1,19 @@
 package com.unino.app;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
 
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -15,6 +21,9 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+	private static final int MIC_PERMISSION_CODE = 1001;
+	private PermissionRequest pendingPermissionRequest;
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -57,5 +66,49 @@ public class MainActivity extends BridgeActivity {
 				null
 			)
 		);
+
+		// Grant microphone/camera permissions to the WebView when requested by getUserMedia
+		getBridge().getWebView().setWebChromeClient(new WebChromeClient() {
+			@Override
+			public void onPermissionRequest(final PermissionRequest request) {
+				String[] resources = request.getResources();
+				boolean needsMic = false;
+				for (String r : resources) {
+					if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) {
+						needsMic = true;
+					}
+				}
+				if (needsMic) {
+					if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+							== PackageManager.PERMISSION_GRANTED) {
+						request.grant(resources);
+					} else {
+						pendingPermissionRequest = request;
+						ActivityCompat.requestPermissions(MainActivity.this,
+								new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_CODE);
+					}
+				} else {
+					request.grant(resources);
+				}
+			}
+
+			@Override
+			public void onPermissionRequestCanceled(PermissionRequest request) {
+				pendingPermissionRequest = null;
+			}
+		});
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+		if (requestCode == MIC_PERMISSION_CODE && pendingPermissionRequest != null) {
+			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				pendingPermissionRequest.grant(pendingPermissionRequest.getResources());
+			} else {
+				pendingPermissionRequest.deny();
+			}
+			pendingPermissionRequest = null;
+		}
 	}
 }
