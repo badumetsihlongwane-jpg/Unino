@@ -1531,6 +1531,34 @@ function scoreSeed(str = '') {
   return Math.abs(hash % 1000) / 1000;
 }
 
+// ─── Feed randomisation & seen-post tracking ─────
+let _sessionPostSeeds = {};
+function sessionSeed(postId) {
+  if (_sessionPostSeeds[postId] == null) _sessionPostSeeds[postId] = Math.random();
+  return _sessionPostSeeds[postId];
+}
+function resetFeedSeeds() { _sessionPostSeeds = {}; }
+
+function getSeenPosts() {
+  try { return JSON.parse(localStorage.getItem('unino_seen_posts') || '{}'); }
+  catch { return {}; }
+}
+function markPostSeen(postId) {
+  const seen = getSeenPosts();
+  const entry = seen[postId] || { v: 0, t: 0 };
+  entry.v++;
+  entry.t = Date.now();
+  seen[postId] = entry;
+  // keep only most recent 500
+  const keys = Object.keys(seen);
+  if (keys.length > 500) {
+    keys.sort((a, b) => seen[a].t - seen[b].t);
+    keys.slice(0, keys.length - 500).forEach(k => delete seen[k]);
+  }
+  localStorage.setItem('unino_seen_posts', JSON.stringify(seen));
+}
+let _feedSeenObserver = null;
+
 function extractHashTags(text = '') {
   const found = new Set();
   const regex = /#([A-Za-z][A-Za-z0-9_]{1,23})\b/g;
@@ -2999,6 +3027,7 @@ function renderFeedResults(posts = []) {
 //  FEED — Clean with unified Discover tabs
 // ══════════════════════════════════════════════════
 function renderFeed() {
+  resetFeedSeeds(); // new random order every time feed is opened / refreshed
   const c = $('#content'), p = state.profile;
   if (_feedRestorePendingPaint) c.style.opacity = '0';
   else c.style.opacity = '';
@@ -3109,7 +3138,8 @@ function renderFeed() {
       });
       await ensureUserContextCache(visible.map(post => post.authorId));
 
-      // Discovery ranking for new posts, while preserving the current on-screen order for existing ones.
+      // Discovery ranking with relevancy, randomness per session, and seen-post demotion
+      const seenMap = getSeenPosts();
       const scored = visible.map(p => {
         const likes = (p.likes || []).length;
         const comments = p.commentsCount || 0;
@@ -3123,8 +3153,11 @@ function renderFeed() {
         const engagement = (likes * 2 + comments * 3) * 0.3;
         const friendBoost = isFriend ? 8 : 0;
         const interestBoost = sharedModules * 10 + sharedTags * 5;
-        const randomFactor = scoreSeed(p.id) * 10;
-        return { ...p, _score: engagement + freshness * 15 + friendBoost + nearbyBoost + interestBoost + randomFactor };
+        const randomFactor = sessionSeed(p.id) * 12;
+        // Demote posts the user has already seen (more views → bigger penalty, caps at 25)
+        const seenEntry = seenMap[p.id];
+        const seenPenalty = seenEntry ? Math.min(seenEntry.v * 4, 25) : 0;
+        return { ...p, _score: engagement + freshness * 15 + friendBoost + nearbyBoost + interestBoost + randomFactor - seenPenalty };
       });
       scored.sort((a, b) => {
         const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
@@ -3757,6 +3790,19 @@ function renderPosts(posts) {
     _pendingQuotePlayers.length = 0;
     setupFeedVideoAutoplay();
     bindPostReactionLongPress(el);
+
+    // Track which posts the user actually sees (scrolls into view)
+    if (_feedSeenObserver) _feedSeenObserver.disconnect();
+    _feedSeenObserver = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const pid = e.target.dataset.postId;
+          if (pid) markPostSeen(pid);
+          _feedSeenObserver.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.5 });
+    el.querySelectorAll('.post-card[data-post-id]').forEach(card => _feedSeenObserver.observe(card));
   });
 }
 
