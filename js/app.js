@@ -406,8 +406,8 @@ function clearTransientUi() {
     closeReelComments();
     return true;
   }
-  if (document.getElementById('reels-viewer')) {
-    closeReelsViewer();
+  if (document.getElementById('video-hub')) {
+    closeVideoHub();
     return true;
   }
   return false;
@@ -3079,7 +3079,7 @@ function renderFeed() {
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
-      <button class="reels-fab" onclick="openReelsViewer()" title="Watch Reels">
+      <button class="reels-fab" onclick="openVideoHub()" title="Video Hub">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="#fff" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none" stroke="#fff" stroke-width="2"/></svg>
       </button>
     </div>
@@ -3806,42 +3806,94 @@ function renderPosts(posts) {
   });
 }
 
-// ─── Reels Viewer (TikTok-style fullscreen vertical scroll) ─────────
+// ═══════════════════════════════════════════════════
+//  VIDEO HUB — LIVE | CLIPS  (replaces old Reels viewer)
+// ═══════════════════════════════════════════════════
 let _reelsActive = false;
 let _reelVideos = [];
+let _videoHubTab = 'clips'; // 'live' | 'clips'
+let _liveStreams = [];
+let _liveUnsub = null;
+let _hostStream = null;      // MediaStream when hosting
+let _hostStreamId = null;     // Firestore doc id
+let _viewerPeerConns = {};    // { viewerUid: RTCPeerConnection }
+let _hostPeerConn = null;     // viewer-side peer connection
+let _liveCommentsUnsub = null;
+let _liveViewerHeartbeat = null;
+let _liveViewerPresenceId = null;
 
-function openReelsViewer() {
-  // Fetch ALL video posts from Firestore, not just what's in state
+// ─── Open Video Hub ──────────────────────────────
+function openVideoHub(tab) {
+  if (tab) _videoHubTab = tab;
+  const existing = document.getElementById('video-hub');
+  if (existing) existing.remove();
+
+  const hub = document.createElement('div');
+  hub.id = 'video-hub';
+  hub.className = 'video-hub';
+  hub.innerHTML = `
+    <div class="vh-header">
+      <button class="vh-close" onclick="closeVideoHub()">&times;</button>
+      <div class="vh-tabs">
+        <button class="vh-tab ${_videoHubTab === 'live' ? 'active' : ''}" onclick="switchVideoHubTab('live')">LIVE</button>
+        <button class="vh-tab ${_videoHubTab === 'clips' ? 'active' : ''}" onclick="switchVideoHubTab('clips')">CLIPS</button>
+      </div>
+      <div style="width:40px"></div>
+    </div>
+    <div class="vh-body" id="vh-body">
+      <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
+    </div>
+  `;
+  document.body.appendChild(hub);
+
+  if (_videoHubTab === 'clips') loadClipsTab();
+  else loadLiveTab();
+}
+
+function closeVideoHub() {
+  stopLiveListeners();
+  const el = document.getElementById('video-hub');
+  if (el) {
+    el.querySelectorAll('video').forEach(v => { v.pause(); v.srcObject = null; });
+    el.remove();
+  }
+  _reelsActive = false;
+  if (_reelsObserver) { _reelsObserver.disconnect(); _reelsObserver = null; }
+}
+
+function switchVideoHubTab(tab) {
+  _videoHubTab = tab;
+  document.querySelectorAll('.vh-tab').forEach(t => t.classList.toggle('active', t.textContent.trim() === tab.toUpperCase()));
+  if (tab === 'clips') loadClipsTab();
+  else loadLiveTab();
+}
+
+// ─── CLIPS TAB (existing reels) ──────────────────
+function loadClipsTab() {
+  const body = document.getElementById('vh-body');
+  if (!body) return;
+  body.innerHTML = '<div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>';
+
   db.collection('posts').orderBy('createdAt', 'desc').limit(100).get().then(snap => {
     const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     _reelVideos = allPosts.filter(p => p.videoURL || p.mediaType === 'video');
-    // Shuffle with engagement-weighted randomization for discovery
     _reelVideos = _reelVideos.map(p => {
       const likes = (p.likes || []).length;
       const comments = p.commentsCount || 0;
       return { ...p, _score: (likes + comments) * 0.3 + Math.random() * 10 };
     }).sort((a, b) => b._score - a._score);
-    if (!_reelVideos.length) return toast('No reels yet — post a video!');
+
+    if (!_reelVideos.length) {
+      body.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎬</div><h3>No clips yet</h3><p>Post a video to see it here!</p></div>';
+      return;
+    }
     _reelsActive = true;
-    renderReelsUI();
-  }).catch(e => { console.error(e); toast('Could not load reels'); });
+    renderClipsContent(body);
+  }).catch(e => { console.error(e); body.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load clips</h3></div>'; });
 }
 
-function renderReelsUI() {
-  const existing = document.getElementById('reels-viewer');
-  if (existing) existing.remove();
-
-  const container = document.createElement('div');
-  container.id = 'reels-viewer';
-  container.className = 'reels-container';
-  container.innerHTML = `
-    <div class="reels-header">
-      <h3>Clips</h3>
-      <div class="reels-header-actions">
-        <button class="reels-sound-btn" onclick="toggleReelsSound()">${_reelsSoundEnabled ? 'Sound on' : 'Sound off'}</button>
-        <button class="reels-close-btn" onclick="closeReelsViewer()">&times;</button>
-      </div>
-    </div>
+function renderClipsContent(body) {
+  body.innerHTML = `
     <div class="reels-scroll" id="reels-scroll">
       ${_reelVideos.map((p, i) => {
         const url = p.videoURL || p.imageURL;
@@ -3851,9 +3903,9 @@ function renderReelsUI() {
         const cc = p.commentsCount || 0;
         return `
         <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
-          <video class="reel-video" src="${url}" loop playsinline preload="metadata" ${_reelsSoundEnabled ? '' : 'muted'}></video>
+          <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
           <div class="reel-overlay-bottom">
-            <div class="reel-author" onclick="closeReelsViewer();openProfile('${p.authorId}')">
+            <div class="reel-author" onclick="closeVideoHub();openProfile('${p.authorId}')">
               ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
               <span class="reel-author-name">${esc(p.authorName || 'User')}</span>
             </div>
@@ -3881,67 +3933,634 @@ function renderReelsUI() {
       }).join('')}
     </div>
   `;
-  document.body.appendChild(container);
 
   const scrollEl = document.getElementById('reels-scroll');
-  // Intersection observer for auto-play
   if (_reelsObserver) { _reelsObserver.disconnect(); _reelsObserver = null; }
   _reelsObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const video = entry.target.querySelector('.reel-video');
       if (!video) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
-        video.muted = !_reelsSoundEnabled;
+        video.muted = false;
         video.play().catch(() => {});
       } else {
         video.pause();
       }
     });
   }, { root: scrollEl, threshold: [0.7] });
-
   scrollEl.querySelectorAll('.reel-slide').forEach(slide => _reelsObserver.observe(slide));
 
-  // Play first reel
   requestAnimationFrame(() => {
     const firstVid = scrollEl.querySelector('.reel-slide:first-child .reel-video');
-    if (firstVid) {
-      firstVid.muted = !_reelsSoundEnabled;
-      firstVid.play().catch(() => {});
-    }
+    if (firstVid) { firstVid.muted = false; firstVid.play().catch(() => {}); }
   });
 }
+
+// Keep old function name for backwards compat
+function openReelsViewer() { openVideoHub('clips'); }
+function closeReelsViewer() { closeVideoHub(); }
 
 function toggleReelPlay(overlay) {
   const vid = overlay.parentElement.querySelector('.reel-video');
   if (!vid) return;
   if (vid.paused) {
-    _reelsSoundEnabled = true;
-    document.querySelectorAll('.reel-video').forEach(video => { video.muted = false; });
-    const soundBtn = document.querySelector('.reels-sound-btn');
-    if (soundBtn) soundBtn.textContent = 'Sound on';
+    vid.muted = false;
     vid.play().catch(() => {});
     overlay.classList.remove('paused');
+  } else {
+    vid.pause();
+    overlay.classList.add('paused');
   }
-  else { vid.pause(); overlay.classList.add('paused'); }
 }
 
 function toggleReelsSound() {
   _reelsSoundEnabled = !_reelsSoundEnabled;
-  document.querySelectorAll('.reel-video').forEach(video => {
-    video.muted = !_reelsSoundEnabled;
-  });
-  const btn = document.querySelector('.reels-sound-btn');
-  if (btn) btn.textContent = _reelsSoundEnabled ? 'Sound on' : 'Sound off';
+  document.querySelectorAll('.reel-video').forEach(video => { video.muted = !_reelsSoundEnabled; });
 }
 
-function closeReelsViewer() {
-  _reelsActive = false;
-  if (_reelsObserver) { _reelsObserver.disconnect(); _reelsObserver = null; }
-  const el = document.getElementById('reels-viewer');
-  if (el) {
-    el.querySelectorAll('video').forEach(v => v.pause());
-    el.remove();
+// ─── LIVE TAB ────────────────────────────────────
+function loadLiveTab() {
+  const body = document.getElementById('vh-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="live-tab-content">
+      <button class="go-live-btn" onclick="openGoLiveModal()">
+        <div class="go-live-icon">📡</div>
+        <span>Go Live</span>
+      </button>
+      <div id="live-streams-list">
+        <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
+      </div>
+    </div>
+  `;
+  subscribeLiveStreams();
+}
+
+function subscribeLiveStreams() {
+  stopLiveListeners();
+  _liveUnsub = db.collection('liveStreams')
+    .where('status', 'in', ['live', 'starting'])
+    .orderBy('startedAt', 'desc')
+    .onSnapshot(snap => {
+      _liveStreams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderLiveStreamsList();
+    }, err => {
+      console.error('Live streams listener error:', err);
+      const el = document.getElementById('live-streams-list');
+      if (el) el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load live streams</h3></div>';
+    });
+}
+
+function stopLiveListeners() {
+  if (_liveUnsub) { _liveUnsub(); _liveUnsub = null; }
+  if (_liveCommentsUnsub) { _liveCommentsUnsub(); _liveCommentsUnsub = null; }
+  if (_liveViewerHeartbeat) { clearInterval(_liveViewerHeartbeat); _liveViewerHeartbeat = null; }
+}
+
+function renderLiveStreamsList() {
+  const el = document.getElementById('live-streams-list');
+  if (!el) return;
+  if (!_liveStreams.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px;text-align:center"><div class="empty-state-icon">📡</div><h3>No one is live right now</h3><p>Tap "Go Live" to start streaming!</p></div>';
+    return;
   }
+  el.innerHTML = _liveStreams.map(s => {
+    const viewers = s.currentViewerCount || 0;
+    const isOwn = s.hostUid === state.user.uid;
+    return `
+      <div class="live-stream-card" onclick="${isOwn ? `openHostLiveView('${s.id}')` : `joinLiveStream('${s.id}')`}">
+        <div class="live-card-thumb">
+          ${s.thumbnailUrl ? `<img src="${s.thumbnailUrl}" alt="">` : `<div class="live-card-placeholder">${avatar(s.hostName, s.hostPhotoURL, 'avatar-lg')}</div>`}
+          <div class="live-badge-overlay"><span class="live-badge">● LIVE</span><span class="live-viewers">${viewers} watching</span></div>
+        </div>
+        <div class="live-card-info">
+          <div class="live-card-row">
+            ${avatar(s.hostName, s.hostPhotoURL, 'avatar-sm')}
+            <div>
+              <div class="live-card-title">${esc(s.title || 'Untitled stream')}</div>
+              <div class="live-card-host">${esc(s.hostName || 'User')}${s.category ? ` · ${esc(s.category)}` : ''}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── GO LIVE MODAL ───────────────────────────────
+function openGoLiveModal() {
+  const modalBg = document.getElementById('modal-bg');
+  const modalInner = document.getElementById('modal-inner');
+  if (!modalBg || !modalInner) return;
+  modalInner.innerHTML = `
+    <div class="go-live-modal">
+      <h2>Go Live</h2>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="live-title" placeholder="What's your stream about?" maxlength="100">
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="live-category">
+          <option value="general">General</option>
+          <option value="social">Social</option>
+          <option value="sports">Sports</option>
+          <option value="campus_event">Campus Event</option>
+          <option value="marketplace">Marketplace</option>
+          <option value="study">Study</option>
+          <option value="music">Music</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Visibility</label>
+        <select id="live-visibility">
+          <option value="public">Public</option>
+          <option value="campus_only">Campus Only</option>
+        </select>
+      </div>
+      <div id="live-camera-preview" class="live-camera-preview">
+        <video id="live-preview-video" autoplay muted playsinline></video>
+        <div class="live-preview-placeholder" id="live-preview-placeholder">Camera preview will appear here</div>
+      </div>
+      <div class="live-modal-actions">
+        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn-primary go-live-start-btn" id="go-live-start-btn" onclick="startLiveStream()">🔴 Go Live</button>
+      </div>
+    </div>
+  `;
+  modalBg.style.display = 'flex';
+
+  // Start camera preview
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true })
+    .then(stream => {
+      _hostStream = stream;
+      const prevVideo = document.getElementById('live-preview-video');
+      if (prevVideo) {
+        prevVideo.srcObject = stream;
+        const placeholder = document.getElementById('live-preview-placeholder');
+        if (placeholder) placeholder.style.display = 'none';
+      }
+    })
+    .catch(err => {
+      console.error('Camera access denied:', err);
+      toast('Camera access is required to go live');
+    });
+}
+
+// ─── START LIVE STREAM ───────────────────────────
+async function startLiveStream() {
+  if (!_hostStream) { toast('Camera not ready'); return; }
+  const titleEl = document.getElementById('live-title');
+  const catEl = document.getElementById('live-category');
+  const visEl = document.getElementById('live-visibility');
+  const btn = document.getElementById('go-live-start-btn');
+  if (btn) btn.disabled = true;
+
+  const title = titleEl?.value.trim() || 'Untitled stream';
+  const category = catEl?.value || 'general';
+  const visibility = visEl?.value || 'public';
+  const uid = state.user.uid;
+  const p = state.profile;
+
+  try {
+    // Check if already live
+    const existingSnap = await db.collection('liveStreams').where('hostUid', '==', uid).where('status', 'in', ['live', 'starting']).get();
+    if (!existingSnap.empty) { toast('You already have an active stream'); if (btn) btn.disabled = false; return; }
+
+    const streamDoc = await db.collection('liveStreams').add({
+      hostUid: uid,
+      hostName: p.displayName || 'User',
+      hostPhotoURL: p.photoURL || null,
+      title,
+      category,
+      visibility,
+      status: 'live',
+      campus: p.university || '',
+      startedAt: FieldVal.serverTimestamp(),
+      createdAt: FieldVal.serverTimestamp(),
+      updatedAt: FieldVal.serverTimestamp(),
+      currentViewerCount: 0,
+      peakViewerCount: 0,
+      totalViews: 0,
+      commentCount: 0,
+      reactionCount: 0,
+      reportCount: 0,
+      tags: [],
+      isFeatured: false,
+      thumbnailUrl: null,
+      endedReason: null,
+      endedAt: null
+    });
+
+    _hostStreamId = streamDoc.id;
+    closeModal();
+    openHostLiveView(_hostStreamId);
+    toast('You are live! 🔴');
+  } catch (e) {
+    console.error('Failed to start live:', e);
+    toast('Failed to go live');
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ─── HOST LIVE VIEW ──────────────────────────────
+function openHostLiveView(streamId) {
+  const hub = document.getElementById('video-hub');
+  if (!hub) { openVideoHub('live'); return; }
+
+  const body = document.getElementById('vh-body');
+  if (!body) return;
+
+  body.innerHTML = `
+    <div class="live-viewer-screen">
+      <video id="host-live-video" class="live-video" autoplay muted playsinline></video>
+      <div class="live-top-bar">
+        <div class="live-info-pill">
+          <span class="live-dot">●</span> LIVE
+          <span class="live-viewer-count" id="live-viewer-count">0</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+        </div>
+        <button class="end-live-btn" onclick="endLiveStream('${streamId}')">End</button>
+      </div>
+      <div class="live-comments-overlay" id="live-comments-overlay"></div>
+      <div class="live-bottom-bar">
+        <div class="live-comment-input-wrap">
+          <input type="text" id="live-comment-input" placeholder="Say something..." maxlength="200" autocomplete="off">
+          <button class="live-send-btn" onclick="sendLiveComment('${streamId}')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <button class="live-react-btn" onclick="sendLiveReaction('${streamId}')">❤️</button>
+      </div>
+    </div>
+  `;
+
+  // Show host camera in the video element
+  const hostVideo = document.getElementById('host-live-video');
+  if (hostVideo && _hostStream) {
+    hostVideo.srcObject = _hostStream;
+  }
+
+  // Listen for viewers wanting to connect (WebRTC signaling)
+  listenForViewerOffers(streamId);
+  // Listen for live comments
+  subscribeLiveComments(streamId);
+  // Update viewer count periodically
+  startViewerCountUpdater(streamId, true);
+
+  const input = document.getElementById('live-comment-input');
+  if (input) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); sendLiveComment(streamId); }
+    });
+  }
+}
+
+// ─── VIEWER JOIN STREAM ──────────────────────────
+async function joinLiveStream(streamId) {
+  const hub = document.getElementById('video-hub');
+  if (!hub) { openVideoHub('live'); return; }
+
+  const body = document.getElementById('vh-body');
+  if (!body) return;
+
+  body.innerHTML = `
+    <div class="live-viewer-screen">
+      <video id="viewer-live-video" class="live-video" autoplay playsinline></video>
+      <div class="live-connecting-overlay" id="live-connecting">
+        <span class="inline-spinner" style="width:36px;height:36px;color:#fff"></span>
+        <p style="color:#fff;margin-top:12px">Connecting to stream...</p>
+      </div>
+      <div class="live-top-bar">
+        <div class="live-info-pill">
+          <span class="live-dot">●</span> LIVE
+          <span class="live-viewer-count" id="live-viewer-count">0</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+        </div>
+        <button class="leave-live-btn" onclick="leaveLiveStream('${streamId}')">✕</button>
+      </div>
+      <div class="live-comments-overlay" id="live-comments-overlay"></div>
+      <div class="live-bottom-bar">
+        <div class="live-comment-input-wrap">
+          <input type="text" id="live-comment-input" placeholder="Say something..." maxlength="200" autocomplete="off">
+          <button class="live-send-btn" onclick="sendLiveComment('${streamId}')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <button class="live-react-btn" onclick="sendLiveReaction('${streamId}')">❤️</button>
+      </div>
+    </div>
+  `;
+
+  // Register viewer presence
+  const uid = state.user.uid;
+  try {
+    const presDoc = await db.collection('liveStreams').doc(streamId).collection('viewers').doc(uid).set({
+      uid,
+      displayName: state.profile.displayName || '',
+      joinedAt: FieldVal.serverTimestamp(),
+      lastSeenAt: FieldVal.serverTimestamp(),
+      isActive: true
+    });
+    _liveViewerPresenceId = uid;
+  } catch (e) { console.error('Viewer presence error:', e); }
+
+  // Heartbeat every 30s
+  _liveViewerHeartbeat = setInterval(() => {
+    db.collection('liveStreams').doc(streamId).collection('viewers').doc(uid).update({
+      lastSeenAt: FieldVal.serverTimestamp(),
+      isActive: true
+    }).catch(() => {});
+  }, 30000);
+
+  // Increment total views
+  db.collection('liveStreams').doc(streamId).update({ totalViews: FieldVal.increment(1) }).catch(() => {});
+
+  // WebRTC: create offer to host
+  connectToHost(streamId);
+  subscribeLiveComments(streamId);
+  startViewerCountUpdater(streamId, false);
+
+  const input = document.getElementById('live-comment-input');
+  if (input) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); sendLiveComment(streamId); }
+    });
+  }
+}
+
+// ─── WebRTC SIGNALING ────────────────────────────
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+
+// HOST: listen for viewer offers
+function listenForViewerOffers(streamId) {
+  db.collection('liveStreams').doc(streamId).collection('signals')
+    .where('type', '==', 'offer')
+    .onSnapshot(snap => {
+      snap.docChanges().forEach(async change => {
+        if (change.type !== 'added') return;
+        const data = change.doc.data();
+        const viewerUid = data.senderUid;
+        if (_viewerPeerConns[viewerUid]) return; // already handling
+
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        _viewerPeerConns[viewerUid] = pc;
+
+        // Add host's stream tracks
+        if (_hostStream) {
+          _hostStream.getTracks().forEach(track => pc.addTrack(track, _hostStream));
+        }
+
+        // Send ICE candidates to viewer
+        pc.onicecandidate = e => {
+          if (e.candidate) {
+            db.collection('liveStreams').doc(streamId).collection('signals').add({
+              type: 'host-ice',
+              targetUid: viewerUid,
+              candidate: e.candidate.toJSON(),
+              createdAt: FieldVal.serverTimestamp()
+            }).catch(() => {});
+          }
+        };
+
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          await db.collection('liveStreams').doc(streamId).collection('signals').add({
+            type: 'answer',
+            targetUid: viewerUid,
+            senderUid: state.user.uid,
+            sdp: { type: answer.type, sdp: answer.sdp },
+            createdAt: FieldVal.serverTimestamp()
+          });
+        } catch (e) { console.error('Host signaling error:', e); }
+
+        // Listen for viewer ICE candidates
+        db.collection('liveStreams').doc(streamId).collection('signals')
+          .where('type', '==', 'viewer-ice')
+          .where('targetUid', '==', state.user.uid)
+          .onSnapshot(iceSnap => {
+            iceSnap.docChanges().forEach(async ic => {
+              if (ic.type !== 'added') return;
+              const iceData = ic.doc.data();
+              if (iceData.senderUid !== viewerUid) return;
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(iceData.candidate));
+              } catch (e) { /* ignore late candidates */ }
+            });
+          });
+      });
+    });
+}
+
+// VIEWER: send offer to host
+async function connectToHost(streamId) {
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  _hostPeerConn = pc;
+  const uid = state.user.uid;
+
+  pc.ontrack = e => {
+    const video = document.getElementById('viewer-live-video');
+    if (video && e.streams[0]) {
+      video.srcObject = e.streams[0];
+      const overlay = document.getElementById('live-connecting');
+      if (overlay) overlay.style.display = 'none';
+    }
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      db.collection('liveStreams').doc(streamId).collection('signals').add({
+        type: 'viewer-ice',
+        senderUid: uid,
+        targetUid: 'host',
+        candidate: e.candidate.toJSON(),
+        createdAt: FieldVal.serverTimestamp()
+      }).catch(() => {});
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      const overlay = document.getElementById('live-connecting');
+      if (overlay) { overlay.style.display = 'flex'; overlay.innerHTML = '<p style="color:#fff">Stream disconnected</p>'; }
+    }
+  };
+
+  // Add a transceiver so we can receive video+audio
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    await db.collection('liveStreams').doc(streamId).collection('signals').add({
+      type: 'offer',
+      senderUid: uid,
+      sdp: { type: offer.type, sdp: offer.sdp },
+      createdAt: FieldVal.serverTimestamp()
+    });
+
+    // Listen for host answer
+    db.collection('liveStreams').doc(streamId).collection('signals')
+      .where('type', '==', 'answer')
+      .where('targetUid', '==', uid)
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(async change => {
+          if (change.type !== 'added') return;
+          const ansData = change.doc.data();
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(ansData.sdp));
+          } catch (e) { console.error('Viewer answer error:', e); }
+        });
+      });
+
+    // Listen for host ICE candidates
+    db.collection('liveStreams').doc(streamId).collection('signals')
+      .where('type', '==', 'host-ice')
+      .where('targetUid', '==', uid)
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(async change => {
+          if (change.type !== 'added') return;
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(change.doc.data().candidate));
+          } catch (e) { /* ignore */ }
+        });
+      });
+  } catch (e) {
+    console.error('Viewer offer error:', e);
+    toast('Could not connect to stream');
+  }
+
+  // Fallback timeout: if no video after 15s, show message
+  setTimeout(() => {
+    const video = document.getElementById('viewer-live-video');
+    if (video && !video.srcObject) {
+      const overlay = document.getElementById('live-connecting');
+      if (overlay) overlay.innerHTML = '<p style="color:#fff">Could not connect to stream. The host may have ended.</p>';
+    }
+  }, 15000);
+}
+
+// ─── END LIVE STREAM (host) ──────────────────────
+async function endLiveStream(streamId) {
+  try {
+    await db.collection('liveStreams').doc(streamId).update({
+      status: 'ended',
+      endedAt: FieldVal.serverTimestamp(),
+      endedReason: 'host_ended',
+      updatedAt: FieldVal.serverTimestamp()
+    });
+
+    // Clean up peer connections
+    Object.values(_viewerPeerConns).forEach(pc => pc.close());
+    _viewerPeerConns = {};
+
+    // Stop host camera
+    if (_hostStream) { _hostStream.getTracks().forEach(t => t.stop()); _hostStream = null; }
+    _hostStreamId = null;
+
+    stopLiveListeners();
+    toast('Stream ended');
+    loadLiveTab();
+  } catch (e) { console.error(e); toast('Failed to end stream'); }
+}
+
+// ─── LEAVE LIVE STREAM (viewer) ──────────────────
+async function leaveLiveStream(streamId) {
+  if (_hostPeerConn) { _hostPeerConn.close(); _hostPeerConn = null; }
+  if (_liveViewerPresenceId) {
+    db.collection('liveStreams').doc(streamId).collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
+    _liveViewerPresenceId = null;
+  }
+  stopLiveListeners();
+  loadLiveTab();
+}
+
+// ─── LIVE COMMENTS ───────────────────────────────
+function subscribeLiveComments(streamId) {
+  if (_liveCommentsUnsub) _liveCommentsUnsub();
+  _liveCommentsUnsub = db.collection('liveStreams').doc(streamId).collection('comments')
+    .orderBy('createdAt', 'desc')
+    .limit(50)
+    .onSnapshot(snap => {
+      const comments = snap.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
+      const overlay = document.getElementById('live-comments-overlay');
+      if (!overlay) return;
+      overlay.innerHTML = comments.map(c => `
+        <div class="live-comment ${c.uid === state.user.uid ? 'own' : ''}">
+          <strong>${esc(c.displayName || 'User')}</strong> ${esc(c.text || '')}
+        </div>
+      `).join('');
+      overlay.scrollTop = overlay.scrollHeight;
+    });
+}
+
+async function sendLiveComment(streamId) {
+  const input = document.getElementById('live-comment-input');
+  const text = input?.value.trim();
+  if (!text) return;
+  input.value = '';
+  try {
+    await db.collection('liveStreams').doc(streamId).collection('comments').add({
+      uid: state.user.uid,
+      displayName: state.profile.displayName || 'User',
+      photoURL: state.profile.photoURL || null,
+      text,
+      createdAt: FieldVal.serverTimestamp(),
+      isDeleted: false
+    });
+    await db.collection('liveStreams').doc(streamId).update({ commentCount: FieldVal.increment(1) });
+  } catch (e) { console.error(e); }
+}
+
+// ─── LIVE REACTIONS ──────────────────────────────
+function sendLiveReaction(streamId) {
+  // Float a heart animation
+  const overlay = document.getElementById('live-comments-overlay');
+  if (overlay) {
+    const heart = document.createElement('div');
+    heart.className = 'live-floating-heart';
+    heart.textContent = '❤️';
+    heart.style.left = (70 + Math.random() * 20) + '%';
+    overlay.appendChild(heart);
+    setTimeout(() => heart.remove(), 2000);
+  }
+  db.collection('liveStreams').doc(streamId).update({ reactionCount: FieldVal.increment(1) }).catch(() => {});
+}
+
+// ─── VIEWER COUNT ────────────────────────────────
+function startViewerCountUpdater(streamId, isHost) {
+  const updateCount = () => {
+    db.collection('liveStreams').doc(streamId).collection('viewers')
+      .where('isActive', '==', true)
+      .get()
+      .then(snap => {
+        const count = snap.size;
+        const el = document.getElementById('live-viewer-count');
+        if (el) el.textContent = count;
+        if (isHost) {
+          db.collection('liveStreams').doc(streamId).update({
+            currentViewerCount: count,
+            peakViewerCount: FieldVal.increment(0) // we'll handle peak separately
+          }).catch(() => {});
+          // Update peak
+          db.collection('liveStreams').doc(streamId).get().then(doc => {
+            if (doc.exists && count > (doc.data().peakViewerCount || 0)) {
+              doc.ref.update({ peakViewerCount: count }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+  };
+  updateCount();
+  if (_liveViewerHeartbeat) clearInterval(_liveViewerHeartbeat);
+  const interval = setInterval(updateCount, 15000);
+  // Store for cleanup — reuse _liveViewerHeartbeat for this
+  const prevHb = _liveViewerHeartbeat;
+  _liveViewerHeartbeat = interval;
 }
 
 // ─── Inline Reel Comments ────────────────────────
@@ -4039,7 +4658,7 @@ async function openReelComments(postId, options = {}) {
       </div>
     </div>
   `;
-  if (!existing) document.getElementById('reels-viewer')?.appendChild(panel);
+  if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
@@ -9060,6 +9679,8 @@ document.addEventListener('DOMContentLoaded', () => {
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
+    openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
+    joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
