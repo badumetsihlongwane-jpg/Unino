@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -2047,13 +2047,26 @@ function isVideoURL(url) {
 
 function formatContent(text) {
   if (!text) return '';
-  return esc(text).replace(/#(\w+)/g, (_, rawTag) => {
+  let html = esc(text);
+  // Markdown-style links: [label](url) → clickable link
+  html = html.replace(/\[([^\]]{1,80})\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
+    return `<a href="${url}" target="_blank" rel="noopener" class="post-link">${label}</a>`;
+  });
+  // Auto-linkify bare URLs (skip already-linked ones)
+  html = html.replace(/(^|[^"=])(https?:\/\/[^\s<"]+)/g, (match, pre, url) => {
+    const clean = url.replace(/[.,;:!?)]+$/, '');
+    const display = clean.length > 40 ? clean.slice(0, 37) + '...' : clean;
+    return `${pre}<a href="${clean}" target="_blank" rel="noopener" class="post-link">${display}</a>`;
+  });
+  // Hashtags
+  html = html.replace(/#(\w+)/g, (_, rawTag) => {
     const tag = (rawTag || '').toUpperCase();
     if (/^[A-Z]{3,5}\d{3}$/.test(tag)) {
       return `<span class="hashtag module-hashtag" onclick="openModuleFeed('${tag}')">#${tag}</span>`;
     }
     return `<span class="hashtag" onclick="openTagFeed('${rawTag.toLowerCase()}')">#${rawTag}</span>`;
   });
+  return html;
 }
 
 // ─── Custom Video Player Engine ──────────────────

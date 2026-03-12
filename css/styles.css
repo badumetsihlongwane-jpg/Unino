@@ -1361,6 +1361,14 @@ video::-webkit-media-controls-start-playback-button {
   font-weight: 700;
 }
 
+.post-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  word-break: break-all;
+}
+.post-link:hover { text-decoration: underline; }
+
 .expandable-post-body .post-content {
   padding-bottom: 6px;
 }
