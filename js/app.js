@@ -14,6 +14,9 @@ const $$ = s => document.querySelectorAll(s);
 const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
+// ─── App Version ─────────────────────────────────
+const APP_VERSION = 29;
+
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
 const VERIFIED_UIDS = new Set(); // campus-verified users
@@ -2671,6 +2674,30 @@ function friendlyErr(code) {
 }
 
 // ══════════════════════════════════════════════════
+//  APP UPDATE CHECK
+// ══════════════════════════════════════════════════
+function checkForAppUpdate() {
+  db.collection('appConfig').doc('version').get().then(snap => {
+    if (!snap.exists) return;
+    const data = snap.data();
+    const latest = data.version || 0;
+    if (latest <= APP_VERSION) return;
+    const link = data.downloadUrl || '';
+    const label = data.downloadLabel || 'Download Update';
+    const msg = data.message || 'A new version of Unibo is available.';
+    // Show banner
+    let banner = document.getElementById('update-banner');
+    if (banner) banner.remove();
+    banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.innerHTML = `<span>${msg}</span>` +
+      (link ? `<a href="${encodeURI(link)}" target="_blank" rel="noopener">${label}</a>` : '') +
+      `<button onclick="this.parentElement.remove()">&times;</button>`;
+    document.body.appendChild(banner);
+  }).catch(() => {});
+}
+
+// ══════════════════════════════════════════════════
 //  ENTER APP
 // ══════════════════════════════════════════════════
 function enterApp() {
@@ -2696,6 +2723,7 @@ function enterApp() {
   listenForOnlineCount();
   cleanupExpiredStories();
   maybePromptForGpsLocation();
+  checkForAppUpdate();
 }
 
 let _onlineCountSub = null;
@@ -4014,6 +4042,7 @@ function subscribeLiveStreams() {
 function stopLiveListeners() {
   if (_liveUnsub) { _liveUnsub(); _liveUnsub = null; }
   if (_liveCommentsUnsub) { _liveCommentsUnsub(); _liveCommentsUnsub = null; }
+  if (_liveReactionsUnsub) { _liveReactionsUnsub(); _liveReactionsUnsub = null; }
   if (_liveViewerHeartbeat) { clearInterval(_liveViewerHeartbeat); _liveViewerHeartbeat = null; }
 }
 
@@ -4190,7 +4219,7 @@ function openHostLiveView(streamId) {
 
   body.innerHTML = `
     <div class="live-viewer-screen">
-      <video id="host-live-video" class="live-video" autoplay muted playsinline></video>
+      <video id="host-live-video" class="live-video host-cam" autoplay muted playsinline webkit-playsinline></video>
       <div class="live-top-bar">
         <div class="live-info-pill">
           <span class="live-dot">●</span> LIVE
@@ -4222,6 +4251,8 @@ function openHostLiveView(streamId) {
   listenForViewerOffers(streamId);
   // Listen for live comments
   subscribeLiveComments(streamId);
+  // Listen for reactions from all clients
+  subscribeLiveReactions(streamId);
   // Update viewer count periodically
   startViewerCountUpdater(streamId, true);
 
@@ -4243,7 +4274,7 @@ async function joinLiveStream(streamId) {
 
   body.innerHTML = `
     <div class="live-viewer-screen">
-      <video id="viewer-live-video" class="live-video" autoplay playsinline></video>
+      <video id="viewer-live-video" class="live-video" autoplay playsinline webkit-playsinline></video>
       <div class="live-connecting-overlay" id="live-connecting">
         <span class="inline-spinner" style="width:36px;height:36px;color:#fff"></span>
         <p style="color:#fff;margin-top:12px">Connecting to stream...</p>
@@ -4296,6 +4327,7 @@ async function joinLiveStream(streamId) {
   // WebRTC: create offer to host
   connectToHost(streamId);
   subscribeLiveComments(streamId);
+  subscribeLiveReactions(streamId);
   startViewerCountUpdater(streamId, false);
 
   const input = document.getElementById('live-comment-input');
@@ -4382,6 +4414,8 @@ async function connectToHost(streamId) {
     const video = document.getElementById('viewer-live-video');
     if (video && e.streams[0]) {
       video.srcObject = e.streams[0];
+      video.muted = false;
+      video.play().catch(() => {});
       const overlay = document.getElementById('live-connecting');
       if (overlay) overlay.style.display = 'none';
     }
@@ -4502,16 +4536,19 @@ function subscribeLiveComments(streamId) {
   if (_liveCommentsUnsub) _liveCommentsUnsub();
   _liveCommentsUnsub = db.collection('liveStreams').doc(streamId).collection('comments')
     .orderBy('createdAt', 'desc')
-    .limit(50)
+    .limit(13)
     .onSnapshot(snap => {
       const comments = snap.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
       const overlay = document.getElementById('live-comments-overlay');
       if (!overlay) return;
+      // Keep only comment divs, preserve floating hearts
+      const hearts = overlay.querySelectorAll('.live-floating-heart');
       overlay.innerHTML = comments.map(c => `
         <div class="live-comment ${c.uid === state.user.uid ? 'own' : ''}">
           <strong>${esc(c.displayName || 'User')}</strong> ${esc(c.text || '')}
         </div>
       `).join('');
+      hearts.forEach(h => overlay.appendChild(h));
       overlay.scrollTop = overlay.scrollHeight;
     });
 }
@@ -4535,18 +4572,36 @@ async function sendLiveComment(streamId) {
 }
 
 // ─── LIVE REACTIONS ──────────────────────────────
+let _liveReactionsUnsub = null;
+
 function sendLiveReaction(streamId) {
-  // Float a heart animation
-  const overlay = document.getElementById('live-comments-overlay');
-  if (overlay) {
-    const heart = document.createElement('div');
-    heart.className = 'live-floating-heart';
-    heart.textContent = '❤️';
-    heart.style.left = (70 + Math.random() * 20) + '%';
-    overlay.appendChild(heart);
-    setTimeout(() => heart.remove(), 2000);
-  }
+  // Write reaction event to Firestore so all clients see it
+  db.collection('liveStreams').doc(streamId).collection('reactions').add({
+    uid: state.user.uid,
+    type: '❤️',
+    createdAt: FieldVal.serverTimestamp()
+  }).catch(() => {});
   db.collection('liveStreams').doc(streamId).update({ reactionCount: FieldVal.increment(1) }).catch(() => {});
+}
+
+function subscribeLiveReactions(streamId) {
+  if (_liveReactionsUnsub) _liveReactionsUnsub();
+  _liveReactionsUnsub = db.collection('liveStreams').doc(streamId).collection('reactions')
+    .orderBy('createdAt', 'desc')
+    .limit(1)
+    .onSnapshot(snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type !== 'added') return;
+        const overlay = document.getElementById('live-comments-overlay');
+        if (!overlay) return;
+        const heart = document.createElement('div');
+        heart.className = 'live-floating-heart';
+        heart.textContent = '❤️';
+        heart.style.left = (65 + Math.random() * 25) + '%';
+        overlay.appendChild(heart);
+        setTimeout(() => heart.remove(), 2000);
+      });
+    });
 }
 
 // ─── VIEWER COUNT ────────────────────────────────
