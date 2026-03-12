@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -1218,7 +1218,7 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
   try {
     await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
-    closeModal();
+    // Update in-place without closing/reopening — prevents modal flash and scroll jump
     if (source === 'reel') openReelComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
     else openComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
   } catch (e) {
@@ -3267,12 +3267,42 @@ function renderFeed() {
 
       const prevIds = previousPosts.map(post => post.id).join(',');
       const nextIds = scored.map(post => post.id).join(',');
+      // ── Diff-based update: only re-render fully when post list changes ──
+      const idsUnchanged = prevIds === nextIds;
+      const onlyModifications = snap.docChanges().every(ch => ch.type === 'modified');
+
+      state.posts = scored;
+
+      if (idsUnchanged && onlyModifications) {
+        // Just refresh the like/reaction UI on changed post cards — no full re-render
+        snap.docChanges().forEach(ch => {
+          const post = scored.find(p => p.id === ch.doc.id);
+          if (!post) return;
+          const card = document.getElementById('post-' + post.id);
+          if (!card) return;
+          const liked = (post.likes || []).includes(uid);
+          const myReaction = getUserReaction(post.reactions, post.likes || []);
+          const lc = getReactionSummary(post.reactions, post.likes || []).total;
+          const likeBtn = card.querySelector('.post-like-action');
+          if (likeBtn) {
+            likeBtn.className = `post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}`;
+            likeBtn.innerHTML = renderPostLikeMarkup(post);
+          }
+          const statsEl = card.querySelector('.post-stats');
+          if (statsEl) statsEl.innerHTML = renderPostStatsMarkup(post);
+        });
+        window._lastLikedPost = null;
+        c.style.opacity = '';
+        _feedRestorePendingPaint = false;
+        _pendingFeedScrollRestore = null;
+        return;
+      }
+
       const contentEl = document.getElementById('content');
       const restoreScroll = _pendingFeedScrollRestore !== null
         ? _pendingFeedScrollRestore
         : (contentEl ? contentEl.scrollTop : _feedScrollTop);
 
-      state.posts = scored;
       renderFeedResults(scored);
       if (contentEl) {
         requestAnimationFrame(() => {
@@ -3286,7 +3316,6 @@ function renderFeed() {
       }
       _pendingFeedScrollRestore = null;
       window._lastLikedPost = null;
-      if (prevIds === nextIds) return;
     }, err => {
       console.error('Feed listener error:', err);
       c.style.opacity = '';
@@ -3919,9 +3948,12 @@ let _hostPeerConn = null;     // viewer-side peer connection
 let _liveCommentsUnsub = null;
 let _liveViewerHeartbeat = null;
 let _liveViewerPresenceId = null;
+let _liveViewerCountTimer = null;
+let _liveViewingStreamId = null;
 
 // ─── Open Video Hub ──────────────────────────────
 function openVideoHub(tab) {
+  stopAllVideos();
   if (tab) _videoHubTab = tab;
   const existing = document.getElementById('video-hub');
   if (existing) existing.remove();
@@ -3967,8 +3999,9 @@ function closeVideoHub() {
   if (_hostPeerConn) { _hostPeerConn.close(); _hostPeerConn = null; }
   if (_liveViewerPresenceId) {
     // Best-effort mark viewer as inactive
-    db.collection('liveStreams').doc('_').collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
+    db.collection('liveStreams').doc(_liveViewingStreamId || '_').collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
     _liveViewerPresenceId = null;
+    _liveViewingStreamId = null;
   }
   stopLiveListeners();
   const el = document.getElementById('video-hub');
@@ -4024,9 +4057,9 @@ function renderClipsContent(body) {
         <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
           <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
           <div class="reel-overlay-bottom">
-            <div class="reel-author" onclick="closeVideoHub();openProfile('${p.authorId}')">
-              ${avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
-              <span class="reel-author-name">${esc(p.authorName || 'User')}</span>
+            <div class="reel-author" ${p.isAnonymous ? '' : `onclick="closeVideoHub();openProfile('${p.authorId}')"`}>
+              ${p.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
+              <span class="reel-author-name">${p.isAnonymous ? 'Anonymous' : esc(p.authorName || 'User')}</span>
             </div>
             ${p.content ? `<p class="reel-caption">${esc(p.content)}</p>` : ''}
           </div>
@@ -4135,6 +4168,7 @@ function stopLiveListeners() {
   if (_liveCommentsUnsub) { _liveCommentsUnsub(); _liveCommentsUnsub = null; }
   if (_liveReactionsUnsub) { _liveReactionsUnsub(); _liveReactionsUnsub = null; }
   if (_liveViewerHeartbeat) { clearInterval(_liveViewerHeartbeat); _liveViewerHeartbeat = null; }
+  if (_liveViewerCountTimer) { clearInterval(_liveViewerCountTimer); _liveViewerCountTimer = null; }
 }
 
 function renderLiveStreamsList() {
@@ -4441,6 +4475,8 @@ async function joinLiveStream(streamId) {
   } catch (e) { console.error('Viewer presence error:', e); }
 
   // Heartbeat every 30s
+  _liveViewingStreamId = streamId;
+  if (_liveViewerHeartbeat) { clearInterval(_liveViewerHeartbeat); _liveViewerHeartbeat = null; }
   _liveViewerHeartbeat = setInterval(() => {
     db.collection('liveStreams').doc(streamId).collection('viewers').doc(uid).update({
       lastSeenAt: FieldVal.serverTimestamp(),
@@ -4535,6 +4571,7 @@ function listenForViewerOffers(streamId) {
 async function connectToHost(streamId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   _hostPeerConn = pc;
+  const sessionStartMs = Date.now();
   const uid = state.user.uid;
 
   pc.ontrack = e => {
@@ -4606,7 +4643,8 @@ async function connectToHost(streamId) {
       createdAt: FieldVal.serverTimestamp()
     });
 
-    // Listen for host answer
+
+    // Listen for host answer — skip docs older than this session (stale rejoin signals)
     db.collection('liveStreams').doc(streamId).collection('signals')
       .where('type', '==', 'answer')
       .where('targetUid', '==', uid)
@@ -4614,21 +4652,26 @@ async function connectToHost(streamId) {
         snap.docChanges().forEach(async change => {
           if (change.type !== 'added') return;
           const ansData = change.doc.data();
+          const createdMs = ansData.createdAt?.toMillis?.() || 0;
+          if (createdMs && createdMs < sessionStartMs - 5000) return; // skip stale from prior session
           try {
             await pc.setRemoteDescription(new RTCSessionDescription(ansData.sdp));
           } catch (e) { console.error('Viewer answer error:', e); }
         });
       });
 
-    // Listen for host ICE candidates
+    // Listen for host ICE candidates — skip stale docs from prior sessions
     db.collection('liveStreams').doc(streamId).collection('signals')
       .where('type', '==', 'host-ice')
       .where('targetUid', '==', uid)
       .onSnapshot(snap => {
         snap.docChanges().forEach(async change => {
           if (change.type !== 'added') return;
+          const iceDoc = change.doc.data();
+          const createdMs = iceDoc.createdAt?.toMillis?.() || 0;
+          if (createdMs && createdMs < sessionStartMs - 5000) return; // skip stale
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(change.doc.data().candidate));
+            await pc.addIceCandidate(new RTCIceCandidate(iceDoc.candidate));
           } catch (e) { /* ignore */ }
         });
       });
@@ -4678,6 +4721,7 @@ async function leaveLiveStream(streamId) {
     db.collection('liveStreams').doc(streamId).collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
     _liveViewerPresenceId = null;
   }
+  _liveViewingStreamId = null;
   stopLiveListeners();
   loadLiveTab();
 }
@@ -4793,11 +4837,8 @@ function startViewerCountUpdater(streamId, isHost) {
       }).catch(() => {});
   };
   updateCount();
-  if (_liveViewerHeartbeat) clearInterval(_liveViewerHeartbeat);
-  const interval = setInterval(updateCount, 15000);
-  // Store for cleanup — reuse _liveViewerHeartbeat for this
-  const prevHb = _liveViewerHeartbeat;
-  _liveViewerHeartbeat = interval;
+  if (_liveViewerCountTimer) clearInterval(_liveViewerCountTimer);
+  _liveViewerCountTimer = setInterval(updateCount, 15000);
 }
 
 // ─── Inline Reel Comments ────────────────────────
