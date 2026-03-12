@@ -4048,6 +4048,9 @@ function renderLiveStreamsList() {
 
 // ─── GO LIVE MODAL ───────────────────────────────
 function openGoLiveModal() {
+  // Clean up any prior camera preview
+  if (_hostStream) { _hostStream.getTracks().forEach(t => t.stop()); _hostStream = null; }
+
   const modalBg = document.getElementById('modal-bg');
   const modalInner = document.getElementById('modal-inner');
   if (!modalBg || !modalInner) return;
@@ -4090,19 +4093,34 @@ function openGoLiveModal() {
   modalBg.style.display = 'flex';
 
   // Start camera preview
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Camera is not supported on this device');
+    return;
+  }
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true })
     .then(stream => {
       _hostStream = stream;
       const prevVideo = document.getElementById('live-preview-video');
       if (prevVideo) {
         prevVideo.srcObject = stream;
+        prevVideo.play().catch(() => {});
         const placeholder = document.getElementById('live-preview-placeholder');
         if (placeholder) placeholder.style.display = 'none';
       }
     })
     .catch(err => {
       console.error('Camera access denied:', err);
-      toast('Camera access is required to go live');
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        toast(isNativeApp()
+          ? 'Camera blocked — open Settings → Apps → Unino → Permissions and enable Camera & Microphone'
+          : 'Camera access denied. Allow camera in your browser settings and reload');
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        toast('No camera found on this device');
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        toast('Camera is in use by another app. Close it and try again');
+      } else {
+        toast('Could not access camera');
+      }
     });
 }
 
@@ -9225,6 +9243,11 @@ function openModal(innerHtml) {
 }
 
 function closeModal() {
+  // Stop live camera preview if active and not yet streaming
+  if (_hostStream && !_hostStreamId) {
+    _hostStream.getTracks().forEach(t => t.stop());
+    _hostStream = null;
+  }
   $('#modal-bg').style.display = 'none';
   $('#modal-inner').innerHTML = '';
 }
