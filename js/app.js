@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -853,11 +853,25 @@ function setupViewportFollow(msgsEl) {
   let vvTimer;
   const onVv = () => {
     clearTimeout(vvTimer);
-    vvTimer = setTimeout(() => scrollToLatest(msgsEl), 60);
+    vvTimer = setTimeout(() => {
+      // When keyboard opens/closes, scroll chat to bottom
+      scrollToLatest(msgsEl);
+      // Ensure the chat view fits the visual viewport
+      const chatView = msgsEl.closest('.screen');
+      if (chatView) {
+        chatView.style.height = window.visualViewport.height + 'px';
+        chatView.style.top = window.visualViewport.offsetTop + 'px';
+      }
+    }, 60);
   };
   window.visualViewport.addEventListener('resize', onVv);
+  window.visualViewport.addEventListener('scroll', onVv);
   return () => {
     window.visualViewport.removeEventListener('resize', onVv);
+    window.visualViewport.removeEventListener('scroll', onVv);
+    // Reset styles
+    const chatView = msgsEl.closest('.screen');
+    if (chatView) { chatView.style.height = ''; chatView.style.top = ''; }
   };
 }
 
@@ -2998,6 +3012,39 @@ function navigate(page, options = {}) {
   }
 }
 
+// ─── Feed Search: People Suggestions ─────────────
+function renderFeedPeopleSuggestions(query) {
+  let box = document.getElementById('feed-people-suggestions');
+  if (!box) {
+    const searchBar = document.querySelector('.feed-search-bar');
+    if (!searchBar) return;
+    box = document.createElement('div');
+    box.id = 'feed-people-suggestions';
+    box.className = 'feed-people-suggestions';
+    searchBar.style.position = 'relative';
+    searchBar.appendChild(box);
+  }
+  const q = (query || '').toLowerCase();
+  if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
+  db.collection('users').get().then(snap => {
+    const hits = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => u.id !== state.user?.uid && (u.displayName || '').toLowerCase().includes(q))
+      .slice(0, 5);
+    if (!hits.length) { box.style.display = 'none'; return; }
+    box.innerHTML = hits.map(u => `
+      <button type="button" class="feed-people-item" onmousedown="event.preventDefault();openProfile('${u.id}')">
+        ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+        <div class="feed-people-info">
+          <span class="feed-people-name">${esc(u.displayName || 'User')}</span>
+          <span class="feed-people-meta">${esc(u.major || u.university || 'Student')}</span>
+        </div>
+      </button>
+    `).join('');
+    box.style.display = 'block';
+  }).catch(() => {});
+}
+
 function filterFeedPosts(posts = [], query = _feedSearchQuery) {
   const raw = (query || '').trim().toLowerCase();
   if (!raw) return posts;
@@ -3137,7 +3184,14 @@ function renderFeed() {
       timer = setTimeout(() => {
         _feedSearchQuery = e.target.value || '';
         renderFeedResults(state.posts || []);
+        renderFeedPeopleSuggestions(e.target.value.trim());
       }, 120);
+    });
+    searchInput.addEventListener('focus', () => {
+      if (searchInput.value.trim()) renderFeedPeopleSuggestions(searchInput.value.trim());
+    });
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => { const box = $('#feed-people-suggestions'); if (box) box.style.display = 'none'; }, 200);
     });
   }
 
@@ -3844,6 +3898,7 @@ let _liveStreams = [];
 let _liveUnsub = null;
 let _hostStream = null;      // MediaStream when hosting
 let _hostStreamId = null;     // Firestore doc id
+let _hostFacingMode = 'user'; // 'user' (front) or 'environment' (back)
 let _viewerPeerConns = {};    // { viewerUid: RTCPeerConnection }
 let _hostPeerConn = null;     // viewer-side peer connection
 let _liveCommentsUnsub = null;
@@ -3879,6 +3934,27 @@ function openVideoHub(tab) {
 }
 
 function closeVideoHub() {
+  // If host is live, end the stream first
+  if (_hostStreamId) {
+    db.collection('liveStreams').doc(_hostStreamId).update({
+      status: 'ended',
+      endedAt: FieldVal.serverTimestamp(),
+      endedReason: 'host_ended',
+      updatedAt: FieldVal.serverTimestamp()
+    }).catch(() => {});
+    Object.values(_viewerPeerConns).forEach(pc => pc.close());
+    _viewerPeerConns = {};
+    if (_hostStream) { _hostStream.getTracks().forEach(t => t.stop()); _hostStream = null; }
+    _hostStreamId = null;
+    toast('Stream ended');
+  }
+  // If viewer, close peer connection
+  if (_hostPeerConn) { _hostPeerConn.close(); _hostPeerConn = null; }
+  if (_liveViewerPresenceId) {
+    // Best-effort mark viewer as inactive
+    db.collection('liveStreams').doc('_').collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
+    _liveViewerPresenceId = null;
+  }
   stopLiveListeners();
   const el = document.getElementById('video-hub');
   if (el) {
@@ -4237,6 +4313,7 @@ function openHostLiveView(streamId) {
           </button>
         </div>
         <button class="live-react-btn" onclick="sendLiveReaction('${streamId}')">❤️</button>
+        <button class="live-flip-btn" onclick="switchLiveCamera('${streamId}')" title="Flip camera">🔄</button>
       </div>
     </div>
   `;
@@ -4261,6 +4338,41 @@ function openHostLiveView(streamId) {
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); sendLiveComment(streamId); }
     });
+  }
+}
+
+// ─── SWITCH CAMERA (front/back) ──────────────────
+async function switchLiveCamera() {
+  _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user';
+  try {
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: _hostFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true
+    });
+    // Replace tracks in existing peer connections
+    const newVideoTrack = newStream.getVideoTracks()[0];
+    const newAudioTrack = newStream.getAudioTracks()[0];
+    Object.values(_viewerPeerConns).forEach(pc => {
+      const senders = pc.getSenders();
+      senders.forEach(sender => {
+        if (sender.track?.kind === 'video' && newVideoTrack) sender.replaceTrack(newVideoTrack).catch(() => {});
+        if (sender.track?.kind === 'audio' && newAudioTrack) sender.replaceTrack(newAudioTrack).catch(() => {});
+      });
+    });
+    // Stop old tracks
+    if (_hostStream) _hostStream.getTracks().forEach(t => t.stop());
+    _hostStream = newStream;
+    // Update host preview
+    const hostVideo = document.getElementById('host-live-video');
+    if (hostVideo) {
+      hostVideo.srcObject = newStream;
+      // Mirror only front camera, not back
+      hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
+    }
+  } catch (e) {
+    console.error('Camera switch error:', e);
+    toast('Could not switch camera');
+    _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user'; // revert
   }
 }
 
@@ -4599,6 +4711,16 @@ async function sendLiveComment(streamId) {
 let _liveReactionsUnsub = null;
 
 function sendLiveReaction(streamId) {
+  // Instant local heart for feedback
+  const overlay = document.getElementById('live-comments-overlay');
+  if (overlay) {
+    const heart = document.createElement('div');
+    heart.className = 'live-floating-heart';
+    heart.textContent = '❤️';
+    heart.style.left = (65 + Math.random() * 25) + '%';
+    overlay.appendChild(heart);
+    setTimeout(() => heart.remove(), 2000);
+  }
   // Write reaction event to Firestore so all clients see it
   db.collection('liveStreams').doc(streamId).collection('reactions').add({
     uid: state.user.uid,
@@ -4616,6 +4738,9 @@ function subscribeLiveReactions(streamId) {
     .onSnapshot(snap => {
       snap.docChanges().forEach(change => {
         if (change.type !== 'added') return;
+        const data = change.doc.data();
+        // Skip own reactions (already shown locally)
+        if (data.uid === state.user?.uid) return;
         const overlay = document.getElementById('live-comments-overlay');
         if (!overlay) return;
         const heart = document.createElement('div');
@@ -9782,7 +9907,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
-    joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView,
+    joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView, switchLiveCamera,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
