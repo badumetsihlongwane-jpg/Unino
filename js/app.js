@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -717,6 +717,7 @@ async function initNativeShell() {
     appPlugin.addListener('appStateChange', ({ isActive }) => {
       _nativeAppIsActive = !!isActive;
       if (isActive) markActivity();
+      else stopAllVideos();
     });
   }
 
@@ -2947,6 +2948,7 @@ function setupPresenceTracking() {
     document.addEventListener('visibilitychange', () => {
       _nativeAppIsActive = !document.hidden;
       if (document.hidden) {
+        stopAllVideos();
         if (state.manualStatus === 'online') {
           _lastActivityAt = 0;
           refreshPresence(true).catch(() => {});
