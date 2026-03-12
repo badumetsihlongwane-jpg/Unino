@@ -7032,10 +7032,10 @@ video::-webkit-media-controls-start-playback-button {
   width: 100%; height: 100%;
   object-fit: contain;
   background: #000;
+  transform: scaleX(-1); /* Mirror front-camera streams (social convention) */
 }
-/* Mirror front camera for host so movement feels natural */
+/* Host preview: fill screen */
 .live-video.host-cam {
-  transform: scaleX(-1);
   object-fit: cover;
 }
 .live-connecting-overlay {

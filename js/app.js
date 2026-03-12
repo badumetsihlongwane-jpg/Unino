@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -4389,7 +4389,7 @@ function listenForViewerOffers(streamId) {
         // Listen for viewer ICE candidates
         db.collection('liveStreams').doc(streamId).collection('signals')
           .where('type', '==', 'viewer-ice')
-          .where('targetUid', '==', state.user.uid)
+          .where('targetUid', '==', 'host')
           .onSnapshot(iceSnap => {
             iceSnap.docChanges().forEach(async ic => {
               if (ic.type !== 'added') return;
@@ -4434,9 +4434,33 @@ async function connectToHost(streamId) {
   };
 
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+    const s = pc.connectionState;
+    console.log('[WebRTC viewer] connectionState:', s);
+    if (s === 'failed') {
+      // Attempt ICE restart once
+      if (!pc._iceRestarted) {
+        pc._iceRestarted = true;
+        pc.restartIce();
+        pc.createOffer({ iceRestart: true }).then(offer => {
+          pc.setLocalDescription(offer).then(() => {
+            db.collection('liveStreams').doc(streamId).collection('signals').add({
+              type: 'offer',
+              senderUid: uid,
+              sdp: { type: offer.type, sdp: offer.sdp },
+              createdAt: FieldVal.serverTimestamp()
+            }).catch(() => {});
+          });
+        }).catch(() => {});
+        return;
+      }
       const overlay = document.getElementById('live-connecting');
       if (overlay) { overlay.style.display = 'flex'; overlay.innerHTML = '<p style="color:#fff">Stream disconnected</p>'; }
+    } else if (s === 'disconnected') {
+      // Temporary — WebRTC may recover on its own
+      console.log('[WebRTC viewer] disconnected, waiting for recovery...');
+    } else if (s === 'connected') {
+      const overlay = document.getElementById('live-connecting');
+      if (overlay) overlay.style.display = 'none';
     }
   };
 
