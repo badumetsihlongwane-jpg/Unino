@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -2670,6 +2670,7 @@ function initAuth() {
       if (notifUnsub) { notifUnsub(); notifUnsub = null; }
       if (generalNotifUnsub) { generalNotifUnsub(); generalNotifUnsub = null; }
       if (_unreadDMSub) { _unreadDMSub(); _unreadDMSub = null; }
+      if (_onlineCountSub) { _onlineCountSub(); _onlineCountSub = null; }
       if (_onlineCountTimer) { clearInterval(_onlineCountTimer); _onlineCountTimer = null; }
       if (_presenceTimer) { clearInterval(_presenceTimer); _presenceTimer = null; }
       VERIFIED_UIDS.clear();
@@ -2759,16 +2760,12 @@ let _onlineCountTimer = null;
 function listenForOnlineCount() {
   if (_onlineCountSub) _onlineCountSub();
   if (_onlineCountTimer) clearInterval(_onlineCountTimer);
-  const updateCount = () => {
-    db.collection('users').where('status', '==', 'online').get().then(snap => {
-      const count = snap.size || 0;
-      const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
-      const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
-      const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
-    }).catch(() => {});
-  };
-  updateCount();
-  _onlineCountTimer = setInterval(updateCount, 60000);
+  _onlineCountSub = db.collection('users').where('status', '==', 'online').onSnapshot(snap => {
+    const count = snap.size || 0;
+    const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
+    const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
+    const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
+  }, () => {});
 }
 
 let _unreadDMSub = null;
@@ -2789,12 +2786,10 @@ function refreshChatBadge() {
 
 function listenForVerifiedUsers() {
   if (verifiedUsersUnsub) verifiedUsersUnsub();
-  verifiedUsersUnsub = db.collection('users').limit(500).onSnapshot(snap => {
+  // Only watch verified users instead of whole users collection.
+  verifiedUsersUnsub = db.collection('users').where('manualVerified', '==', true).limit(120).onSnapshot(snap => {
     VERIFIED_UIDS.clear();
-    snap.docs.forEach(d => {
-      const data = d.data() || {};
-      if (data.manualVerified) VERIFIED_UIDS.add(d.id);
-    });
+    snap.docs.forEach(d => VERIFIED_UIDS.add(d.id));
     if (_isAdmin && state.user?.uid) VERIFIED_UIDS.add(state.user.uid);
     // Refresh visible areas so badges appear as soon as verified list updates.
     if (state.page === 'feed' && Array.isArray(state.posts) && state.posts.length) {
@@ -2810,6 +2805,25 @@ function listenForVerifiedUsers() {
       renderFeedResults(state.posts);
     }
   });
+}
+
+let _usersCache = { data: [], expiresAt: 0 };
+let _usersCachePromise = null;
+
+async function getUsersCache(options = {}) {
+  const force = !!options.force;
+  const now = Date.now();
+  if (!force && now < _usersCache.expiresAt && _usersCache.data.length) return _usersCache.data;
+  if (_usersCachePromise) return _usersCachePromise;
+  _usersCachePromise = db.collection('users').get()
+    .then(snap => {
+      const users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _usersCache = { data: users, expiresAt: Date.now() + 3 * 60 * 1000 };
+      return users;
+    })
+    .catch(() => _usersCache.data || [])
+    .finally(() => { _usersCachePromise = null; });
+  return _usersCachePromise;
 }
 
 function listenForUnreadDMs() {
@@ -3041,9 +3055,8 @@ function renderFeedPeopleSuggestions(query) {
   }
   const q = (query || '').toLowerCase();
   if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
-  db.collection('users').get().then(snap => {
-    const hits = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
+  getUsersCache().then(users => {
+    const hits = users
       .filter(u => u.id !== state.user?.uid && (u.displayName || '').toLowerCase().includes(q))
       .slice(0, 5);
     if (!hits.length) { box.style.display = 'none'; return; }
@@ -3341,9 +3354,8 @@ function loadDiscoverPeople() {
   const blockedBy = new Set(state.profile.blockedBy || []);
   const myFriends = new Set(state.profile.friends || []);
 
-  db.collection('users').get().then(snap => {
-    let users = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
+  getUsersCache().then(allUsers => {
+    let users = allUsers
       .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id));
 
     // Score & sort by relevance
