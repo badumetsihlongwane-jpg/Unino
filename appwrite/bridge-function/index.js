@@ -35,7 +35,16 @@ async function verifyFirebaseToken(idToken) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ idToken })
   });
-  if (!resp.ok) throw new Error(`Firebase token lookup failed (${resp.status})`);
+  if (!resp.ok) {
+    let reason = '';
+    try {
+      const payload = await resp.json();
+      reason = payload?.error?.message || payload?.error || '';
+    } catch {
+      reason = (await resp.text().catch(() => '')) || '';
+    }
+    throw new Error(`Firebase token lookup failed (${resp.status})${reason ? `: ${reason}` : ''}`);
+  }
   const data = await resp.json();
   const user = data?.users?.[0];
   if (!user?.localId) throw new Error('Invalid Firebase token');
@@ -138,7 +147,8 @@ export default async ({ req, res, log, error }) => {
     return json(res, 400, { ok: false, error: 'invalid-json' });
   }
 
-  const bearer = extractBearerFromHeaders(req.headers || {}) || String(body.idToken || '');
+  const bearer = extractBearerFromHeaders(req.headers || {})
+    || String(body.idToken || body.firebaseIdToken || body.token || '');
   if (!bearer) {
     return json(res, 401, {
       ok: false,
@@ -175,6 +185,15 @@ export default async ({ req, res, log, error }) => {
 
     return json(res, 404, { ok: false, error: 'route-not-found', path });
   } catch (e) {
+    const msg = String(e?.message || e);
+    if (msg.includes('Firebase token lookup failed') || msg.includes('Invalid Firebase token')) {
+      return json(res, 401, {
+        ok: false,
+        error: 'invalid-auth',
+        detail: msg,
+        hint: 'Use a Firebase ID token from firebase.auth().currentUser.getIdToken(true), not FCM token or API key'
+      });
+    }
     error(`bridge-error: ${e?.message || e}`);
     return json(res, 500, { ok: false, error: 'internal', detail: String(e?.message || e) });
   }
