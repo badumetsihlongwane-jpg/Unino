@@ -90,3 +90,7 @@ const storage = null;
 
 // IndexedDB multi-tab persistence in this compat setup is noisy and unstable in-browser.
 // Leave Firestore online-only here until the cache API migration is done.
+
+// Optional migration bridge: set this to your Firebase Function URL that forwards
+// push token lifecycle events to Appwrite. Leave empty to keep current behavior only.
+window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || '';

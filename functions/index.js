@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const { logger } = require('firebase-functions');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onRequest } = require('firebase-functions/v2/https');
 
 admin.initializeApp();
 
@@ -186,4 +187,67 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
       notifDocId: notifId
     }
   });
+});
+
+exports.appwritePushSync = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).json({ ok: false, error: 'method-not-allowed' });
+    return;
+  }
+
+  const authHeader = String(req.headers.authorization || '');
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!bearer) {
+    res.status(401).json({ ok: false, error: 'missing-auth' });
+    return;
+  }
+
+  const { action = '', userId = '', token = '', platform = 'android' } = req.body || {};
+  if (!['upsert', 'delete'].includes(action) || !userId || !token) {
+    res.status(400).json({ ok: false, error: 'invalid-payload' });
+    return;
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(bearer);
+    if (decoded.uid !== userId) {
+      res.status(403).json({ ok: false, error: 'uid-mismatch' });
+      return;
+    }
+
+    const endpoint = process.env.APPWRITE_PUSH_SYNC_URL || '';
+    if (!endpoint) {
+      // Bridge disabled by config; keep client path successful.
+      res.status(204).send();
+      return;
+    }
+
+    const syncSecret = process.env.APPWRITE_PUSH_SYNC_SECRET || '';
+    const syncResp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(syncSecret ? { 'x-sync-secret': syncSecret } : {})
+      },
+      body: JSON.stringify({
+        action,
+        userId,
+        token,
+        platform,
+        source: 'firebase'
+      })
+    });
+
+    if (!syncResp.ok) {
+      const body = await syncResp.text().catch(() => '');
+      logger.warn('Appwrite sync failed', { status: syncResp.status, body: body.slice(0, 300) });
+      res.status(502).json({ ok: false, error: 'bridge-failed', status: syncResp.status });
+      return;
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    logger.error('appwritePushSync error', error);
+    res.status(500).json({ ok: false, error: 'internal' });
+  }
 });

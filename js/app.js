@@ -113,6 +113,29 @@ function clampText(v = '', max = 80) {
 }
 
 const REACTION_OPTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
+const APPWRITE_PUSH_SYNC_URL = (window.UNINO_APPWRITE_SYNC_URL || '').trim();
+
+async function syncPushTokenWithAppwrite(action, userId, token) {
+  if (!APPWRITE_PUSH_SYNC_URL || !userId || !token || !auth.currentUser) return;
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    await fetch(APPWRITE_PUSH_SYNC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        action,
+        userId,
+        token,
+        platform: window.Capacitor?.getPlatform?.() || 'android'
+      })
+    });
+  } catch (e) {
+    console.warn('Appwrite push sync skipped:', e?.message || e);
+  }
+}
 
 function normalizeReactionMap(raw = {}, likes = []) {
   const map = {};
@@ -355,6 +378,8 @@ async function savePushTokenForCurrentUser(token) {
       updatedAt: FieldVal.serverTimestamp(),
       createdAt: FieldVal.serverTimestamp()
     }, { merge: true });
+    // Optional dual-write bridge for Appwrite migration (no-op unless configured).
+    syncPushTokenWithAppwrite('upsert', state.user.uid, token).catch(() => {});
     localStorage.setItem('unino-push-owner', state.user.uid);
   } catch (e) {
     console.warn('Push token save failed:', e);
@@ -365,6 +390,7 @@ async function removePushTokenForUser(userId, token = _nativePushToken) {
   if (!userId || !token) return;
   try {
     await db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
+    syncPushTokenWithAppwrite('delete', userId, token).catch(() => {});
     if ((localStorage.getItem('unino-push-owner') || '') === userId) localStorage.removeItem('unino-push-owner');
   } catch (e) {
     console.warn('Push token cleanup failed:', e);
