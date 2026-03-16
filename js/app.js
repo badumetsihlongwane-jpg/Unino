@@ -45,6 +45,8 @@ let _nativeAppIsActive = true;
 let _nativePushReady = false;
 let _nativePushToken = '';
 let _nativePushListenersBound = false;
+let _nativePushLastRegisterAt = 0;
+let _nativePushRegisterInFlight = false;
 let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
@@ -549,10 +551,13 @@ async function scheduleLocalNotification(notification) {
 
 async function initNativePushNotifications() {
   if (!isNativeApp() || !state.user) return;
+  if (_nativePushRegisterInFlight) return;
+  _nativePushRegisterInFlight = true;
   const pushNotifications = getCapacitorPlugin('PushNotifications');
   if (!pushNotifications) {
     console.warn('PushNotifications plugin unavailable — using local notification fallback');
     _nativePushReady = false;
+    _nativePushRegisterInFlight = false;
     return;
   }
 
@@ -561,6 +566,7 @@ async function initNativePushNotifications() {
 
     pushNotifications.addListener('registration', token => {
       _nativePushReady = true;
+      _nativePushLastRegisterAt = Date.now();
       savePushTokenForCurrentUser(token?.value || '');
     });
 
@@ -598,12 +604,25 @@ async function initNativePushNotifications() {
     if (receive !== 'granted') {
       _nativePushReady = false;
       console.warn('Push permission not granted:', receive);
+      _nativePushRegisterInFlight = false;
       return;
     }
     await pushNotifications.register();
+    _nativePushLastRegisterAt = Date.now();
   } catch (e) {
     _nativePushReady = false;
     console.warn('Push init failed:', e);
+  } finally {
+    _nativePushRegisterInFlight = false;
+  }
+}
+
+function refreshPushRegistration(force = false) {
+  if (!isNativeApp() || !state.user) return;
+  const ageMs = Date.now() - (_nativePushLastRegisterAt || 0);
+  // Refresh every 6 hours to reduce stale-token delivery failures.
+  if (force || !_nativePushLastRegisterAt || ageMs > 6 * 60 * 60 * 1000) {
+    initNativePushNotifications().catch(() => {});
   }
 }
 
@@ -765,7 +784,10 @@ async function initNativeShell() {
     });
     appPlugin.addListener('appStateChange', ({ isActive }) => {
       _nativeAppIsActive = !!isActive;
-      if (isActive) markActivity();
+      if (isActive) {
+        markActivity();
+        refreshPushRegistration();
+      }
       else stopAllVideos();
     });
   }
@@ -2799,8 +2821,10 @@ function enterApp() {
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
     initNativePushNotifications();
+    refreshPushRegistration(true);
   }).catch(() => {
     initNativePushNotifications();
+    refreshPushRegistration(true);
   });
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
