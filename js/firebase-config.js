@@ -94,3 +94,11 @@ const storage = null;
 // Optional migration bridge: set this to your Firebase Function URL that forwards
 // push token lifecycle events to Appwrite. Leave empty to keep current behavior only.
 window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || '';
+
+// Public Appwrite metadata (safe in client). Do NOT put Appwrite API keys here.
+window.UNINO_APPWRITE_ENDPOINT = window.UNINO_APPWRITE_ENDPOINT || 'https://syd.cloud.appwrite.io/v1';
+window.UNINO_APPWRITE_PROJECT_ID = window.UNINO_APPWRITE_PROJECT_ID || '69b4202c00370d4748d6';
+
+// Optional event mirror endpoint for likes/comments from appwritePrimary users.
+// Should point to a secure backend endpoint that validates Firebase ID tokens.
+window.UNINO_APPWRITE_EVENT_SYNC_URL = window.UNINO_APPWRITE_EVENT_SYNC_URL || '';

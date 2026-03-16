@@ -114,6 +114,29 @@ function clampText(v = '', max = 80) {
 
 const REACTION_OPTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
 const APPWRITE_PUSH_SYNC_URL = (window.UNINO_APPWRITE_SYNC_URL || '').trim();
+const APPWRITE_EVENT_SYNC_URL = (window.UNINO_APPWRITE_EVENT_SYNC_URL || '').trim();
+
+function shouldMirrorToAppwrite() {
+  // Existing users remain on Firebase unless explicitly flagged.
+  return !!state.profile?.appwritePrimary;
+}
+
+async function syncEventWithAppwrite(eventType, payload = {}) {
+  if (!APPWRITE_EVENT_SYNC_URL || !auth.currentUser || !shouldMirrorToAppwrite()) return;
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    await fetch(APPWRITE_EVENT_SYNC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({ eventType, payload })
+    });
+  } catch (e) {
+    console.warn('Appwrite event sync skipped:', e?.message || e);
+  }
+}
 
 async function syncPushTokenWithAppwrite(action, userId, token) {
   if (!APPWRITE_PUSH_SYNC_URL || !userId || !token || !auth.currentUser) return;
@@ -1214,6 +1237,12 @@ async function reactToPost(postId, emoji, source = 'feed') {
     if (!result) return;
     syncLocalPostReactionState(postId, result.reactions, result.likes);
     refreshPostCardsUI(postId);
+    syncEventWithAppwrite('post_reaction', {
+      postId,
+      emoji,
+      nextReaction: result.nextReaction || '',
+      reactedAt: Date.now()
+    }).catch(() => {});
     if (result.nextReaction && result.before.authorId && result.before.authorId !== state.user?.uid) {
       addNotification(result.before.authorId, 'like', 'reacted to your post', { postId });
     }
@@ -1244,6 +1273,12 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
   try {
     await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    syncEventWithAppwrite('comment_reaction', {
+      postId,
+      commentId,
+      emoji,
+      reactedAt: Date.now()
+    }).catch(() => {});
     // Update in-place without closing/reopening — prevents modal flash and scroll jump
     if (source === 'reel') openReelComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
     else openComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
@@ -2598,6 +2633,9 @@ function initAuth() {
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
+        appwritePrimary: true,
+        appwriteMigrationSource: 'cutover-new-users',
+        appwriteJoinedAt: FieldVal.serverTimestamp(),
         isVerified: false,
         manualVerified: false,
         joinedAt: FieldVal.serverTimestamp(), friends: []
