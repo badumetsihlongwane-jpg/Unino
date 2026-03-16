@@ -115,8 +115,12 @@ function clampText(v = '', max = 80) {
 }
 
 const REACTION_OPTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
-const APPWRITE_PUSH_SYNC_URL = (window.UNINO_APPWRITE_SYNC_URL || '').trim();
-const APPWRITE_EVENT_SYNC_URL = (window.UNINO_APPWRITE_EVENT_SYNC_URL || '').trim();
+const APPWRITE_PUSH_SYNC_URLS = (window.UNINO_APPWRITE_SYNC_URLS || [window.UNINO_APPWRITE_SYNC_URL || ''])
+  .map(url => (url || '').trim())
+  .filter(Boolean);
+const APPWRITE_EVENT_SYNC_URLS = (window.UNINO_APPWRITE_EVENT_SYNC_URLS || [window.UNINO_APPWRITE_EVENT_SYNC_URL || ''])
+  .map(url => (url || '').trim())
+  .filter(Boolean);
 
 function shouldMirrorToAppwrite() {
   // Existing users remain on Firebase unless explicitly flagged.
@@ -124,39 +128,59 @@ function shouldMirrorToAppwrite() {
 }
 
 async function syncEventWithAppwrite(eventType, payload = {}) {
-  if (!APPWRITE_EVENT_SYNC_URL || !auth.currentUser || !shouldMirrorToAppwrite()) return;
+  if (!APPWRITE_EVENT_SYNC_URLS.length || !auth.currentUser || !shouldMirrorToAppwrite()) return;
   try {
     const idToken = await auth.currentUser.getIdToken();
-    await fetch(APPWRITE_EVENT_SYNC_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      },
-      body: JSON.stringify({ eventType, payload })
-    });
+    let lastErr = null;
+    for (const url of APPWRITE_EVENT_SYNC_URLS) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ eventType, payload })
+        });
+        if (resp.ok) return;
+        lastErr = new Error(`sync status ${resp.status} from ${url}`);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr) throw lastErr;
   } catch (e) {
     console.warn('Appwrite event sync skipped:', e?.message || e);
   }
 }
 
 async function syncPushTokenWithAppwrite(action, userId, token) {
-  if (!APPWRITE_PUSH_SYNC_URL || !userId || !token || !auth.currentUser) return;
+  if (!APPWRITE_PUSH_SYNC_URLS.length || !userId || !token || !auth.currentUser) return;
   try {
     const idToken = await auth.currentUser.getIdToken();
-    await fetch(APPWRITE_PUSH_SYNC_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      },
-      body: JSON.stringify({
-        action,
-        userId,
-        token,
-        platform: window.Capacitor?.getPlatform?.() || 'android'
-      })
-    });
+    let lastErr = null;
+    for (const url of APPWRITE_PUSH_SYNC_URLS) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            action,
+            userId,
+            token,
+            platform: window.Capacitor?.getPlatform?.() || 'android'
+          })
+        });
+        if (resp.ok) return;
+        lastErr = new Error(`sync status ${resp.status} from ${url}`);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr) throw lastErr;
   } catch (e) {
     console.warn('Appwrite push sync skipped:', e?.message || e);
   }
