@@ -16,6 +16,17 @@ function routePath(req) {
   }
 }
 
+function extractBearerFromHeaders(headers = {}) {
+  const keys = Object.keys(headers || {});
+  const direct = headers.authorization || headers.Authorization || headers['x-authorization'] || '';
+  if (typeof direct === 'string' && direct.startsWith('Bearer ')) return direct.slice(7);
+  for (const key of keys) {
+    const value = headers[key];
+    if (typeof value === 'string' && value.startsWith('Bearer ')) return value.slice(7);
+  }
+  return '';
+}
+
 async function verifyFirebaseToken(idToken) {
   const firebaseApiKey = process.env.FIREBASE_WEB_API_KEY || '';
   if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY env');
@@ -108,6 +119,10 @@ export default async ({ req, res, log, error }) => {
   const method = (req.method || 'GET').toUpperCase();
   const path = routePath(req);
 
+  if (method === 'OPTIONS') {
+    return json(res, 204, { ok: true });
+  }
+
   if (method === 'GET' && path === '/') {
     return json(res, 200, { ok: true, service: 'unino-appwrite-bridge', status: 'ready' });
   }
@@ -116,15 +131,20 @@ export default async ({ req, res, log, error }) => {
     return json(res, 405, { ok: false, error: 'method-not-allowed' });
   }
 
-  const authHeader = String(req.headers?.authorization || '');
-  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!bearer) return json(res, 401, { ok: false, error: 'missing-auth' });
-
   let body = {};
   try {
     body = req.bodyRaw ? JSON.parse(req.bodyRaw) : (req.body || {});
   } catch {
     return json(res, 400, { ok: false, error: 'invalid-json' });
+  }
+
+  const bearer = extractBearerFromHeaders(req.headers || {}) || String(body.idToken || '');
+  if (!bearer) {
+    return json(res, 401, {
+      ok: false,
+      error: 'missing-auth',
+      hint: 'Provide Authorization: Bearer <firebaseIdToken> or body.idToken for manual execution tests'
+    });
   }
 
   try {
