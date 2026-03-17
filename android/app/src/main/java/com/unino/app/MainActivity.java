@@ -2,6 +2,7 @@ package com.unino.app;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -11,12 +12,26 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
+import io.appwrite.Client;
 
 public class MainActivity extends BridgeActivity {
+	private static final String TAG = "MainActivity";
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+
+		Client appwriteClient = new Client(this)
+			.setEndpoint("https://syd.cloud.appwrite.io/v1")
+			.setProject("69b4202c00370d4748d6");
+		new Thread(() -> {
+			try {
+				appwriteClient.ping();
+				Log.i(TAG, "Appwrite ping success");
+			} catch (Exception e) {
+				Log.w(TAG, "Appwrite ping failed", e);
+			}
+		}).start();
 
 		Window window = getWindow();
 
