@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 42;
+const APP_VERSION = 43;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -51,6 +51,7 @@ let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
 let _lastGatewayNotificationStatus = 'idle';
+let _lastShadowSyncStatus = 'idle';
 let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
@@ -165,7 +166,17 @@ async function syncEventWithAppwrite(eventType, payload = {}) {
     for (const url of APPWRITE_EVENT_SYNC_URLS) {
       try {
         const resp = await postToAppwriteBridge(url, { eventType, payload });
-        if (resp.ok) return;
+        if (resp.ok) {
+          const body = await resp.clone().json().catch(() => null);
+          const mirror = body?.result?.mirror;
+          _lastShadowSyncStatus = mirror
+            ? (mirror.mirrored
+              ? `${eventType}:ok/${mirror.entity || 'entity'}`
+              : `${eventType}:${mirror.reason || 'not-mirrored'}`)
+            : `${eventType}:ok`;
+          refreshBackendDebugStatus();
+          return;
+        }
         const detail = await resp.text().catch(() => '');
         lastErr = new Error(`sync status ${resp.status} from ${url}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
       } catch (e) {
@@ -174,6 +185,8 @@ async function syncEventWithAppwrite(eventType, payload = {}) {
     }
     if (lastErr) throw lastErr;
   } catch (e) {
+    _lastShadowSyncStatus = `${eventType}:error`;
+    refreshBackendDebugStatus(`shadow detail: ${String(e?.message || e).slice(0, 140)}`);
     console.warn('Appwrite event sync skipped:', e?.message || e);
   }
 }
@@ -215,6 +228,7 @@ function refreshBackendDebugStatus(extra = '') {
     `platform=${platform}`,
     `appwriteMirror=${shouldMirrorToAppwrite() ? 'on' : 'off'}`,
     `notifGateway=${_lastGatewayNotificationStatus}`,
+    `shadowSync=${_lastShadowSyncStatus}`,
     `pushReady=${_nativePushReady ? 'yes' : 'no'}`,
     `pushToken=${tokenSummary}`,
     notifSummary
@@ -432,6 +446,43 @@ async function sendGatewayNotificationProbe() {
   } catch (e) {
     refreshBackendDebugStatus(`Gateway probe failed: ${e?.message || e}`);
     toast('Gateway probe failed');
+  }
+}
+
+async function runShadowSyncProbe() {
+  if (!auth.currentUser || !APPWRITE_EVENT_SYNC_URLS.length || !state.user?.uid) {
+    refreshBackendDebugStatus('Shadow probe unavailable: missing auth/session/url');
+    return;
+  }
+  try {
+    const resp = await postToAppwriteBridge(APPWRITE_EVENT_SYNC_URLS[0], {
+      eventType: 'user_upsert',
+      payload: {
+        uid: state.user.uid,
+        displayName: state.profile?.displayName || '',
+        email: state.profile?.email || auth.currentUser.email || '',
+        photoURL: state.profile?.photoURL || '',
+        major: state.profile?.major || '',
+        university: state.profile?.university || '',
+        updatedAt: new Date().toISOString(),
+        probe: true
+      }
+    });
+    const body = await resp.clone().json().catch(() => null);
+    const mirror = body?.result?.mirror;
+    if (resp.ok && mirror?.mirrored) {
+      _lastShadowSyncStatus = `probe:ok/${mirror.entity || 'user'}`;
+      refreshBackendDebugStatus(`shadow probe wrote row ${mirror.rowId || '(id n/a)'}`);
+      toast('Shadow probe wrote to Appwrite');
+      return;
+    }
+    _lastShadowSyncStatus = `probe:${mirror?.reason || `http-${resp.status}`}`;
+    refreshBackendDebugStatus(`shadow probe detail: ${JSON.stringify(mirror || body || {}).slice(0, 180)}`);
+    toast('Shadow probe did not write row');
+  } catch (e) {
+    _lastShadowSyncStatus = 'probe:error';
+    refreshBackendDebugStatus(`shadow probe failed: ${String(e?.message || e).slice(0, 140)}`);
+    toast('Shadow probe failed');
   }
 }
 
@@ -9695,7 +9746,7 @@ function renderProfileAbout(user) {
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
-      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
+      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" onclick="sendGatewayNotificationProbe()">Gateway Probe</button><button class="btn-outline btn-sm" onclick="runShadowSyncProbe()">Shadow Probe</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
@@ -10398,7 +10449,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
-    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe,
+    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
 });

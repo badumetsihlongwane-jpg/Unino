@@ -1,6 +1,7 @@
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
+const FUNCTION_VERSION = '2026-03-17-shadow-v2';
 
 function corsHeaders(req) {
   const origin = (req?.headers?.origin || req?.headers?.Origin || '').trim();
@@ -233,6 +234,7 @@ export default async ({ req, res, log, error }) => {
     return json(req, res, 200, {
       ok: true,
       service: 'unino-appwrite-bridge',
+      version: FUNCTION_VERSION,
       status: 'ready',
       path,
       routes: ['/push-sync', '/event-sync']
