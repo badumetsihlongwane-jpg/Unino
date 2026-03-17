@@ -21,17 +21,14 @@ public class MainActivity extends BridgeActivity {
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 
-		Client appwriteClient = new Client(this)
-			.setEndpoint("https://syd.cloud.appwrite.io/v1")
-			.setProject("69b4202c00370d4748d6");
-		new Thread(() -> {
-			try {
-				appwriteClient.ping();
-				Log.i(TAG, "Appwrite ping success");
-			} catch (Exception e) {
-				Log.w(TAG, "Appwrite ping failed", e);
-			}
-		}).start();
+		try {
+			Client appwriteClient = new Client(this);
+			appwriteClient.setEndpoint("https://syd.cloud.appwrite.io/v1");
+			appwriteClient.setProject("69b4202c00370d4748d6");
+			Log.i(TAG, "Appwrite client initialized");
+		} catch (Exception e) {
+			Log.w(TAG, "Appwrite client init failed", e);
+		}
 
 		Window window = getWindow();
 
