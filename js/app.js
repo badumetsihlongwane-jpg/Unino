@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -127,23 +127,42 @@ function shouldMirrorToAppwrite() {
   return !!state.profile?.appwritePrimary;
 }
 
+async function postToAppwriteBridge(url, payload) {
+  if (!auth.currentUser) throw new Error('missing-auth-user');
+  let idToken = await auth.currentUser.getIdToken();
+  let resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+  if (resp.status !== 401) return resp;
+
+  // Retry once with a forced-refresh token to avoid stale-session 401s.
+  idToken = await auth.currentUser.getIdToken(true);
+  resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return resp;
+}
+
 async function syncEventWithAppwrite(eventType, payload = {}) {
   if (!APPWRITE_EVENT_SYNC_URLS.length || !auth.currentUser || !shouldMirrorToAppwrite()) return;
   try {
-    const idToken = await auth.currentUser.getIdToken();
     let lastErr = null;
     for (const url of APPWRITE_EVENT_SYNC_URLS) {
       try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({ eventType, payload })
-        });
+        const resp = await postToAppwriteBridge(url, { eventType, payload });
         if (resp.ok) return;
-        lastErr = new Error(`sync status ${resp.status} from ${url}`);
+        const detail = await resp.text().catch(() => '');
+        lastErr = new Error(`sync status ${resp.status} from ${url}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
       } catch (e) {
         lastErr = e;
       }
@@ -157,25 +176,18 @@ async function syncEventWithAppwrite(eventType, payload = {}) {
 async function syncPushTokenWithAppwrite(action, userId, token) {
   if (!APPWRITE_PUSH_SYNC_URLS.length || !userId || !token || !auth.currentUser) return;
   try {
-    const idToken = await auth.currentUser.getIdToken();
     let lastErr = null;
     for (const url of APPWRITE_PUSH_SYNC_URLS) {
       try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({
-            action,
-            userId,
-            token,
-            platform: window.Capacitor?.getPlatform?.() || 'android'
-          })
+        const resp = await postToAppwriteBridge(url, {
+          action,
+          userId,
+          token,
+          platform: window.Capacitor?.getPlatform?.() || 'android'
         });
         if (resp.ok) return;
-        lastErr = new Error(`sync status ${resp.status} from ${url}`);
+        const detail = await resp.text().catch(() => '');
+        lastErr = new Error(`sync status ${resp.status} from ${url}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
       } catch (e) {
         lastErr = e;
       }
@@ -238,23 +250,17 @@ async function runAppwriteBackendDiagnostics() {
   const eventUrl = APPWRITE_EVENT_SYNC_URLS[0] || '';
   if (eventUrl && auth.currentUser) {
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const eventResp = await fetch(eventUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
-        body: JSON.stringify({
-          eventType: 'debug_probe',
-          payload: {
-            appVersion: APP_VERSION,
-            platform: window.Capacitor?.getPlatform?.() || 'web',
-            at: new Date().toISOString()
-          }
-        })
+      const eventResp = await postToAppwriteBridge(eventUrl, {
+        eventType: 'debug_probe',
+        payload: {
+          appVersion: APP_VERSION,
+          platform: window.Capacitor?.getPlatform?.() || 'web',
+          at: new Date().toISOString()
+        }
       });
-      lines.push(`${eventUrl} -> POST /event-sync ${eventResp.status}`);
+      let detail = '';
+      if (!eventResp.ok) detail = await eventResp.text().catch(() => '');
+      lines.push(`${eventUrl} -> POST /event-sync ${eventResp.status}${detail ? ` (${detail.slice(0, 120)})` : ''}`);
     } catch (e) {
       lines.push(`${eventUrl} -> POST /event-sync failed (${e?.message || 'network/cors'})`);
     }
