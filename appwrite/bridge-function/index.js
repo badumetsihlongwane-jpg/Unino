@@ -304,8 +304,8 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     1,
     false,
     undefined,
-    false,
-    false,
+    true,
+    true,
     MessagePriority.High
   );
 

@@ -921,7 +921,6 @@ async function initNativePushNotifications() {
     });
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
-      if (!appIsForeground()) return;
       const extra = notification?.data || {};
       scheduleLocalNotification({
         id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
@@ -8265,6 +8264,7 @@ function listenForNotifications() {
   });
 
   generalNotifUnsub = db.collection('users').doc(state.user.uid).collection('notifications')
+    .orderBy('createdAt', 'desc')
     .limit(30)
     .onSnapshot(snap => {
       _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
