@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -129,6 +129,10 @@ function shouldMirrorToAppwrite() {
 
 async function postToAppwriteBridge(url, payload) {
   if (!auth.currentUser) throw new Error('missing-auth-user');
+  const mergedPayload = {
+    ...(payload || {}),
+    firebaseApiKey: window.UNINO_FIREBASE_WEB_API_KEY || ''
+  };
   let idToken = await auth.currentUser.getIdToken();
   let resp = await fetch(url, {
     method: 'POST',
@@ -136,7 +140,7 @@ async function postToAppwriteBridge(url, payload) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${idToken}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(mergedPayload)
   });
   if (resp.status !== 401) return resp;
 
@@ -148,7 +152,7 @@ async function postToAppwriteBridge(url, payload) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${idToken}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(mergedPayload)
   });
   return resp;
 }

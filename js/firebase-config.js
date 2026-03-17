@@ -87,10 +87,14 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 db.settings({
   experimentalAutoDetectLongPolling: true,
-  useFetchStreams: false
+  useFetchStreams: false,
+  merge: true
 });
 // Storage disabled (requires paid plan) — using base64 data URLs instead
 const storage = null;
+
+// Public Firebase Web API key, used by Appwrite bridge to verify Firebase ID tokens.
+window.UNINO_FIREBASE_WEB_API_KEY = window.UNINO_FIREBASE_WEB_API_KEY || firebaseConfig.apiKey;
 
 // IndexedDB multi-tab persistence in this compat setup is noisy and unstable in-browser.
 // Leave Firestore online-only here until the cache API migration is done.

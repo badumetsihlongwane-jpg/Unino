@@ -43,9 +43,9 @@ function extractBearerFromHeaders(headers = {}) {
   return '';
 }
 
-async function verifyFirebaseToken(idToken) {
-  const firebaseApiKey = process.env.FIREBASE_WEB_API_KEY || '';
-  if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY env');
+async function verifyFirebaseToken(idToken, apiKeyOverride = '') {
+  const firebaseApiKey = String(apiKeyOverride || process.env.FIREBASE_WEB_API_KEY || '').trim();
+  if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY (env or request body.firebaseApiKey)');
   const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseApiKey)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -180,7 +180,7 @@ export default async ({ req, res, log, error }) => {
   }
 
   try {
-    const auth = await verifyFirebaseToken(bearer);
+    const auth = await verifyFirebaseToken(bearer, body.firebaseApiKey || '');
 
     if (path === '/push-sync') {
       const { action = '', userId = '', token = '', platform = 'android' } = body;
@@ -213,7 +213,7 @@ export default async ({ req, res, log, error }) => {
         ok: false,
         error: 'invalid-auth',
         detail: msg,
-        hint: 'Use a Firebase ID token from firebase.auth().currentUser.getIdToken(true), not FCM token or API key'
+        hint: 'Use Firebase ID token from firebase.auth().currentUser.getIdToken(true) and a valid FIREBASE_WEB_API_KEY (env or body.firebaseApiKey)'
       });
     }
     error(`bridge-error: ${e?.message || e}`);
