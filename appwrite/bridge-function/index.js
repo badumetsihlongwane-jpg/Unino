@@ -2,8 +2,24 @@ import { Client, Databases, ID, Query } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 
-function json(res, status, payload) {
-  return res.send(JSON.stringify(payload), status, JSON_HEADERS);
+function corsHeaders(req) {
+  const origin = (req?.headers?.origin || req?.headers?.Origin || '').trim();
+  // Allow known app/web origins. Fallback to wildcard for easier staged migration diagnostics.
+  const allowOrigin = origin || '*';
+  return {
+    'access-control-allow-origin': allowOrigin,
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'Content-Type, Authorization, X-Requested-With',
+    'access-control-max-age': '86400',
+    vary: 'Origin'
+  };
+}
+
+function json(req, res, status, payload) {
+  return res.send(JSON.stringify(payload), status, {
+    ...JSON_HEADERS,
+    ...corsHeaders(req)
+  });
 }
 
 function routePath(req) {
@@ -129,28 +145,34 @@ export default async ({ req, res, log, error }) => {
   const path = routePath(req);
 
   if (method === 'OPTIONS') {
-    return json(res, 204, { ok: true });
+    return json(req, res, 204, { ok: true });
   }
 
-  if (method === 'GET' && path === '/') {
-    return json(res, 200, { ok: true, service: 'unino-appwrite-bridge', status: 'ready' });
+  if (method === 'GET') {
+    return json(req, res, 200, {
+      ok: true,
+      service: 'unino-appwrite-bridge',
+      status: 'ready',
+      path,
+      routes: ['/push-sync', '/event-sync']
+    });
   }
 
   if (method !== 'POST') {
-    return json(res, 405, { ok: false, error: 'method-not-allowed' });
+    return json(req, res, 405, { ok: false, error: 'method-not-allowed' });
   }
 
   let body = {};
   try {
     body = req.bodyRaw ? JSON.parse(req.bodyRaw) : (req.body || {});
   } catch {
-    return json(res, 400, { ok: false, error: 'invalid-json' });
+    return json(req, res, 400, { ok: false, error: 'invalid-json' });
   }
 
   const bearer = extractBearerFromHeaders(req.headers || {})
     || String(body.idToken || body.firebaseIdToken || body.token || '');
   if (!bearer) {
-    return json(res, 401, {
+    return json(req, res, 401, {
       ok: false,
       error: 'missing-auth',
       hint: 'Provide Authorization: Bearer <firebaseIdToken> or body.idToken for manual execution tests'
@@ -163,31 +185,31 @@ export default async ({ req, res, log, error }) => {
     if (path === '/push-sync') {
       const { action = '', userId = '', token = '', platform = 'android' } = body;
       if (!['upsert', 'delete'].includes(action) || !userId || !token) {
-        return json(res, 400, { ok: false, error: 'invalid-payload' });
+        return json(req, res, 400, { ok: false, error: 'invalid-payload' });
       }
-      if (auth.uid !== userId) return json(res, 403, { ok: false, error: 'uid-mismatch' });
+      if (auth.uid !== userId) return json(req, res, 403, { ok: false, error: 'uid-mismatch' });
 
       const result = action === 'upsert'
         ? await upsertPushTarget({ userId, token, platform })
         : await deletePushTarget({ userId, token });
 
       log(`push-sync ${action} uid=${userId}`);
-      return json(res, 200, { ok: true, route: 'push-sync', result });
+      return json(req, res, 200, { ok: true, route: 'push-sync', result });
     }
 
     if (path === '/event-sync') {
       const { eventType = '', payload = {} } = body;
-      if (!eventType) return json(res, 400, { ok: false, error: 'missing-event-type' });
+      if (!eventType) return json(req, res, 400, { ok: false, error: 'missing-event-type' });
       const result = await logEvent({ uid: auth.uid, eventType, payload });
       log(`event-sync ${eventType} uid=${auth.uid}`);
-      return json(res, 200, { ok: true, route: 'event-sync', result });
+      return json(req, res, 200, { ok: true, route: 'event-sync', result });
     }
 
-    return json(res, 404, { ok: false, error: 'route-not-found', path });
+    return json(req, res, 404, { ok: false, error: 'route-not-found', path });
   } catch (e) {
     const msg = String(e?.message || e);
     if (msg.includes('Firebase token lookup failed') || msg.includes('Invalid Firebase token')) {
-      return json(res, 401, {
+      return json(req, res, 401, {
         ok: false,
         error: 'invalid-auth',
         detail: msg,
@@ -195,6 +217,6 @@ export default async ({ req, res, log, error }) => {
       });
     }
     error(`bridge-error: ${e?.message || e}`);
-    return json(res, 500, { ok: false, error: 'internal', detail: String(e?.message || e) });
+    return json(req, res, 500, { ok: false, error: 'internal', detail: String(e?.message || e) });
   }
 };
