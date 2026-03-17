@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 40;
+const APP_VERSION = 41;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -50,6 +50,7 @@ let _nativePushRegisterInFlight = false;
 let _nativeDmNotificationPrimed = false;
 let _nativeGeneralNotificationPrimed = false;
 let _nativeDmUnreadMap = {};
+let _lastGatewayNotificationStatus = 'idle';
 let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
@@ -213,6 +214,7 @@ function refreshBackendDebugStatus(extra = '') {
   const base = [
     `platform=${platform}`,
     `appwriteMirror=${shouldMirrorToAppwrite() ? 'on' : 'off'}`,
+    `notifGateway=${_lastGatewayNotificationStatus}`,
     `pushReady=${_nativePushReady ? 'yes' : 'no'}`,
     `pushToken=${tokenSummary}`,
     notifSummary
@@ -220,6 +222,46 @@ function refreshBackendDebugStatus(extra = '') {
   host.textContent = extra ? `${base}\n${extra}` : base;
   const mirrorBtn = document.getElementById('backend-mirror-toggle-btn');
   if (mirrorBtn) mirrorBtn.textContent = shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror';
+}
+
+async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
+  const allowSelf = !!options.allowSelf;
+  if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
+
+  const mode = shouldMirrorToAppwrite() ? 'appwrite-first' : 'firebase-only';
+  const { docId = null } = options;
+  let appwriteStatus = 'skipped';
+  let appwriteDetail = '';
+
+  if (shouldMirrorToAppwrite() && APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
+    try {
+      const resp = await postToAppwriteBridge(APPWRITE_EVENT_SYNC_URLS[0], {
+        eventType: 'notification_dispatch',
+        payload: {
+          mode,
+          targetId,
+          type: data.type || 'generic',
+          text: data.text || '',
+          payload: data.payload || {},
+          at: new Date().toISOString()
+        }
+      });
+      appwriteStatus = resp.ok ? 'ok' : `http-${resp.status}`;
+      if (!resp.ok) appwriteDetail = await resp.text().catch(() => '');
+    } catch (e) {
+      appwriteStatus = 'error';
+      appwriteDetail = e?.message || String(e);
+    }
+  }
+
+  const col = db.collection('users').doc(targetId).collection('notifications');
+  if (docId) await col.doc(docId).set(data);
+  else await col.add(data);
+
+  _lastGatewayNotificationStatus = `${mode}/${appwriteStatus}`;
+  refreshBackendDebugStatus(appwriteDetail ? `notif detail: ${appwriteDetail.slice(0, 120)}` : '');
+
+  return { ok: true, mode, appwriteStatus, appwriteDetail };
 }
 
 async function setAppwriteMirrorEnabled(enabled) {
@@ -327,6 +369,30 @@ async function runNotificationDiagnostics() {
     }
   }
   refreshBackendDebugStatus(lines.join('\n'));
+}
+
+async function sendGatewayNotificationProbe() {
+  if (!state.user?.uid) return;
+  const probe = {
+    type: 'gateway_probe',
+    text: 'Notification gateway probe delivered',
+    payload: { probe: true, at: Date.now() },
+    read: false,
+    createdAt: FieldVal.serverTimestamp(),
+    from: {
+      uid: state.user.uid,
+      name: state.profile?.displayName || 'Unibo',
+      photo: state.profile?.photoURL || null
+    }
+  };
+  try {
+    const result = await dispatchNotificationGateway(state.user.uid, probe, { allowSelf: true });
+    refreshBackendDebugStatus(`Gateway probe: ${result.mode}/${result.appwriteStatus}`);
+    toast('Gateway probe sent');
+  } catch (e) {
+    refreshBackendDebugStatus(`Gateway probe failed: ${e?.message || e}`);
+    toast('Gateway probe failed');
+  }
 }
 
 function sendDebugLocalNotification() {
@@ -8225,20 +8291,19 @@ async function markNotifRead(nid) {
   try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
 }
 
-async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null } = {}) {
+async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null, fromOverride = null } = {}) {
   if (targetId === state.user.uid) return;
   try {
+    const from = fromOverride || {
+      uid: anonymous ? 'anonymous' : state.user.uid,
+      name: anonymous ? 'Anonymous' : state.profile.displayName,
+      photo: anonymous ? null : (state.profile.photoURL || null)
+    };
     const data = {
       type, text, payload, read: false, createdAt: FieldVal.serverTimestamp(),
-      from: {
-        uid: anonymous ? 'anonymous' : state.user.uid,
-        name: anonymous ? 'Anonymous' : state.profile.displayName,
-        photo: anonymous ? null : (state.profile.photoURL || null)
-      }
+      from
     };
-    const col = db.collection('users').doc(targetId).collection('notifications');
-    if (docId) await col.doc(docId).set(data);
-    else await col.add(data);
+    await dispatchNotificationGateway(targetId, data, { docId });
   } catch (e) { console.error(e); }
 }
 
@@ -8563,14 +8628,7 @@ async function requestReveal(convoId) {
     });
     
     // Create notification for the other user
-    await db.collection('users').doc(otherUid).collection('notifications').add({
-      type: 'reveal_request',
-      text: 'Someone wants to reveal their identity in an anonymous chat',
-      payload: { convoId },
-      read: false,
-      createdAt: FieldVal.serverTimestamp(),
-      from: { uid: 'anonymous', name: 'Anonymous', photo: null }
-    });
+    await addNotification(otherUid, 'reveal_request', 'Someone wants to reveal their identity in an anonymous chat', { convoId }, { anonymous: true });
     
     toast('Reveal request sent!');
   } catch (e) { toast('Failed'); console.error(e); }
@@ -10160,10 +10218,19 @@ async function adminSendBroadcast() {
   if (!text) return toast('Message required');
   try {
     const usersSnap = await db.collection('users').get();
-    await Promise.all(usersSnap.docs.map(d => db.collection('users').doc(d.id).collection('notifications').add({
-      type: 'admin', text, payload: { admin: true }, read: false, createdAt: FieldVal.serverTimestamp(),
-      from: { uid: state.user.uid, name: 'Unibo Admin', photo: state.profile.photoURL || null }
-    })));
+    await Promise.all(usersSnap.docs.map(d => addNotification(
+      d.id,
+      'admin',
+      text,
+      { admin: true },
+      {
+        fromOverride: {
+          uid: state.user.uid,
+          name: 'Unibo Admin',
+          photo: state.profile.photoURL || null
+        }
+      }
+    )));
     closeModal();
     toast(`Broadcast sent to ${usersSnap.size} users`);
   } catch (e) { toast('Broadcast failed'); console.error(e); }
@@ -10261,7 +10328,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
-    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification,
+    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
 });
