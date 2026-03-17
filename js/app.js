@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';

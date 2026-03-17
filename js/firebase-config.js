@@ -93,10 +93,9 @@ const storage = null;
 
 // Optional migration bridge: set this to your Firebase Function URL that forwards
 // push token lifecycle events to Appwrite. Leave empty to keep current behavior only.
-window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || 'https://69b831b812bd708c1f4f.syd.appwrite.run/push-sync';
+window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || 'https://69b8488c003196debf13.syd.appwrite.run/push-sync';
 window.UNINO_APPWRITE_SYNC_URLS = window.UNINO_APPWRITE_SYNC_URLS || [
-  'https://69b848890026e8123a92.syd.appwrite.run/push-sync',
-  'https://69b831b812bd708c1f4f.syd.appwrite.run/push-sync'
+  'https://69b8488c003196debf13.syd.appwrite.run/push-sync'
 ];
 
 // Public Appwrite metadata (safe in client). Do NOT put Appwrite API keys here.
@@ -105,8 +104,7 @@ window.UNINO_APPWRITE_PROJECT_ID = window.UNINO_APPWRITE_PROJECT_ID || '69b4202c
 
 // Optional event mirror endpoint for likes/comments from appwritePrimary users.
 // Should point to a secure backend endpoint that validates Firebase ID tokens.
-window.UNINO_APPWRITE_EVENT_SYNC_URL = window.UNINO_APPWRITE_EVENT_SYNC_URL || 'https://69b831b812bd708c1f4f.syd.appwrite.run/event-sync';
+window.UNINO_APPWRITE_EVENT_SYNC_URL = window.UNINO_APPWRITE_EVENT_SYNC_URL || 'https://69b8488c003196debf13.syd.appwrite.run/event-sync';
 window.UNINO_APPWRITE_EVENT_SYNC_URLS = window.UNINO_APPWRITE_EVENT_SYNC_URLS || [
-  'https://69b848890026e8123a92.syd.appwrite.run/event-sync',
-  'https://69b831b812bd708c1f4f.syd.appwrite.run/event-sync'
+  'https://69b8488c003196debf13.syd.appwrite.run/event-sync'
 ];
