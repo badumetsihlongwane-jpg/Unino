@@ -14,6 +14,8 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 import io.appwrite.Client;
 
+import java.lang.reflect.Method;
+
 public class MainActivity extends BridgeActivity {
 	private static final String TAG = "MainActivity";
 
@@ -23,8 +25,8 @@ public class MainActivity extends BridgeActivity {
 
 		try {
 			Client appwriteClient = new Client(this);
-			appwriteClient.setEndpoint("https://syd.cloud.appwrite.io/v1");
-			appwriteClient.setProject("69b4202c00370d4748d6");
+			invokeClientSetter(appwriteClient, "setEndpoint", "https://syd.cloud.appwrite.io/v1");
+			invokeClientSetter(appwriteClient, "setProject", "69b4202c00370d4748d6");
 			Log.i(TAG, "Appwrite client initialized");
 		} catch (Exception e) {
 			Log.w(TAG, "Appwrite client init failed", e);
@@ -68,5 +70,17 @@ public class MainActivity extends BridgeActivity {
 				null
 			)
 		);
+	}
+
+	private void invokeClientSetter(Client client, String methodName, String value) throws Exception {
+		for (Method method : Client.class.getMethods()) {
+			if (method.getName().equals(methodName)
+				&& method.getParameterCount() == 1
+				&& method.getParameterTypes()[0] == String.class) {
+				method.invoke(client, value);
+				return;
+			}
+		}
+		throw new NoSuchMethodException("No matching " + methodName + "(String) on Appwrite Client");
 	}
 }
