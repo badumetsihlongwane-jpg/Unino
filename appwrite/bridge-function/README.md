@@ -38,8 +38,21 @@ This function enables a safe hybrid migration:
 - `APPWRITE_DB_ID`
 - `APPWRITE_PUSH_TABLE_ID`
 - `APPWRITE_EVENTS_TABLE_ID`
+- `APPWRITE_USERS_TABLE_ID` (default: `users`)
+- `APPWRITE_POSTS_TABLE_ID` (default: `posts`)
+- `APPWRITE_MESSAGES_TABLE_ID` (default: `messages`)
 
 If DB/table vars are not set, routes return success with `skipped` responses.
+
+## Shadow Sync Events
+
+`POST /event-sync` now mirrors selected events directly into core tables:
+
+- `user_upsert` -> `users`
+- `post_upsert` -> `posts`
+- `comment_upsert` -> `messages` (stored with `messageType: "comment"`)
+
+Response includes mirror status in `result.mirror` for diagnostics.
 
 ## Appwrite Console Setup
 

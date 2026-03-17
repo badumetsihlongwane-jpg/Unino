@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -284,6 +284,46 @@ async function setAppwriteMirrorEnabled(enabled) {
 
 function toggleAppwriteMirror() {
   setAppwriteMirrorEnabled(!shouldMirrorToAppwrite());
+}
+
+function shadowSyncUserProfile(uid, profile = {}) {
+  if (!uid) return;
+  syncEventWithAppwrite('user_upsert', {
+    uid,
+    displayName: profile.displayName || '',
+    email: profile.email || '',
+    photoURL: profile.photoURL || '',
+    major: profile.major || '',
+    university: profile.university || '',
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function shadowSyncPost(postId, post = {}) {
+  if (!postId) return;
+  syncEventWithAppwrite('post_upsert', {
+    postId,
+    authorId: post.authorId || '',
+    authorName: post.authorName || '',
+    content: post.content || '',
+    mediaURL: post.videoURL || post.imageURL || '',
+    visibility: post.visibility || 'public',
+    createdAt: post.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function shadowSyncComment(postId, commentId, comment = {}) {
+  if (!postId || !commentId) return;
+  syncEventWithAppwrite('comment_upsert', {
+    postId,
+    commentId,
+    authorId: comment.authorId || '',
+    authorName: comment.authorName || '',
+    text: comment.text || '',
+    createdAt: comment.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
 }
 
 function appwriteRootUrl(url) {
@@ -2910,6 +2950,7 @@ function initAuth() {
         manualVerified: false,
         joinedAt: FieldVal.serverTimestamp(), friends: []
       });
+      shadowSyncUserProfile(uid, { displayName, email, photoURL: '', major, university: uni });
       await cred.user.updateProfile({ displayName });
       toast('Account created.');
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
@@ -5363,6 +5404,12 @@ async function postReelComment(postId) {
       replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
+    shadowSyncComment(postId, docRef.id, {
+      authorId: state.user.uid,
+      authorName: state.profile.displayName,
+      text: text || '',
+      createdAt: new Date().toISOString()
+    });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     _pendingReelCommentImageFile = null;
     _reelCommentReplyTo = null;
@@ -5673,6 +5720,12 @@ async function postComment(postId) {
       replyTo: replyTo || null,
       createdAt: FieldVal.serverTimestamp()
     });
+    shadowSyncComment(postId, docRef.id, {
+      authorId: state.user.uid,
+      authorName: commentAnon ? 'Anonymous' : state.profile.displayName,
+      text: text || '',
+      createdAt: new Date().toISOString()
+    });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
     
     if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId }, { anonymous: commentAnon });
@@ -5862,6 +5915,15 @@ function openCreateModal() {
           isAnonymous: isAnon || false,
           visibility: isAnon ? 'public' : visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
+        });
+        shadowSyncPost(postRef.id, {
+          authorId: state.user.uid,
+          authorName: isAnon ? 'Anonymous' : state.profile.displayName,
+          content: text,
+          imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
+          videoURL: mediaType === 'video' ? mediaURL : null,
+          visibility: isAnon ? 'public' : visibility,
+          createdAt: new Date().toISOString()
         });
         if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, text, postRef.id, isAnon);
         toast('Posted!');
@@ -9733,6 +9795,7 @@ function editProfile() {
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
+      shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
       setupHeader(); toast('Profile updated!'); openProfile(state.user.uid);
     } catch (e) { toast('Failed'); console.error(e); }
@@ -9989,7 +10052,7 @@ async function openQuoteRepost(postId) {
       const quoteText = ($('#quote-text')?.value || '').trim();
       closeModal(); toast('Reposting…');
       try {
-        await db.collection('posts').add({
+        const postRef = await db.collection('posts').add({
           authorId: state.user.uid,
           authorName: state.profile.displayName,
           authorPhoto: state.profile.photoURL || null,
@@ -10008,6 +10071,13 @@ async function openQuoteRepost(postId) {
           },
           createdAt: FieldVal.serverTimestamp(),
           likes: [], commentsCount: 0, visibility: 'public'
+        });
+        shadowSyncPost(postRef.id, {
+          authorId: state.user.uid,
+          authorName: state.profile.displayName,
+          content: quoteText,
+          visibility: 'public',
+          createdAt: new Date().toISOString()
         });
         toast('Reposted!');
         navigate('feed');

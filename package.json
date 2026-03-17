@@ -5,6 +5,7 @@
   "description": "Unino mobile wrapper and web packaging scripts",
   "scripts": {
     "build:web": "node scripts/prepare-web.mjs",
+    "deploy:web": "npm run build:web && firebase deploy --only hosting",
     "cap:sync": "npm run build:web && npx cap sync android",
     "cap:open:android": "npx cap open android",
     "apk:debug": "npm run build:web && npx cap sync android && cd android && ./gradlew assembleDebug"

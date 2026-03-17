@@ -140,6 +140,87 @@ async function logEvent({ uid, eventType, payload }) {
   return { logged: true, rowId: row.$id };
 }
 
+function getShadowConfig() {
+  return {
+    dbId: process.env.APPWRITE_DB_ID || 'unibo_db',
+    usersTableId: process.env.APPWRITE_USERS_TABLE_ID || 'users',
+    postsTableId: process.env.APPWRITE_POSTS_TABLE_ID || 'posts',
+    messagesTableId: process.env.APPWRITE_MESSAGES_TABLE_ID || 'messages'
+  };
+}
+
+async function upsertRowById(databases, dbId, tableId, rowId, payload) {
+  try {
+    await databases.updateRow(dbId, tableId, rowId, payload);
+    return { mode: 'update', rowId };
+  } catch (e) {
+    if (Number(e?.code || 0) !== 404) throw e;
+    const created = await databases.createRow(dbId, tableId, rowId, payload);
+    return { mode: 'create', rowId: created.$id || rowId };
+  }
+}
+
+async function mirrorEventToCoreTables({ eventType, payload = {} }) {
+  const { dbId, usersTableId, postsTableId, messagesTableId } = getShadowConfig();
+  if (!dbId) return { mirrored: false, reason: 'missing-db-id' };
+
+  const databases = new Databases(makeClient());
+  const now = new Date().toISOString();
+
+  if (eventType === 'user_upsert') {
+    const uid = String(payload.uid || '').trim();
+    if (!uid) return { mirrored: false, reason: 'missing-uid' };
+    const rowId = `u_${uid}`.slice(0, 36);
+    const result = await upsertRowById(databases, dbId, usersTableId, rowId, {
+      uid,
+      displayName: String(payload.displayName || ''),
+      email: String(payload.email || ''),
+      photoURL: String(payload.photoURL || ''),
+      major: String(payload.major || ''),
+      university: String(payload.university || ''),
+      updatedAt: String(payload.updatedAt || now)
+    });
+    return { mirrored: true, entity: 'user', ...result };
+  }
+
+  if (eventType === 'post_upsert') {
+    const postId = String(payload.postId || '').trim();
+    if (!postId) return { mirrored: false, reason: 'missing-postId' };
+    const rowId = `p_${postId}`.slice(0, 36);
+    const result = await upsertRowById(databases, dbId, postsTableId, rowId, {
+      postId,
+      authorId: String(payload.authorId || ''),
+      authorName: String(payload.authorName || ''),
+      content: String(payload.content || ''),
+      mediaURL: String(payload.mediaURL || ''),
+      visibility: String(payload.visibility || 'public'),
+      createdAt: String(payload.createdAt || now),
+      updatedAt: String(payload.updatedAt || now)
+    });
+    return { mirrored: true, entity: 'post', ...result };
+  }
+
+  if (eventType === 'comment_upsert') {
+    const commentId = String(payload.commentId || '').trim();
+    const postId = String(payload.postId || '').trim();
+    if (!commentId || !postId) return { mirrored: false, reason: 'missing-comment-or-post-id' };
+    const rowId = `c_${commentId}`.slice(0, 36);
+    const result = await upsertRowById(databases, dbId, messagesTableId, rowId, {
+      messageType: 'comment',
+      commentId,
+      postId,
+      authorId: String(payload.authorId || ''),
+      authorName: String(payload.authorName || ''),
+      text: String(payload.text || ''),
+      createdAt: String(payload.createdAt || now),
+      updatedAt: String(payload.updatedAt || now)
+    });
+    return { mirrored: true, entity: 'comment', ...result };
+  }
+
+  return { mirrored: false, reason: 'event-not-mapped' };
+}
+
 export default async ({ req, res, log, error }) => {
   const method = (req.method || 'GET').toUpperCase();
   const path = routePath(req);
@@ -200,9 +281,15 @@ export default async ({ req, res, log, error }) => {
     if (path === '/event-sync') {
       const { eventType = '', payload = {} } = body;
       if (!eventType) return json(req, res, 400, { ok: false, error: 'missing-event-type' });
-      const result = await logEvent({ uid: auth.uid, eventType, payload });
+      const eventLog = await logEvent({ uid: auth.uid, eventType, payload });
+      let mirror = { mirrored: false, reason: 'not-attempted' };
+      try {
+        mirror = await mirrorEventToCoreTables({ eventType, payload });
+      } catch (e) {
+        mirror = { mirrored: false, reason: 'mirror-failed', detail: String(e?.message || e) };
+      }
       log(`event-sync ${eventType} uid=${auth.uid}`);
-      return json(req, res, 200, { ok: true, route: 'event-sync', result });
+      return json(req, res, 200, { ok: true, route: 'event-sync', result: { eventLog, mirror } });
     }
 
     return json(req, res, 404, { ok: false, error: 'route-not-found', path });
