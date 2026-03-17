@@ -1,7 +1,8 @@
 import { Client, Databases, ID, Query } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-03-17-shadow-v2';
+const FUNCTION_VERSION = '2026-03-17-shadow-v3';
+const _schemaCache = new Map();
 
 function corsHeaders(req) {
   const origin = (req?.headers?.origin || req?.headers?.Origin || '').trim();
@@ -75,6 +76,89 @@ function makeClient() {
   if (!endpoint || !project || !key) throw new Error('Missing Appwrite env (APPWRITE_ENDPOINT / APPWRITE_PROJECT_ID / APPWRITE_API_KEY)');
   const client = new Client().setEndpoint(endpoint).setProject(project).setKey(key);
   return client;
+}
+
+function getClientEnv() {
+  const endpoint = process.env.APPWRITE_ENDPOINT || process.env.APPWRITE_FUNCTION_API_ENDPOINT || '';
+  const project = process.env.APPWRITE_PROJECT_ID || process.env.APPWRITE_FUNCTION_PROJECT_ID || '';
+  const key = process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '';
+  return { endpoint, project, key };
+}
+
+async function fetchSchema(endpoint, project, key, path) {
+  const url = `${endpoint.replace(/\/$/, '')}${path}`;
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'X-Appwrite-Project': project,
+      'X-Appwrite-Key': key,
+      'content-type': 'application/json'
+    }
+  });
+  if (!resp.ok) return null;
+  return resp.json().catch(() => null);
+}
+
+async function getTableSchema(dbId, tableId) {
+  const cacheKey = `${dbId}:${tableId}`;
+  if (_schemaCache.has(cacheKey)) return _schemaCache.get(cacheKey);
+
+  const { endpoint, project, key } = getClientEnv();
+  if (!endpoint || !project || !key) return null;
+
+  // Support both Appwrite Databases API generations.
+  const candidates = [
+    `/databases/${encodeURIComponent(dbId)}/tables/${encodeURIComponent(tableId)}/columns`,
+    `/databases/${encodeURIComponent(dbId)}/collections/${encodeURIComponent(tableId)}/attributes`
+  ];
+
+  for (const path of candidates) {
+    const data = await fetchSchema(endpoint, project, key, path);
+    if (!data) continue;
+    const columns = Array.isArray(data?.columns) ? data.columns : [];
+    const attributes = Array.isArray(data?.attributes) ? data.attributes : [];
+    const fields = columns.length ? columns : attributes;
+    if (!fields.length) continue;
+    const normalized = fields.map(field => ({
+      key: String(field.key || field.$id || '').trim(),
+      required: !!field.required,
+      type: String(field.type || field.format || 'string').toLowerCase()
+    })).filter(field => field.key);
+    if (normalized.length) {
+      _schemaCache.set(cacheKey, normalized);
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function defaultForType(type) {
+  if (type.includes('int') || type.includes('float') || type.includes('double') || type.includes('number')) return 0;
+  if (type.includes('bool')) return false;
+  if (type.includes('datetime') || type.includes('date') || type.includes('time')) return new Date().toISOString();
+  return '';
+}
+
+async function normalizePayloadForTable(dbId, tableId, payload = {}) {
+  const schema = await getTableSchema(dbId, tableId);
+  if (!schema) return payload;
+
+  const out = {};
+  const keys = new Set(schema.map(field => field.key));
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (!keys.has(key)) continue;
+    out[key] = value;
+  }
+
+  // Ensure required keys are present when possible.
+  for (const field of schema) {
+    if (!field.required) continue;
+    if (out[field.key] !== undefined && out[field.key] !== null) continue;
+    out[field.key] = defaultForType(field.type);
+  }
+
+  return out;
 }
 
 async function upsertPushTarget({ userId, token, platform }) {
@@ -205,7 +289,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
     const uid = String(payload.uid || '').trim();
     if (!uid) return { mirrored: false, reason: 'missing-uid' };
     const rowId = `u_${uid}`.slice(0, 36);
-    const result = await upsertRowById(databases, dbId, usersTableId, rowId, {
+    const userPayload = await normalizePayloadForTable(dbId, usersTableId, {
       uid,
       displayName: String(payload.displayName || ''),
       email: String(payload.email || ''),
@@ -214,6 +298,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
       university: String(payload.university || ''),
       updatedAt: String(payload.updatedAt || now)
     });
+    const result = await upsertRowById(databases, dbId, usersTableId, rowId, userPayload);
     return { mirrored: true, entity: 'user', ...result };
   }
 
@@ -221,7 +306,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
     const postId = String(payload.postId || '').trim();
     if (!postId) return { mirrored: false, reason: 'missing-postId' };
     const rowId = `p_${postId}`.slice(0, 36);
-    const result = await upsertRowById(databases, dbId, postsTableId, rowId, {
+    const postPayload = await normalizePayloadForTable(dbId, postsTableId, {
       postId,
       authorId: String(payload.authorId || ''),
       authorName: String(payload.authorName || ''),
@@ -231,6 +316,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
       createdAt: String(payload.createdAt || now),
       updatedAt: String(payload.updatedAt || now)
     });
+    const result = await upsertRowById(databases, dbId, postsTableId, rowId, postPayload);
     return { mirrored: true, entity: 'post', ...result };
   }
 
@@ -239,7 +325,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
     const postId = String(payload.postId || '').trim();
     if (!commentId || !postId) return { mirrored: false, reason: 'missing-comment-or-post-id' };
     const rowId = `c_${commentId}`.slice(0, 36);
-    const result = await upsertRowById(databases, dbId, messagesTableId, rowId, {
+    const commentPayload = await normalizePayloadForTable(dbId, messagesTableId, {
       messageType: 'comment',
       commentId,
       postId,
@@ -249,6 +335,7 @@ async function mirrorEventToCoreTables({ eventType, payload = {} }) {
       createdAt: String(payload.createdAt || now),
       updatedAt: String(payload.updatedAt || now)
     });
+    const result = await upsertRowById(databases, dbId, messagesTableId, rowId, commentPayload);
     return { mirrored: true, entity: 'comment', ...result };
   }
 
