@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -218,6 +218,30 @@ function refreshBackendDebugStatus(extra = '') {
     notifSummary
   ].join(' | ');
   host.textContent = extra ? `${base}\n${extra}` : base;
+  const mirrorBtn = document.getElementById('backend-mirror-toggle-btn');
+  if (mirrorBtn) mirrorBtn.textContent = shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror';
+}
+
+async function setAppwriteMirrorEnabled(enabled) {
+  if (!state.user?.uid) return;
+  try {
+    await db.collection('users').doc(state.user.uid).set({
+      appwritePrimary: !!enabled,
+      appwriteMigrationPhase: enabled ? 'shadow' : 'firebase',
+      appwriteUpdatedAt: FieldVal.serverTimestamp()
+    }, { merge: true });
+    if (state.profile) state.profile.appwritePrimary = !!enabled;
+    refreshBackendDebugStatus(`appwriteMirror ${enabled ? 'enabled' : 'disabled'}`);
+    toast(enabled ? 'Appwrite mirror enabled' : 'Appwrite mirror disabled');
+  } catch (e) {
+    console.error('setAppwriteMirrorEnabled failed', e);
+    refreshBackendDebugStatus(`Mirror toggle failed: ${e?.message || e}`);
+    toast('Could not update mirror setting');
+  }
+}
+
+function toggleAppwriteMirror() {
+  setAppwriteMirrorEnabled(!shouldMirrorToAppwrite());
 }
 
 function appwriteRootUrl(url) {
@@ -285,6 +309,8 @@ async function runNotificationDiagnostics() {
       await requestLocalNotificationPermission();
       refreshPushRegistration(true);
       lines.push('triggered push registration refresh');
+      sendDebugLocalNotification();
+      lines.push('sent local test notification');
     } catch (e) {
       lines.push(`push refresh failed (${e?.message || 'unknown'})`);
     }
@@ -296,6 +322,8 @@ async function runNotificationDiagnostics() {
         if (Notification.permission === 'default') await Notification.requestPermission();
       } catch (_) {}
       lines.push(`browser notification permission=${Notification.permission}`);
+      sendDebugLocalNotification();
+      lines.push('sent browser/local test notification');
     }
   }
   refreshBackendDebugStatus(lines.join('\n'));
@@ -9547,7 +9575,7 @@ function renderProfileAbout(user) {
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
-      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button></div></div></div>` : ''}
+      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
@@ -10233,6 +10261,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
-    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification
+    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification,
+    toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
 });
