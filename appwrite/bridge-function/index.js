@@ -83,15 +83,16 @@ async function upsertPushTarget({ userId, token, platform }) {
   if (!dbId || !tableId) return { skipped: true, reason: 'missing-db-config' };
 
   const databases = new Databases(makeClient());
-  const existing = await databases.listRows(dbId, tableId, [
+  const existing = await dbList(databases, dbId, tableId, [
     Query.equal('userId', userId),
     Query.equal('token', token),
     Query.limit(1)
   ]);
+  const existingRows = extractItems(existing);
 
-  if (existing.total > 0) {
-    const row = existing.rows[0];
-    await databases.updateRow(dbId, tableId, row.$id, {
+  if ((existing?.total || 0) > 0 && existingRows.length) {
+    const row = existingRows[0];
+    await dbUpdate(databases, dbId, tableId, row.$id, {
       platform: platform || 'android',
       updatedAt: new Date().toISOString(),
       active: true
@@ -99,7 +100,7 @@ async function upsertPushTarget({ userId, token, platform }) {
     return { upserted: true, rowId: row.$id, mode: 'update' };
   }
 
-  const created = await databases.createRow(dbId, tableId, ID.unique(), {
+  const created = await dbCreate(databases, dbId, tableId, ID.unique(), {
     userId,
     token,
     platform: platform || 'android',
@@ -116,14 +117,15 @@ async function deletePushTarget({ userId, token }) {
   if (!dbId || !tableId) return { skipped: true, reason: 'missing-db-config' };
 
   const databases = new Databases(makeClient());
-  const existing = await databases.listRows(dbId, tableId, [
+  const existing = await dbList(databases, dbId, tableId, [
     Query.equal('userId', userId),
     Query.equal('token', token),
     Query.limit(10)
   ]);
+  const existingRows = extractItems(existing);
 
-  await Promise.all((existing.rows || []).map(row => databases.deleteRow(dbId, tableId, row.$id)));
-  return { deleted: true, count: existing.total || 0 };
+  await Promise.all(existingRows.map(row => dbDelete(databases, dbId, tableId, row.$id)));
+  return { deleted: true, count: existingRows.length };
 }
 
 async function logEvent({ uid, eventType, payload }) {
@@ -132,13 +134,44 @@ async function logEvent({ uid, eventType, payload }) {
   if (!dbId || !tableId) return { skipped: true, reason: 'missing-events-config' };
 
   const databases = new Databases(makeClient());
-  const row = await databases.createRow(dbId, tableId, ID.unique(), {
+  const row = await dbCreate(databases, dbId, tableId, ID.unique(), {
     uid,
     eventType,
     payload: JSON.stringify(payload || {}),
     createdAt: new Date().toISOString()
   });
   return { logged: true, rowId: row.$id };
+}
+
+function extractItems(listResult) {
+  if (!listResult || typeof listResult !== 'object') return [];
+  if (Array.isArray(listResult.rows)) return listResult.rows;
+  if (Array.isArray(listResult.documents)) return listResult.documents;
+  return [];
+}
+
+async function dbList(databases, dbId, tableOrCollectionId, queries = []) {
+  if (typeof databases.listRows === 'function') return databases.listRows(dbId, tableOrCollectionId, queries);
+  if (typeof databases.listDocuments === 'function') return databases.listDocuments(dbId, tableOrCollectionId, queries);
+  throw new Error('No compatible list method found on Databases client');
+}
+
+async function dbCreate(databases, dbId, tableOrCollectionId, docId, payload) {
+  if (typeof databases.createRow === 'function') return databases.createRow(dbId, tableOrCollectionId, docId, payload);
+  if (typeof databases.createDocument === 'function') return databases.createDocument(dbId, tableOrCollectionId, docId, payload);
+  throw new Error('No compatible create method found on Databases client');
+}
+
+async function dbUpdate(databases, dbId, tableOrCollectionId, docId, payload) {
+  if (typeof databases.updateRow === 'function') return databases.updateRow(dbId, tableOrCollectionId, docId, payload);
+  if (typeof databases.updateDocument === 'function') return databases.updateDocument(dbId, tableOrCollectionId, docId, payload);
+  throw new Error('No compatible update method found on Databases client');
+}
+
+async function dbDelete(databases, dbId, tableOrCollectionId, docId) {
+  if (typeof databases.deleteRow === 'function') return databases.deleteRow(dbId, tableOrCollectionId, docId);
+  if (typeof databases.deleteDocument === 'function') return databases.deleteDocument(dbId, tableOrCollectionId, docId);
+  throw new Error('No compatible delete method found on Databases client');
 }
 
 function getShadowConfig() {
@@ -152,11 +185,11 @@ function getShadowConfig() {
 
 async function upsertRowById(databases, dbId, tableId, rowId, payload) {
   try {
-    await databases.updateRow(dbId, tableId, rowId, payload);
+    await dbUpdate(databases, dbId, tableId, rowId, payload);
     return { mode: 'update', rowId };
   } catch (e) {
     if (Number(e?.code || 0) !== 404) throw e;
-    const created = await databases.createRow(dbId, tableId, rowId, payload);
+    const created = await dbCreate(databases, dbId, tableId, rowId, payload);
     return { mode: 'create', rowId: created.$id || rowId };
   }
 }
