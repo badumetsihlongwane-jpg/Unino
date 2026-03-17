@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -184,6 +184,123 @@ async function syncPushTokenWithAppwrite(action, userId, token) {
   } catch (e) {
     console.warn('Appwrite push sync skipped:', e?.message || e);
   }
+}
+
+function refreshBackendDebugStatus(extra = '') {
+  const host = document.getElementById('backend-debug-status');
+  if (!host) return;
+  const platform = isNativeApp() ? (window.Capacitor?.getPlatform?.() || 'native') : 'web';
+  const tokenSummary = _nativePushToken ? `${_nativePushToken.slice(0, 12)}...` : 'none';
+  const notifSummary = isNativeApp()
+    ? `local=${_nativeLocalNotificationsReady ? 'granted' : 'not-ready'}`
+    : `web=${typeof Notification === 'undefined' ? 'unsupported' : Notification.permission}`;
+  const base = [
+    `platform=${platform}`,
+    `appwriteMirror=${shouldMirrorToAppwrite() ? 'on' : 'off'}`,
+    `pushReady=${_nativePushReady ? 'yes' : 'no'}`,
+    `pushToken=${tokenSummary}`,
+    notifSummary
+  ].join(' | ');
+  host.textContent = extra ? `${base}\n${extra}` : base;
+}
+
+function appwriteRootUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = '/';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+async function runAppwriteBackendDiagnostics() {
+  refreshBackendDebugStatus('Running Appwrite diagnostics...');
+  const urls = [...new Set([...APPWRITE_PUSH_SYNC_URLS, ...APPWRITE_EVENT_SYNC_URLS])];
+  if (!urls.length) {
+    refreshBackendDebugStatus('No Appwrite bridge URLs configured.');
+    return;
+  }
+
+  const lines = [];
+  for (const url of urls) {
+    const rootUrl = appwriteRootUrl(url);
+    try {
+      const rootResp = await fetch(rootUrl, { method: 'GET' });
+      lines.push(`${rootUrl} -> GET / ${rootResp.status}`);
+    } catch (e) {
+      lines.push(`${rootUrl} -> GET / failed (${e?.message || 'network/cors'})`);
+    }
+  }
+
+  const eventUrl = APPWRITE_EVENT_SYNC_URLS[0] || '';
+  if (eventUrl && auth.currentUser) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const eventResp = await fetch(eventUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          eventType: 'debug_probe',
+          payload: {
+            appVersion: APP_VERSION,
+            platform: window.Capacitor?.getPlatform?.() || 'web',
+            at: new Date().toISOString()
+          }
+        })
+      });
+      lines.push(`${eventUrl} -> POST /event-sync ${eventResp.status}`);
+    } catch (e) {
+      lines.push(`${eventUrl} -> POST /event-sync failed (${e?.message || 'network/cors'})`);
+    }
+  }
+
+  refreshBackendDebugStatus(lines.join('\n'));
+}
+
+async function runNotificationDiagnostics() {
+  refreshBackendDebugStatus('Running notification diagnostics...');
+  const lines = [];
+  if (isNativeApp()) {
+    const pushPlugin = getCapacitorPlugin('PushNotifications');
+    const localPlugin = getCapacitorPlugin('LocalNotifications');
+    lines.push(`pushPlugin=${pushPlugin ? 'present' : 'missing'}`);
+    lines.push(`localPlugin=${localPlugin ? 'present' : 'missing'}`);
+    try {
+      await requestLocalNotificationPermission();
+      refreshPushRegistration(true);
+      lines.push('triggered push registration refresh');
+    } catch (e) {
+      lines.push(`push refresh failed (${e?.message || 'unknown'})`);
+    }
+  } else {
+    if (typeof Notification === 'undefined') {
+      lines.push('browser Notification API unsupported');
+    } else {
+      try {
+        if (Notification.permission === 'default') await Notification.requestPermission();
+      } catch (_) {}
+      lines.push(`browser notification permission=${Notification.permission}`);
+    }
+  }
+  refreshBackendDebugStatus(lines.join('\n'));
+}
+
+function sendDebugLocalNotification() {
+  scheduleLocalNotification({
+    id: hashStringToId(`debug-local-${Date.now()}`),
+    title: 'Unibo Debug Test',
+    body: 'If you see this, local notifications are working.',
+    channelId: 'unibo-general',
+    actionTypeId: 'app-preview',
+    extra: { kind: 'debug' }
+  });
+  toast('Debug notification sent');
 }
 
 function normalizeReactionMap(raw = {}, likes = []) {
@@ -2053,6 +2170,9 @@ function toggleVN(id) {
     el.classList.remove('playing');
     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
   }
+          if (uid === state.user.uid) {
+            setTimeout(() => refreshBackendDebugStatus(), 0);
+          }
 }
 
 function seekVN(e, id) {
@@ -9417,6 +9537,7 @@ function renderProfileAbout(user) {
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
+      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button></div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
@@ -10101,6 +10222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification
   });
 });

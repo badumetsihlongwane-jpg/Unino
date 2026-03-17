@@ -3654,6 +3654,29 @@ video::-webkit-media-controls-start-playback-button {
   margin-top: 4px;
 }
 
+.backend-debug-card {
+  align-items: flex-start;
+}
+
+.backend-debug-status {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+
+.backend-debug-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* ── Profile Photo Grid ─── */
 .profile-photo-grid {
   display: grid;
