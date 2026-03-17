@@ -1,7 +1,17 @@
-import { Client, Databases, ID, Query } from 'node-appwrite';
+import crypto from 'node:crypto';
+import {
+  Client,
+  Databases,
+  ID,
+  MessagePriority,
+  Messaging,
+  MessagingProviderType,
+  Query,
+  Users
+} from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-03-17-shadow-v3';
+const FUNCTION_VERSION = '2026-03-17-shadow-v4';
 const _schemaCache = new Map();
 
 function corsHeaders(req) {
@@ -193,6 +203,119 @@ async function upsertPushTarget({ userId, token, platform }) {
     updatedAt: new Date().toISOString()
   });
   return { upserted: true, rowId: created.$id, mode: 'create' };
+}
+
+function toAppwriteUserId(firebaseUid = '') {
+  // Keep deterministic IDs under Appwrite max length constraints.
+  return `f_${String(firebaseUid || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 36);
+}
+
+function buildTargetId(token = '', platform = 'android') {
+  const digest = crypto.createHash('sha1').update(String(token || '')).digest('hex').slice(0, 24);
+  return `pt_${String(platform || 'android').slice(0, 6)}_${digest}`.slice(0, 36);
+}
+
+async function ensureMessagingUser(users, appwriteUserId, email = '') {
+  try {
+    await users.get(appwriteUserId);
+    return { ok: true, mode: 'exists', userId: appwriteUserId };
+  } catch (e) {
+    if (Number(e?.code || 0) !== 404) throw e;
+  }
+
+  const normalizedEmail = String(email || '').trim();
+  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    return { ok: false, skipped: true, reason: 'missing-email-for-user-create', userId: appwriteUserId };
+  }
+
+  await users.create(appwriteUserId, normalizedEmail);
+  return { ok: true, mode: 'created', userId: appwriteUserId };
+}
+
+async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', email = '' }) {
+  const users = new Users(makeClient());
+  const appwriteUserId = toAppwriteUserId(firebaseUid);
+  const userEnsure = await ensureMessagingUser(users, appwriteUserId, email);
+  if (!userEnsure.ok) return { ok: false, skipped: true, reason: userEnsure.reason, appwriteUserId };
+
+  const targetId = buildTargetId(token, platform);
+  try {
+    const target = await users.createTarget(
+      appwriteUserId,
+      targetId,
+      MessagingProviderType.Push,
+      token,
+      undefined,
+      `unino-${platform}`
+    );
+    return { ok: true, mode: 'create', appwriteUserId, targetId: target.$id || targetId };
+  } catch (e) {
+    if (Number(e?.code || 0) !== 409) throw e;
+    const target = await users.updateTarget(appwriteUserId, targetId, token, undefined, `unino-${platform}`);
+    return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId };
+  }
+}
+
+async function listPushTargetsForFirebaseUid(firebaseUid) {
+  const users = new Users(makeClient());
+  const appwriteUserId = toAppwriteUserId(firebaseUid);
+  try {
+    const list = await users.listTargets(appwriteUserId, [Query.limit(100)]);
+    const targets = Array.isArray(list?.targets) ? list.targets : [];
+    const pushTargets = targets.filter(target => String(target?.providerType || '') === 'push');
+    return {
+      ok: true,
+      appwriteUserId,
+      targets: pushTargets.map(target => ({ id: target.$id, identifier: target.identifier || '' }))
+    };
+  } catch (e) {
+    if (Number(e?.code || 0) === 404) return { ok: true, appwriteUserId, targets: [] };
+    throw e;
+  }
+}
+
+async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {} }) {
+  const messaging = new Messaging(makeClient());
+  const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
+  const targetIds = (targetList.targets || []).map(target => target.id).filter(Boolean);
+
+  if (!targetIds.length) {
+    return {
+      sent: false,
+      reason: 'no-targets',
+      appwriteUserId: targetList.appwriteUserId,
+      targetCount: 0
+    };
+  }
+
+  const message = await messaging.createPush(
+    ID.unique(),
+    String(title || 'Unino notification'),
+    String(body || ''),
+    [],
+    [],
+    targetIds,
+    data,
+    '',
+    '',
+    '',
+    '',
+    '',
+    1,
+    false,
+    undefined,
+    false,
+    false,
+    MessagePriority.High
+  );
+
+  return {
+    sent: true,
+    messageId: message?.$id || '',
+    providerType: message?.providerType || 'push',
+    appwriteUserId: targetList.appwriteUserId,
+    targetCount: targetIds.length
+  };
 }
 
 async function deletePushTarget({ userId, token }) {
@@ -396,8 +519,22 @@ export default async ({ req, res, log, error }) => {
         ? await upsertPushTarget({ userId, token, platform })
         : await deletePushTarget({ userId, token });
 
+      let messagingTarget = { skipped: true, reason: 'delete-or-not-attempted' };
+      if (action === 'upsert') {
+        try {
+          messagingTarget = await ensureUserPushTarget({
+            firebaseUid: userId,
+            token,
+            platform,
+            email: auth.email || ''
+          });
+        } catch (e) {
+          messagingTarget = { ok: false, reason: 'messaging-target-failed', detail: String(e?.message || e) };
+        }
+      }
+
       log(`push-sync ${action} uid=${userId}`);
-      return json(req, res, 200, { ok: true, route: 'push-sync', result });
+      return json(req, res, 200, { ok: true, route: 'push-sync', result: { pushTable: result, messagingTarget } });
     }
 
     if (path === '/event-sync') {
@@ -410,8 +547,25 @@ export default async ({ req, res, log, error }) => {
       } catch (e) {
         mirror = { mirrored: false, reason: 'mirror-failed', detail: String(e?.message || e) };
       }
+      let push = { sent: false, reason: 'not-attempted' };
+      if (eventType === 'notification_dispatch') {
+        try {
+          push = await dispatchPushViaMessaging({
+            targetFirebaseUid: String(payload.targetId || '').trim(),
+            title: String(payload.type || 'notification').replace(/_/g, ' ').slice(0, 80),
+            body: String(payload.text || '').slice(0, 300),
+            data: {
+              type: String(payload.type || 'generic'),
+              at: String(payload.at || new Date().toISOString()),
+              payload: payload.payload && typeof payload.payload === 'object' ? payload.payload : {}
+            }
+          });
+        } catch (e) {
+          push = { sent: false, reason: 'push-dispatch-failed', detail: String(e?.message || e) };
+        }
+      }
       log(`event-sync ${eventType} uid=${auth.uid}`);
-      return json(req, res, 200, { ok: true, route: 'event-sync', result: { eventLog, mirror } });
+      return json(req, res, 200, { ok: true, route: 'event-sync', result: { eventLog, mirror, push } });
     }
 
     return json(req, res, 404, { ok: false, error: 'route-not-found', path });

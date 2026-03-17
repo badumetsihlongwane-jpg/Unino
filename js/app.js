@@ -260,8 +260,16 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
           at: new Date().toISOString()
         }
       });
-      appwriteStatus = resp.ok ? 'ok' : `http-${resp.status}`;
-      if (!resp.ok) appwriteDetail = await resp.text().catch(() => '');
+      if (resp.ok) {
+        const body = await resp.clone().json().catch(() => null);
+        const push = body?.result?.push;
+        appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
+        if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
+        else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
+      } else {
+        appwriteStatus = `http-${resp.status}`;
+        appwriteDetail = await resp.text().catch(() => '');
+      }
     } catch (e) {
       appwriteStatus = 'error';
       appwriteDetail = e?.message || String(e);
