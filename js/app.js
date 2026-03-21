@@ -1940,7 +1940,11 @@ function detectSoftFilterMatch(text = '') {
 function shouldHideShadowBannedContent(entity = {}) {
   const ownerId = entity.authorId || entity.uid || entity.sellerId || '';
   if (!entity?.shadowBanned) return false;
-  return ownerId && ownerId !== state.user?.uid && !_isAdmin;
+  if (_isAdmin) return false;
+  if (!ownerId) return true;
+  const viewerUid = state.user?.uid || '';
+  if (!viewerUid) return true;
+  return ownerId !== viewerUid;
 }
 
 let _commentAnonChoice = null;
@@ -3908,11 +3912,14 @@ function renderStoriesRow(hostId = 'stories-row', options = {}) {
   const compact = !!options.compact;
   row.innerHTML = `${compact ? '<div class="stories-strip-label">Stories</div>' : ''}<div class="story-item add-story" onclick="openStoryCreator()"><div class="story-avatar"><div class="story-avatar-inner">+</div></div><div class="story-name">Your Story</div></div>`;
   db.collection('stories').orderBy('createdAt', 'desc').limit(50).get().then(snap => {
+    const nowTs = firebase.firestore.Timestamp ? firebase.firestore.Timestamp.now() : null;
+    const nowSeconds = nowTs ? nowTs.seconds : Math.floor(Date.now() / 1000);
     const stories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const grouped = {};
     const allowedAuthors = new Set([state.user.uid, ...(state.profile?.friends || [])]);
     stories.forEach(story => {
       if (!story.authorId || !allowedAuthors.has(story.authorId)) return;
+      if (!story.expiresAt || typeof story.expiresAt.seconds !== 'number' || story.expiresAt.seconds <= nowSeconds) return;
       if (!grouped[story.authorId]) grouped[story.authorId] = [];
       grouped[story.authorId].push(story);
     });
@@ -3926,7 +3933,7 @@ function renderStoriesRow(hostId = 'stories-row', options = {}) {
       const item = document.createElement('div');
       item.className = `story-item ${hasNew ? 'has-unseen' : 'seen'}`;
       item.onclick = event => { event.stopPropagation(); viewStory(group.uid); };
-      item.innerHTML = `<div class="story-avatar"><div class="story-avatar-inner">${latest.authorPhoto ? `<img src="${latest.authorPhoto}">` : initials(latest.authorName || 'U')}</div></div><div class="story-name">${esc((latest.authorName || 'User').split(' ')[0])}</div>`;
+      item.innerHTML = `<div class="story-avatar"><div class="story-avatar-inner">${latest.authorPhoto ? `<img src="${latest.authorPhoto}" alt="" draggable="false">` : initials(latest.authorName || 'U')}</div></div><div class="story-name">${esc((latest.authorName || 'User').split(' ')[0])}</div>`;
       row.appendChild(item);
     });
   }).catch(() => {});
@@ -6637,15 +6644,11 @@ async function loadCampusEvents() {
     const today = new Date();
     today.setHours(0,0,0,0);
     const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const active = [];
-    await Promise.all(docs.map(async ev => {
+    const active = docs.filter(ev => {
       const eventDate = ev.date ? new Date(`${ev.date}T${ev.time || '00:00'}`) : null;
-      if (eventDate && !Number.isNaN(eventDate.getTime()) && eventDate < today) {
-        await db.collection('events').doc(ev.id).delete().catch(() => {});
-        return;
-      }
-      active.push(ev);
-    }));
+      if (!eventDate || Number.isNaN(eventDate.getTime())) return true;
+      return eventDate >= today;
+    });
     allCampusEvents = active;
   } catch (e) {
     console.error(e);
@@ -9681,8 +9684,7 @@ async function submitPostReport(postId) {
       reportedBy: FieldVal.arrayUnion(state.user.uid),
       lastReportReason: reason,
       lastReportedAt: FieldVal.serverTimestamp(),
-      reviewState: escalation ? 'flagged' : 'reported',
-      shadowBanned: escalation ? true : FieldVal.delete()
+      reviewState: escalation ? 'flagged' : 'reported'
     });
     closeModal();
     toast('Post reported');
