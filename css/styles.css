@@ -2171,11 +2171,11 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .msg-sent {
-  background: linear-gradient(135deg, #5B4BDB 0%, #8B5CF6 100%);
+  background: var(--gradient, linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%));
   color: #fff;
   align-self: flex-end;
   border-bottom-right-radius: 6px;
-  box-shadow: 0 8px 18px rgba(108, 92, 231, 0.22);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .msg-received {
