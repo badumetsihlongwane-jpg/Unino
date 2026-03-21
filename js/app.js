@@ -72,6 +72,7 @@ const _authorPhotoCache = {};
 const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
+let _postTopCommentCache = new Map();
 
 const ANON_PERSONA_THEMES = ['Anonymous', 'Campus Ghost', 'Res Phantom'];
 const SOFT_FILTER_RULES = [
@@ -803,6 +804,7 @@ function clearTransientUi() {
   const imageView = $('#img-view');
   if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
     imageView.style.display = 'none';
+    document.body.classList.remove('image-view-open');
     return true;
   }
   const storyViewer = $('#story-viewer');
@@ -1308,7 +1310,15 @@ function colorFor(n) {
 }
 
 function normalizeModules(modules = []) {
-  return (modules || []).map(m => (m || '').trim().toUpperCase()).filter(Boolean);
+  return (modules || [])
+    .map(m => (m || '')
+      .toString()
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s-]/g, '')
+      .replace(/[\s_-]+/g, '')
+    )
+    .filter(Boolean);
 }
 
 function normalizeAddress(address = '') {
@@ -1974,9 +1984,14 @@ function isPostShadowHiddenForViewer(post = {}, viewerUid = '') {
 function renderPostContextTags(post = {}) {
   const chips = [];
   const author = _userContextCache[post.authorId] || null;
-  if (author) {
+  const pingExpiry = post.locationPing?.expiresAt?.toDate
+    ? post.locationPing.expiresAt.toDate()
+    : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
+  const hasExplicitPing = !!post.locationPing?.enabled && (!pingExpiry || pingExpiry.getTime() > Date.now());
+  if (author && hasExplicitPing) {
     const nearby = getNearbySignal(state.profile, author);
-    if (Number.isFinite(nearby.distanceKm)) chips.push(`📍 ${nearby.distanceKm.toFixed(1)}km away`);
+    if (Number.isFinite(nearby.distanceKm) && nearby.distanceKm >= 0.05) chips.push(`📍 ${formatDistanceText(nearby.distanceKm)}`);
+    else if (post.locationPing?.label) chips.push(`📍 ${post.locationPing.label}`);
     const addr = (author.address || '').toLowerCase();
     if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push('🏠 Res life');
   }
@@ -2095,7 +2110,7 @@ function extractModuleTags(text = '', manualTags = '') {
     .map(tag => tag.toUpperCase())
     .filter(tag => /^[A-Z]{3,5}\d{3}$/.test(tag))
     .forEach(tag => found.add(tag));
-  manualTags.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean).forEach(tag => found.add(tag));
+  normalizeModules((manualTags || '').split(',')).forEach(tag => found.add(tag));
   return [...found].slice(0, 5);
 }
 
@@ -2233,13 +2248,13 @@ function renderTrendingPostsRail(posts = []) {
 }
 
 async function openModuleFeed(tag) {
-  const moduleTag = (tag || '').toUpperCase();
+  const moduleTag = normalizeModules([tag])[0] || '';
   if (!moduleTag) return;
-  let posts = (state.posts || []).filter(post => (post.moduleTags || []).includes(moduleTag));
+  let posts = (state.posts || []).filter(post => normalizeModules(post.moduleTags || []).includes(moduleTag));
   if (!posts.length) {
     try {
       const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(50).get();
-      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => (post.moduleTags || []).includes(moduleTag));
+      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => normalizeModules(post.moduleTags || []).includes(moduleTag));
     } catch (e) { console.error(e); }
   }
   openModal(`
@@ -3061,7 +3076,8 @@ function initAuth() {
     const email = $('#s-email').value.trim(), pass = $('#s-pass').value;
     const uni = $('#s-uni').value, major = $('#s-major').value, year = $('#s-year')?.value || '';
     const modulesRaw = $('#s-modules')?.value || '';
-    const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+    const modules = normalizeModules(modulesRaw.split(','));
+    const gender = ($('#s-gender')?.value || '').trim();
     const address = $('#s-address')?.value.trim() || '';
     if (!fname || !lname || !email || !pass || !uni || !major || !address) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
@@ -3074,7 +3090,7 @@ function initAuth() {
       const anonIdentity = buildDefaultAnonIdentity(uid, fname);
       await db.collection('users').doc(uid).set({
         displayName, firstName: fname, lastName: lname,
-        email, university: uni, major, year, modules, address,
+        email, university: uni, major, year, modules, address, gender,
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
@@ -3661,13 +3677,6 @@ function renderFeed() {
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
 
-      <div class="stories-row" id="stories-row">
-        <div class="story-item add-story" onclick="openStoryCreator()">
-          <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
-          <div class="story-name">Story</div>
-        </div>
-      </div>
-
       <div class="discover-section">
         <div class="discover-tabs">
           <button class="discover-tab active" data-dt="people">👥 People</button>
@@ -3708,7 +3717,6 @@ function renderFeed() {
   });
 
   loadDiscoverPeople();
-  loadStories();
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -3971,7 +3979,7 @@ function cleanupExpiredStories() {
 }
 
 function loadStories() {
-  const row = $('#stories-row'); if (!row) return;
+  const row = $('#stories-row') || $('#messages-stories-row'); if (!row) return;
   // Clear all but the add-story button
   row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
 
@@ -4371,7 +4379,7 @@ function renderFeedInlineSuggestionCard(user = {}) {
   return `
     <div class="post-card feed-inline-suggestion" onclick="openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
-        <h3>Suggested for you</h3>
+        <h3>People you may know</h3>
       </div>
       <div class="discover-card" style="margin:0 14px 14px">
         <div class="discover-card-avatar">
@@ -4383,6 +4391,34 @@ function renderFeedInlineSuggestionCard(user = {}) {
         ${action}
       </div>
     </div>`;
+}
+
+function renderPostCommentPreview(postId) {
+  const cached = _postTopCommentCache.get(postId);
+  const hidden = cached ? '' : 'style="display:none"';
+  return `<button class="post-comment-preview" onclick="openComments('${postId}')" ${hidden}><span class="post-comment-preview-label">Top comment</span><span class="post-comment-preview-text">${esc(cached || '')}</span></button>`;
+}
+
+async function hydratePostCommentPreviews(posts = []) {
+  const needs = posts.map(p => p.id).filter(id => id && !_postTopCommentCache.has(id)).slice(0, 8);
+  await Promise.all(needs.map(async postId => {
+    try {
+      const snap = await db.collection('posts').doc(postId).collection('comments').limit(25).get();
+      const comments = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => !c.replyTo && (c.text || '').trim());
+      if (!comments.length) {
+        _postTopCommentCache.set(postId, '');
+        return;
+      }
+      comments.sort((a, b) => {
+        const aScore = getReactionSummary(a.reactions, a.likes || []).total;
+        const bScore = getReactionSummary(b.reactions, b.likes || []).total;
+        return bScore - aScore || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+      });
+      _postTopCommentCache.set(postId, clampText(comments[0].text || '', 90));
+    } catch (_) {
+      _postTopCommentCache.set(postId, '');
+    }
+  }));
 }
 
 // ─── Render Posts ────────────────────────────────
@@ -4431,6 +4467,7 @@ function renderPosts(posts) {
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
+        ${renderPostCommentPreview(post.id)}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
@@ -4453,22 +4490,32 @@ function renderPosts(posts) {
       </div>`;
   });
 
-  const maxSuggestionsLeft = Math.max(0, 4 - _feedInlineSuggestionSlotsUsed);
+  const maxSuggestionsLeft = Math.max(0, 2 - _feedInlineSuggestionSlotsUsed);
   if (maxSuggestionsLeft > 0 && Array.isArray(_usersCache?.data) && _usersCache.data.length) {
     const blockedUsers = new Set(state.profile?.blockedUsers || []);
     const blockedBy = new Set(state.profile?.blockedBy || []);
+    const myModules = normalizeModules(state.profile?.modules || []);
+    const myMajor = (state.profile?.major || '').toLowerCase();
     const pool = _usersCache.data.filter(u => {
       if (!u?.id || u.id === state.user?.uid) return false;
       if (_feedInlineSuggestedUserIds.has(u.id)) return false;
       if ((state.profile?.friends || []).includes(u.id)) return false;
       if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
       return true;
-    }).sort(() => Math.random() - 0.5);
-    const desired = Math.min(maxSuggestionsLeft, Math.ceil(posts.length / 8));
+    }).map(u => {
+      const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
+      const majorBoost = (u.major || '').toLowerCase() === myMajor ? 2 : 0;
+      return { ...u, _score: overlap * 3 + majorBoost + scoreSeed(u.id) };
+    }).sort((a, b) => b._score - a._score);
+    const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
+    const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
+    const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
       const pick = pool[i];
       if (!pick) break;
-      const slot = Math.min(postCards.length, (i + 1) * 6);
+      const spread = Math.max(4, Math.min(9, posts.length - 2));
+      const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
+      const slot = Math.min(postCards.length, offset + i * 7);
       postCards.splice(slot, 0, renderFeedInlineSuggestionCard(pick));
       _feedInlineSuggestedUserIds.add(pick.id);
       _feedInlineSuggestionSlotsUsed += 1;
@@ -4476,6 +4523,17 @@ function renderPosts(posts) {
   }
 
   el.innerHTML = postCards.join('');
+  el.classList.remove('feed-ready');
+  requestAnimationFrame(() => el.classList.add('feed-ready'));
+  hydratePostCommentPreviews(posts).then(() => {
+    posts.forEach(post => {
+      const card = document.querySelector(`.post-card[data-post-id="${post.id}"] .post-comment-preview`);
+      const text = _postTopCommentCache.get(post.id) || '';
+      if (!card || !text) return;
+      card.innerHTML = `<span class="post-comment-preview-label">Top comment</span><span class="post-comment-preview-text">${esc(text)}</span>`;
+      card.style.display = 'flex';
+    });
+  });
 
   // Initialize all custom video players after DOM update
   requestAnimationFrame(() => {
@@ -5598,6 +5656,7 @@ async function postReelComment(postId) {
       createdAt: new Date().toISOString()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
+    _postTopCommentCache.set(postId, clampText(text || 'Photo comment', 90));
     _pendingReelCommentImageFile = null;
     _reelCommentReplyTo = null;
     clearReelCommentImage();
@@ -5677,6 +5736,17 @@ async function openComments(postId, options = {}) {
   const existingList = $('#comments-container');
   const prevListScroll = existingList ? existingList.scrollTop : 0;
   const isExistingCommentsModal = modalBg?.style.display === 'flex' && !!modalInner?.querySelector('.comment-modal-body');
+  const loadingHtml = `
+    <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body comment-modal-body" style="display:flex;align-items:center;justify-content:center;height:72vh;padding:0">
+      <span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span>
+    </div>
+  `;
+  if (isExistingCommentsModal) {
+    modalInner.innerHTML = loadingHtml;
+  } else {
+    openModal(loadingHtml);
+  }
   let postData = null;
   let comments = [];
   try {
@@ -5793,11 +5863,9 @@ async function openComments(postId, options = {}) {
     </div>
   `;
 
-  if (isExistingCommentsModal) {
-    modalInner.innerHTML = commentModalHtml;
-  } else {
-    openModal(commentModalHtml);
-  }
+  const activeInner = $('#modal-inner');
+  if (!activeInner) return;
+  activeInner.innerHTML = commentModalHtml;
 
   const cInput = $('#comment-input');
   if (cInput) {
@@ -5944,6 +6012,7 @@ function openGallery(urls, startIdx = 0) {
   _galleryIdx = startIdx;
   const v = $('#img-view'); if (!v) return;
   _renderGalleryFrame();
+  document.body.classList.add('image-view-open');
   v.style.display = 'flex';
 }
 function _renderGalleryFrame() {
@@ -5968,6 +6037,7 @@ function _renderGalleryFrame() {
 function openCreateModal() {
   let pendingFiles = [];
   let pendingIsVideo = false;
+  let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
   let createTab = 'post'; // 'post' or 'event'
   window._eventFiles = [];
 
@@ -5995,10 +6065,10 @@ function openCreateModal() {
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <label class="add-photo-btn" title="Photos"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file" multiple></label>
-          <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7" fill="var(--accent)"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
+          <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin location (24h)</button>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
@@ -6007,6 +6077,7 @@ function openCreateModal() {
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
+      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       ` : `
       <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
       <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
@@ -6034,6 +6105,19 @@ function openCreateModal() {
   };
 
   const wirePostTab = () => {
+    const refreshLocationUI = () => {
+      const pill = $('#create-location-pill');
+      if (!pill) return;
+      if (!locationPing.enabled) {
+        pill.style.display = 'none';
+        pill.textContent = '';
+        return;
+      }
+      const label = locationPing.label || 'Current location';
+      pill.style.display = 'block';
+      pill.textContent = `📍 ${label} · expires in 24h`;
+    };
+
     const showPreviews = () => {
       const pc = $('#create-preview-content');
       if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
@@ -6051,20 +6135,45 @@ function openCreateModal() {
       }
       $('#create-preview').style.display = 'block';
     };
-    if ($('#create-file')) $('#create-file').onchange = e => {
-      if (e.target.files.length) {
-        pendingFiles = [...pendingFiles, ...Array.from(e.target.files)];
-        pendingIsVideo = false;
-        showPreviews();
-      }
-    };
-    if ($('#create-video-file')) $('#create-video-file').onchange = e => {
-      if (e.target.files[0]) {
-        pendingFiles = [e.target.files[0]];
+    if ($('#create-media-file')) $('#create-media-file').onchange = e => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      const pickedVideo = files.find(file => file.type?.startsWith('video/'));
+      if (pickedVideo) {
+        pendingFiles = [pickedVideo];
         pendingIsVideo = true;
-        showPreviews();
+      } else {
+        pendingFiles = files;
+        pendingIsVideo = false;
       }
+      showPreviews();
     };
+    if ($('#create-pin-location')) $('#create-pin-location').onclick = () => {
+      if (!navigator.geolocation) return toast('Location is not available on this device');
+      toast('Getting location...');
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+          const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+          return !best || dist < best.dist ? { loc, dist } : best;
+        }, null);
+        locationPing = {
+          enabled: true,
+          label: nearestCampus?.loc?.name || `${lat}, ${lng}`,
+          lat,
+          lng,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        };
+        refreshLocationUI();
+        toast('Pinned for 24h');
+      }, () => toast('Could not get location'), {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0
+      });
+    };
+    refreshLocationUI();
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
       const moderation = applySoftKeywordFilterText(text);
@@ -6104,6 +6213,7 @@ function openCreateModal() {
           hashTags,
           moderationFlags: moderation.flags,
           moderationReviewNeeded: moderation.flagged,
+          locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
           visibility: isAnon ? 'public' : visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
@@ -7020,7 +7130,7 @@ function renderHustle() {
   const c = $('#content');
   c.innerHTML = `
     <div class="hustle-page">
-      <div class="hustle-header"><h2>Marketplace</h2><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div>
+      <div class="hustle-header"><h2>Marketplace</h2><div class="hustle-header-actions"><button class="btn-outline btn-sm" onclick="openSavedCartView()">Saved</button><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div></div>
       <div style="padding:0 16px 12px">
         <div class="search-bar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -7161,6 +7271,69 @@ async function saveListingToProfile(itemId) {
   }
 }
 
+async function removeSavedListingFromProfile(itemId) {
+  if (!itemId) return;
+  try {
+    await db.collection('users').doc(state.user.uid).set({
+      savedListings: FieldVal.arrayRemove(itemId)
+    }, { merge: true });
+    state.profile.savedListings = (state.profile.savedListings || []).filter(id => id !== itemId);
+    toast('Removed');
+  } catch (e) {
+    console.error(e);
+    toast('Could not remove');
+  }
+}
+
+async function openSavedCartView() {
+  openModal(`
+    <div class="modal-header"><h2>Saved Cart</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Budget (R)</label><input type="number" id="cart-budget" placeholder="e.g. 1200"></div>
+      <div id="saved-cart-list"><div style="text-align:center;padding:18px"><span class="inline-spinner"></span></div></div>
+      <div id="saved-cart-total" style="margin-top:12px;font-weight:700"></div>
+    </div>
+  `);
+  const budgetInput = $('#cart-budget');
+  const key = `unino-budget-${state.user.uid}`;
+  if (budgetInput) budgetInput.value = localStorage.getItem(key) || '';
+
+  const renderSaved = async () => {
+    const holder = $('#saved-cart-list');
+    const totalEl = $('#saved-cart-total');
+    if (!holder || !totalEl) return;
+    const ids = state.profile.savedListings || [];
+    if (!ids.length) {
+      holder.innerHTML = '<p style="color:var(--text-secondary)">No saved listings yet.</p>';
+      totalEl.textContent = 'Total: R0';
+      return;
+    }
+    const docs = await Promise.all(ids.slice(0, 30).map(id => db.collection('listings').doc(id).get().catch(() => null)));
+    const items = docs.filter(d => d?.exists).map(d => ({ id: d.id, ...d.data() }));
+    const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const budget = Number(budgetInput?.value || 0);
+    holder.innerHTML = items.map(item => `
+      <div class="saved-cart-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px">
+        <div>
+          <div style="font-weight:600">${esc(item.title || 'Listing')}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">R${esc(String(item.price || 0))}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-outline" style="padding:6px 10px;font-size:12px" onclick="openProductDetail('${item.id}')">View</button>
+          <button class="btn-outline saved-cart-remove" title="Remove from saved" aria-label="Remove from saved" style="padding:6px 10px;font-size:12px" onclick="removeSavedListingFromProfile('${item.id}');openSavedCartView()">&times;</button>
+        </div>
+      </div>
+    `).join('');
+    totalEl.textContent = `Total: R${total.toFixed(2)}${budget > 0 ? ` · ${total <= budget ? 'Within budget' : 'Over budget'}` : ''}`;
+  };
+
+  budgetInput?.addEventListener('input', () => {
+    localStorage.setItem(key, budgetInput.value || '');
+    renderSaved();
+  });
+  renderSaved();
+}
+
 function shareListingCard(itemId) {
   const item = (window._hustleItems || {})[itemId];
   if (!item) return;
@@ -7261,6 +7434,21 @@ function openProductDetail(itemId) {
         <span>📅 ${timeAgo(item.createdAt)}</span>
         <span id="product-distance-meta">${distanceText ? `· 📍 ${esc(distanceText)}` : ''}</span>
       </div>
+      <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-tertiary)">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Rate this listing</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="product-rating-value" style="padding:8px;border-radius:10px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary)">
+            <option value="">Select rating</option>
+            <option value="5">⭐⭐⭐⭐⭐</option>
+            <option value="4">⭐⭐⭐⭐</option>
+            <option value="3">⭐⭐⭐</option>
+            <option value="2">⭐⭐</option>
+            <option value="1">⭐</option>
+          </select>
+          <button class="btn-outline" onclick="submitListingRating('${itemId}')" style="padding:8px 12px">Submit rating</button>
+          <button class="btn-outline" onclick="saveListingToProfile('${itemId}')" style="padding:8px 12px">Save</button>
+        </div>
+      </div>
       <div style="display:flex;gap:12px;margin-top:16px">
         ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
           `<button class="btn-primary" style="flex:1" id="hustle-buy-btn" onclick="hustleBuyInterest('${itemId}')">
@@ -7283,6 +7471,37 @@ function openProductDetail(itemId) {
       const target = document.getElementById('product-distance-meta');
       if (target) target.textContent = sellerDistanceText ? `· 📍 ${sellerDistanceText}` : '';
     }).catch(() => {});
+  }
+}
+
+async function submitListingRating(itemId) {
+  const score = Number($('#product-rating-value')?.value || 0);
+  if (!itemId || !score || score < 1 || score > 5) return toast('Choose a rating first');
+  try {
+    const ref = db.collection('listings').doc(itemId);
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('missing');
+      const data = snap.data() || {};
+      const userRatings = data.userRatings || {};
+      const prev = Number(userRatings[state.user.uid] || 0);
+      const ratingCount = Number(data.ratingCount || 0);
+      const ratingTotal = Number(data.ratingTotal || 0);
+      const nextCount = prev ? ratingCount : ratingCount + 1;
+      const nextTotal = ratingTotal - prev + score;
+      tx.update(ref, {
+        userRatings: { ...userRatings, [state.user.uid]: score },
+        ratingCount: nextCount,
+        ratingTotal: nextTotal,
+        ratingAvg: nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0
+      });
+    });
+    toast('Rating saved');
+    closeModal();
+    loadListings();
+  } catch (e) {
+    console.error(e);
+    toast('Could not save rating');
   }
 }
 
@@ -7601,6 +7820,12 @@ function renderMessages() {
   c.innerHTML = `
     <div class="messages-page">
       <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
+      <div class="stories-row messages-stories-row" id="messages-stories-row">
+        <div class="story-item add-story" onclick="openStoryCreator()">
+          <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
+          <div class="story-name">Story</div>
+        </div>
+      </div>
       <div class="msg-tabs">
         <button class="msg-tab active" data-mt="dm">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -7630,6 +7855,7 @@ function renderMessages() {
     anonPrefBtn.onclick = openAnonDmSettings;
     updateAnonPrefButton('messages-anon-pref');
   }
+  loadStories();
   $$('.msg-tab').forEach(tab => {
     tab.onclick = () => {
       $$('.msg-tab').forEach(t => t.classList.remove('active'));
@@ -7746,7 +7972,7 @@ function loadGroups() {
 async function loadAsgList(filter = 'my') {
   const el = $('#asg-list'); if (!el) return;
   const uid = state.user.uid;
-  const myModules = state.profile.modules || [];
+  const myModules = normalizeModules(state.profile.modules || []);
   try {
     let snap;
     if (filter === 'mine') {
@@ -7756,7 +7982,7 @@ async function loadAsgList(filter = 'my') {
     }
     let groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (filter === 'my') {
-      groups = groups.filter(g => myModules.includes(g.moduleCode));
+      groups = groups.filter(g => myModules.includes(normalizeModules([g.moduleCode])[0] || ''));
     }
     groups.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
@@ -7858,6 +8084,7 @@ function openCreateModuleGroup() {
   $('#asg-create-btn').onclick = async () => {
     let moduleCode = $('#asg-module').value;
     if (moduleCode === '_custom') moduleCode = ($('#asg-custom-module')?.value || '').trim().toUpperCase();
+    moduleCode = normalizeModules([moduleCode])[0] || '';
     const title = $('#asg-title')?.value.trim();
     const maxSize = parseInt($('#asg-size')?.value) || 5;
     const dueDate = $('#asg-due')?.value || '';
@@ -10101,6 +10328,7 @@ function editProfile() {
         <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
       </div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
+      <div class="form-group"><label>Gender</label><input type="text" id="edit-gender" value="${esc(p.gender || '')}" placeholder="e.g. female, male, non-binary, prefer not to say"></div>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="edit-autofill" style="width:auto" ${p.allowAutoFill !== false ? 'checked' : ''}>
@@ -10145,7 +10373,8 @@ function editProfile() {
     const bio = $('#edit-bio').value.trim();
     const address = $('#edit-address')?.value.trim() || '';
     const modulesRaw = $('#edit-modules').value || '';
-    const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+    const modules = normalizeModules(modulesRaw.split(','));
+    const gender = ($('#edit-gender')?.value || '').trim();
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
@@ -10156,7 +10385,7 @@ function editProfile() {
     else anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
-    const updates = { displayName: name, bio, modules, address, allowAutoFill, allowAnonymousMessages, anonIdentity };
+    const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
@@ -10684,7 +10913,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);
 
   // Image viewer close + gallery navigation + swipe
-  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; _galleryUrls = []; });
+  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; document.body.classList.remove('image-view-open'); _galleryUrls = []; });
   $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
   $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
   // Touch swipe support for gallery
