@@ -117,6 +117,23 @@ function clampText(v = '', max = 80) {
 }
 
 const REACTION_OPTIONS = ['❤️', '😂', '🔥', '😮', '👏'];
+const ANON_IDENTITY_TEMPLATES = [
+  'Anonymous #{code}',
+  'Campus Ghost 👻',
+  'Res Phantom 😈',
+  'Study Shade 🎭',
+  'Module Whisperer 🫥'
+];
+const SOFT_FILTER_PATTERNS = [
+  /\bkill yourself\b/i,
+  /\bslut\b/i,
+  /\bwhore\b/i,
+  /\brape\b/i,
+  /\bnudes?\b/i,
+  /\bshoot up\b/i,
+  /\b(?:i[' ]?ll|i will) kill\b/i,
+  /\bdoxx?\b/i
+];
 const APPWRITE_PUSH_SYNC_URLS = (window.UNINO_APPWRITE_SYNC_URLS || [window.UNINO_APPWRITE_SYNC_URL || ''])
   .map(url => (url || '').trim())
   .filter(Boolean);
@@ -1908,12 +1925,64 @@ function anonNicknameKey(viewerUid, otherUid) {
 
 function defaultAnonLabel(convoId = '') {
   const suffix = (convoId || '').slice(-4).toUpperCase() || 'CHAT';
-  return `Anonymous #${suffix}`;
+  const template = ANON_IDENTITY_TEMPLATES[Math.abs(hashStringToId(convoId || suffix)) % ANON_IDENTITY_TEMPLATES.length] || ANON_IDENTITY_TEMPLATES[0];
+  return template.replace('{code}', suffix);
 }
 
 function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
   const custom = (convo.anonNicknames || {})[anonNicknameKey(viewerUid, otherUid)] || '';
-  return custom || defaultAnonLabel(convo.id || convo._id || otherUid || '');
+  const profileAlias = otherUid === state.user?.uid
+    ? (state.profile?.anonAlias || '')
+    : ((_userContextCache[otherUid] || {}).anonAlias || '');
+  return custom || profileAlias || defaultAnonLabel(convo.id || convo._id || otherUid || '');
+}
+
+function getPreferredAnonIdentity(seed = '') {
+  const custom = (state.profile?.anonAlias || '').trim();
+  return custom || defaultAnonLabel(seed || state.user?.uid || '');
+}
+
+function moderateTextContent(input = '') {
+  let text = String(input || '');
+  const matched = [];
+  SOFT_FILTER_PATTERNS.forEach(pattern => {
+    if (!pattern.test(text)) return;
+    matched.push(pattern.source);
+    text = text.replace(pattern, match => '•'.repeat(Math.max(3, match.length)));
+  });
+  return {
+    text: text.trim(),
+    flagged: matched.length > 0,
+    severity: matched.length >= 2 ? 'high' : (matched.length ? 'medium' : 'none'),
+    matched
+  };
+}
+
+async function createModerationReport({
+  type = 'content_flag',
+  targetCollection = '',
+  targetId = '',
+  ownerId = '',
+  reason = '',
+  details = {},
+  autoShadow = false
+} = {}) {
+  try {
+    await db.collection('reports').add({
+      type,
+      targetCollection,
+      targetId,
+      ownerId,
+      reason,
+      details,
+      autoShadow,
+      status: 'open',
+      createdAt: FieldVal.serverTimestamp(),
+      createdBy: state.user?.uid || 'system'
+    });
+  } catch (e) {
+    console.warn('createModerationReport failed', e);
+  }
 }
 
 let _commentAnonChoice = null;
@@ -3549,12 +3618,9 @@ function renderFeedResults(posts = []) {
   }
 
   if (_feedSearchQuery) {
-    const trends = $('#module-trends');
     const rail = $('#feed-trending-posts');
-    if (trends) trends.innerHTML = '';
     if (rail) rail.innerHTML = '';
   } else {
-    renderModuleTrends(posts);
     renderTrendingPostsRail(posts);
   }
 
@@ -3571,13 +3637,6 @@ function renderFeed() {
   else c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
-      ${!window._greetingShown ? `<div class="welcome-banner" id="welcome-banner">
-        <div class="welcome-text">
-          <h2>Hey, ${esc(p.firstName || p.displayName?.split(' ')[0])} 👋</h2>
-          <p>${esc(p.university || 'NWU Campus')}</p>
-        </div>
-      </div>` : ''}
-
       <div class="feed-toolbar">
         <div class="feed-live-chip"><span class="dot green"></span> <span id="feed-online">0</span> online</div>
         <div class="search-bar feed-search-bar">
@@ -3609,9 +3668,6 @@ function renderFeed() {
         <div class="placeholder-text">What's on your mind?</div>
         <div class="prompt-actions"><span class="prompt-action">+</span></div>
       </div>
-
-      <div id="module-trends"></div>
-
       <div id="feed-trending-posts"></div>
 
       <div id="feed-posts">
@@ -3622,9 +3678,6 @@ function renderFeed() {
       </button>
     </div>
   `;
-
-  // Mark greeting as shown for this session
-  window._greetingShown = true;
 
   // Wire discover tabs
   $$('.discover-tab').forEach(tab => {
@@ -3667,6 +3720,7 @@ function renderFeed() {
       // Filter: show public posts, own posts, and friends-only posts from friends
       const visible = allPosts.filter(post => {
         if (post.authorId === uid) return true;
+        if (post.shadowHidden) return false;
         if (post.visibility === 'friends') return myFriends.includes(post.authorId);
         return true; // public or no visibility set
       });
@@ -4318,12 +4372,13 @@ function renderPosts(posts) {
             ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
             : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(post.authorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? '👻 Anonymous' : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? `👻 ${esc(post.anonAlias || defaultAnonLabel(post.id))}` : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
         ${post.content ? renderExpandablePostContent(post.content, `feed-${post.id}`, 180) : ''}
+        ${post.contextTags?.length ? `<div class="post-hash-tags">${post.contextTags.map(tag => `<span class="hash-tag">${esc(tag)}</span>`).join('')}</div>` : ''}
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
@@ -5937,7 +5992,8 @@ function openCreateModal() {
       }
     };
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
-      const text = $('#create-text').value.trim();
+      const moderation = moderateTextContent($('#create-text').value.trim());
+      const text = moderation.text;
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
       if (!text && !pendingFiles.length) return toast('Post cannot be empty');
@@ -5958,6 +6014,10 @@ function openCreateModal() {
           mediaURL = imageURLs[0];
           mediaType = 'collage';
         }
+        const contextTags = [];
+        if (state.profile?.address) contextTags.push(`📍 ${state.profile.address}`);
+        if (moduleTags.length) contextTags.push(`🎓 ${moduleTags[0]}`);
+        if (state.profile?.address && /res/i.test(state.profile.address)) contextTags.push('🏠 Res life');
         const postRef = await db.collection('posts').add({
           content: text,
           imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
@@ -5965,18 +6025,33 @@ function openCreateModal() {
           videoURL: mediaType === 'video' ? mediaURL : null,
           mediaType,
           authorId: state.user.uid,
-          authorName: isAnon ? 'Anonymous' : state.profile.displayName,
+          authorName: isAnon ? getPreferredAnonIdentity() : state.profile.displayName,
           authorPhoto: isAnon ? null : (state.profile.photoURL || null),
+          anonAlias: isAnon ? getPreferredAnonIdentity() : null,
           authorUni: state.profile.university || '',
           moduleTags,
           hashTags,
+          contextTags,
           isAnonymous: isAnon || false,
           visibility: isAnon ? 'public' : visibility,
+          shadowHidden: !!state.profile?.shadowBanActive,
+          moderationFlags: moderation.matched,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
+        if (moderation.flagged) {
+          createModerationReport({
+            targetCollection: 'posts',
+            targetId: postRef.id,
+            ownerId: state.user.uid,
+            reason: 'soft-filter-hit',
+            details: { matched: moderation.matched, preview: clampText(text, 160) },
+            autoShadow: moderation.severity === 'high'
+          });
+          if (moderation.severity === 'high') await postRef.update({ shadowHidden: true });
+        }
         shadowSyncPost(postRef.id, {
           authorId: state.user.uid,
-          authorName: isAnon ? 'Anonymous' : state.profile.displayName,
+          authorName: isAnon ? getPreferredAnonIdentity() : state.profile.displayName,
           content: text,
           imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
           videoURL: mediaType === 'video' ? mediaURL : null,
@@ -5984,7 +6059,7 @@ function openCreateModal() {
           createdAt: new Date().toISOString()
         });
         if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, text, postRef.id, isAnon);
-        toast('Posted!');
+        toast(moderation.flagged ? 'Posted. We softened some risky wording.' : 'Posted!');
       } catch (e) { toast('Failed'); console.error(e); }
     };
   };
@@ -5999,11 +6074,13 @@ function openCreateModal() {
       }
     };
     if ($('#ev-create-btn')) $('#ev-create-btn').onclick = async () => {
-      const title = $('#ev-title')?.value.trim();
+      const titleModeration = moderateTextContent($('#ev-title')?.value.trim());
+      const descModeration = moderateTextContent($('#ev-desc')?.value.trim() || '');
+      const title = titleModeration.text;
       const locationText = $('#ev-location-text')?.value.trim() || '';
       const date = $('#ev-date')?.value;
       const time = $('#ev-time')?.value || '';
-      const desc = $('#ev-desc')?.value.trim() || '';
+      const desc = descModeration.text || '';
       if (!title || !date) return toast('Title and date required');
       const filesToUpload = [...(window._eventFiles || [])];
       window._eventFiles = [];
@@ -6022,9 +6099,10 @@ function openCreateModal() {
           createdBy: state.user.uid,
           creatorName: state.profile.displayName,
           going: [state.user.uid],
+          moderationFlags: [...titleModeration.matched, ...descModeration.matched],
           createdAt: FieldVal.serverTimestamp()
         });
-        toast('Event created!');
+        toast(titleModeration.flagged || descModeration.flagged ? 'Event created with safer wording.' : 'Event created!');
         await loadCampusEvents();
         if (exploreView === 'radar') renderRadarView();
       } catch (e) { toast('Failed'); console.error(e); }
@@ -6170,12 +6248,12 @@ function renderRadarView() {
 
         ${moduleUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span></div>
+          <div class="proximity-header"><h3>🔗 Shared Modules</h3><div style="display:flex;align-items:center;gap:8px"><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="jumpToExploreList('module')">View all</button></div></div>
           <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
         <div class="proximity-section">
-          <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span></div>
+          <div class="proximity-header"><h3>📍 Nearby Area</h3><div style="display:flex;align-items:center;gap:8px"><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="jumpToExploreList('nearby')">View all</button></div></div>
           <div class="proximity-scroll">
             ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
               : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
@@ -6184,13 +6262,13 @@ function renderRadarView() {
 
         ${courseUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span></div>
+          <div class="proximity-header"><h3>📚 Same Course</h3><div style="display:flex;align-items:center;gap:8px"><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="jumpToExploreList('course')">View all</button></div></div>
           <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
         ${otherUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span></div>
+          <div class="proximity-header"><h3>🎓 Other Students</h3><div style="display:flex;align-items:center;gap:8px"><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="jumpToExploreList('all')">View all</button></div></div>
           <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
@@ -6587,6 +6665,19 @@ async function renderExploreGrid(query = '', filter = 'all') {
   }).join('');
 }
 
+function jumpToExploreList(filter = 'all', query = '') {
+  exploreView = 'list';
+  const nextQuery = query || window._radarSearchQuery || _exploreSearchQuery || '';
+  _exploreSearchQuery = nextQuery;
+  window._radarSearchQuery = nextQuery;
+  $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+  renderListView(_exploreSearchQuery);
+  requestAnimationFrame(() => {
+    const chip = document.querySelector(`#explore-body .filter-chips .chip[data-f="${filter}"]`);
+    if (chip) chip.click();
+  });
+}
+
 // ══════════════════════════════════════════════════
 //  CAMPUS MAP — Events & Locations on visual map
 // ══════════════════════════════════════════════════
@@ -6610,7 +6701,17 @@ let allCampusEvents = [];
 async function loadCampusEvents() {
   try {
     const snap = await db.collection('events').orderBy('date','asc').limit(50).get();
-    allCampusEvents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const now = Date.now();
+    const expired = [];
+    allCampusEvents = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(ev => {
+      const eventTime = new Date(`${ev.date || ''}T${ev.time || '23:59'}`).getTime();
+      if (Number.isFinite(eventTime) && eventTime < now) {
+        expired.push(ev.id);
+        return false;
+      }
+      return true;
+    });
+    expired.forEach(id => db.collection('events').doc(id).delete().catch(() => {}));
   } catch (e) {
     console.error(e);
     allCampusEvents = [];
@@ -6631,7 +6732,7 @@ function renderCampusMapView() {
   body.innerHTML = `
     <div class="campus-map-container">
       <div class="campus-map-header">
-        <h3>NWU Campus Map</h3>
+        <h3>Live Campus Map Pulse</h3>
         <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
       <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
@@ -6948,8 +7049,15 @@ async function loadListings(cat = 'all', query = '') {
       <div class="listing-card" onclick="openProductDetail('${item.id}')">
         ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy">` : '<div class="listing-placeholder">📦</div>'}
         <div class="listing-info">
+          <div class="listing-badges">
+            <span class="mini-tag hot">🔥 Hot</span>
+            <span class="mini-tag time">⏳ ${timeAgo(item.createdAt)}</span>
+            <span class="mini-tag views">👀 ${Number(item.views || 0)}</span>
+            ${Number(item.interestedCount || 0) >= 3 ? '<span class="mini-tag fast">⚡ Selling fast</span>' : ''}
+          </div>
           <div class="listing-price">R${esc(String(item.price))}</div>
           <div class="listing-title">${esc(item.title)}</div>
+          <div class="listing-rating">⭐ ${Number(item.ratingAvg || 0).toFixed(1)}${item.ratingCount ? ` <span>(${item.ratingCount})</span>` : ''}</div>
           <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
         </div>
       </div>
@@ -7114,6 +7222,9 @@ async function hustleBuyInterest(itemId) {
       itemTitle: item.title,
       itemPrice: item.price
     });
+    await db.collection('listings').doc(itemId).set({
+      interestedCount: FieldVal.increment(1)
+    }, { merge: true });
 
     closeModal();
     toast('Interest sent to seller!');
@@ -9223,7 +9334,7 @@ async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId =
     // Create anonymous conversation
     const doc = await db.collection('conversations').add({
       participants: [state.user.uid, uid],
-      participantNames: ['Anonymous', 'Anonymous'],
+      participantNames: [getPreferredAnonIdentity(state.user.uid), 'Anonymous'],
       participantPhotos: [null, null],
       lastMessage: '', updatedAt: FieldVal.serverTimestamp(),
       unread: { [uid]: 0, [state.user.uid]: 0 },
@@ -9580,6 +9691,17 @@ async function submitPostReport(postId) {
       lastReportReason: reason,
       lastReportedAt: FieldVal.serverTimestamp()
     });
+    const postSnap = await postRef.get();
+    const post = postSnap.data() || {};
+    await createModerationReport({
+      type: 'user_report',
+      targetCollection: 'posts',
+      targetId: postId,
+      ownerId: post.authorId || '',
+      reason,
+      details: { preview: clampText(post.content || '', 160) }
+    });
+    if ((post.reportsCount || 0) + 1 >= 3) await postRef.set({ shadowHidden: true }, { merge: true });
     closeModal();
     toast('Post reported');
   } catch (e) {
@@ -9820,6 +9942,8 @@ function editProfile() {
         <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
       </div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
+      <div class="form-group"><label>Anonymous Identity</label><input type="text" id="edit-anon-alias" value="${esc(p.anonAlias || '')}" placeholder="${esc(defaultAnonLabel(state.user?.uid || 'ME'))}"></div>
+      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">Leave blank to use rotating anonymous identities like Campus Ghost or Anonymous #A23.</p>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="edit-autofill" style="width:auto" ${p.allowAutoFill !== false ? 'checked' : ''}>
@@ -9844,12 +9968,13 @@ function editProfile() {
     const bio = $('#edit-bio').value.trim();
     const address = $('#edit-address')?.value.trim() || '';
     const modulesRaw = $('#edit-modules').value || '';
+    const anonAlias = ($('#edit-anon-alias')?.value || '').trim();
     const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
-    const updates = { displayName: name, bio, modules, address, allowAutoFill, allowAnonymousMessages };
+    const updates = { displayName: name, bio, modules, address, anonAlias, allowAutoFill, allowAnonymousMessages };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
@@ -10311,6 +10436,11 @@ async function adminModeratePosts() {
       <div class="asg-card" style="margin:8px 0">
         <div class="asg-card-title">${esc((p.content || '').slice(0, 100) || '[media post]')}</div>
         <div class="asg-card-meta"><span>By ${esc(p.authorName || 'User')}${verifiedBadge(p.authorId)}</span><span>\u00b7 ${timeAgo(p.createdAt)}</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+          ${p.reportsCount ? `<span class="module-chip">🚫 Reports ${p.reportsCount}</span>` : ''}
+          ${p.shadowHidden ? `<span class="module-chip">🕶 Shadow hidden</span>` : ''}
+          ${(p.moderationFlags || []).length ? `<span class="module-chip">⚠️ Filtered</span>` : ''}
+        </div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn-outline" style="flex:1" onclick="viewPost('${p.id}')">View</button>
           <button class="btn-danger" style="flex:1;border-radius:var(--radius)" onclick="adminDeletePost('${p.id}')">Delete</button>
