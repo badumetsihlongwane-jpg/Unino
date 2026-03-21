@@ -1941,10 +1941,8 @@ function shouldHideShadowBannedContent(entity = {}) {
   const ownerId = entity.authorId || entity.uid || entity.sellerId || '';
   if (!entity?.shadowBanned) return false;
   if (_isAdmin) return false;
-  if (!ownerId) return true;
   const viewerUid = state.user?.uid || '';
-  if (!viewerUid) return true;
-  return ownerId !== viewerUid;
+  return !ownerId || !viewerUid || ownerId !== viewerUid;
 }
 
 let _commentAnonChoice = null;
@@ -3919,7 +3917,10 @@ function renderStoriesRow(hostId = 'stories-row', options = {}) {
     const allowedAuthors = new Set([state.user.uid, ...(state.profile?.friends || [])]);
     stories.forEach(story => {
       if (!story.authorId || !allowedAuthors.has(story.authorId)) return;
-      if (!story.expiresAt || typeof story.expiresAt.seconds !== 'number' || story.expiresAt.seconds <= nowSeconds) return;
+      const hasValidExpiry = typeof story.expiresAt?.seconds === 'number';
+      if (!hasValidExpiry) return;
+      const isExpired = story.expiresAt.seconds <= nowSeconds;
+      if (isExpired) return;
       if (!grouped[story.authorId]) grouped[story.authorId] = [];
       grouped[story.authorId].push(story);
     });
