@@ -4467,11 +4467,11 @@ function renderPosts(posts) {
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
-        ${renderPostCommentPreview(post.id)}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
         ${post.repostOf ? renderQuoteEmbed(post.repostOf, { repostStyle: true }) : ''}
+        ${renderPostCommentPreview(post.id)}
         <div class="post-engagement">
           <div class="post-stats">${renderPostStatsMarkup(post)}</div>
           <div class="post-actions">
@@ -7817,24 +7817,15 @@ async function joinGroup(groupId) {
 
 function renderMessages() {
   const c = $('#content');
+  const inGroupsView = state.lastMsgTab === 'groups';
   c.innerHTML = `
     <div class="messages-page">
-      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
+      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="btn-outline btn-sm" id="messages-groups-toggle" title="Open groups">${inGroupsView ? 'Chats' : 'Groups'}</button><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
       <div class="stories-row messages-stories-row" id="messages-stories-row">
         <div class="story-item add-story" onclick="openStoryCreator()">
           <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
           <div class="story-name">Story</div>
         </div>
-      </div>
-      <div class="msg-tabs">
-        <button class="msg-tab active" data-mt="dm">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          DMs <span class="tab-badge" id="dm-tab-badge"></span>
-        </button>
-        <button class="msg-tab" data-mt="groups">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Groups <span class="tab-badge" id="asg-tab-badge"></span>
-        </button>
       </div>
       <div id="msg-tab-content">
         <div class="convo-list" id="convo-list">
@@ -7855,41 +7846,53 @@ function renderMessages() {
     anonPrefBtn.onclick = openAnonDmSettings;
     updateAnonPrefButton('messages-anon-pref');
   }
-  loadStories();
-  $$('.msg-tab').forEach(tab => {
-    tab.onclick = () => {
-      $$('.msg-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      state.lastMsgTab = tab.dataset.mt;
-      if (tab.dataset.mt === 'dm') loadDMList();
-      else loadGroups();
-      updateArchiveFabState();
-    };
-  });
-  // Restore last active tab
-  const restoreTab = state.lastMsgTab || 'dm';
-  if (restoreTab === 'groups') state.lastMsgTab = 'dm';
-  if (restoreTab === 'archived') {
-    $$('.msg-tab').forEach(t => t.classList.remove('active'));
-    loadArchivedDMList();
-  } else {
-    const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
-    if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
+  const groupsToggleBtn = $('#messages-groups-toggle');
+  if (groupsToggleBtn) {
+    groupsToggleBtn.onclick = toggleMessagesGroupsView;
   }
+  loadStories();
+
+  const restoreTab = state.lastMsgTab || 'dm';
+  if (restoreTab === 'archived') {
+    loadArchivedDMList();
+  } else if (restoreTab === 'groups') {
+    loadGroups();
+  } else {
+    loadDMList();
+  }
+  updateMessagesGroupsToggle();
+  updateArchiveFabState();
+}
+
+function updateMessagesGroupsToggle() {
+  const btn = $('#messages-groups-toggle');
+  if (!btn) return;
+  btn.textContent = state.lastMsgTab === 'groups' ? 'Chats' : 'Groups';
+}
+
+function toggleMessagesGroupsView() {
+  if (state.lastMsgTab === 'groups') {
+    state.lastMsgTab = 'dm';
+    loadDMList();
+  } else {
+    state.lastMsgTab = 'groups';
+    loadGroups();
+  }
+  updateMessagesGroupsToggle();
   updateArchiveFabState();
 }
 
 function toggleArchiveDmView() {
   if (state.lastMsgTab === 'archived') {
-    state.lastMsgTab = 'dm';
-    const dmTab = document.querySelector('.msg-tab[data-mt="dm"]');
-    if (dmTab) dmTab.click();
+    state.lastMsgTab = state.lastMsgTabBeforeArchive || 'dm';
+    if (state.lastMsgTab === 'groups') loadGroups();
     else loadDMList();
   } else {
+    state.lastMsgTabBeforeArchive = state.lastMsgTab === 'archived' ? 'dm' : (state.lastMsgTab || 'dm');
     state.lastMsgTab = 'archived';
-    $$('.msg-tab').forEach(t => t.classList.remove('active'));
     loadArchivedDMList();
   }
+  updateMessagesGroupsToggle();
   updateArchiveFabState();
 }
 
