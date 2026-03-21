@@ -9675,15 +9675,15 @@ async function submitPostReport(postId) {
   try {
     const postRef = db.collection('posts').doc(postId);
     const escalation = ['harassment', 'inappropriate'].includes(reason);
-    await postRef.update({
+    const updateData = {
       reportsCount: FieldVal.increment(1),
       reportedBy: FieldVal.arrayUnion(state.user.uid),
       lastReportReason: reason,
       lastReportedAt: FieldVal.serverTimestamp(),
       reviewState: escalation ? 'flagged' : 'reported',
-      shadowBanned: escalation ? true : FieldVal.delete()
-    });
-    await addNotification(state.user.uid, 'report_submitted', `Report sent · ${reason}`, { postId });
+    };
+    if (escalation) updateData.shadowBanned = true;
+    await postRef.update(updateData);
     closeModal();
     toast('Post reported');
   } catch (e) {
