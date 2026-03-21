@@ -1878,11 +1878,24 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .messages-header {
-  padding: 16px;
+  padding: 16px 16px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.messages-stories-host {
+  padding: 0 16px 12px;
   border-bottom: 1px solid var(--border);
+}
+
+.stories-strip-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
 }
 
 .messages-header-actions {
@@ -2158,10 +2171,11 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .msg-sent {
-  background: var(--accent);
+  background: linear-gradient(135deg, #5B4BDB 0%, #8B5CF6 100%);
   color: #fff;
   align-self: flex-end;
   border-bottom-right-radius: 6px;
+  box-shadow: 0 8px 18px rgba(108, 92, 231, 0.22);
 }
 
 .msg-received {
@@ -2169,6 +2183,7 @@ video::-webkit-media-controls-start-playback-button {
   border: 1px solid var(--border);
   align-self: flex-start;
   border-bottom-left-radius: 6px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
 }
 
 .msg-time {
@@ -7243,3 +7258,10 @@ video::-webkit-media-controls-start-playback-button {
   background: none; border: none; color: #fff; font-size: 20px;
   cursor: pointer; padding: 0 4px; line-height: 1;
 }
+
+.proximity-actions { display:flex; align-items:center; gap:10px; }
+.text-action-btn { border:none; background:none; color:var(--accent); font-size:12px; font-weight:700; cursor:pointer; }
+.listing-badges { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.listing-badge { padding:4px 8px; border-radius:999px; background:var(--bg-tertiary); color:var(--text-secondary); font-size:11px; font-weight:700; }
+.listing-badge.hot { background:rgba(249,115,22,0.12); color:#F97316; }
+.listing-metrics { display:flex; flex-wrap:wrap; gap:8px; font-size:11px; color:var(--text-tertiary); margin:6px 0 8px; }
