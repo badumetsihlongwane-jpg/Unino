@@ -1925,6 +1925,36 @@ function bindCommentLongPress(container, postId, source = 'feed') {
   });
 }
 
+let _commentHeartHoldTimer = null;
+let _commentHeartHoldConsumed = '';
+
+function startCommentHeartHold(postId, commentId, source = 'feed', currentReaction = '', event) {
+  if (event?.stopPropagation) event.stopPropagation();
+  clearTimeout(_commentHeartHoldTimer);
+  _commentHeartHoldConsumed = '';
+  _commentHeartHoldTimer = setTimeout(() => {
+    _commentHeartHoldConsumed = `${source}:${commentId}`;
+    if (navigator.vibrate) navigator.vibrate(18);
+    openCommentReactionPicker(postId, commentId, source, currentReaction || '');
+  }, 360);
+}
+
+function endCommentHeartHold(event) {
+  if (event?.stopPropagation) event.stopPropagation();
+  clearTimeout(_commentHeartHoldTimer);
+  _commentHeartHoldTimer = null;
+}
+
+function handleCommentHeartClick(postId, commentId, source = 'feed') {
+  const key = `${source}:${commentId}`;
+  if (_commentHeartHoldConsumed === key) {
+    _commentHeartHoldConsumed = '';
+    return;
+  }
+  if (source === 'reel') toggleReelCommentLike(commentId, postId);
+  else toggleCommentLike(commentId, postId);
+}
+
 async function deleteCommentThread(postId, commentId, source = 'feed') {
   try {
     const commentsRef = db.collection('posts').doc(postId).collection('comments');
@@ -4464,15 +4494,16 @@ const _pendingQuotePlayers = [];
 function renderQuoteEmbed(rp, options = {}) {
   if (!rp) return '';
   const { repostStyle = false } = options;
-  const hasImg = rp.imageURL && rp.mediaType !== 'video';
-  const hasVid = rp.videoURL || (rp.mediaType === 'video');
+  const hasVid = !!(rp.videoURL || (rp.mediaType === 'video') || (rp.imageURL && /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(rp.imageURL)));
+  const hasImg = !!(rp.imageURL && !hasVid);
   const vidUrl = hasVid ? (rp.videoURL || rp.imageURL) : null;
   let vidHtml = '';
   if (hasVid && vidUrl) {
     const vpd = createVideoPlayer(vidUrl);
     _pendingQuotePlayers.push(vpd);
-    vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;max-height:200px">${vpd.html}</div>`;
+    vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;margin-top:8px">${vpd.html}</div>`;
   }
+  const quoteImgMax = repostStyle ? 260 : 200;
   return `
     <div class="quote-embed${repostStyle ? ' quote-embed-repost' : ''}" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -4480,7 +4511,7 @@ function renderQuoteEmbed(rp, options = {}) {
         <span style="font-weight:600;font-size:13px">${esc(rp.authorName || 'User')}</span>
       </div>
       ${rp.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(rp.content)}</div>` : ''}
-      ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
+      ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:${quoteImgMax}px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
       ${vidHtml}
     </div>`;
 }
@@ -4892,6 +4923,11 @@ function openReelsViewer() { openVideoHub('clips'); }
 function closeReelsViewer() { closeVideoHub(); }
 
 function toggleReelPlay(overlay) {
+  const panel = document.getElementById('reel-comments-panel');
+  if (panel) {
+    closeReelComments();
+    return;
+  }
   const vid = overlay.parentElement.querySelector('.reel-video');
   if (!vid) return;
   if (vid.paused) {
@@ -5672,7 +5708,6 @@ async function openReelComments(postId, options = {}) {
   const renderComment = (c, isReply = false) => {
     const liked = (c.likes || []).includes(state.user.uid);
     const myReaction = getUserReaction(c.reactions, c.likes || []);
-    const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
     const cReplies = replyMap[c.id] || [];
     const target = c.replyTo ? commentById[c.replyTo] : null;
     const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
@@ -5689,10 +5724,8 @@ async function openReelComments(postId, options = {}) {
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
-            ${reactionSummary}
-            <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">Like ${c.likeCount > 0 ? c.likeCount : ''}</button>
-            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
+            <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','reel')" onmousedown="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0)}</button>
           </div>
           ${cReplies.length ? `
             <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -5947,6 +5980,7 @@ async function openComments(postId, options = {}) {
 
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
+      const myReaction = getUserReaction(c.reactions, c.likes || []);
      const cReplies = replyMap[c.id] || [];
       const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
@@ -5974,7 +6008,7 @@ async function openComments(postId, options = {}) {
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
-            <button class="c-act like-only ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">${renderCommentLikeMarkup(liked, c.likeCount || 0)}</button>
+            <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0)}</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -6583,6 +6617,8 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
+  // Always open Explore on radar first.
+  exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
@@ -6918,6 +6954,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       L.marker([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], { icon: pinIcon }).addTo(_leafletMap)
         .bindPopup(`<b>📌 ${esc(_pendingRadarPinnedPoint.label || 'Pinned')}</b>`);
       _leafletMap.flyTo([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], 17, { duration: 0.45 });
+      _pendingRadarPinnedPoint = null;
     }
 
     CAMPUS_LOCATIONS.forEach(loc => {
@@ -7219,6 +7256,7 @@ async function upsertEventChatGroup(eventData = {}) {
     type: 'event',
     isEventGroup: true,
     eventId,
+    eventImage: (eventData.imageURLs && eventData.imageURLs.length ? eventData.imageURLs[0] : '') || eventData.coverURL || eventData.imageURL || '',
     eventDate: eventData.date || '',
     eventTime: eventData.time || '',
     createdBy: eventData.createdBy || state.user.uid,
@@ -8084,7 +8122,14 @@ async function openGroupChat(groupId, collection = 'groups') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.imageURL) {
+              const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
+              if (isVideoMedia) {
+                content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
+              } else {
+                content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+              }
+            }
             if (!m.deleted && m.text) content += esc(m.text);
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
@@ -8122,19 +8167,22 @@ async function openGroupChat(groupId, collection = 'groups') {
       gInput.style.height = '40px';
       gInput.oninput = resizeGInput;
     }
+    let gchatPendingImg = null;
 
     const sendGMsg = async () => {
       const input = gInput || $('#gchat-input');
       const text = input?.value.trim();
       const moderation = applySoftKeywordFilterText(text || '');
       const safeText = moderation.text;
+      const img = gchatPendingImg;
+      const gchatFile = window._gchatFile || null;
       let audioURL = null;
       if (window._gchatVoiceBlob) {
         const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
         audioURL = await uploadToR2(af, 'voice');
         window._gchatVoiceBlob = null;
       }
-      if (!safeText && !audioURL) return;
+      if (!safeText && !img && !audioURL) return;
       const replyPayload = _gReplyTo ? {
         replyToId: _gReplyTo.id,
         replyToText: _gReplyTo.text,
@@ -8142,13 +8190,23 @@ async function openGroupChat(groupId, collection = 'groups') {
         replyToSenderId: _gReplyTo.senderId
       } : {};
       input.value = '';
+      gchatPendingImg = null;
+      window._gchatFile = null;
       resizeGInput();
       input.focus();
       _gReplyTo = null;
       if (gReply) gReply.style.display = 'none';
+      const preview = $('#gchat-img-preview');
+      if (preview) preview.style.display = 'none';
       try {
+        let imageURL = null;
+        let mediaType = null;
+        if (gchatFile) {
+          imageURL = await uploadToR2(gchatFile, 'chat-images');
+          mediaType = (gchatFile.type || '').startsWith('video/') ? 'video' : 'image';
+        }
         await db.collection(collection).doc(groupId).collection('messages').add({
-          text: safeText || '', audioURL: audioURL || null,
+          text: safeText || '', imageURL: imageURL || null, mediaType: mediaType || null, audioURL: audioURL || null,
           moderationFlags: moderation.flags,
           senderId: uid, senderName: state.profile.displayName,
           senderPhoto: state.profile.photoURL || null,
@@ -8156,17 +8214,35 @@ async function openGroupChat(groupId, collection = 'groups') {
           createdAt: FieldVal.serverTimestamp()
         });
         await db.collection(collection).doc(groupId).update({
-          lastMessage: audioURL ? '🎤 Voice' : safeText, updatedAt: FieldVal.serverTimestamp()
+          lastMessage: audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText,
+          updatedAt: FieldVal.serverTimestamp()
         });
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
     $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
+
+    const gchatFileInput = $('#gchat-file-input');
+    if (gchatFileInput) {
+      gchatFileInput.onchange = e => {
+        if (e.target.files[0]) {
+          window._gchatFile = e.target.files[0];
+          gchatPendingImg = localPreview(e.target.files[0]);
+          const preview = $('#gchat-img-preview');
+          if (preview) {
+            preview.querySelector('img').src = gchatPendingImg;
+            preview.style.display = 'block';
+          }
+        }
+      };
+    }
+
     $('#gchat-back').onclick = () => {
       _activeGroupChat = { id: '', collection: '' };
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
+      window._gchatFile = null;
       showScreen('app');
       if (state.page !== 'chat') navigate('chat');
     };
@@ -8439,7 +8515,7 @@ async function loadEventChatGroups() {
       <div style="padding:6px 4px 8px;font-size:12px;font-weight:700;color:var(--text-secondary)">EVENT GROUPS</div>
       ${groups.map(g => `
         <div class="convo-item" style="margin-bottom:8px" onclick="openGroupChat('${g.id}','groups')">
-          <div class="convo-avatar"><div class="avatar-md group-avatar-icon">📅</div></div>
+          <div class="convo-avatar">${g.eventImage ? `<img class="avatar-md group-avatar-photo" src="${g.eventImage}" alt="">` : '<div class="avatar-md group-avatar-icon">📅</div>'}</div>
           <div class="convo-info">
             <div class="convo-name">${esc(g.name || 'Event Group')}</div>
             <div class="convo-last-msg">${esc(g.lastMessage || 'Event chat')}</div>

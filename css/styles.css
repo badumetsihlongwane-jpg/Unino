@@ -4373,6 +4373,14 @@ body.image-view-open .modal-bg {
   border-radius: var(--radius-full);
 }
 
+.group-avatar-photo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 /* Group chat sender name */
 .gchat-sender {
   font-size: 11px;
