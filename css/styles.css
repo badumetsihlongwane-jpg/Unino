@@ -1361,6 +1361,16 @@ video::-webkit-media-controls-start-playback-button {
   font-weight: 700;
 }
 
+.post-content .mention-handle {
+  color: #3b82f6;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.post-content .mention-handle:hover {
+  text-decoration: underline;
+}
+
 .post-link {
   color: var(--accent);
   text-decoration: none;
@@ -6701,15 +6711,26 @@ body.image-view-open .modal-bg {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   animation: slideUpPanel 0.25s ease-out;
+  transition: transform 0.22s ease, opacity 0.22s ease;
 }
 
 .video-hub.reel-comments-open .reel-slide {
-  padding-bottom: 46vh;
+  padding-bottom: 44vh;
 }
 
 .video-hub.reel-comments-open .reel-video {
-  flex: none;
-  height: calc(100% - 46vh);
+  flex: 0 0 auto;
+  height: clamp(220px, 56vh, 68vh);
+  min-height: 220px;
+}
+
+.reel-comments-panel.is-loading {
+  opacity: 0.94;
+}
+
+.reel-comments-panel:not(.is-open) {
+  transform: translateY(10px);
+  opacity: 0;
 }
 
 @media (min-width: 900px) {

@@ -253,33 +253,40 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const allowSelf = !!options.allowSelf;
   if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
 
-  const mode = shouldMirrorToAppwrite() ? 'appwrite-first' : 'firebase-only';
+  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite+firebase' : 'firebase-only';
   const { docId = null } = options;
   let appwriteStatus = 'skipped';
   let appwriteDetail = '';
 
-  if (shouldMirrorToAppwrite() && APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
+  if (APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
     try {
-      const resp = await postToAppwriteBridge(APPWRITE_EVENT_SYNC_URLS[0], {
-        eventType: 'notification_dispatch',
-        payload: {
-          mode,
-          targetId,
-          type: data.type || 'generic',
-          text: data.text || '',
-          payload: data.payload || {},
-          at: new Date().toISOString()
+      let delivered = false;
+      for (const url of APPWRITE_EVENT_SYNC_URLS) {
+        const resp = await postToAppwriteBridge(url, {
+          eventType: 'notification_dispatch',
+          payload: {
+            mode,
+            targetId,
+            type: data.type || 'generic',
+            text: data.text || '',
+            payload: data.payload || {},
+            at: new Date().toISOString()
+          }
+        });
+        if (resp.ok) {
+          const body = await resp.clone().json().catch(() => null);
+          const push = body?.result?.push;
+          appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
+          if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
+          else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
+          delivered = true;
+          break;
         }
-      });
-      if (resp.ok) {
-        const body = await resp.clone().json().catch(() => null);
-        const push = body?.result?.push;
-        appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
-        if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
-        else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
-      } else {
         appwriteStatus = `http-${resp.status}`;
         appwriteDetail = await resp.text().catch(() => '');
+      }
+      if (!delivered && appwriteStatus === 'skipped') {
+        appwriteStatus = 'failed';
       }
     } catch (e) {
       appwriteStatus = 'error';
@@ -2179,13 +2186,32 @@ function extractMentionHandles(text = '') {
   while ((match = regex.exec(text || ''))) {
     found.add((match[1] || '').toLowerCase());
   }
-  return [...found].slice(0, 8);
+  return [...found].slice(0, 20);
 }
 
 function mentionHandleForName(name = '') {
   return String(name || '')
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, '');
+}
+
+async function openMentionProfileByHandle(handle = '') {
+  const clean = String(handle || '').trim().toLowerCase();
+  if (!clean) return;
+  const local = (_usersCache?.data || []).find(u => mentionHandleForName(u.displayName || '') === clean);
+  if (local?.id) {
+    openProfile(local.id);
+    return;
+  }
+  try {
+    const users = await getUsersCache();
+    const hit = (users || []).find(u => mentionHandleForName(u.displayName || '') === clean);
+    if (hit?.id) {
+      openProfile(hit.id);
+      return;
+    }
+  } catch (_) {}
+  toast('Profile not found');
 }
 
 function extractModuleTags(text = '', manualTags = '') {
@@ -2670,6 +2696,11 @@ function formatContent(text) {
       return `<span class="hashtag module-hashtag" onclick="openModuleFeed('${tag}')">#${tag}</span>`;
     }
     return `<span class="hashtag" onclick="openTagFeed('${rawTag.toLowerCase()}')">#${rawTag}</span>`;
+  });
+  // Mentions
+  html = html.replace(/(^|\s)@([A-Za-z][A-Za-z0-9._-]{1,31})\b/g, (_, lead, handle) => {
+    const cleanHandle = (handle || '').toLowerCase();
+    return `${lead}<span class="mention-handle" onclick="openMentionProfileByHandle('${cleanHandle}')">@${handle}</span>`;
   });
   return html;
 }
@@ -4395,6 +4426,7 @@ async function sendStoryReply(story, text) {
       lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
       unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
     }, { merge: true });
+    await addNotification(authorId, 'message', 'sent you a story reply', { convoId });
     toast('Reply sent!');
   } catch (e) { console.error(e); toast('Failed to send reply'); }
 }
@@ -5601,6 +5633,23 @@ async function openReelComments(postId, options = {}) {
 
   if (reelsScroll) reelsScroll.scrollTop = scrollPos;
 
+  const panel = existing || document.createElement('div');
+  panel.id = 'reel-comments-panel';
+  panel.className = 'reel-comments-panel is-loading';
+  panel.onclick = e => e.stopPropagation();
+  panel.innerHTML = `
+    <div class="reel-comments-header">
+      <h3>Comments</h3>
+      <button class="icon-btn" onclick="closeReelComments()">✕</button>
+    </div>
+    <div class="reel-comments-list" id="reel-comments-list">
+      <div style="display:flex;align-items:center;justify-content:center;padding:24px 0"><span class="inline-spinner" style="width:24px;height:24px"></span></div>
+    </div>
+  `;
+  if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
+  document.getElementById('video-hub')?.classList.add('reel-comments-open');
+  requestAnimationFrame(() => panel.classList.add('is-open'));
+
   let comments = [];
   try {
     const snap = await db.collection('posts').doc(postId).collection('comments').limit(100).get();
@@ -5655,10 +5704,7 @@ async function openReelComments(postId, options = {}) {
       </div>`;
   };
 
-  const panel = existing || document.createElement('div');
-  panel.id = 'reel-comments-panel';
-  panel.className = 'reel-comments-panel';
-  panel.onclick = e => e.stopPropagation();
+  panel.className = 'reel-comments-panel is-open';
   panel.innerHTML = `
     <div class="reel-comments-header">
       <h3>Comments</h3>
@@ -5683,8 +5729,6 @@ async function openReelComments(postId, options = {}) {
       </div>
     </div>
   `;
-  if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
-  document.getElementById('video-hub')?.classList.add('reel-comments-open');
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
@@ -10013,6 +10057,7 @@ async function openChat(convoId) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
+        await addNotification(otherUid, 'message', 'sent you a message', { convoId });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -11456,6 +11501,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
