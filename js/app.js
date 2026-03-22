@@ -796,15 +796,14 @@ function clearTransientUi() {
     notifDropdown.style.display = 'none';
     return true;
   }
+  const imageView = $('#img-view');
+  if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
+    closeGalleryViewer();
+    return true;
+  }
   const modal = $('#modal-bg');
   if (modal?.style.display === 'block' || modal?.style.display === 'flex') {
     closeModal();
-    return true;
-  }
-  const imageView = $('#img-view');
-  if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
-    imageView.style.display = 'none';
-    document.body.classList.remove('image-view-open');
     return true;
   }
   const storyViewer = $('#story-viewer');
@@ -1989,18 +1988,42 @@ function renderPostContextTags(post = {}) {
     : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
   const hasExplicitPing = !!post.locationPing?.enabled && (!pingExpiry || pingExpiry.getTime() > Date.now());
   if (author && hasExplicitPing) {
-    const nearby = getNearbySignal(state.profile, author);
-    if (Number.isFinite(nearby.distanceKm) && nearby.distanceKm >= 0.05) chips.push(`📍 ${formatDistanceText(nearby.distanceKm)}`);
-    else if (post.locationPing?.label) chips.push(`📍 ${post.locationPing.label}`);
+    chips.push({ text: '📍 Pin', className: 'clickable', onClick: `openPinnedPostOnRadar('${post.id}')` });
     const addr = (author.address || '').toLowerCase();
-    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push('🏠 Res life');
+    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
   }
   const sharedModule = normalizeModules(post.moduleTags || []).some(tag => normalizeModules(state.profile?.modules || []).includes(tag));
-  if (sharedModule) chips.push('🎓 Same module');
+  if (sharedModule) chips.push({ text: '🎓 Same module' });
   const trendScore = getReactionSummary(post.reactions, post.likes || []).total + (post.commentsCount || 0) * 2;
-  if (trendScore >= 12) chips.push('🔥 Trending');
+  if (trendScore >= 12) chips.push({ text: '🔥 Trending' });
   if (!chips.length) return '';
-  return `<div class="post-context-tags">${chips.slice(0, 4).map(chip => `<span class="post-context-chip">${esc(chip)}</span>`).join('')}</div>`;
+  return `<div class="post-context-tags">${chips.slice(0, 4).map(chip => {
+    const text = typeof chip === 'string' ? chip : chip.text;
+    const cls = typeof chip === 'string' ? '' : (chip.className || '');
+    const click = typeof chip === 'string' || !chip.onClick ? '' : ` onclick="${chip.onClick}"`;
+    return `<button class="post-context-chip ${cls}" type="button"${click}>${esc(text)}</button>`;
+  }).join('')}</div>`;
+}
+
+let _pendingRadarPinnedPoint = null;
+
+function openPinnedPostOnRadar(postId) {
+  const post = (state.posts || []).find(p => p.id === postId);
+  if (!post) return;
+  const context = _userContextCache[post.authorId] || {};
+  const ping = post.locationPing || {};
+  const lat = Number(ping.lat ?? context.geoLat ?? context.lat);
+  const lng = Number(ping.lng ?? context.geoLng ?? context.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    toast('Pinned location not available yet');
+    return;
+  }
+  _pendingRadarPinnedPoint = {
+    lat,
+    lng,
+    label: ping.label || post.authorName || 'Pinned'
+  };
+  navigate('explore');
 }
 
 function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
@@ -2102,6 +2125,22 @@ function extractHashTags(text = '') {
   let match;
   while ((match = regex.exec(source))) found.add(match[1].toLowerCase());
   return [...found].slice(0, 8);
+}
+
+function extractMentionHandles(text = '') {
+  const found = new Set();
+  const regex = /@([A-Za-z][A-Za-z0-9._-]{1,31})\b/g;
+  let match;
+  while ((match = regex.exec(text || ''))) {
+    found.add((match[1] || '').toLowerCase());
+  }
+  return [...found].slice(0, 8);
+}
+
+function mentionHandleForName(name = '') {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '');
 }
 
 function extractModuleTags(text = '', manualTags = '') {
@@ -4387,9 +4426,35 @@ function renderFeedInlineSuggestionCard(user = {}) {
           ${user.status === 'online' ? '<span class="online-dot"></span>' : ''}
         </div>
         <div class="discover-card-name">${esc(user.displayName || 'User')}</div>
-        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}</div>
+        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
         ${action}
       </div>
+    </div>`;
+}
+
+function renderFeedInlineSuggestionRail(users = []) {
+  const picks = (users || []).slice(0, 15);
+  if (!picks.length) return '';
+  return `
+    <div class="post-card feed-inline-suggestion feed-inline-suggestion-rail">
+      <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
+        <h3>People you may know</h3>
+      </div>
+      <div class="suggested-list">${picks.map(user => {
+        const isFriend = (state.profile?.friends || []).includes(user.id);
+        const isPending = (state.profile?.sentRequests || []).includes(user.id);
+        const action = isFriend
+          ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
+          : isPending
+            ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
+            : `<button class="btn-sm btn-primary" onclick="event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
+        return `<div class="suggested-card" onclick="openProfile('${user.id}')">
+          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
+          <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
+          <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+          ${action}
+        </div>`;
+      }).join('')}</div>
     </div>`;
 }
 
@@ -4471,7 +4536,6 @@ function renderPosts(posts) {
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
         ${post.repostOf ? renderQuoteEmbed(post.repostOf, { repostStyle: true }) : ''}
-        ${renderPostCommentPreview(post.id)}
         <div class="post-engagement">
           <div class="post-stats">${renderPostStatsMarkup(post)}</div>
           <div class="post-actions">
@@ -4487,6 +4551,7 @@ function renderPosts(posts) {
             </button>
           </div>
         </div>
+        ${renderPostCommentPreview(post.id)}
       </div>`;
   });
 
@@ -4511,13 +4576,13 @@ function renderPosts(posts) {
     const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
     const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
-      const pick = pool[i];
-      if (!pick) break;
+      const picks = pool.slice(0, 15);
+      if (!picks.length) break;
       const spread = Math.max(4, Math.min(9, posts.length - 2));
       const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
       const slot = Math.min(postCards.length, offset + i * 7);
-      postCards.splice(slot, 0, renderFeedInlineSuggestionCard(pick));
-      _feedInlineSuggestedUserIds.add(pick.id);
+      postCards.splice(slot, 0, renderFeedInlineSuggestionRail(picks));
+      picks.forEach(p => _feedInlineSuggestedUserIds.add(p.id));
       _feedInlineSuggestionSlotsUsed += 1;
     }
   }
@@ -5707,7 +5772,12 @@ function setupFeedVideoAutoplay() {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-        vid.play().catch(() => {});
+        vid.muted = false;
+        vid.play().catch(() => {
+          // Browser policy fallback if autoplay with sound is blocked.
+          vid.muted = true;
+          vid.play().catch(() => {});
+        });
       } else {
         vid.pause();
       }
@@ -6007,6 +6077,12 @@ function clearCommentImage() {
 let _galleryUrls = [];
 let _galleryIdx = 0;
 function viewImage(url) { openGallery([url], 0); }
+function closeGalleryViewer() {
+  const v = $('#img-view');
+  if (v) v.style.display = 'none';
+  document.body.classList.remove('image-view-open');
+  _galleryUrls = [];
+}
 function openGallery(urls, startIdx = 0) {
   _galleryUrls = urls || [];
   _galleryIdx = startIdx;
@@ -6061,6 +6137,7 @@ function openCreateModal() {
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
       <div class="create-post-hint">Use #MATH301-style tags inside your post so students in that module can discover it. Choose Anonymous if you want the post hidden from your identity.</div>
+      <div id="create-mention-suggestions" class="create-mention-suggestions" style="display:none"></div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
@@ -6068,12 +6145,12 @@ function openCreateModal() {
       <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
-          <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin location (24h)</button>
+          <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin</button>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
-            <option value="anonymous">👻 Anonymous</option>
           </select>
+          <button type="button" class="btn-outline" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting" style="padding:7px 10px;font-size:12px">👻 Anon off</button>
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
@@ -6105,6 +6182,9 @@ function openCreateModal() {
   };
 
   const wirePostTab = () => {
+    let createAnon = false;
+    const mentionMap = new Map();
+
     const refreshLocationUI = () => {
       const pill = $('#create-location-pill');
       if (!pill) return;
@@ -6116,6 +6196,52 @@ function openCreateModal() {
       const label = locationPing.label || 'Current location';
       pill.style.display = 'block';
       pill.textContent = `📍 ${label} · expires in 24h`;
+    };
+
+    const applyAnonUi = () => {
+      const btn = $('#create-anon-toggle');
+      if (!btn) return;
+      btn.setAttribute('aria-pressed', createAnon ? 'true' : 'false');
+      btn.textContent = createAnon ? '👻 Anon on' : '👻 Anon off';
+      btn.classList.toggle('anon-active', createAnon);
+    };
+
+    const renderMentionSuggestions = async () => {
+      const input = $('#create-text');
+      const box = $('#create-mention-suggestions');
+      if (!input || !box) return;
+      const value = input.value || '';
+      const atIndex = value.lastIndexOf('@');
+      if (atIndex < 0) { box.style.display = 'none'; return; }
+      const tail = value.slice(atIndex + 1);
+      if (!tail || /\s/.test(tail)) { box.style.display = 'none'; return; }
+      const q = tail.trim().toLowerCase();
+      if (q.length < 1) { box.style.display = 'none'; return; }
+      const users = await getUsersCache().catch(() => []);
+      const hits = users
+        .filter(u => u.id !== state.user.uid)
+        .filter(u => (u.displayName || '').toLowerCase().includes(q))
+        .slice(0, 6);
+      if (!hits.length) { box.style.display = 'none'; return; }
+      box.innerHTML = hits.map(u => `
+        <button type="button" class="create-mention-item" data-uid="${u.id}" data-name="${esc(u.displayName || 'User')}">
+          ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+          <span>${esc(u.displayName || 'User')}</span>
+        </button>
+      `).join('');
+      box.style.display = 'block';
+      box.querySelectorAll('.create-mention-item').forEach(btn => {
+        btn.onclick = () => {
+          const name = btn.getAttribute('data-name') || 'User';
+          const uid = btn.getAttribute('data-uid') || '';
+          const handle = mentionHandleForName(name);
+          const next = `${value.slice(0, atIndex)}@${handle} `;
+          input.value = next;
+          mentionMap.set(handle, uid);
+          box.style.display = 'none';
+          input.focus();
+        };
+      });
     };
 
     const showPreviews = () => {
@@ -6148,6 +6274,24 @@ function openCreateModal() {
       }
       showPreviews();
     };
+    if ($('#create-anon-toggle')) {
+      $('#create-anon-toggle').onclick = () => {
+        createAnon = !createAnon;
+        applyAnonUi();
+      };
+      applyAnonUi();
+    }
+    const createTextInput = $('#create-text');
+    if (createTextInput) {
+      createTextInput.addEventListener('input', () => { renderMentionSuggestions().catch(() => {}); });
+      createTextInput.addEventListener('blur', () => {
+        setTimeout(() => {
+          const box = $('#create-mention-suggestions');
+          if (box) box.style.display = 'none';
+        }, 120);
+      });
+      createTextInput.addEventListener('focus', () => { renderMentionSuggestions().catch(() => {}); });
+    }
     if ($('#create-pin-location')) $('#create-pin-location').onclick = () => {
       if (!navigator.geolocation) return toast('Location is not available on this device');
       toast('Getting location...');
@@ -6180,9 +6324,10 @@ function openCreateModal() {
       const safeText = moderation.text;
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
+      const mentionHandles = extractMentionHandles(text);
       if (!safeText && !pendingFiles.length) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
-      const isAnon = visibility === 'anonymous';
+      const isAnon = !!createAnon;
       const anonIdentity = getUserAnonIdentity(state.profile || {});
       closeModal(); toast('Uploading...');
       try {
@@ -6211,11 +6356,12 @@ function openCreateModal() {
           authorUni: state.profile.university || '',
           moduleTags,
           hashTags,
+          mentionHandles,
           moderationFlags: moderation.flags,
           moderationReviewNeeded: moderation.flagged,
           locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
-          visibility: isAnon ? 'public' : visibility,
+          visibility,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
         shadowSyncPost(postRef.id, {
@@ -6224,10 +6370,23 @@ function openCreateModal() {
           content: safeText,
           imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
           videoURL: mediaType === 'video' ? mediaURL : null,
-          visibility: isAnon ? 'public' : visibility,
+          visibility,
           createdAt: new Date().toISOString()
         });
         if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, safeText, postRef.id, isAnon);
+        if (mentionHandles.length) {
+          const users = await getUsersCache().catch(() => []);
+          const byName = new Map(users.map(u => [mentionHandleForName(u.displayName || ''), u.id]));
+          const targets = new Set();
+          mentionHandles.forEach(handle => {
+            if (mentionMap.has(handle)) targets.add(mentionMap.get(handle));
+            else if (byName.has(handle)) targets.add(byName.get(handle));
+          });
+          targets.forEach(uid => {
+            if (!uid || uid === state.user.uid) return;
+            addNotification(uid, 'mention', 'mentioned you in a post', { postId: postRef.id }, { anonymous: isAnon });
+          });
+        }
         toast('Posted!');
       } catch (e) { toast('Failed'); console.error(e); }
     };
@@ -6611,6 +6770,17 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     });
     L.marker([center.lat, center.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
+    if (_pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
+      const pinIcon = L.divIcon({
+        className: 'leaflet-emoji-pin',
+        html: '<div class="map-pin-wrap has-events"><span class="map-pin-emoji">📌</span></div>',
+        iconSize: [34, 34], iconAnchor: [17, 34]
+      });
+      L.marker([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], { icon: pinIcon }).addTo(_leafletMap)
+        .bindPopup(`<b>📌 ${esc(_pendingRadarPinnedPoint.label || 'Pinned')}</b>`);
+      _leafletMap.flyTo([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], 17, { duration: 0.45 });
+    }
+
     CAMPUS_LOCATIONS.forEach(loc => {
       const evts = eventsByLoc[loc.id] || [];
       const icon = L.divIcon({
@@ -6728,7 +6898,7 @@ async function showUserPreview(uid) {
       <div class="modal-body" style="text-align:center;padding:24px">
         <div style="margin-bottom:12px">${avatar(user.displayName, user.photoURL, 'avatar-xl')}</div>
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(user.displayName)}</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}${user.gender ? ' · ' + esc(user.gender) : ''}</div>
         ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
         ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
         ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
@@ -7049,6 +7219,11 @@ function removeEventImage(idx) {
   }
 }
 
+function renderStarString(score = 0) {
+  const rounded = Math.max(1, Math.min(5, Math.round(Number(score) || 0)));
+  return `${'★'.repeat(rounded)}${'☆'.repeat(5 - rounded)}`;
+}
+
 async function openEventDetail(eventId) {
   if (!eventId) return;
   try {
@@ -7247,7 +7422,7 @@ async function loadListings(cat = 'all', query = '') {
           </div>
           <div class="listing-price">R${esc(String(item.price))}</div>
           <div class="listing-title">${esc(item.title)}</div>
-          <div class="listing-rating">⭐ ${item._ratingAvg.toFixed(1)}${item._ratingCount ? ` (${item._ratingCount})` : ''}</div>
+          <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
           <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
         </div>
       </div>
@@ -7264,6 +7439,8 @@ async function saveListingToProfile(itemId) {
     await db.collection('users').doc(state.user.uid).set({
       savedListings: FieldVal.arrayUnion(itemId)
     }, { merge: true });
+    state.profile.savedListings = Array.from(new Set([...(state.profile.savedListings || []), itemId]));
+    if (typeof window._savedCartRefresh === 'function') window._savedCartRefresh();
     toast('Saved listing');
   } catch (e) {
     console.error(e);
@@ -7278,6 +7455,7 @@ async function removeSavedListingFromProfile(itemId) {
       savedListings: FieldVal.arrayRemove(itemId)
     }, { merge: true });
     state.profile.savedListings = (state.profile.savedListings || []).filter(id => id !== itemId);
+    if (typeof window._savedCartRefresh === 'function') window._savedCartRefresh();
     toast('Removed');
   } catch (e) {
     console.error(e);
@@ -7314,13 +7492,16 @@ async function openSavedCartView() {
     const budget = Number(budgetInput?.value || 0);
     holder.innerHTML = items.map(item => `
       <div class="saved-cart-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px">
-        <div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          ${item.imageURL ? `<img src="${item.imageURL}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border)">` : ''}
+          <div style="min-width:0">
           <div style="font-weight:600">${esc(item.title || 'Listing')}</div>
           <div style="font-size:12px;color:var(--text-secondary)">R${esc(String(item.price || 0))}</div>
+          </div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn-outline" style="padding:6px 10px;font-size:12px" onclick="openProductDetail('${item.id}')">View</button>
-          <button class="btn-outline saved-cart-remove" title="Remove from saved" aria-label="Remove from saved" style="padding:6px 10px;font-size:12px" onclick="removeSavedListingFromProfile('${item.id}');openSavedCartView()">&times;</button>
+          <button class="btn-outline saved-cart-remove" title="Remove from saved" aria-label="Remove from saved" style="padding:6px 10px;font-size:12px" onclick="removeSavedListingFromProfile('${item.id}')">&times;</button>
         </div>
       </div>
     `).join('');
@@ -7331,6 +7512,7 @@ async function openSavedCartView() {
     localStorage.setItem(key, budgetInput.value || '');
     renderSaved();
   });
+  window._savedCartRefresh = renderSaved;
   renderSaved();
 }
 
@@ -7413,6 +7595,7 @@ function openProductDetail(itemId) {
   const sellerContext = _userContextCache[item.sellerId] || null;
   const sellerCoords = getUserCoords(sellerContext || {});
   const distanceText = (!isSelf && myCoords && sellerCoords) ? formatDistanceText(distanceKmBetween(myCoords, sellerCoords)) : '';
+  const myRating = Number((item.userRatings || {})[state.user.uid] || 0);
 
   openModal(`
     <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -7437,14 +7620,8 @@ function openProductDetail(itemId) {
       <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-tertiary)">
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Rate this listing</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <select id="product-rating-value" style="padding:8px;border-radius:10px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary)">
-            <option value="">Select rating</option>
-            <option value="5">⭐⭐⭐⭐⭐</option>
-            <option value="4">⭐⭐⭐⭐</option>
-            <option value="3">⭐⭐⭐</option>
-            <option value="2">⭐⭐</option>
-            <option value="1">⭐</option>
-          </select>
+          <div class="product-rating-stars" id="product-rating-stars">${renderProductRatingStars(itemId, myRating)}</div>
+          <input type="hidden" id="product-rating-value" value="${myRating || ''}">
           <button class="btn-outline" onclick="submitListingRating('${itemId}')" style="padding:8px 12px">Submit rating</button>
           <button class="btn-outline" onclick="saveListingToProfile('${itemId}')" style="padding:8px 12px">Save</button>
         </div>
@@ -7472,6 +7649,21 @@ function openProductDetail(itemId) {
       if (target) target.textContent = sellerDistanceText ? `· 📍 ${sellerDistanceText}` : '';
     }).catch(() => {});
   }
+}
+
+function renderProductRatingStars(itemId, value = 0) {
+  const score = Number(value || 0);
+  return [1, 2, 3, 4, 5].map(i => {
+    const active = i <= score ? 'active' : '';
+    return `<button type="button" class="product-rate-star ${active}" onclick="setProductRating('${itemId}', ${i})" aria-label="Rate ${i} stars">★</button>`;
+  }).join('');
+}
+
+function setProductRating(itemId, value) {
+  const input = $('#product-rating-value');
+  if (input) input.value = String(value);
+  const wrap = $('#product-rating-stars');
+  if (wrap) wrap.innerHTML = renderProductRatingStars(itemId, value);
 }
 
 async function submitListingRating(itemId) {
@@ -9882,6 +10074,7 @@ async function openProfile(uid) {
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
           ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
+          ${user.gender ? `<span class="profile-badge">🧬 ${esc(user.gender)}</span>` : ''}
           ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
@@ -10916,7 +11109,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);
 
   // Image viewer close + gallery navigation + swipe
-  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; document.body.classList.remove('image-view-open'); _galleryUrls = []; });
+  $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
   $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
   $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
   // Touch swipe support for gallery

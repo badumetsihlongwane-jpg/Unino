@@ -1407,15 +1407,21 @@ video::-webkit-media-controls-start-playback-button {
 }
 
 .post-context-chip {
+  border: 1px solid var(--border);
   display: inline-flex;
   align-items: center;
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 700;
+  cursor: default;
+}
+
+.post-context-chip.clickable {
+  cursor: pointer;
+  color: var(--accent);
 }
 
 .post-comment-preview {
@@ -1463,6 +1469,10 @@ video::-webkit-media-controls-start-playback-button {
   border-style: solid;
   border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+}
+
+.feed-inline-suggestion-rail .suggested-list {
+  padding: 2px 12px 14px;
 }
 
 .anon-inline-action {
@@ -1941,6 +1951,14 @@ video::-webkit-media-controls-start-playback-button {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+
+#msg-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages-header {
@@ -1968,6 +1986,8 @@ video::-webkit-media-controls-start-playback-button {
 
 .convo-list {
   flex: 1;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -2541,8 +2561,14 @@ video::-webkit-media-controls-start-playback-button {
 .listing-rating {
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-secondary);
+  color: #facc15;
+  text-shadow: 0 0 8px rgba(250, 204, 21, 0.28);
   margin-top: 4px;
+}
+
+.listing-rating span {
+  color: var(--text-secondary);
+  text-shadow: none;
 }
 
 .listing-title {
@@ -4426,6 +4452,62 @@ body.image-view-open .modal-bg {
   padding-top: 8px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.create-mention-suggestions {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.create-mention-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.create-mention-item + .create-mention-item {
+  border-top: 1px solid var(--border);
+}
+
+.create-mention-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.product-rating-stars {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.product-rate-star {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: #7c7c7c;
+  cursor: pointer;
+  transition: transform 0.16s ease, color 0.16s ease, text-shadow 0.16s ease;
+}
+
+.product-rate-star:hover,
+.product-rate-star.active {
+  color: #facc15;
+  text-shadow: 0 0 8px rgba(250, 204, 21, 0.45);
+}
+
+.product-rate-star:hover {
+  transform: scale(1.08);
 }
 
 .saved-cart-remove {
