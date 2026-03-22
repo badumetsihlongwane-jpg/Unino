@@ -6702,6 +6702,38 @@ body.image-view-open .modal-bg {
   -webkit-backdrop-filter: blur(12px);
   animation: slideUpPanel 0.25s ease-out;
 }
+
+.video-hub.reel-comments-open .reel-slide {
+  padding-bottom: 46vh;
+}
+
+.video-hub.reel-comments-open .reel-video {
+  flex: none;
+  height: calc(100% - 46vh);
+}
+
+@media (min-width: 900px) {
+  .video-hub.reel-comments-open .reel-slide {
+    padding-bottom: 0;
+    padding-right: min(420px, 42vw);
+  }
+
+  .video-hub.reel-comments-open .reel-video {
+    width: calc(100% - min(420px, 42vw));
+    height: 100%;
+    margin-right: auto;
+  }
+
+  .video-hub.reel-comments-open .reel-comments-panel {
+    left: auto;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(420px, 42vw);
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}
 @keyframes slideUpPanel {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }

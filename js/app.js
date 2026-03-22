@@ -1544,6 +1544,32 @@ function textInterestScore(text = '', interestProfile = buildInterestProfile()) 
   return score;
 }
 
+function normalizeIdentityValue(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function genderAffinityScore(viewer = {}, candidate = {}) {
+  const viewerGender = normalizeIdentityValue(viewer.gender);
+  const viewerOrientation = normalizeIdentityValue(viewer.orientation);
+  const candidateGender = normalizeIdentityValue(candidate.gender);
+  if (!candidateGender) return 0;
+
+  const isMale = g => g.includes('male') || g === 'm' || g === 'man';
+  const isFemale = g => g.includes('female') || g === 'f' || g === 'woman';
+
+  if (viewerOrientation.includes('lesbian')) return isFemale(candidateGender) ? 20 : -4;
+  if (viewerOrientation.includes('gay')) {
+    if (isMale(viewerGender)) return isMale(candidateGender) ? 20 : -4;
+    if (isFemale(viewerGender)) return isFemale(candidateGender) ? 20 : -4;
+    return 8;
+  }
+  if (viewerOrientation.includes('bi')) return 8;
+
+  if (isMale(viewerGender)) return isFemale(candidateGender) ? 14 : -2;
+  if (isFemale(viewerGender)) return isMale(candidateGender) ? 14 : -2;
+  return 2;
+}
+
 function getCampusLocationById(locationId) {
   return CAMPUS_LOCATIONS.find(l => l.id === locationId) || null;
 }
@@ -3136,8 +3162,9 @@ function initAuth() {
     const modulesRaw = $('#s-modules')?.value || '';
     const modules = normalizeModules(modulesRaw.split(','));
     const gender = ($('#s-gender')?.value || '').trim();
+    const orientation = ($('#s-orientation')?.value || '').trim();
     const address = $('#s-address')?.value.trim() || '';
-    if (!fname || !lname || !email || !pass || !uni || !major || !address) return toast('All fields required');
+    if (!fname || !lname || !email || !pass || !uni || !major || !address || !gender) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
     if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
@@ -3149,6 +3176,7 @@ function initAuth() {
       await db.collection('users').doc(uid).set({
         displayName, firstName: fname, lastName: lname,
         email, university: uni, major, year, modules, address, gender,
+        orientation,
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
@@ -3722,8 +3750,7 @@ function renderFeed() {
   const c = $('#content'), p = state.profile;
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
-  if (_feedRestorePendingPaint) c.style.opacity = '0';
-  else c.style.opacity = '';
+  c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
       <div class="feed-toolbar">
@@ -3949,6 +3976,7 @@ function loadDiscoverPeople() {
       if (u.year && myYear && u.year === myYear) score += 8;
       if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
+      score += genderAffinityScore(state.profile, u);
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
       return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
     }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
@@ -3972,9 +4000,9 @@ function loadDiscoverPeople() {
         ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')">Message</button>`
         : isPending
           ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-          : `<button class="discover-card-btn" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
+          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
       return `
-        <div class="discover-card" onclick="openProfile('${u.id}')">
+        <div class="discover-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
           <div class="discover-card-avatar">
             ${avatar(u.displayName, u.photoURL, 'avatar-lg')}
             ${online}
@@ -4433,9 +4461,9 @@ function renderFeedInlineSuggestionCard(user = {}) {
     ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
     : isPending
       ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-      : `<button class="discover-card-btn" onclick="event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
+      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
   return `
-    <div class="post-card feed-inline-suggestion" onclick="openProfile('${user.id}')">
+    <div class="post-card feed-inline-suggestion" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
         <h3>People you may know</h3>
       </div>
@@ -4466,8 +4494,8 @@ function renderFeedInlineSuggestionRail(users = []) {
           ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
           : isPending
             ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-            : `<button class="btn-sm btn-primary" onclick="event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
-        return `<div class="suggested-card" onclick="openProfile('${user.id}')">
+            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
+          return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
           ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
           <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
           <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
@@ -4589,7 +4617,8 @@ function renderPosts(posts) {
     }).map(u => {
       const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
       const majorBoost = (u.major || '').toLowerCase() === myMajor ? 2 : 0;
-      return { ...u, _score: overlap * 3 + majorBoost + scoreSeed(u.id) };
+      const genderBoost = genderAffinityScore(state.profile, u) * 0.25;
+      return { ...u, _score: overlap * 3 + majorBoost + genderBoost + scoreSeed(u.id) };
     }).sort((a, b) => b._score - a._score);
     const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
     const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
@@ -5655,6 +5684,7 @@ async function openReelComments(postId, options = {}) {
     </div>
   `;
   if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
+  document.getElementById('video-hub')?.classList.add('reel-comments-open');
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
@@ -5695,6 +5725,7 @@ async function openReelComments(postId, options = {}) {
 function closeReelComments() {
   const panel = document.getElementById('reel-comments-panel');
   if (panel) panel.remove();
+  document.getElementById('video-hub')?.classList.remove('reel-comments-open');
 }
 
 async function postReelComment(postId) {
@@ -6186,7 +6217,6 @@ function openCreateModal() {
         </div>
         <div class="create-author-actions">
           <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
-          <button class="btn-primary" id="create-submit">Post</button>
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
@@ -6205,6 +6235,7 @@ function openCreateModal() {
             <option value="friends">👫 Friends</option>
           </select>
         </div>
+        <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
       <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       ` : `
@@ -6479,7 +6510,7 @@ function openCreateModal() {
           const url = await uploadToR2(f, 'events');
           if (url) imageURLs.push(url);
         }
-        await db.collection('events').add({
+        const eventPayload = {
           title, location: locationText, date, time, description: desc,
           imageURLs,
           gradient: gradients[Math.floor(Math.random() * gradients.length)],
@@ -6487,7 +6518,9 @@ function openCreateModal() {
           creatorName: state.profile.displayName,
           going: [state.user.uid],
           createdAt: FieldVal.serverTimestamp()
-        });
+        };
+        const evRef = await db.collection('events').add(eventPayload);
+        await upsertEventChatGroup({ id: evRef.id, ...eventPayload });
         toast('Event created!');
         await loadCampusEvents();
         if (exploreView === 'radar') renderRadarView();
@@ -6566,7 +6599,8 @@ async function loadExploreUsers() {
           + (u.major === myMajor ? 18 : 0)
           + (u.year && myYear && u.year === myYear ? 6 : 0)
           + (nearbyScore * 8)
-          + (u.status === 'online' ? 4 : 0);
+          + (u.status === 'online' ? 4 : 0)
+          + genderAffinityScore(state.profile, u);
         return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
       })
       .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
@@ -7106,6 +7140,54 @@ function eventStartTimeMs(eventDoc = {}) {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+function eventGroupId(eventId = '') {
+  return `event-${eventId}`;
+}
+
+async function upsertEventChatGroup(eventData = {}) {
+  const eventId = eventData.id || '';
+  if (!eventId) return;
+  const members = Array.from(new Set((eventData.going || []).filter(Boolean)));
+  if (!members.length) {
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
+    return;
+  }
+
+  const userDocs = await Promise.all(members.map(uid => db.collection('users').doc(uid).get().catch(() => null)));
+  const memberNames = {};
+  const memberPhotos = {};
+  userDocs.forEach((doc, idx) => {
+    const uid = members[idx];
+    if (!uid) return;
+    if (doc?.exists) {
+      const data = doc.data() || {};
+      memberNames[uid] = data.displayName || 'Student';
+      memberPhotos[uid] = data.photoURL || '';
+    } else if (uid === state.user?.uid) {
+      memberNames[uid] = state.profile?.displayName || 'Student';
+      memberPhotos[uid] = state.profile?.photoURL || '';
+    }
+  });
+
+  await db.collection('groups').doc(eventGroupId(eventId)).set({
+    name: `Event: ${eventData.title || 'Campus Event'}`,
+    description: `Auto group for event attendees${eventData.date ? ` · ${eventData.date}` : ''}${eventData.time ? ` ${eventData.time}` : ''}`,
+    type: 'event',
+    isEventGroup: true,
+    eventId,
+    eventDate: eventData.date || '',
+    eventTime: eventData.time || '',
+    createdBy: eventData.createdBy || state.user.uid,
+    admins: [eventData.createdBy || state.user.uid],
+    members,
+    memberNames,
+    memberPhotos,
+    lastMessage: eventData.lastMessage || 'Event attendee group created',
+    updatedAt: FieldVal.serverTimestamp(),
+    createdAt: FieldVal.serverTimestamp()
+  }, { merge: true });
+}
+
 async function loadCampusEvents() {
   try {
     const snap = await db.collection('events').orderBy('date','asc').limit(50).get();
@@ -7120,6 +7202,7 @@ async function loadCampusEvents() {
     });
     if (expiredDocs.length) {
       await Promise.all(expiredDocs.map(ref => ref.delete().catch(() => {})));
+      await Promise.all(expiredDocs.map(ref => db.collection('groups').doc(eventGroupId(ref.id)).delete().catch(() => {})));
     }
     allCampusEvents = upcoming.sort((a, b) => eventStartTimeMs(a) - eventStartTimeMs(b));
   } catch (e) {
@@ -7318,6 +7401,7 @@ async function openEventDetail(eventId) {
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
+        ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
         ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
     `);
@@ -7332,6 +7416,7 @@ async function deleteEvent(eventId) {
     if (!doc.exists) return toast('Event not found');
     if (doc.data().createdBy !== state.user.uid) return toast('Only the creator can delete this event');
     await db.collection('events').doc(eventId).delete();
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
     closeModal();
     await loadCampusEvents();
     if (state.page === 'explore') renderExploreView();
@@ -7346,14 +7431,19 @@ async function toggleEventGoing(eventId) {
   try {
     const doc = await db.collection('events').doc(eventId).get();
     if (!doc.exists) return;
-    const going = doc.data().going || [];
+    const eventData = doc.data() || {};
+    const going = eventData.going || [];
+    let nextGoing = going;
     if (going.includes(uid)) {
       await db.collection('events').doc(eventId).update({ going: FieldVal.arrayRemove(uid) });
+      nextGoing = going.filter(id => id !== uid);
       toast('RSVP cancelled');
     } else {
       await db.collection('events').doc(eventId).update({ going: FieldVal.arrayUnion(uid) });
+      nextGoing = Array.from(new Set([...going, uid]));
       toast("You're going! 🎉");
     }
+    await upsertEventChatGroup({ id: eventId, ...eventData, going: nextGoing });
     await loadCampusEvents();
     if (exploreView === 'map') renderCampusMapView();
   } catch (e) { toast('Failed'); console.error(e); }
@@ -7484,7 +7574,7 @@ async function loadListings(cat = 'all', query = '') {
           <div class="listing-price">R${esc(String(item.price))}</div>
           <div class="listing-title">${esc(item.title)}</div>
           <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
-          <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
+          <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
         </div>
       </div>
     `).join('');
@@ -7665,10 +7755,10 @@ function openProductDetail(itemId) {
       <div style="font-size:24px;font-weight:800;color:var(--accent);margin-bottom:4px">R${esc(String(item.price))}</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(item.title)}</div>
       ${item.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(item.description)}</p>` : ''}
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        ${avatar(item.sellerName, null, 'avatar-sm')}
+      <div id="product-seller-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer" onclick="openProfile('${item.sellerId}')">
+        <span id="product-seller-avatar">${avatar(item.sellerName, (sellerContext?.photoURL || null), 'avatar-sm')}</span>
         <div>
-          <div style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
+          <div id="product-seller-name" style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
           <div style="font-size:12px;color:var(--text-secondary)">Seller</div>
         </div>
       </div>
@@ -7703,6 +7793,11 @@ function openProductDetail(itemId) {
     db.collection('users').doc(item.sellerId).get().then(doc => {
       if (!doc.exists) return;
       const seller = { id: doc.id, ...doc.data() };
+      _userContextCache[item.sellerId] = seller;
+      const sellerAvatarEl = document.getElementById('product-seller-avatar');
+      if (sellerAvatarEl) sellerAvatarEl.innerHTML = avatar(seller.displayName || item.sellerName || 'Seller', seller.photoURL || null, 'avatar-sm');
+      const sellerNameEl = document.getElementById('product-seller-name');
+      if (sellerNameEl) sellerNameEl.textContent = seller.displayName || item.sellerName || 'Seller';
       const sellerCoordsLive = getUserCoords(seller);
       const sellerDistanceText = sellerCoordsLive ? formatDistanceText(distanceKmBetween(myCoords, sellerCoordsLive)) : '';
       const target = document.getElementById('product-distance-meta');
@@ -8258,6 +8353,7 @@ function loadGroups() {
   const myModules = state.profile.modules || [];
   container.innerHTML = `
     <div class="asg-page">
+      <div id="event-chat-groups" style="padding:8px 12px 0"></div>
       <div style="padding:12px 16px;display:flex;gap:8px">
         <button class="btn-primary" style="flex:1" onclick="openCreateModuleGroup()">+ New Group</button>
       </div>
@@ -8276,7 +8372,45 @@ function loadGroups() {
       loadAsgList(ch.dataset.af);
     };
   });
+  loadEventChatGroups();
   loadAsgList('my');
+}
+
+async function loadEventChatGroups() {
+  const host = $('#event-chat-groups');
+  if (!host) return;
+  const uid = state.user?.uid;
+  if (!uid) { host.innerHTML = ''; return; }
+  try {
+    const snap = await db.collection('groups').where('members', 'array-contains', uid).limit(40).get();
+    const groups = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(g => g.isEventGroup)
+      .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+    if (!groups.length) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = `
+      <div style="padding:6px 4px 8px;font-size:12px;font-weight:700;color:var(--text-secondary)">EVENT GROUPS</div>
+      ${groups.map(g => `
+        <div class="convo-item" style="margin-bottom:8px" onclick="openGroupChat('${g.id}','groups')">
+          <div class="convo-avatar"><div class="avatar-md group-avatar-icon">📅</div></div>
+          <div class="convo-info">
+            <div class="convo-name">${esc(g.name || 'Event Group')}</div>
+            <div class="convo-last-msg">${esc(g.lastMessage || 'Event chat')}</div>
+          </div>
+          <div class="convo-right">
+            <div class="convo-time">${timeAgo(g.updatedAt)}</div>
+            <div style="font-size:11px;color:var(--text-tertiary)">${(g.members || []).length} members</div>
+          </div>
+        </div>
+      `).join('')}
+    `;
+  } catch (e) {
+    console.error(e);
+    host.innerHTML = '';
+  }
 }
 
 async function loadAsgList(filter = 'my') {
@@ -10578,6 +10712,7 @@ function renderProfileAbout(user) {
     <div class="profile-about">
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
+      <div class="about-item"><span class="about-icon">🧬</span><div><div class="about-label">Gender</div><div class="about-value">${esc(user.gender || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
       ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
