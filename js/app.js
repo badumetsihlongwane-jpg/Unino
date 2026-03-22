@@ -626,6 +626,13 @@ function renderPostLikeMarkup(post = {}) {
   `;
 }
 
+function renderCommentLikeMarkup(liked = false, total = 0) {
+  return `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+    ${total ? `<span class="comment-like-count">${total}</span>` : ''}
+  `;
+}
+
 function refreshPostCardsUI(postId) {
   const post = getLocalPostById(postId);
   if (!post) return;
@@ -1679,7 +1686,7 @@ function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
     const likeBtn = row.querySelector('.c-act.like-only');
     if (likeBtn) {
       likeBtn.classList.toggle('liked', liked);
-      likeBtn.textContent = `❤${total ? ` ${total}` : ''}`;
+      likeBtn.innerHTML = renderCommentLikeMarkup(liked, total);
     }
   });
 }
@@ -5892,7 +5899,7 @@ async function openComments(postId, options = {}) {
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
-            <button class="c-act like-only ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">❤${c.likeCount > 0 ? ` ${c.likeCount}` : ''}</button>
+            <button class="c-act like-only ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">${renderCommentLikeMarkup(liked, c.likeCount || 0)}</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -6083,7 +6090,7 @@ async function postComment(postId) {
           <div class="comment-actions-row">
             <span class="comment-time">Just now</span>
             <button class="c-act" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
-            <button class="c-act like-only" type="button" disabled title="Syncing...">❤</button>
+            <button class="c-act like-only" type="button" disabled title="Syncing...">${renderCommentLikeMarkup(false, 0)}</button>
           </div>
         </div>
       `;
@@ -6169,11 +6176,17 @@ function openCreateModal() {
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
-      <div style="display:flex;gap:12px;margin-bottom:16px">
-        ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
-        <div>
-          <div style="font-weight:600">${esc(state.profile.displayName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
+      <div class="create-author-row">
+        <div class="create-author-main">
+          <div id="create-author-avatar">${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}</div>
+          <div>
+            <div id="create-author-name" style="font-weight:600">${esc(state.profile.displayName)}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
+          </div>
+        </div>
+        <div class="create-author-actions">
+          <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
+          <button class="btn-primary" id="create-submit">Post</button>
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
@@ -6191,9 +6204,7 @@ function openCreateModal() {
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
           </select>
-          <button type="button" class="btn-outline" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting" style="padding:7px 10px;font-size:12px">👻 Anon off</button>
         </div>
-        <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
       <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       ` : `
@@ -6224,6 +6235,7 @@ function openCreateModal() {
 
   const wirePostTab = () => {
     let createAnon = false;
+    const anonIdentity = getUserAnonIdentity(state.profile || {});
     const mentionMap = new Map();
 
     const refreshLocationUI = () => {
@@ -6245,6 +6257,14 @@ function openCreateModal() {
       btn.setAttribute('aria-pressed', createAnon ? 'true' : 'false');
       btn.textContent = createAnon ? '👻 Anon on' : '👻 Anon off';
       btn.classList.toggle('anon-active', createAnon);
+      const nameEl = $('#create-author-name');
+      if (nameEl) nameEl.textContent = createAnon ? anonIdentity : (state.profile.displayName || 'User');
+      const avatarEl = $('#create-author-avatar');
+      if (avatarEl) {
+        avatarEl.innerHTML = createAnon
+          ? '<div class="avatar-md anon-avatar">👻</div>'
+          : avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md');
+      }
     };
 
     const renderMentionSuggestions = async () => {
@@ -7663,7 +7683,6 @@ function openProductDetail(itemId) {
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <div class="product-rating-stars" id="product-rating-stars">${renderProductRatingStars(itemId, myRating)}</div>
           <input type="hidden" id="product-rating-value" value="${myRating || ''}">
-          <button class="btn-outline" onclick="submitListingRating('${itemId}')" style="padding:8px 12px">Submit rating</button>
           <button class="btn-outline" onclick="saveListingToProfile('${itemId}')" style="padding:8px 12px">Save</button>
         </div>
       </div>
@@ -7700,16 +7719,21 @@ function renderProductRatingStars(itemId, value = 0) {
   }).join('');
 }
 
+const _listingRatingBusy = new Set();
+
 function setProductRating(itemId, value) {
   const input = $('#product-rating-value');
   if (input) input.value = String(value);
   const wrap = $('#product-rating-stars');
   if (wrap) wrap.innerHTML = renderProductRatingStars(itemId, value);
+  submitListingRating(itemId, value, { silent: true, keepOpen: true });
 }
 
-async function submitListingRating(itemId) {
-  const score = Number($('#product-rating-value')?.value || 0);
+async function submitListingRating(itemId, explicitScore = null, options = {}) {
+  const score = Number(explicitScore != null ? explicitScore : ($('#product-rating-value')?.value || 0));
   if (!itemId || !score || score < 1 || score > 5) return toast('Choose a rating first');
+  if (_listingRatingBusy.has(itemId)) return;
+  _listingRatingBusy.add(itemId);
   try {
     const ref = db.collection('listings').doc(itemId);
     await db.runTransaction(async tx => {
@@ -7729,12 +7753,29 @@ async function submitListingRating(itemId) {
         ratingAvg: nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0
       });
     });
-    toast('Rating saved');
-    closeModal();
-    loadListings();
+    const local = (window._hustleItems || {})[itemId];
+    if (local) {
+      const userRatings = local.userRatings || {};
+      const prev = Number(userRatings[state.user.uid] || 0);
+      const ratingCount = Number(local.ratingCount || 0);
+      const ratingTotal = Number(local.ratingTotal || 0);
+      const nextCount = prev ? ratingCount : ratingCount + 1;
+      const nextTotal = ratingTotal - prev + score;
+      local.userRatings = { ...userRatings, [state.user.uid]: score };
+      local.ratingCount = nextCount;
+      local.ratingTotal = nextTotal;
+      local.ratingAvg = nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0;
+    }
+    if (!options.silent) toast('Rating saved');
+    if (!options.keepOpen) {
+      closeModal();
+      loadListings();
+    }
   } catch (e) {
     console.error(e);
     toast('Could not save rating');
+  } finally {
+    _listingRatingBusy.delete(itemId);
   }
 }
 
@@ -8152,15 +8193,29 @@ function bindMessagesScrollEffects() {
   const host = document.getElementById('msg-tab-content');
   if (!page || !host || host.dataset.storyScrollBound === '1') return;
   let lastTop = 0;
+  let lastObservedTop = 0;
+  let collapsed = false;
+  let ticking = false;
+  page.classList.remove('stories-collapsed');
+
+  const applyState = (st) => {
+    const delta = st - lastTop;
+    if (!collapsed && st > 44 && delta > 3) collapsed = true;
+    if (collapsed && (delta < -2 || st < 12)) collapsed = false;
+    page.classList.toggle('stories-collapsed', collapsed);
+    lastTop = st;
+  };
+
   host.addEventListener('scroll', e => {
     const target = e.target;
     if (!(target instanceof HTMLElement) || !target.classList.contains('convo-list')) return;
-    const st = target.scrollTop || 0;
-    const movingDown = st > lastTop + 6;
-    const atTop = st < 8;
-    page.classList.toggle('stories-collapsed', movingDown && !atTop);
-    if (atTop) page.classList.remove('stories-collapsed');
-    lastTop = st;
+    lastObservedTop = target.scrollTop || 0;
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      applyState(lastObservedTop);
+      ticking = false;
+    });
   }, true);
   host.dataset.storyScrollBound = '1';
 }
