@@ -1656,20 +1656,32 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
 
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
   try {
-    await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    const result = await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    if (result) refreshCommentReactionUI(commentId, result.reactions, result.likes || []);
     syncEventWithAppwrite('comment_reaction', {
       postId,
       commentId,
       emoji,
       reactedAt: Date.now()
     }).catch(() => {});
-    // Update in-place without closing/reopening — prevents modal flash and scroll jump
-    if (source === 'reel') openReelComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
-    else openComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
   } catch (e) {
     console.error(e);
     toast('Could not react right now');
   }
+}
+
+function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
+  const liked = (likes || []).includes(state.user?.uid);
+  const total = getReactionSummary(reactions, likes).total;
+  ['c-', 'rc-'].forEach(prefix => {
+    const row = document.getElementById(`${prefix}${commentId}`);
+    if (!row) return;
+    const likeBtn = row.querySelector('.c-act.like-only');
+    if (likeBtn) {
+      likeBtn.classList.toggle('liked', liked);
+      likeBtn.textContent = `❤${total ? ` ${total}` : ''}`;
+    }
+  });
 }
 
 function getMessageDocRef(scope, primaryId, messageId, collection = '') {
@@ -5853,8 +5865,6 @@ async function openComments(postId, options = {}) {
 
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
-      const myReaction = getUserReaction(c.reactions, c.likes || []);
-      const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
      const cReplies = replyMap[c.id] || [];
       const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
@@ -5881,12 +5891,8 @@ async function openComments(postId, options = {}) {
            </div>
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
-              ${reactionSummary}
-               <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
-                  ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
-               </button>
-            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
+            <button class="c-act like-only ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">❤${c.likeCount > 0 ? ` ${c.likeCount}` : ''}</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -6055,12 +6061,47 @@ async function postComment(postId) {
     
     if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId }, { anonymous: commentAnon });
 
-    // Reopen to show the new comment
+    // Silent UI update: append new comment without rebuilding modal.
+    const list = $('#comments-container');
+    if (list) {
+      const displayName = commentAnon ? 'Anonymous' : state.profile.displayName;
+      const displayPhoto = commentAnon ? null : (state.profile.photoURL || null);
+      const tempId = `tmp-${Date.now()}`;
+      const node = document.createElement('div');
+      node.className = 'comment-item';
+      node.id = `c-${tempId}`;
+      node.dataset.commentId = tempId;
+      node.dataset.authorId = state.user.uid;
+      node.innerHTML = `
+        <div class="comment-avatar-col">${commentAnon ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(displayName, displayPhoto, 'avatar-sm')}</div>
+        <div class="comment-content-col">
+          <div class="comment-bubble enhanced">
+            <div class="comment-header"><span class="comment-author">${esc(displayName)}</span></div>
+            <div class="comment-text">${esc(text || '')}</div>
+            ${imageURL ? `<img src="${imageURL}" class="comment-inline-image" onclick="viewImage('${imageURL}')">` : ''}
+          </div>
+          <div class="comment-actions-row">
+            <span class="comment-time">Just now</span>
+            <button class="c-act" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
+            <button class="c-act like-only" type="button" disabled title="Syncing...">❤</button>
+          </div>
+        </div>
+      `;
+      if (replyTo) {
+        const parentReplyWrap = list.querySelector(`#c-${replyTo} .comment-replies`);
+        if (parentReplyWrap) parentReplyWrap.appendChild(node);
+        else list.appendChild(node);
+      } else {
+        list.prepend(node);
+      }
+    }
+
     _pendingCommentImageFile = null;
     _commentReplyTo = null;
     clearCommentImage();
     clearCommentReply();
-    openComments(postId, { focusCommentId: docRef.id, scrollMode: 'preserve' });
+    state.posts = (state.posts || []).map(p => p.id === postId ? { ...p, commentsCount: Number(p.commentsCount || 0) + 1 } : p);
+    refreshPostCardsUI(postId);
   } catch (e) { console.error(e); toast('Failed'); }
   finally { _sendingComment = false; if (sendBtn) sendBtn.disabled = false; }
 }
@@ -8043,6 +8084,7 @@ function renderMessages() {
     groupsToggleBtn.onclick = toggleMessagesGroupsView;
   }
   loadStories();
+  bindMessagesScrollEffects();
 
   const restoreTab = state.lastMsgTab || 'dm';
   if (restoreTab === 'archived') {
@@ -8103,6 +8145,24 @@ function refreshCurrentMessageList() {
   else if (state.lastMsgTab === 'groups') loadGroups();
   else loadDMList();
   updateArchiveFabState();
+}
+
+function bindMessagesScrollEffects() {
+  const page = document.querySelector('.messages-page');
+  const host = document.getElementById('msg-tab-content');
+  if (!page || !host || host.dataset.storyScrollBound === '1') return;
+  let lastTop = 0;
+  host.addEventListener('scroll', e => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains('convo-list')) return;
+    const st = target.scrollTop || 0;
+    const movingDown = st > lastTop + 6;
+    const atTop = st < 8;
+    page.classList.toggle('stories-collapsed', movingDown && !atTop);
+    if (atTop) page.classList.remove('stories-collapsed');
+    lastTop = st;
+  }, true);
+  host.dataset.storyScrollBound = '1';
 }
 
 function loadGroupList() {
@@ -9063,6 +9123,18 @@ function loadNotifications() {
 
 async function markNotifRead(nid) {
   try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
+}
+
+async function markAllBellNotifsRead() {
+  if (!state.user?.uid) return;
+  const unreadIds = bellNotifications(_notifications).filter(n => !n.read).map(n => n.id);
+  if (!unreadIds.length) return;
+  const unreadSet = new Set(unreadIds);
+  _notifications = _notifications.map(n => unreadSet.has(n.id) ? { ...n, read: true } : n);
+  updateNotifBadge();
+  await Promise.all(unreadIds.map(id =>
+    db.collection('users').doc(state.user.uid).collection('notifications').doc(id).update({ read: true }).catch(() => {})
+  ));
 }
 
 async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null, fromOverride = null } = {}) {
@@ -11134,6 +11206,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dd.style.display === 'block') { closeNotifDropdown(); return; }
     loadNotifications();
     dd.style.display = 'block';
+    markAllBellNotifsRead().then(() => {
+      if (dd.style.display === 'block') loadNotifications();
+    }).catch(() => {});
     _notifDropdownCloseHandler = ev => {
       const trigger = $('#notif-btn');
       if (!dd.contains(ev.target) && ev.target !== trigger && !trigger?.contains(ev.target)) {
