@@ -4,4 +4,5 @@
     <string name="title_activity_main">Unibo</string>
     <string name="package_name">com.unino.app</string>
     <string name="custom_url_scheme">com.unino.app</string>
+    <string name="default_notification_channel_id">unibo-general</string>
 </resources>
