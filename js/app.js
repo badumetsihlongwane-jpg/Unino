@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 44;
+const APP_VERSION = 45;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -1036,6 +1036,10 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
     if (actionId === 'reply') setTimeout(() => $('#gchat-input')?.focus(), 250);
     return;
   }
+  if (extra.kind === 'live' && extra.streamId) {
+    openLiveStreamFromFeed(extra.streamId, !!extra.profileId && extra.profileId === state.user?.uid);
+    return;
+  }
   if (extra.postId) {
     viewPost(extra.postId);
     return;
@@ -1126,9 +1130,11 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       ? 'dm'
       : notification.payload?.groupId
         ? 'group'
-        : notification.payload?.postId
-          ? 'post'
-          : 'app';
+        : notification.payload?.streamId
+          ? 'live'
+          : notification.payload?.postId
+            ? 'post'
+            : 'app';
     scheduleLocalNotification({
       id: hashStringToId(`notif-${notification.id}`),
       title: fromName,
@@ -1142,6 +1148,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
         groupId: notification.payload?.groupId || '',
         collection: notification.payload?.collection || 'groups',
         postId: notification.payload?.postId || '',
+        streamId: notification.payload?.streamId || '',
         profileId: notification.from?.uid || '',
         notifDocId: notification.id
       }
@@ -1525,19 +1532,43 @@ function openLocationHelpModal(message = '') {
   `);
 }
 
-async function ensureUserContextCache(userIds = []) {
-  const missing = [...new Set((userIds || []).filter(Boolean))].filter(uid => !_userContextCache[uid]);
+async function ensureUserContextCache(userIds = [], options = {}) {
+  const force = !!options.force;
+  const missing = [...new Set((userIds || []).filter(Boolean))].filter(uid => force || !_userContextCache[uid] || _userContextCache[uid]?.pending);
   if (!missing.length) return;
   await Promise.all(missing.map(async uid => {
-    _userContextCache[uid] = { pending: true };
+    _userContextCache[uid] = { ...(force ? (_userContextCache[uid] || {}) : {}), pending: true };
     try {
       const doc = await db.collection('users').doc(uid).get();
-      _userContextCache[uid] = doc.exists ? { id: doc.id, ...doc.data() } : null;
+      const next = doc.exists ? { id: doc.id, ...doc.data() } : null;
+      _userContextCache[uid] = next;
+      updateCachedUserRecord(uid, next || {});
     } catch (e) {
       console.error('user context', e);
       _userContextCache[uid] = null;
     }
   }));
+}
+
+function updateCachedUserRecord(userId, fields = {}) {
+  if (!userId) return null;
+  const next = { id: userId, ...(_userContextCache[userId] || {}), ...(fields || {}) };
+  _userContextCache[userId] = next;
+  const users = Array.isArray(_usersCache?.data) ? [..._usersCache.data] : [];
+  const idx = users.findIndex(u => u.id === userId);
+  if (idx >= 0) users[idx] = { ...users[idx], ...(fields || {}), id: userId };
+  else users.unshift({ ...(fields || {}), id: userId });
+  _usersCache = { data: users, expiresAt: Math.max(_usersCache?.expiresAt || 0, Date.now() + 60 * 1000) };
+  return next;
+}
+
+function getResolvedUserIdentity(userId = '', fallbackName = 'User', fallbackPhoto = null) {
+  const cached = _userContextCache[userId] || {};
+  return {
+    name: cached.displayName || cached.firstName || fallbackName || 'User',
+    photo: cached.photoURL || fallbackPhoto || null,
+    data: cached
+  };
 }
 
 function buildInterestProfile() {
@@ -1566,6 +1597,58 @@ function textInterestScore(text = '', interestProfile = buildInterestProfile()) 
 
 function normalizeIdentityValue(value = '') {
   return String(value || '').trim().toLowerCase();
+}
+
+
+function normalizeSearchParts(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function userSearchScore(user = {}, query = '') {
+  const parts = normalizeSearchParts(query);
+  if (!parts.length) return 0;
+
+  const displayName = user.displayName || `${user.firstName || ''} ${user.lastName || ''}`.trim();
+  const nameParts = normalizeSearchParts(displayName);
+  const majorParts = normalizeSearchParts(user.major || '');
+  const uniParts = normalizeSearchParts(user.university || '');
+  const addressParts = normalizeSearchParts(user.address || '');
+  const moduleParts = normalizeSearchParts((user.modules || []).join(' '));
+  const haystack = [...nameParts, ...majorParts, ...uniParts, ...addressParts, ...moduleParts];
+  let score = 0;
+  let matched = 0;
+  const nameJoined = nameParts.join(' ');
+
+  parts.forEach(part => {
+    let partScore = 0;
+    if (nameJoined === part) partScore = Math.max(partScore, 48);
+    if (nameJoined.startsWith(part)) partScore = Math.max(partScore, 34);
+    if (nameParts.some(token => token === part)) partScore = Math.max(partScore, 28);
+    if (nameParts.some(token => token.startsWith(part))) partScore = Math.max(partScore, 22);
+    if (moduleParts.some(token => token === part)) partScore = Math.max(partScore, 18);
+    if (majorParts.some(token => token === part) || uniParts.some(token => token === part)) partScore = Math.max(partScore, 16);
+    if (addressParts.some(token => token === part)) partScore = Math.max(partScore, 12);
+    if (haystack.some(token => token.includes(part))) partScore = Math.max(partScore, 8);
+    if (partScore > 0) {
+      matched += 1;
+      score += partScore;
+    }
+  });
+
+  if (!matched) return 0;
+  if (matched === parts.length) score += 14;
+  if (displayName && normalizeSearchParts(displayName).join(' ').startsWith(parts.join(' '))) score += 10;
+  return score;
+}
+
+function userMatchesQuery(user = {}, query = '') {
+  return userSearchScore(user, query) > 0;
 }
 
 function genderAffinityScore(viewer = {}, candidate = {}) {
@@ -1708,9 +1791,21 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
 }
 
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
+  const previous = _commentStateCache[commentId]
+    ? { reactions: { ...(_commentStateCache[commentId].reactions || {}) }, likes: [...(_commentStateCache[commentId].likes || [])] }
+    : null;
+  closeModal();
+  if (previous) {
+    const optimistic = buildLocalReactionResult(previous, emoji);
+    _commentStateCache[commentId] = { reactions: optimistic.reactions, likes: optimistic.likes };
+    refreshCommentReactionUI(commentId, optimistic.reactions, optimistic.likes);
+  }
   try {
     const result = await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
-    if (result) refreshCommentReactionUI(commentId, result.reactions, result.likes || []);
+    if (result) {
+      _commentStateCache[commentId] = { reactions: result.reactions || {}, likes: result.likes || [] };
+      refreshCommentReactionUI(commentId, result.reactions, result.likes || []);
+    }
     syncEventWithAppwrite('comment_reaction', {
       postId,
       commentId,
@@ -1718,12 +1813,17 @@ async function reactToComment(postId, commentId, emoji, source = 'feed') {
       reactedAt: Date.now()
     }).catch(() => {});
   } catch (e) {
+    if (previous) {
+      _commentStateCache[commentId] = previous;
+      refreshCommentReactionUI(commentId, previous.reactions, previous.likes || []);
+    }
     console.error(e);
     toast('Could not react right now');
   }
 }
 
 function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
+  _commentStateCache[commentId] = { reactions: normalizeReactionMap(reactions, likes || []), likes: [...(likes || [])] };
   const liked = (likes || []).includes(state.user?.uid);
   const total = getReactionSummary(reactions, likes).total;
   ['c-', 'rc-'].forEach(prefix => {
@@ -3745,11 +3845,14 @@ function renderFeedPeopleSuggestions(query) {
     searchBar.style.position = 'relative';
     searchBar.appendChild(box);
   }
-  const q = (query || '').toLowerCase();
+  const q = String(query || '').trim();
   if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
   getUsersCache().then(users => {
     const hits = users
-      .filter(u => u.id !== state.user?.uid && (u.displayName || '').toLowerCase().includes(q))
+      .filter(u => u.id !== state.user?.uid)
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, q) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''))
       .slice(0, 5);
     if (!hits.length) { box.style.display = 'none'; return; }
     box.innerHTML = hits.map(u => `
@@ -3757,7 +3860,7 @@ function renderFeedPeopleSuggestions(query) {
         ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
         <div class="feed-people-info">
           <span class="feed-people-name">${esc(u.displayName || 'User')}</span>
-          <span class="feed-people-meta">${esc(u.major || u.university || 'Student')}</span>
+          <span class="feed-people-meta">${esc(u.major || u.university || u.address || 'Student')}</span>
         </div>
       </button>
     `).join('');
@@ -3825,6 +3928,14 @@ function renderFeedResults(posts = []) {
 function renderFeed() {
   resetFeedSeeds(); // new random order every time feed is opened / refreshed
   const c = $('#content'), p = state.profile;
+  const shouldDelayDiscover = !!_feedRestorePendingPaint;
+  let discoverLoaded = !shouldDelayDiscover;
+  const ensureDiscoverLoaded = () => {
+    if (discoverLoaded) return;
+    discoverLoaded = true;
+    loadDiscoverPeople();
+    loadFeedLiveSpotlight();
+  };
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
   c.style.opacity = '';
@@ -3839,15 +3950,19 @@ function renderFeed() {
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
 
-      <div class="discover-section">
+      <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
         <div class="discover-tabs">
           <button class="discover-tab active" data-dt="people">👥 People</button>
           <button class="discover-tab" data-dt="events">📅 Events</button>
         </div>
         <div class="discover-content" id="discover-content">
-          <div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>
+          ${shouldDelayDiscover
+            ? '<div class="discover-empty"><span>⏳</span><p>Loading your feed…</p></div>'
+            : '<div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>'}
         </div>
       </div>
+
+      <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <div class="create-post-prompt" onclick="openCreateModal()">
         ${avatar(p.displayName, p.photoURL, 'avatar-md')}
@@ -3875,10 +3990,14 @@ function renderFeed() {
       tab.classList.add('active');
       if (tab.dataset.dt === 'people') loadDiscoverPeople();
       else loadDiscoverEvents();
+      if (!shouldDelayDiscover) loadFeedLiveSpotlight();
     };
   });
 
-  loadDiscoverPeople();
+  if (!shouldDelayDiscover) {
+    loadDiscoverPeople();
+    loadFeedLiveSpotlight();
+  }
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -3991,6 +4110,7 @@ function renderFeed() {
         c.style.opacity = '';
         _feedRestorePendingPaint = false;
         _pendingFeedScrollRestore = null;
+        ensureDiscoverLoaded();
         return;
       }
 
@@ -4005,10 +4125,12 @@ function renderFeed() {
           contentEl.scrollTop = restoreScroll;
           c.style.opacity = '';
           _feedRestorePendingPaint = false;
+          ensureDiscoverLoaded();
         });
       } else {
         c.style.opacity = '';
         _feedRestorePendingPaint = false;
+        ensureDiscoverLoaded();
       }
       _pendingFeedScrollRestore = null;
       window._lastLikedPost = null;
@@ -4016,6 +4138,7 @@ function renderFeed() {
       console.error('Feed listener error:', err);
       c.style.opacity = '';
       _feedRestorePendingPaint = false;
+      ensureDiscoverLoaded();
       const postsEl = document.getElementById('feed-posts');
       if (postsEl) {
         postsEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load posts</h3><p>${isInvalidSessionError(err) ? 'Your session expired. Log in again.' : (isPermissionDeniedError(err) ? 'This account cannot load posts right now.' : 'Reopen the app or try again in a moment.')}</p></div>`;
@@ -4758,6 +4881,66 @@ function renderPosts(posts) {
   });
 }
 
+function openLiveStreamFromFeed(streamId = '', isOwn = false) {
+  if (!streamId) return;
+  openVideoHub('live');
+  setTimeout(() => {
+    if (isOwn) openHostLiveView(streamId);
+    else joinLiveStream(streamId);
+  }, 90);
+}
+
+function loadFeedLiveSpotlight() {
+  const host = document.getElementById('feed-live-spotlight');
+  if (!host) return;
+  host.innerHTML = '<div class="feed-live-card feed-live-card-loading"><span class="inline-spinner"></span><span>Checking who is live…</span></div>';
+  host.style.display = 'block';
+  db.collection('liveStreams')
+    .where('status', 'in', ['live', 'starting'])
+    .limit(6)
+    .get()
+    .then(snap => {
+      const streams = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.currentViewerCount || 0) - (a.currentViewerCount || 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+      if (!streams.length) {
+        host.style.display = 'none';
+        host.innerHTML = '';
+        return;
+      }
+      const picks = streams.slice(0, 3);
+      host.innerHTML = `
+        <div class="feed-live-head">
+          <div class="feed-live-title">🔴 Live now</div>
+          <button class="btn-outline btn-sm" onclick="openVideoHub('live')">Open live</button>
+        </div>
+        <div class="feed-live-row">
+          ${picks.map(stream => {
+            const isOwn = stream.hostUid === state.user?.uid;
+            const viewers = Number(stream.currentViewerCount || 0);
+            const cover = stream.thumbnailUrl || stream.hostPhotoURL || '';
+            return `
+              <button type="button" class="feed-live-card" onclick="openLiveStreamFromFeed('${stream.id}', ${isOwn ? 'true' : 'false'})">
+                <div class="feed-live-media">
+                  ${cover ? `<img src="${cover}" alt="">` : `<div class="feed-live-fallback">${avatar(stream.hostName || 'Live', stream.hostPhotoURL || null, 'avatar-lg')}</div>`}
+                  <span class="feed-live-badge">● LIVE</span>
+                </div>
+                <div class="feed-live-copy">
+                  <div class="feed-live-card-title">${esc(stream.title || 'Untitled stream')}</div>
+                  <div class="feed-live-card-meta">${esc(stream.hostName || 'User')} · ${viewers} watching</div>
+                </div>
+              </button>`;
+          }).join('')}
+        </div>
+      `;
+    })
+    .catch(err => {
+      console.warn('feed live spotlight', err);
+      host.style.display = 'none';
+      host.innerHTML = '';
+    });
+}
+
 // ═══════════════════════════════════════════════════
 //  VIDEO HUB — LIVE | CLIPS  (replaces old Reels viewer)
 // ═══════════════════════════════════════════════════
@@ -5223,36 +5406,42 @@ function openHostLiveView(streamId) {
 
 // ─── SWITCH CAMERA (front/back) ──────────────────
 async function switchLiveCamera() {
+  const previousFacingMode = _hostFacingMode;
   _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user';
   try {
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: _hostFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true
-    });
-    // Replace tracks in existing peer connections
-    const newVideoTrack = newStream.getVideoTracks()[0];
-    const newAudioTrack = newStream.getAudioTracks()[0];
+    const currentAudioTrack = _hostStream?.getAudioTracks?.()[0] || null;
+    const videoOnlyStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: _hostFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    }).catch(() => navigator.mediaDevices.getUserMedia({
+      video: { facingMode: _hostFacingMode },
+      audio: false
+    }));
+    const newVideoTrack = videoOnlyStream.getVideoTracks()[0];
+    if (!newVideoTrack) throw new Error('missing-video-track');
+
     Object.values(_viewerPeerConns).forEach(pc => {
-      const senders = pc.getSenders();
-      senders.forEach(sender => {
-        if (sender.track?.kind === 'video' && newVideoTrack) sender.replaceTrack(newVideoTrack).catch(() => {});
-        if (sender.track?.kind === 'audio' && newAudioTrack) sender.replaceTrack(newAudioTrack).catch(() => {});
-      });
+      const videoSender = pc.getSenders().find(sender => sender.track?.kind === 'video');
+      if (videoSender) videoSender.replaceTrack(newVideoTrack).catch(() => {});
     });
-    // Stop old tracks
-    if (_hostStream) _hostStream.getTracks().forEach(t => t.stop());
-    _hostStream = newStream;
-    // Update host preview
+
+    const oldVideoTracks = _hostStream?.getVideoTracks?.() || [];
+    const nextTracks = [newVideoTrack, ...(currentAudioTrack ? [currentAudioTrack] : [])];
+    _hostStream = new MediaStream(nextTracks);
+
     const hostVideo = document.getElementById('host-live-video');
     if (hostVideo) {
-      hostVideo.srcObject = newStream;
-      // Mirror only front camera, not back
+      hostVideo.srcObject = _hostStream;
       hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
+      hostVideo.play?.().catch(() => {});
     }
+    oldVideoTracks.forEach(track => {
+      try { track.stop(); } catch (_) {}
+    });
   } catch (e) {
     console.error('Camera switch error:', e);
     toast('Could not switch camera');
-    _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user'; // revert
+    _hostFacingMode = previousFacingMode;
   }
 }
 
@@ -5938,6 +6127,7 @@ async function toggleLike(pid) {
 // ─── Comments with Replies ────────────────────────────────────
 let _commentReplyTo = null; // { id, authorName } or null
 let _sendingComment = false;
+const _commentStateCache = {};
 
 async function toggleCommentLike(cid, pid) {
   await reactToComment(pid, cid, '❤️', 'feed');
@@ -5986,7 +6176,13 @@ async function openComments(postId, options = {}) {
     replyMap[r.replyTo].push(r);
   });
   const commentById = {};
-  comments.forEach(c => { commentById[c.id] = c; });
+  comments.forEach(c => {
+    commentById[c.id] = c;
+    _commentStateCache[c.id] = {
+      reactions: normalizeReactionMap(c.reactions, c.likes || []),
+      likes: [...(c.likes || [])]
+    };
+  });
 
   _commentReplyTo = null;
   _pendingCommentImageFile = null;
@@ -6004,8 +6200,7 @@ async function openComments(postId, options = {}) {
       const target = c.replyTo ? commentById[c.replyTo] : null;
       const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
       const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
-      const fromLabel = c.authorId === state.user.uid ? 'me' : displayName;
-      const toLabel = target ? (target.authorId === state.user.uid ? 'me' : targetDisplayName) : '';
+      const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
      
      return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
@@ -6015,9 +6210,8 @@ async function openComments(postId, options = {}) {
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
+                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(replyLabel)}</span>
               </div>
-                ${target ? `<div class="comment-reply-to">${esc(fromLabel)} &gt; ${esc(toLabel)}</div>` : ''}
               <div class="comment-text">${esc(c.text)}</div>
               ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
            </div>
@@ -6204,6 +6398,7 @@ async function postComment(postId) {
       node.id = `c-${tempId}`;
       node.dataset.commentId = tempId;
       node.dataset.authorId = state.user.uid;
+      _commentStateCache[tempId] = { reactions: {}, likes: [] };
       node.innerHTML = `
         <div class="comment-avatar-col">${commentAnon ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(displayName, displayPhoto, 'avatar-sm')}</div>
         <div class="comment-content-col">
@@ -6220,9 +6415,38 @@ async function postComment(postId) {
         </div>
       `;
       if (replyTo) {
-        const parentReplyWrap = list.querySelector(`#c-${replyTo} .comment-replies`);
-        if (parentReplyWrap) parentReplyWrap.appendChild(node);
-        else list.appendChild(node);
+        const parentItem = list.querySelector(`#c-${replyTo}`);
+        if (parentItem) {
+          let parentReplyWrap = parentItem.querySelector('.comment-replies');
+          let toggleBtn = parentItem.querySelector('.toggle-replies-btn');
+          if (!parentReplyWrap) {
+            const contentCol = parentItem.querySelector('.comment-content-col');
+            toggleBtn = document.createElement('button');
+            toggleBtn.className = 'toggle-replies-btn expanded';
+            toggleBtn.setAttribute('onclick', 'toggleCommentReplies(this)');
+            toggleBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 15 12 9 18 15"/></svg> Hide 1 reply';
+            parentReplyWrap = document.createElement('div');
+            parentReplyWrap.className = 'comment-replies';
+            parentReplyWrap.style.display = 'flex';
+            if (contentCol) {
+              contentCol.appendChild(toggleBtn);
+              contentCol.appendChild(parentReplyWrap);
+            }
+          }
+          const nextCount = (parentReplyWrap?.querySelectorAll('.comment-item').length || 0) + 1;
+          if (toggleBtn) {
+            toggleBtn.classList.add('expanded');
+            toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 15 12 9 18 15"/></svg> Hide ${nextCount} repl${nextCount === 1 ? 'y' : 'ies'}`;
+          }
+          if (parentReplyWrap) {
+            parentReplyWrap.style.display = 'flex';
+            parentReplyWrap.appendChild(node);
+          } else {
+            list.prepend(node);
+          }
+        } else {
+          list.prepend(node);
+        }
       } else {
         list.prepend(node);
       }
@@ -6406,8 +6630,11 @@ function openCreateModal() {
       const users = await getUsersCache().catch(() => []);
       const hits = users
         .filter(u => u.id !== state.user.uid)
-        .filter(u => (u.displayName || '').toLowerCase().includes(q))
-        .slice(0, 6);
+        .map(u => ({ user: u, score: userSearchScore(u, q) }))
+        .filter(entry => entry.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6)
+        .map(entry => entry.user);
       if (!hits.length) { box.style.display = 'none'; return; }
       box.innerHTML = hits.map(u => `
         <button type="button" class="create-mention-item" data-uid="${u.id}" data-name="${esc(u.displayName || 'User')}">
@@ -6633,7 +6860,7 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
-  if (!['radar', 'list', 'map'].includes(exploreView)) exploreView = 'radar';
+  if (!['radar', 'list'].includes(exploreView)) exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
@@ -6645,10 +6872,6 @@ function renderExplore() {
         <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           List
-        </button>
-        <button class="explore-toggle-btn ${exploreView === 'map' ? 'active' : ''}" data-v="map">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
-          Map
         </button>
       </div>
       <div id="explore-body">
@@ -6717,7 +6940,7 @@ function syncExploreToggleButtons() {
 }
 
 function openCampusMapView() {
-  exploreView = 'map';
+  exploreView = 'radar';
   if (state.page !== 'explore') {
     navigate('explore');
     return;
@@ -6728,9 +6951,8 @@ function openCampusMapView() {
 
 function renderExploreView() {
   syncExploreToggleButtons();
-  if (exploreView === 'radar') renderRadarView();
-  else if (exploreView === 'map') renderCampusMapView();
-  else renderListView();
+  if (exploreView === 'list') renderListView();
+  else renderRadarView();
 }
 
 function switchToExploreList(filter = 'all', queryRaw = '') {
@@ -6765,15 +6987,12 @@ function renderRadarView() {
   `;
 
   const applyRadarFilter = (queryRaw = '') => {
-    const searchQuery = (queryRaw || '').trim().toLowerCase();
-    let filteredUsers = allExploreUsers;
+    const searchQuery = (queryRaw || '').trim();
+    let filteredUsers = allExploreUsers.map(u => ({ ...u, _searchScore: userSearchScore(u, searchQuery) }));
     if (searchQuery) {
-      filteredUsers = allExploreUsers.filter(u =>
-        (u.displayName || '').toLowerCase().includes(searchQuery) ||
-        (u.address || '').toLowerCase().includes(searchQuery) ||
-        (u.major || '').toLowerCase().includes(searchQuery) ||
-        (u.modules || []).some(m => m.toLowerCase().includes(searchQuery))
-      );
+      filteredUsers = filteredUsers
+        .filter(u => u._searchScore > 0)
+        .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0));
     }
 
     const moduleUsers = filteredUsers.filter(u => u.proximity === 'module');
@@ -6844,7 +7063,8 @@ function renderRadarView() {
   const renderRadarSuggestions = (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
-    const q = (queryRaw || '').trim().toLowerCase();
+    const rawQuery = (queryRaw || '').trim();
+    const q = rawQuery.toLowerCase();
     if (!q) {
       box.style.display = 'none';
       box.innerHTML = '';
@@ -6852,7 +7072,9 @@ function renderRadarView() {
     }
 
     const peopleHits = allExploreUsers
-      .filter(u => (u.displayName || '').toLowerCase().includes(q))
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0))
       .slice(0, 4)
       .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
@@ -6972,8 +7194,9 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
 
     const center = getRadarCenterCoords();
+    const routeOnlyMode = !!_pendingMapRoute;
 
-    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 17);
+    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], routeOnlyMode ? 18 : 17);
     L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
     _leafletMap.dragging.enable();
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
@@ -6990,7 +7213,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     });
     L.marker([center.lat, center.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
-    if (_pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
+    if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
       const pinIcon = L.divIcon({
         className: 'leaflet-emoji-pin',
         html: '<div class="map-pin-wrap has-events"><span class="map-pin-emoji">📌</span></div>',
@@ -7002,7 +7225,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       _pendingRadarPinnedPoint = null;
     }
 
-    CAMPUS_LOCATIONS.forEach(loc => {
+    if (!routeOnlyMode) CAMPUS_LOCATIONS.forEach(loc => {
       const evts = eventsByLoc[loc.id] || [];
       const icon = L.divIcon({
         className: 'leaflet-emoji-pin',
@@ -7013,7 +7236,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         .bindPopup(`<div class="map-popup-card"><b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}<div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToCampusLocation('${loc.id}')">Route here</button><button class="map-popup-btn secondary" onclick="openLocationDetail('${loc.id}')">Details</button></div></div>`);
     });
 
-    const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
+    const usersToPlot = routeOnlyMode ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
     const plottedIds = new Set();
     const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
 
@@ -7162,7 +7385,7 @@ function renderListView(initialQuery = _exploreSearchQuery || window._radarSearc
   $('#explore-search')?.addEventListener('input', e => {
     clearTimeout(timer); timer = setTimeout(() => {
       _exploreSearchQuery = e.target.value;
-      renderExploreGrid(_exploreSearchQuery);
+      renderExploreGrid(_exploreSearchQuery, document.querySelector('#explore-body .filter-chips .chip.active')?.dataset.f || 'all');
     }, 160);
   });
   $$('#explore-body .filter-chips .chip').forEach(ch => {
@@ -7186,14 +7409,12 @@ async function renderExploreGrid(query = '', filter = 'all') {
   let users = [...allExploreUsers];
 
   if (query) {
-    const q = query.toLowerCase();
-    users = users.filter(u =>
-      (u.displayName || '').toLowerCase().includes(q) ||
-      (u.address || '').toLowerCase().includes(q) ||
-      (u.major || '').toLowerCase().includes(q) ||
-      (u.university || '').toLowerCase().includes(q) ||
-      (u.modules || []).some(m => m.toLowerCase().includes(q))
-    );
+    const rawQuery = String(query || '').trim();
+    const q = rawQuery.toLowerCase();
+    users = users
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0));
     // If no local matches and query is 2+ chars, search Firestore directly
     if (!users.length && q.length >= 2) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><span class="inline-spinner" style="width:24px;height:24px"></span></div>';
@@ -7203,12 +7424,9 @@ async function renderExploreGrid(query = '', filter = 'all') {
         users = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(u => u.id !== uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
-          .filter(u =>
-            (u.displayName || '').toLowerCase().includes(q) ||
-            (u.major || '').toLowerCase().includes(q) ||
-            (u.university || '').toLowerCase().includes(q) ||
-            (u.modules || []).some(m => m.toLowerCase().includes(q))
-          );
+          .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+          .filter(u => u._searchScore > 0)
+          .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''));
       } catch (_) {}
     }
   }
@@ -7413,7 +7631,6 @@ function updateMapRoutePanel(summary = null) {
         ${usingCampusFallback ? '<div class="map-route-note">Using campus center. Save GPS in profile for better routing.</div>' : ''}
       </div>
       <div class="map-route-actions">
-        ${exploreView !== 'map' ? '<button class="btn-outline btn-sm" onclick="openCampusMapView()">Campus map</button>' : ''}
         <button class="btn-primary btn-sm" onclick="clearMapRoute()">Clear</button>
       </div>
     </div>
@@ -7500,10 +7717,11 @@ function routeToCampusLocation(locationId = '') {
   if (!loc) return;
   if (!setPendingMapRoute(loc, { label: loc.name, targetId: locationId, source: 'campus' })) return;
   if (state.page !== 'explore') {
-    exploreView = 'map';
+    exploreView = 'radar';
     navigate('explore');
     return;
   }
+  exploreView = 'radar';
   if (_leafletMap) drawPendingMapRouteOnCurrentMap();
   else renderExploreView();
 }
@@ -7844,7 +8062,8 @@ async function toggleEventGoing(eventId) {
     }
     await upsertEventChatGroup({ id: eventId, ...eventData, going: nextGoing });
     await loadCampusEvents();
-    if (exploreView === 'map') renderCampusMapView();
+    if (state.page === 'explore') renderExploreView();
+    if (state.page === 'feed') loadDiscoverEvents();
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -8396,6 +8615,36 @@ function openCreateGroup() {
 
 let gchatUnsub = null;
 
+function renderEventGroupChatBanner(group = {}) {
+  if (!group?.isEventGroup) return '';
+  const members = Array.isArray(group.members) ? group.members : [];
+  const attendeePreview = members.slice(0, 5).map(memberId => {
+    const fallbackName = (group.memberNames || {})[memberId] || 'Student';
+    const fallbackPhoto = (group.memberPhotos || {})[memberId] || null;
+    const identity = getResolvedUserIdentity(memberId, fallbackName, fallbackPhoto);
+    return `<button type="button" class="event-chat-attendee" onclick="event.stopPropagation();openProfile('${memberId}')">${avatar(identity.name, identity.photo, 'avatar-xs')}</button>`;
+  }).join('');
+  return `
+    <div class="event-chat-banner">
+      <div class="event-chat-banner-media">
+        ${group.eventImage ? `<img src="${group.eventImage}" alt="">` : '<div class="event-chat-banner-fallback">📅</div>'}
+      </div>
+      <div class="event-chat-banner-copy">
+        <div class="event-chat-banner-title">${esc(group.name || 'Event Chat')}</div>
+        <div class="event-chat-banner-meta">${group.eventDate ? `📅 ${esc(group.eventDate)}` : ''}${group.eventTime ? ` · 🕐 ${esc(group.eventTime)}` : ''}</div>
+        <div class="event-chat-banner-members">
+          <div class="event-chat-attendees">${attendeePreview}</div>
+          <span>${members.length} going</span>
+        </div>
+        <div class="event-chat-banner-actions">
+          ${group.eventId ? `<button class="btn-outline btn-sm" onclick="openEventDetail('${group.eventId}')">Event details</button>` : ''}
+          <button class="btn-primary btn-sm" onclick="openGroupDetail('${group.id}')">Group info</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 async function openGroupChat(groupId, collection = 'groups') {
   try {
     const gDoc = await db.collection(collection).doc(groupId).get();
@@ -8404,6 +8653,7 @@ async function openGroupChat(groupId, collection = 'groups') {
     const uid = state.user.uid;
     const gName = group.name || group.groupTitle || 'Group';
     const gType = group.type || 'study';
+    await ensureUserContextCache(group.members || []);
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
 
     showScreen('group-chat-view');
@@ -8429,10 +8679,11 @@ async function openGroupChat(groupId, collection = 'groups') {
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         _gMsgLookup = new Map(messages.map(m => [m.id, m]));
+        const bannerHtml = renderEventGroupChatBanner(group);
         if (!messages.length) {
-          msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+          msgs.innerHTML = `${bannerHtml}<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>`;
         } else {
-          msgs.innerHTML = messages.map((m, idx) => {
+          msgs.innerHTML = bannerHtml + messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
             if (m.deleted || m.type === 'deleted') {
@@ -8456,11 +8707,12 @@ async function openGroupChat(groupId, collection = 'groups') {
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+            const senderIdentity = getResolvedUserIdentity(m.senderId, m.senderName || '?', m.senderPhoto || null);
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
-              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(senderIdentity.name || '?', senderIdentity.photo, 'avatar-xs')}</div>` : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
               <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">
-              ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+              ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
               ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
               ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
@@ -8656,8 +8908,9 @@ function renderMessages() {
   if (groupsToggleBtn) {
     groupsToggleBtn.onclick = toggleMessagesGroupsView;
   }
-  loadStories();
+  if (!inGroupsView) loadStories();
   bindMessagesScrollEffects();
+  syncMessagesStoriesVisibility();
 
   const restoreTab = state.lastMsgTab || 'dm';
   if (restoreTab === 'archived') {
@@ -8669,6 +8922,15 @@ function renderMessages() {
   }
   updateMessagesGroupsToggle();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
+}
+
+function syncMessagesStoriesVisibility() {
+  const page = document.querySelector('.messages-page');
+  const row = document.getElementById('messages-stories-row');
+  const hideStories = state.lastMsgTab === 'groups';
+  if (page) page.classList.toggle('stories-collapsed', hideStories);
+  if (row) row.style.display = hideStories ? 'none' : '';
 }
 
 function updateMessagesGroupsToggle() {
@@ -8687,6 +8949,7 @@ function toggleMessagesGroupsView() {
   }
   updateMessagesGroupsToggle();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
 }
 
 function toggleArchiveDmView() {
@@ -8701,6 +8964,7 @@ function toggleArchiveDmView() {
   }
   updateMessagesGroupsToggle();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
 }
 
 function updateArchiveFabState() {
@@ -8718,6 +8982,7 @@ function refreshCurrentMessageList() {
   else if (state.lastMsgTab === 'groups') loadGroups();
   else loadDMList();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
 }
 
 function bindMessagesScrollEffects() {
@@ -8728,9 +8993,14 @@ function bindMessagesScrollEffects() {
   let lastObservedTop = 0;
   let collapsed = false;
   let ticking = false;
-  page.classList.remove('stories-collapsed');
+  page.classList.toggle('stories-collapsed', state.lastMsgTab === 'groups');
 
   const applyState = (st) => {
+    if (state.lastMsgTab === 'groups') {
+      page.classList.add('stories-collapsed');
+      lastTop = st;
+      return;
+    }
     const delta = st - lastTop;
     if (!collapsed && st > 44 && delta > 3) collapsed = true;
     if (collapsed && (delta < -2 || st < 12)) collapsed = false;
@@ -9374,7 +9644,7 @@ async function openAsgPreferences(groupId) {
   // Search filter
   $('#pref-search').oninput = (e) => {
     const q = (e.target.value || '').toLowerCase();
-    const filtered = q ? modulePeople.filter(u => (u.displayName || '').toLowerCase().includes(q)) : modulePeople;
+    const filtered = q ? modulePeople.map(u => ({ user: u, score: userSearchScore(u, q) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : modulePeople;
     peopleEl.innerHTML = filtered.length ? filtered.map(u => renderPersonItem(u)).join('') : '<p class="pref-empty">No matches found.</p>';
   };
 
@@ -9587,13 +9857,22 @@ function listenForNotifications() {
 
   notifUnsub = db.collection('users').doc(state.user.uid).onSnapshot(doc => {
     if (!doc.exists) return;
-    const data = doc.data();
+    const data = doc.data() || {};
+    const prevName = state.profile?.displayName || '';
+    const prevPhoto = state.profile?.photoURL || '';
+    Object.assign(state.profile, data);
     state.profile.friends = data.friends || [];
     state.profile.friendRequests = sanitizeFriendRequests(data.friendRequests || []);
     state.profile.sentRequests = data.sentRequests || [];
     state.profile.blockedUsers = data.blockedUsers || [];
     state.profile.blockedBy = data.blockedBy || [];
     state.profile.allowAnonymousMessages = data.allowAnonymousMessages !== false;
+    updateCachedUserRecord(state.user.uid, state.profile || {});
+    setupHeader();
+    updateAnonPrefButton('messages-anon-pref');
+    if ((data.displayName || '') !== prevName || (data.photoURL || '') !== prevPhoto) {
+      if (state.page === 'chat') refreshCurrentMessageList();
+    }
     updateNotifBadge();
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display === 'block') loadNotifications();
@@ -9718,16 +9997,19 @@ function loadNotifications() {
   if (otherNotifs.length) {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : '🔔';
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : n.type === 'live' ? '🔴' : '🔔';
+      const isOwnLive = !!n.from?.uid && n.from.uid === state.user?.uid;
       const clickAction = n.payload?.convoId
         ? `closeNotifDropdown();openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
-        : n.payload?.postId
-          ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
-          : n.payload?.groupId
-            ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
-            : n.from?.uid && n.from.uid !== 'anonymous'
-              ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
-              : `closeNotifDropdown();markNotifRead('${n.id}')`;
+        : n.payload?.streamId
+          ? `closeNotifDropdown();openLiveStreamFromFeed('${n.payload.streamId}', ${isOwnLive ? 'true' : 'false'});markNotifRead('${n.id}')`
+          : n.payload?.postId
+            ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+            : n.payload?.groupId
+              ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+              : n.from?.uid && n.from.uid !== 'anonymous'
+                ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
+                : `closeNotifDropdown();markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unibo', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
@@ -9837,24 +10119,26 @@ async function viewPost(pid) {
 function loadDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const convos = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
 
       const el = $('#convo-list'); if (!el) return;
-
       if (!convos.length) {
         el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">💬</div><h3>No chats yet</h3><p>Visit a profile to start a conversation</p></div>`;
         return;
       }
 
       const uid = state.user.uid;
+      const otherUids = convos.map(c => c.participants.find(p => p !== uid)).filter(Boolean);
+      await ensureUserContextCache(otherUids);
       let archivedUnread = 0;
       convos.forEach(c => {
         if ((c.archived || []).includes(uid)) archivedUnread += (c.unread || {})[uid] || 0;
@@ -9871,8 +10155,9 @@ function loadDMList() {
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
         const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
-        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
-        const displayPhoto = theirAnon ? null : rawPhoto;
+        const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
+        const displayPhoto = theirAnon ? null : resolved.photo;
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -9905,12 +10190,13 @@ function loadDMList() {
 function loadArchivedDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const convos = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(c => (c.archived || []).includes(state.user.uid))
@@ -9924,6 +10210,8 @@ function loadArchivedDMList() {
       }
 
       const uid = state.user.uid;
+      const otherUids = convos.map(c => c.participants.find(p => p !== uid)).filter(Boolean);
+      await ensureUserContextCache(otherUids);
       el.innerHTML = convos.map(c => {
         const idx = c.participants.indexOf(uid) === 0 ? 1 : 0;
         const otherUid = c.participants[idx];
@@ -9931,8 +10219,9 @@ function loadArchivedDMList() {
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
         const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
-        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
-        const displayPhoto = theirAnon ? null : rawPhoto;
+        const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
+        const displayPhoto = theirAnon ? null : resolved.photo;
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -9986,8 +10275,11 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const { meAnon, themAnon, revealRequests } = getAnonState(convo, uid);
   const otherUid = convo.participants.find(p => p !== uid);
   const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
-  const otherName = (convo.participantNames || [])[idx] || 'User';
-  const otherPhoto = (convo.participantPhotos || [])[idx] || null;
+  const rawOtherName = (convo.participantNames || [])[idx] || realName || 'User';
+  const rawOtherPhoto = (convo.participantPhotos || [])[idx] || realPhoto || null;
+  const resolvedIdentity = getResolvedUserIdentity(otherUid, rawOtherName, rawOtherPhoto);
+  const otherName = resolvedIdentity.name;
+  const otherPhoto = resolvedIdentity.photo;
   const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
   const anonName = getAnonDisplayName(convo, uid, otherUid);
 
@@ -10185,8 +10477,11 @@ async function openChat(convoId) {
     convo._id = convoId;
     const uid = state.user.uid;
     const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
-    const name = (convo.participantNames || [])[idx] || 'User';
-    const photo = (convo.participantPhotos || [])[idx] || null;
+    const otherUid = convo.participants[idx];
+    await ensureUserContextCache([otherUid], { force: true });
+    const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
+    const name = resolvedIdentity.name;
+    const photo = resolvedIdentity.photo;
 
     showScreen('chat-view');
     _activeChatConvoId = convoId;
@@ -10245,7 +10540,11 @@ async function openChat(convoId) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.imageURL) {
+              const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
+              if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
+              else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            }
             // Handle shared post messages
             if (!m.deleted && m.type === 'share_post' && m.payload?.postId) {
               const pl = m.payload;
@@ -10325,8 +10624,9 @@ async function openChat(convoId) {
 
             // Determine anonymous display
             const senderAnon = m.senderAnon || false;
-            const displayName = (!isMe && senderAnon) ? 'Anonymous' : name;
-            const displayPhoto = (!isMe && senderAnon) ? null : photo;
+            const liveIdentity = getResolvedUserIdentity(m.senderId, name, photo);
+            const displayName = (!isMe && senderAnon) ? 'Anonymous' : liveIdentity.name;
+            const displayPhoto = (!isMe && senderAnon) ? null : liveIdentity.photo;
             const avatarHTML = senderAnon && !isMe
               ? '<div class="avatar-xs anon-avatar">👻</div>'
               : avatar(displayName, displayPhoto, 'avatar-xs');
@@ -10414,7 +10714,11 @@ async function openChat(convoId) {
       try {
         // Upload image to R2 if file exists
         let imageURL = null;
-        if (chatFile) { imageURL = await uploadToR2(chatFile, 'chat-images'); }
+        let mediaType = null;
+        if (chatFile) {
+          imageURL = await uploadToR2(chatFile, 'chat-images');
+          mediaType = (chatFile.type || '').startsWith('video/') ? 'video' : 'image';
+        }
         // Upload voice to R2
         let audioURL = null;
         if (window._chatVoiceBlob) {
@@ -10434,12 +10738,12 @@ async function openChat(convoId) {
           }
         } catch (_) {}
         await db.collection('conversations').doc(convoId).collection('messages').add({
-          text: safeText || '', imageURL: imageURL || null, audioURL: audioURL || null,
+          text: safeText || '', imageURL: imageURL || null, mediaType: mediaType || null, audioURL: audioURL || null,
           moderationFlags: moderation.flags,
           senderId: uid, senderAnon, ...replyPayload,
           createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
-        const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (safeText || '📷 Photo') : safeText;
+        const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText;
         const mergeData = {
           lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
@@ -11286,9 +11590,12 @@ function editProfile() {
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
+      updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
-      setupHeader(); toast('Profile updated!'); openProfile(state.user.uid);
+      setupHeader();
+      if (state.page === 'chat') { loadDMList().catch(() => {}); }
+      toast('Profile updated!'); openProfile(state.user.uid);
     } catch (e) { toast('Failed'); console.error(e); }
   };
 }
@@ -11676,7 +11983,7 @@ async function adminViewAllUsers() {
     $('#admin-users-list').innerHTML = renderAdminUsers(users);
     $('#admin-user-search').oninput = (e) => {
       const q = (e.target.value || '').toLowerCase();
-      const filtered = q ? users.filter(u => (u.displayName||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q)) : users;
+      const filtered = q ? users.map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : users;
       $('#admin-users-list').innerHTML = renderAdminUsers(filtered);
     };
   } catch (e) { console.error(e); }
@@ -11702,7 +12009,10 @@ function adminVerifyUser() {
       try {
         const snap = await db.collection('users').limit(50).get();
         const users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .filter(u => (u.displayName||'').toLowerCase().includes(q.toLowerCase()) || (u.email||'').toLowerCase().includes(q.toLowerCase()));
+          .map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) }))
+          .filter(entry => entry.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map(entry => entry.user);
         $('#verify-results').innerHTML = users.map(u => `
           <div class="pref-person" style="cursor:pointer">
             ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
