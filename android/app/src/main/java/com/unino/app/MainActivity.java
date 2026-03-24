@@ -22,6 +22,7 @@ public class MainActivity extends BridgeActivity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		UninoFirebaseMessagingService.ensureNotificationChannels(this);
 
 		try {
 			Client appwriteClient = new Client(this);

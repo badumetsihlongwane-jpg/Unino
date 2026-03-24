@@ -3,6 +3,7 @@ package com.unino.app;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 
@@ -15,11 +16,14 @@ import com.google.firebase.messaging.RemoteMessage;
 import java.util.Map;
 
 public class UninoFirebaseMessagingService extends FirebaseMessagingService {
-    private static final String CHANNEL_ID = "unibo-messages";
+    public static final String CHANNEL_MESSAGES = "unibo-messages";
+    public static final String CHANNEL_GENERAL = "unibo-general";
 
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
         super.onMessageReceived(remoteMessage);
+
+        ensureNotificationChannels(this);
 
         RemoteMessage.Notification notification = remoteMessage.getNotification();
         Map<String, String> data = remoteMessage.getData();
@@ -32,30 +36,64 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
 
         String title = valueOrDefault(data.get("title"), "Unino");
         String body = valueOrDefault(data.get("body"), "You have a new notification");
+        String channelId = resolveChannelId(data);
 
-        showSystemNotification(title, body);
+        showSystemNotification(title, body, channelId, data);
     }
 
     @Override
     public void onNewToken(String token) {
         super.onNewToken(token);
+        ensureNotificationChannels(this);
         // Token sync remains handled by the JS Capacitor registration path.
     }
 
-    private void showSystemNotification(String title, String body) {
-        ensureChannel();
+    public static void ensureNotificationChannels(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context == null) return;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+
+        ensureChannel(manager, CHANNEL_MESSAGES, "Messages", "Direct and group message notifications", NotificationManager.IMPORTANCE_HIGH);
+        ensureChannel(manager, CHANNEL_GENERAL, "Activity", "General Unibo notifications", NotificationManager.IMPORTANCE_DEFAULT);
+    }
+
+    private static void ensureChannel(NotificationManager manager, String channelId, String name, String description, int importance) {
+        NotificationChannel existing = manager.getNotificationChannel(channelId);
+        if (existing != null) return;
+
+        NotificationChannel channel = new NotificationChannel(channelId, name, importance);
+        channel.setDescription(description);
+        manager.createNotificationChannel(channel);
+    }
+
+    private String resolveChannelId(Map<String, String> data) {
+        String channelId = valueOrDefault(data.get("channelId"), "");
+        if (!channelId.isEmpty()) return channelId;
+        String kind = valueOrDefault(data.get("kind"), "");
+        return ("dm".equals(kind) || "group".equals(kind)) ? CHANNEL_MESSAGES : CHANNEL_GENERAL;
+    }
+
+    private void showSystemNotification(String title, String body, String channelId, Map<String, String> data) {
+        ensureNotificationChannels(this);
 
         Intent launchIntent = new Intent(this, MainActivity.class)
+            .setAction("OPEN_UNIBO")
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                launchIntent.putExtra(entry.getKey(), entry.getValue());
+            }
+        }
 
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this,
-            0,
+            (int) (System.currentTimeMillis() & 0x7fffffff),
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -67,23 +105,6 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
         NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
-    }
-
-    private void ensureChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager == null) return;
-
-        NotificationChannel existing = manager.getNotificationChannel(CHANNEL_ID);
-        if (existing != null) return;
-
-        NotificationChannel channel = new NotificationChannel(
-            CHANNEL_ID,
-            "Messages",
-            NotificationManager.IMPORTANCE_HIGH
-        );
-        channel.setDescription("Direct and group message notifications");
-        manager.createNotificationChannel(channel);
     }
 
     private String valueOrDefault(String value, String fallback) {
