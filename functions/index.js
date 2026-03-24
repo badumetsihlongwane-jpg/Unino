@@ -28,6 +28,35 @@ function tokenDocId(token = '') {
   return Buffer.from(token).toString('base64url').slice(0, 120) || 'token';
 }
 
+
+function normalizeKey(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function chunk(items = [], size = 400) {
+  const rows = [];
+  for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
+  return rows;
+}
+
+async function getLiveNotificationRecipients(stream = {}) {
+  const hostUid = stream.hostUid || '';
+  if (!hostUid) return [];
+  const visibility = normalizeKey(stream.visibility || 'public');
+  const campusKey = normalizeKey(stream.campus || stream.university || '');
+  const userSnap = await db.collection('users').get();
+  return userSnap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .filter(user => user.id && user.id !== hostUid)
+    .filter(user => {
+      if (visibility !== 'campus_only') return true;
+      const userCampus = normalizeKey(user.university || user.campus || user.address || '');
+      if (!campusKey) return true;
+      return !!userCampus && (userCampus.includes(campusKey) || campusKey.includes(userCampus));
+    })
+    .map(user => user.id);
+}
+
 async function getUserTokens(userId) {
   const snap = await db.collection('users').doc(userId).collection('pushTokens').get();
   return snap.docs
@@ -175,9 +204,11 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
     ? 'dm'
     : payload.groupId
       ? 'group'
-      : payload.postId
-        ? 'post'
-        : 'app';
+      : payload.streamId
+        ? 'live'
+        : payload.postId
+          ? 'post'
+          : 'app';
 
   await sendPushToUser(userId, {
     title: from.name || 'Unibo',
@@ -190,6 +221,7 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
       groupId: payload.groupId || '',
       collection: payload.collection || 'groups',
       postId: payload.postId || '',
+      streamId: payload.streamId || '',
       profileId: from.uid || '',
       notifDocId: notifId
     }
@@ -257,4 +289,46 @@ exports.appwritePushSync = onRequest({ cors: true }, async (req, res) => {
     logger.error('appwritePushSync error', error);
     res.status(500).json({ ok: false, error: 'internal' });
   }
+});
+
+exports.onLiveStreamCreated = onDocumentCreated('liveStreams/{streamId}', async event => {
+  const stream = event.data?.data();
+  const streamId = event.params.streamId;
+  if (!stream || !streamId) return;
+  if (!['live', 'starting'].includes(String(stream.status || 'live'))) return;
+
+  const recipients = await getLiveNotificationRecipients(stream);
+  if (!recipients.length) return;
+
+  const hostName = clampText(stream.hostName || 'Someone', 40);
+  const streamTitle = clampText(stream.title || 'Untitled stream', 70);
+  const text = streamTitle ? `is live now — ${streamTitle}` : 'is live now';
+  const payload = {
+    streamId,
+    title: stream.title || 'Untitled stream',
+    visibility: stream.visibility || 'public'
+  };
+  const from = {
+    uid: stream.hostUid || '',
+    name: stream.hostName || 'Someone',
+    photo: stream.hostPhotoURL || null
+  };
+
+  for (const ids of chunk(recipients, 400)) {
+    const batch = db.batch();
+    ids.forEach(userId => {
+      const ref = db.collection('users').doc(userId).collection('notifications').doc(`live_${streamId}`);
+      batch.set(ref, {
+        type: 'live',
+        text,
+        payload,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        from
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+
+  logger.info('Live notifications queued', { streamId, recipients: recipients.length, hostName, visibility: stream.visibility || 'public' });
 });
