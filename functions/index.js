@@ -56,17 +56,24 @@ async function sendPushToUser(userId, payload) {
   if (!tokenRows.length) return;
 
   const tokens = tokenRows.map(row => row.token);
+  const channelId = payload.channelId || 'unibo-general';
+  const data = cleanDataMap({
+    ...(payload.data || {}),
+    title: payload.title || 'Unibo',
+    body: payload.body || 'You have a new notification',
+    channelId
+  });
   const multicast = {
     tokens,
     notification: {
       title: payload.title,
       body: payload.body
     },
-    data: cleanDataMap(payload.data),
+    data,
     android: {
       priority: 'high',
       notification: {
-        channelId: payload.channelId || 'unibo-general',
+        channelId,
         sound: 'default',
         imageUrl: payload.imageUrl || undefined,
         clickAction: 'OPEN_UNIBO'
