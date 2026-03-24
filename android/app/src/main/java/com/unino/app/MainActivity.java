@@ -11,6 +11,11 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import android.content.Intent;
+
 import com.getcapacitor.BridgeActivity;
 import io.appwrite.Client;
 
@@ -71,7 +76,32 @@ public class MainActivity extends BridgeActivity {
 				null
 			)
 		);
+
+		dispatchNotificationIntent(getIntent());
 	}
+
+	@Override
+	protected void onNewIntent(Intent intent) {
+		super.onNewIntent(intent);
+		setIntent(intent);
+		dispatchNotificationIntent(intent);
+	}
+
+	private void dispatchNotificationIntent(Intent intent) {
+		if (intent == null || intent.getExtras() == null || getBridge() == null) return;
+		JSONObject payload = new JSONObject();
+		for (String key : intent.getExtras().keySet()) {
+			Object value = intent.getExtras().get(key);
+			try {
+				payload.put(key, value == null ? JSONObject.NULL : String.valueOf(value));
+			} catch (JSONException ignored) {}
+		}
+		if (payload.length() == 0) return;
+		String json = payload.toString().replace("\\", "\\\\").replace("'", "\\'");
+		String script = "window.__UNINO_PENDING_NOTIFICATION={extra:JSON.parse('" + json + "'),actionId:'tap'};window.dispatchEvent(new CustomEvent('unino:native-notification-open',{detail:window.__UNINO_PENDING_NOTIFICATION}));";
+		getBridge().getWebView().postDelayed(() -> getBridge().getWebView().evaluateJavascript(script, null), 300);
+	}
+
 
 	private void invokeClientSetter(Client client, String methodName, String value) throws Exception {
 		for (Method method : Client.class.getMethods()) {

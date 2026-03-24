@@ -5,4 +5,5 @@
     <string name="package_name">com.unino.app</string>
     <string name="custom_url_scheme">com.unino.app</string>
     <string name="default_notification_channel_id">unibo-general</string>
+    <string name="notification_accent_color">#6D28D9</string>
 </resources>
