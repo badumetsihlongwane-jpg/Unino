@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <title>Unibo — NWU Campus, Connected</title>
   <meta name="description" content="NWU campus social app: feed, stories, study groups, marketplace, messaging & more.">
-  <meta name="theme-color" content="#FFFFFF">
+  <meta name="theme-color" content="#FFFFFF" id="theme-color-meta">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=45">
+  <link rel="stylesheet" href="css/styles.css?v=46">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="icon" type="image/png" href="unino-icon.png">
+  <link rel="icon" type="image/png" href="unino-icon-light.png?v=46" id="theme-favicon">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 </head>
 <body>
@@ -20,7 +20,7 @@
 <!-- ══ SPLASH ══ -->
 <div id="splash" class="screen active">
   <div class="splash-inner">
-    <div class="splash-logo brand-logo-shell"><img src="unino-icon.png" alt="Unino" class="brand-logo-img brand-logo-xl"></div>
+    <div class="splash-logo brand-logo-shell"><img src="unino-icon-light.png?v=46" alt="Unino" class="brand-logo-img brand-logo-xl" data-theme-logo></div>
     <h1 class="splash-title">Unibo</h1>
     <div class="spinner"></div>
   </div>
@@ -30,7 +30,7 @@
 <div id="auth-screen" class="screen">
   <div class="auth-wrap">
     <div class="auth-hero">
-      <div class="auth-emoji brand-logo-shell"><img src="unino-icon.png" alt="Unino" class="brand-logo-img brand-logo-lg"></div>
+      <div class="auth-emoji brand-logo-shell"><img src="unino-icon-light.png?v=46" alt="Unino" class="brand-logo-img brand-logo-lg" data-theme-logo></div>
       <h1>Unibo</h1>
       <p>NWU Campus, Connected</p>
     </div>
@@ -81,7 +81,7 @@
   <!-- Header -->
   <header id="hdr">
     <div class="hdr-l">
-      <span class="hdr-logo"><span class="brand-mark"><img src="unino-icon.png" alt="Unino" class="brand-logo-img brand-logo-sm"></span><b>Unibo</b></span>
+      <span class="hdr-logo"><span class="brand-mark"><img src="unino-icon-light.png?v=46" alt="Unino" class="brand-logo-img brand-logo-sm" data-theme-logo></span></span>
       <button class="status-pill" id="status-pill">
         <span class="dot green" id="status-dot"></span>
         <span id="status-text">Online</span>
@@ -266,6 +266,6 @@
 <script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="js/firebase-config.js"></script>
-<script src="js/app.js?v=45"></script>
+<script src="js/app.js?v=46"></script>
 </body>
 </html>
