@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 43;
+const APP_VERSION = 44;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -57,6 +57,11 @@ let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
 let _pendingFeedScrollRestore = null;
 let _notifDropdownCloseHandler = null;
+let _contentScrollGestureAt = 0;
+let _pendingMapRoute = null;
+let _activeMapRouteLayer = null;
+let _activeMapRouteMarkers = [];
+let _activeMapRouteSummary = null;
 let _feedRestorePendingPaint = false;
 const _nativeGeneralNotifIds = new Set();
 let _feedSearchQuery = '';
@@ -793,6 +798,14 @@ async function removePushTokenForUser(userId, token = _nativePushToken) {
 
 function appIsForeground() {
   return _nativeAppIsActive && !document.hidden;
+}
+
+function noteContentScrollGesture() {
+  _contentScrollGestureAt = Date.now();
+}
+
+function isRecentContentScrollGesture(windowMs = 520) {
+  return (Date.now() - (_contentScrollGestureAt || 0)) <= windowMs;
 }
 
 function closeNotifDropdown() {
@@ -2100,11 +2113,14 @@ function openPinnedPostOnRadar(postId) {
     toast('Pinned location not available yet');
     return;
   }
+  const label = ping.label || post.authorName || 'Pinned';
   _pendingRadarPinnedPoint = {
     lat,
     lng,
-    label: ping.label || post.authorName || 'Pinned'
+    label
   };
+  setPendingMapRoute({ lat, lng }, { label, targetId: postId, source: 'post' });
+  exploreView = 'radar';
   navigate('explore');
 }
 
@@ -6617,19 +6633,22 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
-  // Always open Explore on radar first.
-  exploreView = 'radar';
+  if (!['radar', 'list', 'map'].includes(exploreView)) exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
       <div class="explore-toggle">
-        <button class="explore-toggle-btn active" data-v="radar">
+        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
           Radar
         </button>
-        <button class="explore-toggle-btn" data-v="list">
+        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           List
+        </button>
+        <button class="explore-toggle-btn ${exploreView === 'map' ? 'active' : ''}" data-v="map">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+          Map
         </button>
       </div>
       <div id="explore-body">
@@ -6640,9 +6659,8 @@ function renderExplore() {
 
   $$('.explore-toggle-btn').forEach(btn => {
     btn.onclick = () => {
-      $$('.explore-toggle-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      exploreView = btn.dataset.v;
+      exploreView = btn.dataset.v || 'radar';
+      syncExploreToggleButtons();
       renderExploreView();
     };
   });
@@ -6692,8 +6710,26 @@ async function loadExploreUsers() {
   }
 }
 
+function syncExploreToggleButtons() {
+  $$('.explore-toggle-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.v === exploreView);
+  });
+}
+
+function openCampusMapView() {
+  exploreView = 'map';
+  if (state.page !== 'explore') {
+    navigate('explore');
+    return;
+  }
+  syncExploreToggleButtons();
+  renderExploreView();
+}
+
 function renderExploreView() {
+  syncExploreToggleButtons();
   if (exploreView === 'radar') renderRadarView();
+  else if (exploreView === 'map') renderCampusMapView();
   else renderListView();
 }
 
@@ -6701,7 +6737,7 @@ function switchToExploreList(filter = 'all', queryRaw = '') {
   exploreView = 'list';
   const query = (queryRaw || '').trim();
   _exploreSearchQuery = query;
-  $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+  syncExploreToggleButtons();
   renderListView(query, filter);
 }
 
@@ -6724,6 +6760,7 @@ function renderRadarView() {
         <div class="radar-sweep-anim"></div>
       </div>
     </div>
+    <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
     <div id="radar-dynamic"></div>
   `;
 
@@ -6819,16 +6856,17 @@ function renderRadarView() {
       .slice(0, 4)
       .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
-    const addressPool = [
-      ...CAMPUS_LOCATIONS.map(l => l.name),
-      ...allExploreUsers.map(u => u.address || '').filter(Boolean)
-    ];
-    const addressHits = Array.from(new Set(addressPool))
-      .filter(a => a.toLowerCase().includes(q))
+    const locationHits = CAMPUS_LOCATIONS
+      .filter(loc => (loc.name || '').toLowerCase().includes(q))
       .slice(0, 4)
+      .map(loc => ({ type: 'location', locationId: loc.id, label: loc.name, sub: 'Campus pin' }));
+
+    const addressHits = Array.from(new Set(allExploreUsers.map(u => u.address || '').filter(Boolean)))
+      .filter(a => a.toLowerCase().includes(q))
+      .slice(0, 3)
       .map(a => ({ type: 'address', label: a, sub: 'Address' }));
 
-    const hits = [...peopleHits, ...addressHits].slice(0, 7);
+    const hits = [...peopleHits, ...locationHits, ...addressHits].slice(0, 7);
     if (!hits.length) {
       box.style.display = 'none';
       box.innerHTML = '';
@@ -6841,7 +6879,7 @@ function renderRadarView() {
         const photo = user?.photoURL || null;
         const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
         return `
-          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
             ${avatarHTML}
             <div class="radar-suggestion-text">
               <span class="radar-suggestion-main">${esc(h.label)}</span>
@@ -6851,7 +6889,7 @@ function renderRadarView() {
         `;
       }
       return `
-        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
           <span class="radar-suggestion-icon">📍</span>
           <div class="radar-suggestion-text">
             <span class="radar-suggestion-main">${esc(h.label)}</span>
@@ -6866,9 +6904,15 @@ function renderRadarView() {
         const selected = btn.getAttribute('data-v') || '';
         const kind = btn.getAttribute('data-type') || '';
         const uid = btn.getAttribute('data-uid') || '';
+        const locationId = btn.getAttribute('data-location-id') || '';
         if (kind === 'person' && uid) {
           box.style.display = 'none';
           openProfile(uid);
+          return;
+        }
+        if (kind === 'location' && locationId) {
+          box.style.display = 'none';
+          routeToCampusLocation(locationId);
           return;
         }
         const inp = $('#radar-search');
@@ -6891,7 +6935,7 @@ function renderRadarView() {
     window._radarSearchQuery = q;
     _exploreSearchQuery = q;
     exploreView = 'list';
-    $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+    syncExploreToggleButtons();
     renderListView(q);
   };
 
@@ -6924,6 +6968,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
   requestAnimationFrame(() => {
     const el = document.getElementById('radar-map');
     if (!el || typeof L === 'undefined') return;
+    clearActiveMapRoute({ clearPending: false });
     if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
 
     const center = getRadarCenterCoords();
@@ -6952,7 +6997,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         iconSize: [34, 34], iconAnchor: [17, 34]
       });
       L.marker([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], { icon: pinIcon }).addTo(_leafletMap)
-        .bindPopup(`<b>📌 ${esc(_pendingRadarPinnedPoint.label || 'Pinned')}</b>`);
+        .bindPopup(`<div class="map-popup-card"><b>📌 ${esc(_pendingRadarPinnedPoint.label || 'Pinned')}</b><div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${_pendingRadarPinnedPoint.lat},${_pendingRadarPinnedPoint.lng}, ${JSON.stringify(_pendingRadarPinnedPoint.label || 'Pinned')})">Route here</button></div></div>`);
       _leafletMap.flyTo([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], 17, { duration: 0.45 });
       _pendingRadarPinnedPoint = null;
     }
@@ -6965,8 +7010,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         iconSize: [36, 36], iconAnchor: [18, 36]
       });
       L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap)
-        .bindPopup(`<b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`)
-        .on('click', () => openLocationDetail(loc.id));
+        .bindPopup(`<div class="map-popup-card"><b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}<div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToCampusLocation('${loc.id}')">Route here</button><button class="map-popup-btn secondary" onclick="openLocationDetail('${loc.id}')">Details</button></div></div>`);
     });
 
     const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
@@ -7017,6 +7061,9 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     };
     syncRadarOverlay();
     _leafletMap.on('move zoom resize', syncRadarOverlay);
+
+    if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
+    else updateMapRoutePanel(null);
 
     setTimeout(() => _leafletMap?.invalidateSize(), 300);
   });
@@ -7208,6 +7255,259 @@ const CAMPUS_LOCATIONS = [
   { id: 'parking', name: 'Parking', emoji: '🅿️', x: 90, y: 85, lat: -26.6868, lng: 27.0985 },
 ];
 
+const CAMPUS_ROUTE_EDGES = [
+  ['library', 'lab-block'],
+  ['library', 'main-hall'],
+  ['lab-block', 'cs-building'],
+  ['cs-building', 'amphitheatre'],
+  ['cs-building', 'cafeteria'],
+  ['main-hall', 'amphitheatre'],
+  ['main-hall', 'student-center'],
+  ['main-hall', 'admin'],
+  ['student-center', 'admin'],
+  ['student-center', 'sports-complex'],
+  ['student-center', 'res-halls'],
+  ['admin', 'quad'],
+  ['amphitheatre', 'quad'],
+  ['quad', 'cafeteria'],
+  ['quad', 'res-halls'],
+  ['sports-complex', 'res-halls'],
+  ['res-halls', 'parking']
+];
+
+function setPendingMapRoute(target = {}, options = {}) {
+  const lat = Number(target.lat);
+  const lng = Number(target.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  _pendingMapRoute = {
+    target: { lat, lng },
+    label: options.label || 'Destination',
+    targetId: options.targetId || '',
+    source: options.source || 'manual'
+  };
+  return true;
+}
+
+function calculateRouteDistance(points = []) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distanceKmBetween(points[i - 1], points[i]);
+  return total;
+}
+
+function dedupeRoutePoints(points = []) {
+  return points.filter((point, index, arr) => {
+    if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return false;
+    if (index === 0) return true;
+    const prev = arr[index - 1];
+    return !prev || Math.abs(prev.lat - point.lat) > 0.000001 || Math.abs(prev.lng - point.lng) > 0.000001;
+  });
+}
+
+function nearestCampusNode(coords = null, maxDistanceKm = 0.75) {
+  if (!coords) return null;
+  let best = null;
+  CAMPUS_LOCATIONS.forEach(loc => {
+    const distanceKm = distanceKmBetween(coords, loc);
+    if (!best || distanceKm < best.distanceKm) best = { loc, distanceKm };
+  });
+  if (!best || best.distanceKm > maxDistanceKm) return null;
+  return best;
+}
+
+function shortestCampusPath(startId = '', endId = '') {
+  if (!startId || !endId) return [];
+  if (startId === endId) return [getCampusLocationById(startId)].filter(Boolean);
+  const graph = {};
+  CAMPUS_LOCATIONS.forEach(loc => { graph[loc.id] = []; });
+  CAMPUS_ROUTE_EDGES.forEach(([left, right]) => {
+    const a = getCampusLocationById(left);
+    const b = getCampusLocationById(right);
+    if (!a || !b) return;
+    const distanceKm = distanceKmBetween(a, b);
+    graph[left].push({ id: right, distanceKm });
+    graph[right].push({ id: left, distanceKm });
+  });
+
+  const distances = {};
+  const previous = {};
+  const remaining = new Set(Object.keys(graph));
+  Object.keys(graph).forEach(id => { distances[id] = Number.POSITIVE_INFINITY; });
+  distances[startId] = 0;
+
+  while (remaining.size) {
+    let current = '';
+    let bestDistance = Number.POSITIVE_INFINITY;
+    remaining.forEach(id => {
+      if (distances[id] < bestDistance) {
+        bestDistance = distances[id];
+        current = id;
+      }
+    });
+    if (!current) break;
+    remaining.delete(current);
+    if (current === endId) break;
+    (graph[current] || []).forEach(edge => {
+      if (!remaining.has(edge.id)) return;
+      const nextDistance = distances[current] + edge.distanceKm;
+      if (nextDistance < distances[edge.id]) {
+        distances[edge.id] = nextDistance;
+        previous[edge.id] = current;
+      }
+    });
+  }
+
+  if (!Number.isFinite(distances[endId])) return [];
+  const path = [];
+  let cursor = endId;
+  while (cursor) {
+    path.unshift(cursor);
+    if (cursor === startId) break;
+    cursor = previous[cursor];
+  }
+  return path.map(getCampusLocationById).filter(Boolean);
+}
+
+function buildCampusRoute(startCoords = null, endCoords = null) {
+  const safeStart = startCoords || getRadarCenterCoords();
+  const safeEnd = endCoords || safeStart;
+  const startNode = nearestCampusNode(safeStart);
+  const endNode = nearestCampusNode(safeEnd);
+  let direct = true;
+  let points = [safeStart, safeEnd];
+
+  if (startNode && endNode) {
+    const pathNodes = shortestCampusPath(startNode.loc.id, endNode.loc.id);
+    if (pathNodes.length) {
+      direct = false;
+      points = dedupeRoutePoints([
+        safeStart,
+        ...pathNodes.map(node => ({ lat: node.lat, lng: node.lng })),
+        safeEnd
+      ]);
+    }
+  }
+
+  const distanceKm = calculateRouteDistance(points);
+  const walkMinutes = Math.max(1, Math.round((distanceKm / 4.8) * 60));
+  return { points, distanceKm, walkMinutes, direct };
+}
+
+function updateMapRoutePanel(summary = null) {
+  const host = document.getElementById('map-route-panel');
+  if (!host) return;
+  if (!summary) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const usingCampusFallback = !getUserCoords(state.profile);
+  host.innerHTML = `
+    <div class="map-route-card">
+      <div class="map-route-copy">
+        <div class="map-route-title">Route to ${esc(summary.label || 'destination')}</div>
+        <div class="map-route-meta">
+          <span>🧭 ${esc(formatDistanceText(summary.distanceKm) || 'Nearby')}</span>
+          <span>🚶 ${summary.walkMinutes} min walk</span>
+          <span>${summary.direct ? '↗ Direct line' : '🛣 Campus route'}</span>
+        </div>
+        ${usingCampusFallback ? '<div class="map-route-note">Using campus center. Save GPS in profile for better routing.</div>' : ''}
+      </div>
+      <div class="map-route-actions">
+        ${exploreView !== 'map' ? '<button class="btn-outline btn-sm" onclick="openCampusMapView()">Campus map</button>' : ''}
+        <button class="btn-primary btn-sm" onclick="clearMapRoute()">Clear</button>
+      </div>
+    </div>
+  `;
+  host.style.display = 'block';
+}
+
+function clearActiveMapRoute(options = {}) {
+  const { clearPending = true } = options;
+  if (_leafletMap && _activeMapRouteLayer) {
+    try { _leafletMap.removeLayer(_activeMapRouteLayer); } catch (_) {}
+  }
+  (_activeMapRouteMarkers || []).forEach(marker => {
+    try { _leafletMap?.removeLayer(marker); } catch (_) {}
+  });
+  _activeMapRouteLayer = null;
+  _activeMapRouteMarkers = [];
+  _activeMapRouteSummary = null;
+  if (clearPending) _pendingMapRoute = null;
+  updateMapRoutePanel(null);
+}
+
+function clearMapRoute() {
+  clearActiveMapRoute({ clearPending: true });
+}
+
+function drawPendingMapRouteOnCurrentMap() {
+  if (!_pendingMapRoute || !_leafletMap || typeof L === 'undefined') {
+    if (!_pendingMapRoute) updateMapRoutePanel(null);
+    return;
+  }
+  clearActiveMapRoute({ clearPending: false });
+  const start = getUserCoords(state.profile) || getRadarCenterCoords();
+  const route = buildCampusRoute(start, _pendingMapRoute.target);
+  const latLngs = route.points.map(point => [point.lat, point.lng]);
+  _activeMapRouteLayer = L.polyline(latLngs, {
+    color: '#6C5CE7',
+    weight: 5,
+    opacity: 0.9,
+    lineCap: 'round',
+    lineJoin: 'round',
+    dashArray: route.direct ? '10 10' : null
+  }).addTo(_leafletMap);
+
+  const startMarker = L.circleMarker([start.lat, start.lng], {
+    radius: 7,
+    color: '#111827',
+    weight: 2,
+    fillColor: '#22C55E',
+    fillOpacity: 1
+  }).addTo(_leafletMap).bindPopup('<b>You</b>');
+
+  const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], {
+    radius: 7,
+    color: '#111827',
+    weight: 2,
+    fillColor: '#8B5CF6',
+    fillOpacity: 1
+  }).addTo(_leafletMap).bindPopup(`<b>${esc(_pendingMapRoute.label || 'Destination')}</b>`);
+
+  _activeMapRouteMarkers = [startMarker, endMarker];
+  _activeMapRouteSummary = {
+    ...route,
+    label: _pendingMapRoute.label || 'Destination'
+  };
+  updateMapRoutePanel(_activeMapRouteSummary);
+  const bounds = L.latLngBounds(latLngs);
+  if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+}
+
+function routeToMapPoint(lat, lng, label = 'Destination') {
+  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return;
+  if (state.page !== 'explore') {
+    exploreView = 'radar';
+    navigate('explore');
+    return;
+  }
+  if (_leafletMap) drawPendingMapRouteOnCurrentMap();
+  else renderExploreView();
+}
+
+function routeToCampusLocation(locationId = '') {
+  const loc = getCampusLocationById(locationId);
+  if (!loc) return;
+  if (!setPendingMapRoute(loc, { label: loc.name, targetId: locationId, source: 'campus' })) return;
+  if (state.page !== 'explore') {
+    exploreView = 'map';
+    navigate('explore');
+    return;
+  }
+  if (_leafletMap) drawPendingMapRouteOnCurrentMap();
+  else renderExploreView();
+}
+
 let allCampusEvents = [];
 
 function eventStartTimeMs(eventDoc = {}) {
@@ -7311,6 +7611,7 @@ function renderCampusMapView() {
         <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
       <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
+      <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
 
       <div class="campus-events-section">
         <div class="campus-events-header">
@@ -7349,10 +7650,13 @@ function initLeafletMap(eventsByLoc) {
   const el = document.getElementById('leaflet-map');
   if (!el || typeof L === 'undefined') return;
 
+  clearActiveMapRoute({ clearPending: false });
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
 
+  const myCoords = getUserCoords(state.profile) || { lat: -26.6840, lng: 27.0945 };
+
   // NWU Potchefstroom campus center
-  _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
+  _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([myCoords.lat, myCoords.lng], 16);
   L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
@@ -7363,6 +7667,14 @@ function initLeafletMap(eventsByLoc) {
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
     maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
   }).addTo(_leafletMap);
+
+  const myIcon = L.divIcon({
+    className: 'leaflet-user-pin',
+    html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+  L.marker([myCoords.lat, myCoords.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
   // Campus location pins
   CAMPUS_LOCATIONS.forEach(loc => {
@@ -7378,23 +7690,26 @@ function initLeafletMap(eventsByLoc) {
       iconAnchor: [18, 36]
     });
     const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap);
-    marker.bindPopup(`<b>${loc.emoji} ${loc.name}</b>${hasEvents ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`);
-    marker.on('click', () => openLocationDetail(loc.id));
+    marker.bindPopup(`<div class="map-popup-card"><b>${loc.emoji} ${loc.name}</b>${hasEvents ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}<div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToCampusLocation('${loc.id}')">Route here</button><button class="map-popup-btn secondary" onclick="openLocationDetail('${loc.id}')">Details</button></div></div>`);
   });
 
   // User pins - show friends on map
   allExploreUsers.forEach(u => {
-    if (!u.lat || !u.lng) return;
+    const coords = getUserCoords(u);
+    if (!coords) return;
     const userIcon = L.divIcon({
       className: 'leaflet-user-pin',
       html: `<div class="map-user-pin">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
       iconSize: [28, 28],
       iconAnchor: [14, 14]
     });
-    const m = L.marker([u.lat, u.lng], { icon: userIcon }).addTo(_leafletMap);
+    const m = L.marker([coords.lat, coords.lng], { icon: userIcon }).addTo(_leafletMap);
     m.bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>`);
     m.on('click', () => showUserPreview(u.id));
   });
+
+  if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
+  else updateMapRoutePanel(null);
 
   // Invalidate size after animation
   setTimeout(() => _leafletMap?.invalidateSize(), 300);
@@ -7419,8 +7734,9 @@ function openLocationDetail(locationId) {
             ${ev.id ? `<button class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" style="margin-top:8px" onclick="toggleEventGoing('${ev.id}');closeModal()">${amGoing ? 'Cancel RSVP' : 'I\'m Going!'}</button>` : ''}
           </div>`;
         }).join('')}
-      ` : '<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>'}
-      <button class="btn-primary btn-full" style="margin-top:12px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
+      ` : `<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>`}
+      <button class="btn-outline btn-full" style="margin-top:12px" onclick="closeModal();routeToCampusLocation('${locationId}')">🧭 Route Here</button>
+      <button class="btn-primary btn-full" style="margin-top:10px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
     </div>
   `);
 }
@@ -7483,6 +7799,7 @@ async function openEventDetail(eventId) {
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
+        ${loc ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToCampusLocation('${loc.id}')">🧭 Route Here</button>` : ''}
         ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
         ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
@@ -11529,12 +11846,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
 
-  // Close notification dropdown when scrolling the main content
+  // Close notification dropdown only for real user scroll gestures, not auto scroll/restore.
   const contentEl = $('#content');
   if (contentEl) {
+    ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach(eventName => {
+      contentEl.addEventListener(eventName, () => noteContentScrollGesture(), { passive: true, capture: true });
+    });
     contentEl.addEventListener('scroll', () => {
       const dd = $('#notif-dropdown');
-      if (dd && dd.style.display === 'block') closeNotifDropdown();
+      if (!dd || dd.style.display !== 'block') return;
+      if (isRecentContentScrollGesture()) closeNotifDropdown();
     }, true);
   }
 
@@ -11577,6 +11898,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
