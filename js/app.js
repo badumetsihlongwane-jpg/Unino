@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 46;
+const APP_VERSION = 47;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -61,6 +61,11 @@ let _contentScrollGestureAt = 0;
 let _pendingMapRoute = null;
 let _activeMapRouteLayer = null;
 let _activeMapRouteMarkers = [];
+let _mapLibreMap = null;
+let _mapLibreMarkers = [];
+let _mapLibrePopups = [];
+let _bootReady = false;
+let _bootFallbackTimer = null;
 let _activeMapRouteSummary = null;
 let _feedRestorePendingPaint = false;
 const _nativeGeneralNotifIds = new Set();
@@ -3335,6 +3340,34 @@ function applyThemeAssets(theme = document.documentElement.getAttribute('data-th
   if (themeMeta) themeMeta.setAttribute('content', asset.themeColor);
 }
 
+
+function showBootStatus(message = 'Loading…') {
+  const splash = $('#splash');
+  if (splash) splash.classList.add('active');
+  const title = document.querySelector('#splash .splash-status');
+  if (title) title.textContent = message;
+}
+
+function markBootReady(message = '') {
+  _bootReady = true;
+  const splash = $('#splash');
+  if (!splash) return;
+  const status = document.querySelector('#splash .splash-status');
+  if (status && message) status.textContent = message;
+  requestAnimationFrame(() => {
+    setTimeout(() => splash.classList.remove('active'), 180);
+  });
+}
+
+function ensureBootFallback() {
+  if (_bootFallbackTimer) clearTimeout(_bootFallbackTimer);
+  _bootFallbackTimer = setTimeout(() => {
+    if (_bootReady) return;
+    showScreen('auth-screen');
+    markBootReady('Still loading… you can log in while we reconnect.');
+  }, 4500);
+}
+
 function initTheme() {
   const saved = localStorage.getItem('unino-theme') || 'light';
   document.documentElement.setAttribute('data-theme', saved);
@@ -3552,7 +3585,7 @@ function initAuth() {
       _nativeDmNotificationPrimed = false;
       _nativeGeneralNotificationPrimed = false;
       _nativeGeneralNotifIds.clear();
-      state.user = null; state.profile = null; unsub(); showScreen('auth-screen');
+      state.user = null; state.profile = null; unsub(); showScreen('auth-screen'); markBootReady('Welcome back');
     }
   });
 
@@ -3598,7 +3631,10 @@ function checkForAppUpdate() {
 //  ENTER APP
 // ══════════════════════════════════════════════════
 function enterApp() {
-  showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
+  showScreen('app');
+  const content = $('#content');
+  if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
+  setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
@@ -3614,6 +3650,7 @@ function enterApp() {
     _inAppBackInit = true;
   }
   navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
   listenForVerifiedUsers();
   listenForNotifications();
   listenForUnreadDMs();
@@ -4859,6 +4896,7 @@ function renderPosts(posts) {
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
+        ${post.poll ? renderInteractivePoll(post.poll, 'post', post.id, '') : ''}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
@@ -6595,6 +6633,7 @@ function openCreateModal() {
   let pendingFiles = [];
   let pendingIsVideo = false;
   let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
+  let postPoll = null;
   let createTab = 'post'; // 'post' or 'event'
   window._eventFiles = [];
 
@@ -6632,6 +6671,7 @@ function openCreateModal() {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
           <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin</button>
+          <button type="button" class="btn-outline" id="create-poll-btn" style="padding:7px 10px;font-size:12px">📊 Poll</button>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
@@ -6639,7 +6679,7 @@ function openCreateModal() {
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
-      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
+      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div><div id="create-poll-pill" style="display:none;margin-top:8px;font-size:12px;color:var(--text-secondary)"></div>
       ` : `
       <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
       <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
@@ -6682,6 +6722,14 @@ function openCreateModal() {
       const label = locationPing.label || 'Current location';
       pill.style.display = 'block';
       pill.textContent = `📍 ${label} · expires in 24h`;
+    };
+
+    const refreshPollUI = () => {
+      const pill = $('#create-poll-pill');
+      if (!pill) return;
+      if (!postPoll?.question) { pill.style.display = 'none'; pill.textContent = ''; return; }
+      pill.style.display = 'block';
+      pill.textContent = `📊 ${postPoll.question} · ${postPoll.options.length} options`;
     };
 
     const applyAnonUi = () => {
@@ -6806,7 +6854,25 @@ function openCreateModal() {
           lng,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
         };
-        refreshLocationUI();
+        if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
+      openModal(`
+        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
+          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
+          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
+        </div>`);
+      $('#save-post-poll').onclick = () => {
+        const question = ($('#post-poll-question')?.value || '').trim();
+        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+        postPoll = { question, options, votes: {} };
+        closeModal();
+        refreshPollUI();
+      };
+    };
+    refreshLocationUI();
+    refreshPollUI();
         toast('Pinned for 24h');
       }, () => toast('Could not get location'), {
         enableHighAccuracy: true,
@@ -6814,7 +6880,25 @@ function openCreateModal() {
         maximumAge: 0
       });
     };
+    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
+      openModal(`
+        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
+          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
+          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
+        </div>`);
+      $('#save-post-poll').onclick = () => {
+        const question = ($('#post-poll-question')?.value || '').trim();
+        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+        postPoll = { question, options, votes: {} };
+        closeModal();
+        refreshPollUI();
+      };
+    };
     refreshLocationUI();
+    refreshPollUI();
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
       const moderation = applySoftKeywordFilterText(text);
@@ -6822,7 +6906,7 @@ function openCreateModal() {
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
       const mentionHandles = extractMentionHandles(text);
-      if (!safeText && !pendingFiles.length) return toast('Post cannot be empty');
+      if (!safeText && !pendingFiles.length && !postPoll) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = !!createAnon;
       const anonIdentity = getUserAnonIdentity(state.profile || {});
@@ -6859,6 +6943,7 @@ function openCreateModal() {
           locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
           visibility,
+          poll: postPoll ? { question: postPoll.question, options: postPoll.options, votes: {} } : null,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
         shadowSyncPost(postRef.id, {
@@ -7270,109 +7355,172 @@ function renderRadarView() {
 }
 
 
+
+function destroyRadarMapInstance() {
+  (_mapLibreMarkers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+  (_mapLibrePopups || []).forEach(popup => { try { popup.remove(); } catch (_) {} });
+  _mapLibreMarkers = [];
+  _mapLibrePopups = [];
+  if (_mapLibreMap) {
+    try { _mapLibreMap.remove(); } catch (_) {}
+    _mapLibreMap = null;
+  }
+  if (_leafletMap) {
+    try { _leafletMap.remove(); } catch (_) {}
+    _leafletMap = null;
+  }
+}
+
+function createMapLibreMarkerHTML(kind = 'user', options = {}) {
+  if (kind === 'me') return `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
+  if (kind === 'user') return `<div class="map-user-pin ${options.cls || ''}">${options.photoURL ? `<img src="${options.photoURL}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
+  return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}</div>`;
+}
+
+function attachMapLibreMarker(lng, lat, html, onClick) {
+  if (!_mapLibreMap || typeof maplibregl === 'undefined') return null;
+  const el = document.createElement('div');
+  el.className = 'maplibre-custom-marker';
+  el.innerHTML = html;
+  if (onClick) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      onClick();
+    });
+  }
+  const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(_mapLibreMap);
+  _mapLibreMarkers.push(marker);
+  return marker;
+}
+
+async function fetchOsrmRoute(start, end) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/foot/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('route-http');
+    const data = await res.json();
+    const route = data?.routes?.[0];
+    if (!route?.geometry?.coordinates?.length) throw new Error('route-empty');
+    const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+    return {
+      points,
+      distanceKm: (route.distance || 0) / 1000,
+      walkMinutes: Math.max(1, Math.round((route.duration || 0) / 60)),
+      direct: false,
+      source: 'osrm'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function buildBestRoute(startCoords = null, endCoords = null) {
+  const safeStart = startCoords || getRadarCenterCoords();
+  const safeEnd = endCoords || safeStart;
+  const osrm = await fetchOsrmRoute(safeStart, safeEnd);
+  if (osrm) return osrm;
+  return buildCampusRoute(safeStart, safeEnd);
+}
+
+function setRadarRouteFilterState(active = false) {
+  const dynamic = $('#radar-dynamic');
+  if (dynamic) dynamic.classList.toggle('route-focus-active', !!active);
+  const overlay = document.querySelector('.radar-overlay');
+  if (overlay) overlay.style.display = active ? 'none' : 'block';
+}
+
 function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc) {
   requestAnimationFrame(() => {
     const el = document.getElementById('radar-map');
-    if (!el || typeof L === 'undefined') return;
+    if (!el) return;
     clearActiveMapRoute({ clearPending: false });
-    if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+    destroyRadarMapInstance();
 
     const center = getRadarCenterCoords();
     const routeOnlyMode = !!_pendingMapRoute;
+    setRadarRouteFilterState(routeOnlyMode);
 
-    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], routeOnlyMode ? 18 : 17);
-    L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
-    _leafletMap.dragging.enable();
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
-    }).addTo(_leafletMap);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
-    }).addTo(_leafletMap);
-
-    const myIcon = L.divIcon({
-      className: 'leaflet-user-pin',
-      html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
-      iconSize: [36, 36], iconAnchor: [18, 18]
-    });
-    L.marker([center.lat, center.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
-
-    if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
-      const pinIcon = L.divIcon({
-        className: 'leaflet-emoji-pin',
-        html: '<div class="map-pin-wrap has-events"><span class="map-pin-emoji">📌</span></div>',
-        iconSize: [34, 34], iconAnchor: [17, 34]
+    if (typeof maplibregl !== 'undefined') {
+      _mapLibreMap = new maplibregl.Map({
+        container: 'radar-map',
+        style: 'https://tiles.openfreemap.org/styles/bright',
+        center: [center.lng, center.lat],
+        zoom: routeOnlyMode ? 18 : 16.6,
+        pitch: routeOnlyMode ? 56 : 48,
+        bearing: -17.6,
+        attributionControl: false,
+        canvasContextAttributes: { antialias: true }
       });
-      L.marker([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], { icon: pinIcon }).addTo(_leafletMap)
-        .bindPopup(`<div class="map-popup-card"><b>📌 ${esc(_pendingRadarPinnedPoint.label || 'Pinned')}</b><div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${_pendingRadarPinnedPoint.lat},${_pendingRadarPinnedPoint.lng}, ${JSON.stringify(_pendingRadarPinnedPoint.label || 'Pinned')})">Route here</button></div></div>`);
-      _leafletMap.flyTo([_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng], 17, { duration: 0.45 });
-      _pendingRadarPinnedPoint = null;
+      _leafletMap = _mapLibreMap;
+      _mapLibreMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+      _mapLibreMap.on('load', () => {
+        try {
+          const layers = _mapLibreMap.getStyle().layers || [];
+          const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
+          _mapLibreMap.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!_mapLibreMap.getLayer('3d-buildings')) {
+            _mapLibreMap.addLayer({
+              id: '3d-buildings',
+              source: 'openfreemap-buildings',
+              'source-layer': 'building',
+              type: 'fill-extrusion',
+              minzoom: 15,
+              filter: ['!=', ['get', 'hide_3d'], true],
+              paint: {
+                'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 0], 0, '#d9d3c9', 60, '#c7b8a0', 120, '#b89e7a', 240, '#8f6f47'],
+                'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_height'], 0]],
+                'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_min_height'], 0]],
+                'fill-extrusion-opacity': 0.9
+              }
+            }, labelLayerId);
+          }
+        } catch (_) {}
+
+        attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
+
+        if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
+          attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
+          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.5, speed: 0.8 });
+          _pendingRadarPinnedPoint = null;
+        }
+
+        if (!routeOnlyMode) {
+          CAMPUS_LOCATIONS.forEach(loc => {
+            const evts = eventsByLoc[loc.id] || [];
+            attachMapLibreMarker(loc.lng, loc.lat, createMapLibreMarkerHTML('pin', { emoji: loc.emoji, hasEvents: evts.length > 0, count: evts.length }), () => openLocationDetail(loc.id));
+          });
+        }
+
+        const usersToPlot = routeOnlyMode ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
+        const plottedIds = new Set();
+        const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
+        usersToPlot.forEach((u, i) => {
+          const coords = getUserCoords(u);
+          if (!coords) return;
+          const distanceKm = distanceKmBetween(center, coords);
+          if (distanceKm > 5) return;
+          plottedIds.add(u.id);
+          const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
+          const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+        });
+        usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
+          const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
+          const angle = (i / Math.max(1, usersToPlot.length)) * Math.PI * 2 + (i * 0.7);
+          const rawPoint = { lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8), lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8) };
+          const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
+          const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+        });
+
+        if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
+        else updateMapRoutePanel(null);
+      });
+      return;
     }
 
-    if (!routeOnlyMode) CAMPUS_LOCATIONS.forEach(loc => {
-      const evts = eventsByLoc[loc.id] || [];
-      const icon = L.divIcon({
-        className: 'leaflet-emoji-pin',
-        html: `<div class="map-pin-wrap ${evts.length ? 'has-events' : ''}"><span class="map-pin-emoji">${loc.emoji}</span>${evts.length ? `<span class="map-pin-count">${evts.length}</span>` : ''}</div>`,
-        iconSize: [36, 36], iconAnchor: [18, 36]
-      });
-      L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap)
-        .bindPopup(`<div class="map-popup-card"><b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}<div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToCampusLocation('${loc.id}')">Route here</button><button class="map-popup-btn secondary" onclick="openLocationDetail('${loc.id}')">Details</button></div></div>`);
-    });
-
-    const usersToPlot = routeOnlyMode ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
-    const plottedIds = new Set();
-    const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
-
-    usersToPlot.forEach(u => {
-      const coords = getUserCoords(u);
-      if (!coords) return;
-      const distanceKm = distanceKmBetween(center, coords);
-      if (distanceKm > 5) return;
-      plottedIds.add(u.id);
-      const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
-      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-      const uIcon = L.divIcon({
-        className: 'leaflet-user-pin',
-        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
-        iconSize: [28, 28], iconAnchor: [14, 14]
-      });
-      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
-        .on('click', () => showUserPreview(u.id));
-    });
-
-    usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
-      const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
-      const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
-      const rawPoint = {
-        lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8),
-        lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8)
-      };
-      const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
-      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-      const uIcon = L.divIcon({
-        className: 'leaflet-user-pin',
-        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
-        iconSize: [28, 28], iconAnchor: [14, 14]
-      });
-      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
-        .on('click', () => showUserPreview(u.id));
-    });
-
-    const syncRadarOverlay = () => {
-      const overlay = document.querySelector('.radar-overlay');
-      if (!overlay || !_leafletMap) return;
-      const point = _leafletMap.latLngToContainerPoint([center.lat, center.lng]);
-      overlay.style.left = `${point.x}px`;
-      overlay.style.top = `${point.y}px`;
-    };
-    syncRadarOverlay();
-    _leafletMap.on('move zoom resize', syncRadarOverlay);
-
-    if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
-    else updateMapRoutePanel(null);
-
-    setTimeout(() => _leafletMap?.invalidateSize(), 300);
+    if (typeof L === 'undefined') return;
   });
 }
 
@@ -7710,7 +7858,7 @@ function updateMapRoutePanel(summary = null) {
         <div class="map-route-meta">
           <span>🧭 ${esc(formatDistanceText(summary.distanceKm) || 'Nearby')}</span>
           <span>🚶 ${summary.walkMinutes} min walk</span>
-          <span>${summary.direct ? '↗ Direct line' : '🛣 Campus route'}</span>
+          <span>${summary.source === 'osrm' ? '🗺 Real route' : (summary.direct ? '↗ Direct line' : '🛣 Campus route')}</span>
         </div>
         ${usingCampusFallback ? '<div class="map-route-note">Using campus center. Save GPS in profile for better routing.</div>' : ''}
       </div>
@@ -7724,16 +7872,20 @@ function updateMapRoutePanel(summary = null) {
 
 function clearActiveMapRoute(options = {}) {
   const { clearPending = true } = options;
-  if (_leafletMap && _activeMapRouteLayer) {
+  if (_mapLibreMap && _activeMapRouteLayer === 'route-line') {
+    try { if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line'); } catch (_) {}
+    try { if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line'); } catch (_) {}
+  } else if (_leafletMap && _activeMapRouteLayer) {
     try { _leafletMap.removeLayer(_activeMapRouteLayer); } catch (_) {}
   }
   (_activeMapRouteMarkers || []).forEach(marker => {
-    try { _leafletMap?.removeLayer(marker); } catch (_) {}
+    try { marker?.remove ? marker.remove() : _leafletMap?.removeLayer(marker); } catch (_) {}
   });
   _activeMapRouteLayer = null;
   _activeMapRouteMarkers = [];
   _activeMapRouteSummary = null;
   if (clearPending) _pendingMapRoute = null;
+  setRadarRouteFilterState(false);
   updateMapRoutePanel(null);
 }
 
@@ -7741,48 +7893,53 @@ function clearMapRoute() {
   clearActiveMapRoute({ clearPending: true });
 }
 
-function drawPendingMapRouteOnCurrentMap() {
-  if (!_pendingMapRoute || !_leafletMap || typeof L === 'undefined') {
+async function drawPendingMapRouteOnCurrentMap() {
+  if (!_pendingMapRoute || (!_leafletMap && !_mapLibreMap)) {
     if (!_pendingMapRoute) updateMapRoutePanel(null);
     return;
   }
   clearActiveMapRoute({ clearPending: false });
+  const map = _mapLibreMap || _leafletMap;
   const start = getUserCoords(state.profile) || getRadarCenterCoords();
-  const route = buildCampusRoute(start, _pendingMapRoute.target);
-  const latLngs = route.points.map(point => [point.lat, point.lng]);
-  _activeMapRouteLayer = L.polyline(latLngs, {
-    color: '#6C5CE7',
-    weight: 5,
-    opacity: 0.9,
-    lineCap: 'round',
-    lineJoin: 'round',
-    dashArray: route.direct ? '10 10' : null
-  }).addTo(_leafletMap);
+  const route = await buildBestRoute(start, _pendingMapRoute.target);
+  const coordinates = route.points.map(point => [point.lng, point.lat]);
 
-  const startMarker = L.circleMarker([start.lat, start.lng], {
-    radius: 7,
-    color: '#111827',
-    weight: 2,
-    fillColor: '#22C55E',
-    fillOpacity: 1
-  }).addTo(_leafletMap).bindPopup('<b>You</b>');
+  if (_mapLibreMap && typeof maplibregl !== 'undefined') {
+    if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line');
+    if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line');
+    _mapLibreMap.addSource('route-line', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
+    });
+    _mapLibreMap.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route-line',
+      paint: {
+        'line-color': '#6C5CE7',
+        'line-width': 6,
+        'line-opacity': 0.92
+      }
+    });
+    _activeMapRouteLayer = 'route-line';
+    const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
+    const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
+    _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
+    const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+    if (!bounds.isEmpty()) _mapLibreMap.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
+  } else if (_leafletMap && typeof L !== 'undefined') {
+    const latLngs = route.points.map(point => [point.lat, point.lng]);
+    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(_leafletMap);
+    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(_leafletMap);
+    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(_leafletMap);
+    _activeMapRouteMarkers = [startMarker, endMarker];
+    const bounds = L.latLngBounds(latLngs);
+    if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+  }
 
-  const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], {
-    radius: 7,
-    color: '#111827',
-    weight: 2,
-    fillColor: '#8B5CF6',
-    fillOpacity: 1
-  }).addTo(_leafletMap).bindPopup(`<b>${esc(_pendingMapRoute.label || 'Destination')}</b>`);
-
-  _activeMapRouteMarkers = [startMarker, endMarker];
-  _activeMapRouteSummary = {
-    ...route,
-    label: _pendingMapRoute.label || 'Destination'
-  };
+  _activeMapRouteSummary = { ...route, label: _pendingMapRoute.label || 'Destination' };
+  setRadarRouteFilterState(true);
   updateMapRoutePanel(_activeMapRouteSummary);
-  const bounds = L.latLngBounds(latLngs);
-  if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
 }
 
 function routeToMapPoint(lat, lng, label = 'Destination') {
@@ -8729,6 +8886,140 @@ function renderEventGroupChatBanner(group = {}) {
   `;
 }
 
+
+function closeChatPlusMenus() {
+  $$('.chat-plus-menu').forEach(menu => { menu.style.display = 'none'; menu.innerHTML = ''; });
+}
+
+function openChatPlusMenu(scope = 'dm') {
+  const menu = scope === 'group' ? $('#gchat-plus-menu') : $('#chat-plus-menu');
+  const fileInput = scope === 'group' ? $('#gchat-file-input') : $('#chat-file-input');
+  if (!menu) return;
+  const isOpen = menu.style.display === 'block';
+  closeChatPlusMenus();
+  if (isOpen) return;
+  menu.innerHTML = `
+    <button type="button" class="chat-plus-option" data-act="upload">📷 Upload</button>
+    <button type="button" class="chat-plus-option" data-act="poll">📊 Poll</button>
+    <button type="button" class="chat-plus-option" data-act="pin">📍 Pin location</button>
+  `;
+  menu.style.display = 'block';
+  menu.querySelectorAll('.chat-plus-option').forEach(btn => {
+    btn.onclick = async () => {
+      const act = btn.dataset.act || '';
+      closeChatPlusMenus();
+      if (act === 'upload') return fileInput?.click();
+      if (act === 'poll') return openChatPollComposer(scope);
+      if (act === 'pin') return sendChatLocationPin(scope);
+    };
+  });
+}
+
+function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
+  const options = Array.isArray(poll.options) ? poll.options : [];
+  const voters = poll.votes || {};
+  const total = Object.keys(voters).length;
+  const myVote = voters[state.user?.uid] || '';
+  return `
+    <div class="poll-card">
+      ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
+      <div class="poll-options">
+        ${options.map(opt => {
+          const count = Object.values(voters).filter(v => v === opt).length;
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span>${esc(opt)}</span><span>${count}${total ? ` · ${pct}%` : ''}</span></button>`;
+        }).join('')}
+      </div>
+      <div class="poll-footer">${total} vote${total === 1 ? '' : 's'}</div>
+    </div>`;
+}
+
+async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {
+  try {
+    let ref = null;
+    if (scope === 'post') ref = db.collection('posts').doc(primaryId);
+    else if (scope === 'group') ref = db.collection(_activeGroupChat.collection || 'groups').doc(primaryId).collection('messages').doc(messageId);
+    else if (scope === 'dm') ref = db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
+    if (!ref) return;
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const poll = data.poll || { options: [], votes: {} };
+    const votes = { ...(poll.votes || {}) };
+    votes[state.user.uid] = option;
+    await ref.update({ poll: { ...poll, votes } });
+  } catch (e) { console.error(e); toast('Could not save vote'); }
+}
+
+function openChatPollComposer(scope = 'dm') {
+  openModal(`
+    <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What should we do?"></div>
+      <div class="form-group"><label>Options</label><textarea id="chat-poll-options" placeholder="One option per line" style="height:120px;resize:none"></textarea></div>
+      <button class="btn-primary btn-full" onclick="submitChatPoll('${scope}')">Send Poll</button>
+    </div>
+  `);
+}
+
+async function submitChatPoll(scope = 'dm') {
+  const question = ($('#chat-poll-question')?.value || '').trim();
+  const options = ($('#chat-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+  if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+  closeModal();
+  try {
+    if (scope === 'group') {
+      const { id, collection } = _activeGroupChat || {};
+      if (!id) return;
+      await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', poll: { question, options, votes: {} }, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
+      await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📊 ${question}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+    } else {
+      const convoId = _activeChatConvoId;
+      if (!convoId) return;
+      const convoDoc = await db.collection('conversations').doc(convoId).get();
+      const convo = convoDoc.data() || {};
+      const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
+      await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', poll: { question, options, votes: {} }, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
+      await db.collection('conversations').doc(convoId).set({ lastMessage: `📊 ${question}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
+    }
+  } catch (e) { console.error(e); toast('Could not send poll'); }
+}
+
+async function sendChatLocationPin(scope = 'dm') {
+  if (!navigator.geolocation) return toast('Location unavailable');
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = Number(pos.coords.latitude.toFixed(6));
+    const lng = Number(pos.coords.longitude.toFixed(6));
+    const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+      const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+      return !best || dist < best.dist ? { loc, dist } : best;
+    }, null);
+    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || `${lat}, ${lng}` };
+    try {
+      if (scope === 'group') {
+        const { id, collection } = _activeGroupChat || {};
+        if (!id) return;
+        await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
+        await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+      } else {
+        const convoId = _activeChatConvoId;
+        if (!convoId) return;
+        const convoDoc = await db.collection('conversations').doc(convoId).get();
+        const convo = convoDoc.data() || {};
+        const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
+        await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
+        await db.collection('conversations').doc(convoId).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
+      }
+    } catch (e) { console.error(e); toast('Could not send location'); }
+  }, () => toast('Could not get location'), { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+}
+
+function renderLocationPinCard(pin = {}) {
+  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
+  return `<button class="chat-location-card" onclick="routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})"><div class="chat-location-title">📍 ${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Open route in Radar</div></button>`;
+}
+
+
 async function openGroupChat(groupId, collection = 'groups') {
   try {
     const gDoc = await db.collection(collection).doc(groupId).get();
@@ -8775,6 +9066,10 @@ async function openGroupChat(groupId, collection = 'groups') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
+            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
               if (isVideoMedia) {
@@ -8874,6 +9169,7 @@ async function openGroupChat(groupId, collection = 'groups') {
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
+    $('#gchat-plus-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openChatPlusMenu('group'); });
     $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -10625,6 +10921,10 @@ async function openChat(convoId) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
+            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
               if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
@@ -10843,6 +11143,7 @@ async function openChat(convoId) {
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
+    $('#chat-plus-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openChatPlusMenu('dm'); });
     input.onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     input.onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -11526,6 +11827,7 @@ async function doAdminDataClear() {
 
     toast('Kill switch complete. Data wiped.');
     navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
   } catch (e) {
     console.error(e);
     toast('Wipe failed');
@@ -11964,6 +12266,7 @@ async function openQuoteRepost(postId) {
         });
         toast('Reposted!');
         navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
       } catch (e) { toast('Failed'); console.error(e); }
     };
   } catch (e) { console.error(e); toast('Error loading post'); }
@@ -12200,8 +12503,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuth();
   initNativeShell().catch(() => {});
 
-  // Dismiss splash
-  setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);
+  showBootStatus('Starting Unibo…');
+  ensureBootFallback();
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
