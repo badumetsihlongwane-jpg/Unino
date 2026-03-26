@@ -7996,3 +7996,32 @@ body.image-view-open .modal-bg {
 .location-preview-meta{font-size:12px;color:var(--text-secondary);margin-top:4px}
 .location-preview-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
 .campus-map-popup{min-width:180px}.campus-map-popup-title{font-weight:800;margin-bottom:4px}.campus-map-popup-sub{font-size:12px;color:#6b7280;margin-bottom:10px}
+
+
+.chat-plus-menu{display:none;opacity:0;transform:translateY(8px) scale(.98);pointer-events:none;transition:opacity .16s ease, transform .16s ease}
+.chat-plus-menu.open{display:grid !important;opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+.chat-plus-option.modern{min-height:54px;background:linear-gradient(180deg,var(--bg-secondary),var(--bg-tertiary));border:1px solid color-mix(in srgb, var(--accent) 10%, var(--border));box-shadow:0 8px 22px rgba(17,24,39,.08)}
+.chat-plus-option.modern strong{font-size:13px;letter-spacing:.06em;color:var(--text-primary)}
+.chat-plus-option.modern span:last-child{display:flex;align-items:center}
+.chat-plus-option.modern small{display:none}
+.chat-plus-option.modern:active{transform:scale(.98)}
+.chat-plus-option-icon{flex:0 0 40px}
+.modern-chat-sheet .sheet-lead{font-size:13px;color:var(--text-secondary);margin-bottom:12px}
+.pin-share-card{display:flex;align-items:center;gap:12px}
+.poll-card.modern-poll{border:1px solid color-mix(in srgb,var(--accent) 12%, var(--border));background:linear-gradient(180deg, color-mix(in srgb,var(--bg-secondary) 98%, white 2%), color-mix(in srgb,var(--bg-tertiary) 90%, transparent));}
+.poll-card-compact{margin:4px 0 0;min-width:220px;max-width:280px}
+.poll-question{color:var(--text-primary) !important}
+.poll-option{border:1px solid var(--border);background:color-mix(in srgb,var(--bg-secondary) 96%, transparent);color:var(--text-primary)}
+.poll-option-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.poll-option-percent{position:relative;z-index:2;font-size:12px;font-weight:800;color:var(--text-secondary)}
+.poll-option-text,.poll-option-meta,.poll-footer,.chat-location-title,.chat-location-sub{color:var(--text-primary)}
+.poll-option-meta,.poll-footer,.chat-location-sub{color:var(--text-secondary)}
+.anon-name-edit{background:color-mix(in srgb,var(--accent) 12%, var(--bg-secondary));color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 18%, var(--border))}
+.location-preview-actions .btn-outline,.location-preview-actions .btn-primary{flex:1 1 160px}
+.campus-map-popup-actions{display:flex;gap:8px;flex-wrap:wrap}
+.map-popup-btn{border:none;border-radius:999px;padding:10px 14px;font-weight:700;background:linear-gradient(135deg,#6C5CE7,#A855F7);color:#fff}
+.map-popup-btn.ghost{background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border)}
+@media (prefers-color-scheme: light){
+  .poll-card.modern-poll{box-shadow:0 10px 24px rgba(17,24,39,.06)}
+  .chat-plus-menu{background:rgba(255,255,255,.96)}
+}
