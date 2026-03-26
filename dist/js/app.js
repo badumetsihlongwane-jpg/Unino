@@ -4139,8 +4139,16 @@ function renderFeed() {
       const myFriends = state.profile.friends || [];
       const uid = state.user.uid;
       const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const expiredPinned = [];
+      const activePosts = allPosts.filter(post => {
+        const expiry = post.locationPing?.expiresAt?.toDate ? post.locationPing.expiresAt.toDate() : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
+        const isExpiredPinned = !!post.locationPing?.enabled && expiry && expiry.getTime() <= Date.now();
+        if (isExpiredPinned) expiredPinned.push(post.id);
+        return !isExpiredPinned;
+      });
+      expiredPinned.forEach(pid => db.collection('posts').doc(pid).delete().catch(() => {}));
       // Filter: show public posts, own posts, and friends-only posts from friends
-      const visible = allPosts.filter(post => {
+      const visible = activePosts.filter(post => {
         if (isPostShadowHiddenForViewer(post, uid)) return false;
         if (post.authorId === uid) return true;
         if (post.visibility === 'friends') return myFriends.includes(post.authorId);
@@ -7144,7 +7152,7 @@ function renderRadarView() {
     </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
-      <div class="radar-overlay">
+      <div class="radar-overlay" id="radar-overlay">
         <div class="radar-ring r3"></div>
         <div class="radar-ring r2"></div>
         <div class="radar-ring r1"></div>
@@ -7374,7 +7382,7 @@ function destroyRadarMapInstance() {
 function createMapLibreMarkerHTML(kind = 'user', options = {}) {
   if (kind === 'me') return `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
   if (kind === 'user') return `<div class="map-user-pin ${options.cls || ''}">${options.photoURL ? `<img src="${options.photoURL}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
-  return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}</div>`;
+  return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''} ${options.floating ? 'is-floating' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}${options.label ? `<span class="map-pin-label">${esc(options.label)}</span>` : ''}</div>`;
 }
 
 function attachMapLibreMarker(lng, lat, html, onClick) {
@@ -7421,6 +7429,17 @@ async function buildBestRoute(startCoords = null, endCoords = null) {
   const osrm = await fetchOsrmRoute(safeStart, safeEnd);
   if (osrm) return osrm;
   return buildCampusRoute(safeStart, safeEnd);
+}
+
+function syncRadarOverlayToUser() {
+  const overlay = document.getElementById('radar-overlay');
+  if (!overlay || !_mapLibreMap) return;
+  const center = getRadarCenterCoords();
+  try {
+    const projected = _mapLibreMap.project([center.lng, center.lat]);
+    overlay.style.left = `${projected.x}px`;
+    overlay.style.top = `${projected.y}px`;
+  } catch (_) {}
 }
 
 function setRadarRouteFilterState(active = false) {
@@ -7477,18 +7496,22 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           }
         } catch (_) {}
 
+        mountCampusGeoJsonLayers(_mapLibreMap).catch(() => {});
         attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
+        syncRadarOverlayToUser();
+        _mapLibreMap.on('move', syncRadarOverlayToUser);
+        _mapLibreMap.on('render', syncRadarOverlayToUser);
 
         if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
-          attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
-          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.5, speed: 0.8 });
+          attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
+          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
           _pendingRadarPinnedPoint = null;
         }
 
         if (!routeOnlyMode) {
           CAMPUS_LOCATIONS.forEach(loc => {
             const evts = eventsByLoc[loc.id] || [];
-            attachMapLibreMarker(loc.lng, loc.lat, createMapLibreMarkerHTML('pin', { emoji: loc.emoji, hasEvents: evts.length > 0, count: evts.length }), () => openLocationDetail(loc.id));
+            attachMapLibreMarker(loc.lng, loc.lat, createMapLibreMarkerHTML('pin', { emoji: loc.emoji, hasEvents: evts.length > 0, count: evts.length, label: loc.name, floating: true }), () => openLocationDetail(loc.id));
           });
         }
 
@@ -7725,6 +7748,140 @@ const CAMPUS_ROUTE_EDGES = [
   ['res-halls', 'parking']
 ];
 
+let _campusGeoJsonCache = null;
+let _campusGeoJsonLoadPromise = null;
+
+async function loadCampusGeoJson() {
+  if (_campusGeoJsonCache) return _campusGeoJsonCache;
+  if (_campusGeoJsonLoadPromise) return _campusGeoJsonLoadPromise;
+  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'no-store' })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      _campusGeoJsonCache = data && Array.isArray(data.features) ? data : null;
+      return _campusGeoJsonCache;
+    })
+    .catch(() => null)
+    .finally(() => { _campusGeoJsonLoadPromise = null; });
+  return _campusGeoJsonLoadPromise;
+}
+
+function getCampusExtent(geojson) {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  (geojson?.features || []).forEach(feature => {
+    const coords = feature?.geometry?.coordinates || [];
+    coords.forEach(poly => poly.forEach(ring => ring.forEach(coord => {
+      const [lng, lat] = coord || [];
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    })));
+  });
+  if (!Number.isFinite(minLng)) return null;
+  return { center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2], bounds: [[minLng, minLat], [maxLng, maxLat]] };
+}
+
+function polygonCentroid(ring = []) {
+  let area = 0, cx = 0, cy = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [x1, y1] = ring[i] || [];
+    const [x2, y2] = ring[i + 1] || [];
+    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    const f = x1 * y2 - x2 * y1;
+    area += f;
+    cx += (x1 + x2) * f;
+    cy += (y1 + y2) * f;
+  }
+  area *= 0.5;
+  return area ? [cx / (6 * area), cy / (6 * area)] : (ring[0] || [0, 0]);
+}
+
+function labelPointsFromPolygons(geojson) {
+  return {
+    type: 'FeatureCollection',
+    features: (geojson?.features || []).map((feature, index) => {
+      const polys = feature?.geometry?.coordinates || [];
+      let bestRing = null;
+      let bestSize = -Infinity;
+      polys.forEach(poly => {
+        const outerRing = poly?.[0];
+        if (!outerRing || outerRing.length < 4) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        outerRing.forEach(([x, y]) => {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        });
+        const boxSize = (maxX - minX) * (maxY - minY);
+        if (boxSize > bestSize) { bestSize = boxSize; bestRing = outerRing; }
+      });
+      const center = polygonCentroid(bestRing || []);
+      return {
+        type: 'Feature',
+        properties: { name: feature?.properties?.name || `Building ${index + 1}` },
+        geometry: { type: 'Point', coordinates: center }
+      };
+    })
+  };
+}
+
+async function mountCampusGeoJsonLayers(map) {
+  if (!map || typeof map.getStyle !== 'function') return;
+  const geojson = await loadCampusGeoJson();
+  if (!geojson || map.getSource('campus-geojson')) return;
+  const labelPoints = labelPointsFromPolygons(geojson);
+  map.addSource('campus-geojson', { type: 'geojson', data: geojson });
+  map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
+  map.addLayer({
+    id: 'campus-fill',
+    type: 'fill',
+    source: 'campus-geojson',
+    paint: {
+      'fill-color': 'rgba(108,92,231,0.10)',
+      'fill-outline-color': 'rgba(108,92,231,0.22)'
+    }
+  });
+  map.addLayer({
+    id: 'campus-outline',
+    type: 'line',
+    source: 'campus-geojson',
+    paint: { 'line-color': 'rgba(108,92,231,0.28)', 'line-width': 1.25 }
+  });
+  map.addLayer({
+    id: 'campus-name-labels',
+    type: 'symbol',
+    source: 'campus-label-points',
+    minzoom: 16,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 16, 11, 18.5, 16],
+      'text-font': ['Open Sans Bold'],
+      'text-anchor': 'center',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
+    },
+    paint: {
+      'text-color': '#171717',
+      'text-halo-color': 'rgba(255,255,255,0.96)',
+      'text-halo-width': 2.2
+    }
+  });
+  map.on('click', 'campus-name-labels', e => {
+    const feature = e.features && e.features[0];
+    if (!feature) return;
+    const [lng, lat] = feature.geometry.coordinates || [];
+    const name = feature.properties?.name || 'Building';
+    new maplibregl.Popup({ closeButton: false, offset: 18 })
+      .setLngLat([lng, lat])
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Tap to route in Radar</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button></div></div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'campus-name-labels', () => { map.getCanvas().style.cursor = ''; });
+}
+
 function setPendingMapRoute(target = {}, options = {}) {
   const lat = Number(target.lat);
   const lng = Number(target.lng);
@@ -7917,7 +8074,7 @@ async function drawPendingMapRouteOnCurrentMap() {
       source: 'route-line',
       paint: {
         'line-color': '#6C5CE7',
-        'line-width': 6,
+        'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
         'line-opacity': 0.92
       }
     });
@@ -8899,11 +9056,11 @@ function openChatPlusMenu(scope = 'dm') {
   closeChatPlusMenus();
   if (isOpen) return;
   menu.innerHTML = `
-    <button type="button" class="chat-plus-option" data-act="upload">📷 Upload</button>
-    <button type="button" class="chat-plus-option" data-act="poll">📊 Poll</button>
-    <button type="button" class="chat-plus-option" data-act="pin">📍 Pin location</button>
+    <button type="button" class="chat-plus-option modern" data-act="upload"><span class="chat-plus-option-icon">🖼️</span><span><strong>Upload</strong><small>Photo or video</small></span></button>
+    <button type="button" class="chat-plus-option modern" data-act="poll"><span class="chat-plus-option-icon">📊</span><span><strong>Poll</strong><small>Quick group vote</small></span></button>
+    <button type="button" class="chat-plus-option modern" data-act="pin"><span class="chat-plus-option-icon">📍</span><span><strong>Pin location</strong><small>Share a route point</small></span></button>
   `;
-  menu.style.display = 'block';
+  menu.style.display = 'grid';
   menu.querySelectorAll('.chat-plus-option').forEach(btn => {
     btn.onclick = async () => {
       const act = btn.dataset.act || '';
@@ -8921,16 +9078,16 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
   const total = Object.keys(voters).length;
   const myVote = voters[state.user?.uid] || '';
   return `
-    <div class="poll-card">
+    <div class="poll-card modern-poll">
       ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
       <div class="poll-options">
         ${options.map(opt => {
           const count = Object.values(voters).filter(v => v === opt).length;
           const pct = total ? Math.round((count / total) * 100) : 0;
-          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span>${esc(opt)}</span><span>${count}${total ? ` · ${pct}%` : ''}</span></button>`;
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(8, pct)}%"></span></button>`;
         }).join('')}
       </div>
-      <div class="poll-footer">${total} vote${total === 1 ? '' : 's'}</div>
+      <div class="poll-footer">${total} total vote${total === 1 ? '' : 's'}</div>
     </div>`;
 }
 
@@ -8953,19 +9110,25 @@ async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option
 
 function openChatPollComposer(scope = 'dm') {
   openModal(`
-    <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body">
-      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What should we do?"></div>
-      <div class="form-group"><label>Options</label><textarea id="chat-poll-options" placeholder="One option per line" style="height:120px;resize:none"></textarea></div>
-      <button class="btn-primary btn-full" onclick="submitChatPoll('${scope}')">Send Poll</button>
+    <div class="modal-header"><h2>Create poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body modern-poll-composer">
+      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What should we do after class?"></div>
+      <div class="form-group"><label>Options</label><textarea id="chat-poll-options" placeholder="One option per line" style="height:110px;resize:none">Yes
+No</textarea></div>
+      <div class="poll-composer-tip">Tip: keep options short so voting looks clean in chat.</div>
+      <button class="btn-primary btn-full" id="chat-poll-send-btn" onclick="submitChatPoll('${scope}')">Send poll</button>
     </div>
   `);
 }
 
 async function submitChatPoll(scope = 'dm') {
+  if (window._sendingChatPoll) return;
   const question = ($('#chat-poll-question')?.value || '').trim();
-  const options = ($('#chat-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+  const options = Array.from(new Set(($('#chat-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean))).slice(0, 6);
   if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+  const btn = $('#chat-poll-send-btn');
+  window._sendingChatPoll = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
   closeModal();
   try {
     if (scope === 'group') {
@@ -8983,6 +9146,7 @@ async function submitChatPoll(scope = 'dm') {
       await db.collection('conversations').doc(convoId).set({ lastMessage: `📊 ${question}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
     }
   } catch (e) { console.error(e); toast('Could not send poll'); }
+  finally { window._sendingChatPoll = false; }
 }
 
 async function sendChatLocationPin(scope = 'dm') {
@@ -8994,7 +9158,7 @@ async function sendChatLocationPin(scope = 'dm') {
       const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
       return !best || dist < best.dist ? { loc, dist } : best;
     }, null);
-    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || `${lat}, ${lng}` };
+    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || 'Pinned location' };
     try {
       if (scope === 'group') {
         const { id, collection } = _activeGroupChat || {};
@@ -9014,9 +9178,33 @@ async function sendChatLocationPin(scope = 'dm') {
   }, () => toast('Could not get location'), { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
 }
 
+function openLocationPinPreview(encoded = '') {
+  try {
+    const pin = JSON.parse(decodeURIComponent(encoded || '')) || {};
+    if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return;
+    openModal(`
+      <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div class="location-preview-card">
+          <div class="location-preview-meta">${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}</div>
+          <div class="location-preview-actions">
+            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
+            <button class="btn-outline" onclick="closeModal();openPinnedMapPreview(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Preview map</button>
+          </div>
+        </div>
+      </div>
+    `);
+  } catch (_) {}
+}
+
+function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
+  routeToMapPoint(lat, lng, label);
+}
+
 function renderLocationPinCard(pin = {}) {
   if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
-  return `<button class="chat-location-card" onclick="routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})"><div class="chat-location-title">📍 ${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Open route in Radar</div></button>`;
+  const encoded = encodeURIComponent(JSON.stringify(pin));
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap for route options</div></div><span class="chat-location-cta">Open</span></button>`;
 }
 
 
@@ -9067,8 +9255,6 @@ async function openGroupChat(groupId, collection = 'groups') {
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
             if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
-            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
             if (m.locationPin) content += renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
@@ -10921,8 +11107,6 @@ async function openChat(convoId) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
-            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
             if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
             if (m.locationPin) content += renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
