@@ -2112,7 +2112,7 @@ function startCommentHeartHold(postId, commentId, source = 'feed', currentReacti
   _commentHeartHoldTimer = setTimeout(() => {
     _commentHeartHoldConsumed = `${source}:${commentId}`;
     if (navigator.vibrate) navigator.vibrate(18);
-    openCommentReactionPicker(postId, commentId, source, currentReaction || '', holdEvent);
+    openCommentReactionPicker(postId, commentId, source, currentReaction || '', event);
   }, 360);
 }
 
@@ -6983,11 +6983,6 @@ function openCreateModal() {
   };
 
   const wireEventTab = () => {
-    const presetLoc = window._pendingEventLocationPreset || null;
-    if (presetLoc && $('#ev-location-text')) {
-      $('#ev-location-text').value = presetLoc.label || `${presetLoc.lat}, ${presetLoc.lng}`;
-      window._pendingEventLocationPreset = null;
-    }
     if ($('#ev-file')) $('#ev-file').onchange = e => {
       const files = Array.from(e.target.files).slice(0, 4);
       window._eventFiles = files;
@@ -7387,7 +7382,39 @@ function destroyRadarMapInstance() {
 function createMapLibreMarkerHTML(kind = 'user', options = {}) {
   if (kind === 'me') return `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
   if (kind === 'user') return `<div class="map-user-pin ${options.cls || ''}">${options.photoURL ? `<img src="${options.photoURL}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
+  if (kind === 'cluster') return `<div class="map-user-cluster">${Number(options.count || 0)}</div>`;
   return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''} ${options.floating ? 'is-floating' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}${options.label ? `<span class="map-pin-label">${esc(options.label)}</span>` : ''}</div>`;
+}
+
+function buildRadarUserClusters(users = [], center = null) {
+  const grid = users.length > 42 ? 0.00042 : 0.00028;
+  const buckets = new Map();
+  users.forEach(u => {
+    const coords = getUserCoords(u);
+    if (!coords) return;
+    const distanceKm = distanceKmBetween(center, coords);
+    if (!Number.isFinite(distanceKm) || distanceKm > 5) return;
+    const key = `${Math.round(coords.lat / grid)}:${Math.round(coords.lng / grid)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(u);
+  });
+  return Array.from(buckets.values());
+}
+
+function openRadarClusterPreview(encoded = '') {
+  try {
+    const users = JSON.parse(decodeURIComponent(encoded || '[]')) || [];
+    if (!users.length) return;
+    openModal(`
+      <div class="modal-header"><h2>Nearby people</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px;display:grid;gap:10px">${users.slice(0,18).map(u => `
+        <button class="cluster-user-row" onclick="closeModal();showUserPreview('${u.id}')">
+          ${avatar(u.displayName || 'User', u.photoURL || '', 'avatar-sm')}
+          <span>${esc(u.displayName || 'User')}</span>
+        </button>`).join('')}
+      </div>
+    `);
+  } catch (_) {}
 }
 
 function attachMapLibreMarker(lng, lat, html, onClick) {
@@ -7438,12 +7465,12 @@ async function buildBestRoute(startCoords = null, endCoords = null) {
 
 function syncRadarOverlayToUser() {
   const overlay = document.getElementById('radar-overlay');
-  const mapEl = document.getElementById('radar-map');
-  if (!overlay || !mapEl) return;
-  overlay.style.left = `${mapEl.clientWidth / 2}px`;
-  overlay.style.top = `${mapEl.clientHeight / 2}px`;
+  const wrap = document.querySelector('.radar-map-wrap');
+  if (!overlay || !wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  overlay.style.left = `${Math.round(rect.width / 2)}px`;
+  overlay.style.top = `${Math.round(rect.height / 2)}px`;
 }
-
 
 function setRadarRouteFilterState(active = false) {
   const dynamic = $('#radar-dynamic');
@@ -7502,7 +7529,8 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         mountCampusGeoJsonLayers(_mapLibreMap).catch(() => {});
         attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
         syncRadarOverlayToUser();
-        window.addEventListener('resize', syncRadarOverlayToUser, { passive: true });
+        _mapLibreMap.on('move', syncRadarOverlayToUser);
+        _mapLibreMap.on('render', syncRadarOverlayToUser);
 
         if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
           attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
@@ -7842,6 +7870,7 @@ async function mountCampusGeoJsonLayers(map) {
     source: 'campus-geojson',
     paint: {
       'fill-color': 'rgba(108,92,231,0.01)',
+      'fill-opacity': 0.001,
       'fill-outline-color': 'rgba(108,92,231,0.01)'
     }
   });
@@ -7849,7 +7878,7 @@ async function mountCampusGeoJsonLayers(map) {
     id: 'campus-outline',
     type: 'line',
     source: 'campus-geojson',
-    paint: { 'line-color': 'rgba(108,92,231,0.01)', 'line-width': 1 }
+    paint: { 'line-color': 'rgba(108,92,231,0.01)', 'line-opacity': 0.001, 'line-width': 1 }
   });
   map.addLayer({
     id: 'campus-name-labels',
@@ -7877,7 +7906,7 @@ async function mountCampusGeoJsonLayers(map) {
     const name = feature.properties?.name || 'Building';
     new maplibregl.Popup({ closeButton: false, offset: 18 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose what you want to do here</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button><button class="map-popup-btn ghost" onclick="openCreateEventAtLocation(${lat},${lng}, ${JSON.stringify(name)})">Create event here</button></div></div>`)
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Create event here</button></div></div>`)
       .addTo(map);
   });
   map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -8101,22 +8130,28 @@ async function drawPendingMapRouteOnCurrentMap() {
   updateMapRoutePanel(_activeMapRouteSummary);
 }
 
-function routeToMapPoint(lat, lng, label = 'Destination') {
-  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return;
-  exploreView = 'radar';
-  const openAndDraw = () => {
-    if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
-    else renderExploreView();
-    setTimeout(() => { if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap(); }, 280);
-  };
-  if (state.page !== 'explore') {
-    navigate('explore');
-    setTimeout(openAndDraw, 60);
-    return;
-  }
-  openAndDraw();
+function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
+  const name = (label || 'Pinned location').trim();
+  navigate('create');
+  setTimeout(() => {
+    const title = document.getElementById('create-event-title') || document.getElementById('event-title') || document.querySelector('input[placeholder*="event" i]');
+    const loc = document.getElementById('create-event-location') || document.getElementById('event-location') || document.querySelector('input[placeholder*="location" i]');
+    if (loc && !loc.value) loc.value = name;
+    if (title && !title.value) title.value = `${name} meetup`;
+    window._pendingRadarPinnedPoint = { lat, lng, label: name };
+  }, 80);
 }
 
+function routeToMapPoint(lat, lng, label = 'Destination') {
+  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return;
+  if (state.page !== 'explore') {
+    exploreView = 'radar';
+    navigate('explore');
+    return;
+  }
+  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
+  else renderExploreView();
+}
 
 function routeToCampusLocation(locationId = '') {
   const loc = getCampusLocationById(locationId);
@@ -8128,7 +8163,7 @@ function routeToCampusLocation(locationId = '') {
     return;
   }
   exploreView = 'radar';
-  if (_leafletMap) drawPendingMapRouteOnCurrentMap();
+  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
   else renderExploreView();
 }
 
@@ -8366,16 +8401,13 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
-  window._pendingEventLocationPreset = presetLoc || null;
+  // Open the create modal and switch to event tab
   openCreateModal();
+  // Auto-switch to event tab after a tick (modal needs to render first)
   setTimeout(() => {
     const evTab = document.querySelector('.create-tab[data-ct="event"]');
     if (evTab) evTab.click();
   }, 50);
-}
-
-function openCreateEventAtLocation(lat, lng, label = 'Campus location') {
-  openCreateEvent({ lat, lng, label });
 }
 
 function removeEventImage(idx) {
@@ -9056,43 +9088,44 @@ function renderEventGroupChatBanner(group = {}) {
 
 
 function closeChatPlusMenus() {
-  $$('.chat-plus-menu').forEach(menu => {
-    menu.classList.remove('open');
-    menu.setAttribute('aria-hidden', 'true');
-  });
+  $$('.chat-plus-menu').forEach(menu => menu.classList.remove('open'));
 }
 
-function ensureChatPlusMenu(menu) {
-  if (!menu || menu.dataset.ready === '1') return menu;
+function ensureChatPlusMenu(menu, scope = 'dm') {
+  const fileInput = scope === 'group' ? $('#gchat-file-input') : $('#chat-file-input');
+  if (!menu || menu.dataset.ready === '1') return;
   menu.innerHTML = `
-    <button type="button" class="chat-plus-option modern" data-act="upload"><span class="chat-plus-option-icon">🖼️</span><span><strong>UPLOAD</strong></span></button>
-    <button type="button" class="chat-plus-option modern" data-act="poll"><span class="chat-plus-option-icon">📊</span><span><strong>POLL</strong></span></button>
-    <button type="button" class="chat-plus-option modern" data-act="pin"><span class="chat-plus-option-icon">📍</span><span><strong>PIN</strong></span></button>
+    <button type="button" class="chat-plus-option modern" data-act="upload"><span class="chat-plus-option-icon">🖼️</span><span>UPLOAD</span></button>
+    <button type="button" class="chat-plus-option modern" data-act="poll"><span class="chat-plus-option-icon">📊</span><span>POLL</span></button>
+    <button type="button" class="chat-plus-option modern" data-act="pin"><span class="chat-plus-option-icon">📍</span><span>PIN</span></button>
   `;
   menu.dataset.ready = '1';
   menu.querySelectorAll('.chat-plus-option').forEach(btn => {
     btn.addEventListener('click', () => {
-      const scope = menu.id === 'gchat-plus-menu' ? 'group' : 'dm';
-      const fileInput = scope === 'group' ? $('#gchat-file-input') : $('#chat-file-input');
       const act = btn.dataset.act || '';
       closeChatPlusMenus();
-      if (act === 'upload') fileInput?.click();
-      else if (act === 'poll') openChatPollComposer(scope);
-      else if (act === 'pin') sendChatLocationPin(scope);
+      if (act === 'upload') { fileInput?.click(); return; }
+      if (act === 'poll') { openChatPollComposer(scope); return; }
+      if (act === 'pin') { sendChatLocationPin(scope); }
     });
   });
-  return menu;
 }
 
 function openChatPlusMenu(scope = 'dm') {
-  const menu = ensureChatPlusMenu(scope === 'group' ? $('#gchat-plus-menu') : $('#chat-plus-menu'));
+  const menu = scope === 'group' ? $('#gchat-plus-menu') : $('#chat-plus-menu');
   if (!menu) return;
-  const shouldOpen = !menu.classList.contains('open');
+  ensureChatPlusMenu(menu, scope);
+  const isOpen = menu.classList.contains('open');
   closeChatPlusMenus();
-  if (!shouldOpen) return;
+  if (isOpen) return;
   menu.classList.add('open');
-  menu.setAttribute('aria-hidden', 'false');
 }
+
+document.addEventListener('pointerdown', event => {
+  if (event.target.closest('.chat-plus-wrap')) return;
+  closeChatPlusMenus();
+}, true);
+document.addEventListener('scroll', () => closeChatPlusMenus(), true);
 
 function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
   const options = Array.isArray(poll.options) ? poll.options : [];
@@ -9100,23 +9133,13 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
   const total = Object.keys(voters).length;
   const myVote = voters[state.user?.uid] || '';
   return `
-    <div class="poll-card modern-poll ${scope !== 'post' ? 'poll-card-compact' : ''}">
+    <div class="poll-card modern-poll" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
       ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
       <div class="poll-options">
         ${options.map(opt => {
           const count = Object.values(voters).filter(v => v === opt).length;
           const pct = total ? Math.round((count / total) * 100) : 0;
-          const isActive = myVote === opt;
-          return `<button class="poll-option ${isActive ? 'active' : ''}" onclick='voteOnPoll(${JSON.stringify(scope)},${JSON.stringify(primaryId)},${JSON.stringify(messageId)},${JSON.stringify(opt)})'>
-            <span class="poll-option-main">
-              <span class="poll-option-copy">
-                <span class="poll-option-text">${esc(opt)}</span>
-                <span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}</span>
-              </span>
-              <span class="poll-option-percent">${total ? `${pct}%` : 'Vote'}</span>
-            </span>
-            <span class="poll-option-fill" style="width:${Math.max(isActive ? 16 : 8, pct)}%"></span>
-          </button>`;
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(8, pct)}%"></span></button>`;
         }).join('')}
       </div>
       <div class="poll-footer">${total} total vote${total === 1 ? '' : 's'}</div>
@@ -9130,6 +9153,13 @@ async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option
     else if (scope === 'group') ref = db.collection(_activeGroupChat.collection || 'groups').doc(primaryId).collection('messages').doc(messageId);
     else if (scope === 'dm') ref = db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
     if (!ref) return;
+    const host = document.querySelector(`[data-poll-scope="${scope}"][data-poll-primary="${primaryId}"][data-poll-message="${messageId}"]`);
+    if (host) {
+      host.querySelectorAll('.poll-option').forEach(btn => {
+        const active = btn.getAttribute('data-opt') === option;
+        btn.classList.toggle('active', active);
+      });
+    }
     const snap = await ref.get();
     if (!snap.exists) return;
     const data = snap.data() || {};
@@ -9143,12 +9173,11 @@ async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option
 function openChatPollComposer(scope = 'dm') {
   openModal(`
     <div class="modal-header"><h2>Create poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body modern-poll-composer modern-chat-sheet">
-      <div class="sheet-lead">Ask one quick question and let people vote instantly.</div>
-      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What time should we meet?"></div>
+    <div class="modal-body modern-poll-composer">
+      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What should we do after class?"></div>
       <div class="form-group"><label>Options</label><textarea id="chat-poll-options" placeholder="One option per line" style="height:110px;resize:none">Yes
 No</textarea></div>
-      <div class="poll-composer-tip">One option per line. Up to 6 options.</div>
+      <div class="poll-composer-tip">Tip: keep options short so voting looks clean in chat.</div>
       <button class="btn-primary btn-full" id="chat-poll-send-btn" onclick="submitChatPoll('${scope}')">Send poll</button>
     </div>
   `);
@@ -9184,8 +9213,7 @@ async function submitChatPoll(scope = 'dm') {
 
 async function sendChatLocationPin(scope = 'dm') {
   if (!navigator.geolocation) return toast('Location unavailable');
-  try {
-    const pos = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }));
+  navigator.geolocation.getCurrentPosition(async pos => {
     const lat = Number(pos.coords.latitude.toFixed(6));
     const lng = Number(pos.coords.longitude.toFixed(6));
     const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
@@ -9193,42 +9221,23 @@ async function sendChatLocationPin(scope = 'dm') {
       return !best || dist < best.dist ? { loc, dist } : best;
     }, null);
     const locationPin = { lat, lng, label: nearestCampus?.loc?.name || 'Pinned location' };
-    openModal(`
-      <div class="modal-header"><h2>Share pin</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-      <div class="modal-body modern-chat-sheet">
-        <div class="location-preview-card pin-share-card">
-          <div class="chat-location-icon">📍</div>
-          <div>
-            <div class="chat-location-title">${esc(locationPin.label)}</div>
-            <div class="chat-location-sub">Send this pin to the chat?</div>
-          </div>
-        </div>
-        <div class="location-preview-actions">
-          <button class="btn-outline btn-full" onclick="closeModal()">Cancel</button>
-          <button class="btn-primary btn-full" id="confirm-chat-pin">Send pin</button>
-        </div>
-      </div>
-    `);
-    $('#confirm-chat-pin').onclick = async () => {
-      closeModal();
-      try {
-        if (scope === 'group') {
-          const { id, collection } = _activeGroupChat || {};
-          if (!id) return;
-          await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
-          await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
-        } else {
-          const convoId = _activeChatConvoId;
-          if (!convoId) return;
-          const convoDoc = await db.collection('conversations').doc(convoId).get();
-          const convo = convoDoc.data() || {};
-          const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
-          await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
-          await db.collection('conversations').doc(convoId).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
-        }
-      } catch (e) { console.error(e); toast('Could not send location'); }
-    };
-  } catch (_) { toast('Could not get location'); }
+    try {
+      if (scope === 'group') {
+        const { id, collection } = _activeGroupChat || {};
+        if (!id) return;
+        await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
+        await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+      } else {
+        const convoId = _activeChatConvoId;
+        if (!convoId) return;
+        const convoDoc = await db.collection('conversations').doc(convoId).get();
+        const convo = convoDoc.data() || {};
+        const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
+        await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
+        await db.collection('conversations').doc(convoId).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
+      }
+    } catch (e) { console.error(e); toast('Could not send location'); }
+  }, () => toast('Could not get location'), { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
 }
 
 function openLocationPinPreview(encoded = '') {
@@ -9242,8 +9251,6 @@ function openLocationPinPreview(encoded = '') {
           <div class="location-preview-meta">${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}</div>
           <div class="location-preview-actions">
             <button class="btn-primary" onclick="closeModal();routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
-            <button class="btn-outline" onclick="closeModal();openPinnedMapPreview(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Show on map</button>
-            <button class="btn-outline" onclick="closeModal();openCreateEventAtLocation(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Create event here</button>
           </div>
         </div>
       </div>
@@ -9258,7 +9265,7 @@ function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
 function renderLocationPinCard(pin = {}) {
   if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
   const encoded = encodeURIComponent(JSON.stringify(pin));
-  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap for route options</div></div><span class="chat-location-cta">Open</span></button>`;
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Open</span></button>`;
 }
 
 
@@ -9308,8 +9315,8 @@ async function openGroupChat(groupId, collection = 'groups') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
-            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.locationPin) content = renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
               if (isVideoMedia) {
@@ -9331,7 +9338,7 @@ async function openGroupChat(groupId, collection = 'groups') {
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(senderIdentity.name || '?', senderIdentity.photo, 'avatar-xs')}</div>` : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
               ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
               ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
@@ -11161,8 +11168,8 @@ async function openChat(convoId) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
-            if (m.locationPin) content += renderLocationPinCard(m.locationPin);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
+            if (m.locationPin) content = renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
               if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
@@ -11264,7 +11271,7 @@ async function openChat(convoId) {
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -12834,7 +12841,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
-    clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView,
+    clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
