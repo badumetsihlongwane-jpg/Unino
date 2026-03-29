@@ -265,10 +265,41 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const allowSelf = !!options.allowSelf;
   if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
 
-  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite+firebase' : 'firebase-only';
+  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite-native-fcm' : 'firestore-only';
   const { docId = null } = options;
   let appwriteStatus = 'skipped';
   let appwriteDetail = '';
+
+  const notifType = String(data.type || 'generic');
+  const notifPayload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+  const kind = notifPayload.kind
+    || (notifPayload.convoId ? 'dm'
+      : notifPayload.groupId ? 'group'
+      : notifPayload.streamId ? 'live'
+      : notifPayload.postId ? 'post'
+      : notifType === 'message' ? 'dm'
+      : notifType === 'group' ? 'group'
+      : 'app');
+  const from = data.from && typeof data.from === 'object' ? data.from : {};
+  const pushTitle = String(from.name || 'Unino').trim() || 'Unino';
+  const pushBody = String(data.text || 'You have a new notification').trim() || 'You have a new notification';
+  const bridgePayload = {
+    mode,
+    targetId,
+    type: notifType,
+    title: pushTitle,
+    text: pushBody,
+    body: pushBody,
+    kind,
+    channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    at: new Date().toISOString(),
+    payload: notifPayload,
+    from: {
+      uid: String(from.uid || ''),
+      name: pushTitle,
+      photo: String(from.photo || '')
+    }
+  };
 
   if (APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
     try {
@@ -276,14 +307,7 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
       for (const url of APPWRITE_EVENT_SYNC_URLS) {
         const resp = await postToAppwriteBridge(url, {
           eventType: 'notification_dispatch',
-          payload: {
-            mode,
-            targetId,
-            type: data.type || 'generic',
-            text: data.text || '',
-            payload: data.payload || {},
-            at: new Date().toISOString()
-          }
+          payload: bridgePayload
         });
         if (resp.ok) {
           const body = await resp.clone().json().catch(() => null);
@@ -291,15 +315,14 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
           appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
           if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
           else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
-          delivered = true;
-          break;
+          delivered = !!push;
+          if (delivered) break;
+        } else {
+          appwriteStatus = `http-${resp.status}`;
+          appwriteDetail = await resp.text().catch(() => '');
         }
-        appwriteStatus = `http-${resp.status}`;
-        appwriteDetail = await resp.text().catch(() => '');
       }
-      if (!delivered && appwriteStatus === 'skipped') {
-        appwriteStatus = 'failed';
-      }
+      if (!delivered && appwriteStatus === 'skipped') appwriteStatus = 'failed';
     } catch (e) {
       appwriteStatus = 'error';
       appwriteDetail = e?.message || String(e);

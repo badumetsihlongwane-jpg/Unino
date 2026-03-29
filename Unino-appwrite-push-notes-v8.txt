@@ -1,0 +1,32 @@
+Unino Appwrite + native FCM push patch (v8)
+
+What changed:
+- Notification gateway in js/app.js now sends richer Appwrite notification_dispatch payloads:
+  - title/body/from/kind/channelId
+  - convoId/groupId/postId/streamId/profileId/notifDocId
+- Appwrite bridge function now flattens notification payload data so Android receives clean string extras when the app is backgrounded/killed.
+- Appwrite push now uses the sender name as the title and the actual notification text as the body instead of generic type labels.
+- Firestore notification docs are still written for in-app history/bell UI, but push delivery is now prepared to go through Appwrite Messaging -> FCM.
+
+Validated:
+- node --check js/app.js
+- node --check appwrite/bridge-function/index.js
+- node --check functions/index.js
+- npm run build:web
+
+What you still need to do:
+1. Deploy the Appwrite bridge function in appwrite/bridge-function.
+2. Ensure these Appwrite function env vars exist:
+   - APPWRITE_ENDPOINT
+   - APPWRITE_PROJECT_ID
+   - APPWRITE_API_KEY
+   - FIREBASE_WEB_API_KEY
+3. Keep your Appwrite FCM provider enabled.
+4. Rebuild the Android app so the native FCM receiver path is included.
+5. Sign in once on device so the FCM token can be synced to Appwrite as a push target.
+
+Optional but recommended:
+- If you want diagnostics/logging tables too, set:
+  - APPWRITE_DB_ID
+  - APPWRITE_PUSH_TABLE_ID
+  - APPWRITE_EVENTS_TABLE_ID

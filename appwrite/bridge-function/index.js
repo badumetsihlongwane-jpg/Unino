@@ -381,6 +381,35 @@ async function dbDelete(databases, dbId, tableOrCollectionId, docId) {
   throw new Error('No compatible delete method found on Databases client');
 }
 
+
+function flattenNotificationData(payload = {}) {
+  const out = {};
+  const input = payload && typeof payload === 'object' ? payload : {};
+  const nested = input.payload && typeof input.payload === 'object' ? input.payload : {};
+  const from = input.from && typeof input.from === 'object' ? input.from : {};
+  const pairs = {
+    kind: input.kind || input.type || 'app',
+    type: input.type || 'generic',
+    title: input.title || 'Unino',
+    body: input.body || input.text || 'You have a new notification',
+    channelId: input.channelId || ((input.kind === 'dm' || input.kind === 'group') ? 'unibo-messages' : 'unibo-general'),
+    convoId: nested.convoId || '',
+    groupId: nested.groupId || '',
+    collection: nested.collection || 'groups',
+    postId: nested.postId || '',
+    streamId: nested.streamId || '',
+    profileId: nested.profileId || from.uid || '',
+    notifDocId: nested.notifDocId || '',
+    senderName: from.name || '',
+    senderPhoto: from.photo || '',
+    at: input.at || new Date().toISOString()
+  };
+  for (const [key, value] of Object.entries(pairs)) {
+    out[key] = String(value == null ? '' : value);
+  }
+  return out;
+}
+
 function getShadowConfig() {
   return {
     dbId: process.env.APPWRITE_DB_ID || 'unibo_db',
@@ -552,13 +581,9 @@ export default async ({ req, res, log, error }) => {
         try {
           push = await dispatchPushViaMessaging({
             targetFirebaseUid: String(payload.targetId || '').trim(),
-            title: String(payload.type || 'notification').replace(/_/g, ' ').slice(0, 80),
-            body: String(payload.text || '').slice(0, 300),
-            data: {
-              type: String(payload.type || 'generic'),
-              at: String(payload.at || new Date().toISOString()),
-              payload: payload.payload && typeof payload.payload === 'object' ? payload.payload : {}
-            }
+            title: String(payload.title || payload.type || 'Unino').slice(0, 80),
+            body: String(payload.body || payload.text || 'You have a new notification').slice(0, 300),
+            data: flattenNotificationData(payload)
           });
         } catch (e) {
           push = { sent: false, reason: 'push-dispatch-failed', detail: String(e?.message || e) };
