@@ -3386,8 +3386,7 @@ function ensureBootFallback() {
   if (_bootFallbackTimer) clearTimeout(_bootFallbackTimer);
   _bootFallbackTimer = setTimeout(() => {
     if (_bootReady) return;
-    showScreen('auth-screen');
-    markBootReady('Still loading… you can log in while we reconnect.');
+    showBootStatus('Still starting… reconnecting to your account.');
   }, 4500);
 }
 
@@ -4640,15 +4639,20 @@ function showStoryFrame() {
     if (!isMyStory) {
       replyBar.style.display = 'flex';
       replyInput.value = '';
+      if (replySend) {
+        replySend.type = 'button';
+        replySend.innerHTML = '❤';
+        replySend.title = 'Like story';
+      }
       replyInput.onfocus = () => clearTimeout(storyViewerData.timer);
-      replyInput.onblur = () => { storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
+      replyInput.onblur = () => { if (!storyViewerData.paused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
       const doReply = () => {
         const text = replyInput.value.trim();
         if (!text) return;
         replyInput.value = '';
         sendStoryReply(story, text);
       };
-      replySend.onclick = doReply;
+      replySend.onclick = () => toggleStoryLike(story);
       replyInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doReply(); } };
     } else {
       replyBar.style.display = 'none';
@@ -4659,6 +4663,47 @@ function showStoryFrame() {
   $('#story-prev').onclick = () => advanceStory(-1);
   $('#story-next').onclick = () => advanceStory(1);
   $('#story-close').onclick = closeStoryViewer;
+  const storyContentEl = $('#story-viewer-content');
+  if (storyContentEl) {
+    storyContentEl.onpointerdown = () => pauseStoryViewer();
+    storyContentEl.onpointerup = () => resumeStoryViewer(autoAdvanceMs);
+    storyContentEl.onpointercancel = () => resumeStoryViewer(autoAdvanceMs);
+    storyContentEl.onclick = () => {
+      if (storyViewerData.paused) resumeStoryViewer(autoAdvanceMs);
+      else pauseStoryViewer();
+    };
+  }
+}
+
+function pauseStoryViewer() {
+  clearTimeout(storyViewerData.timer);
+  storyViewerData.paused = true;
+  const vid = $('#story-viewer-content video');
+  if (vid && !vid.paused) vid.pause();
+}
+
+function resumeStoryViewer(autoAdvanceMs = 5000) {
+  const wasPaused = !!storyViewerData.paused;
+  storyViewerData.paused = false;
+  const vid = $('#story-viewer-content video');
+  if (vid && vid.paused) vid.play().catch(() => {});
+  clearTimeout(storyViewerData.timer);
+  if (wasPaused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
+}
+
+async function toggleStoryLike(story = {}) {
+  const storyId = story.id || '';
+  if (!storyId || !state.user?.uid) return;
+  const ref = db.collection('stories').doc(storyId);
+  const myId = state.user.uid;
+  const likes = Array.isArray(story.likes) ? [...story.likes] : [];
+  const liked = likes.includes(myId);
+  try {
+    await ref.update({ likes: liked ? FieldVal.arrayRemove(myId) : FieldVal.arrayUnion(myId) });
+    story.likes = liked ? likes.filter(id => id !== myId) : [...likes, myId];
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 function advanceStory(dir) {
@@ -7490,6 +7535,13 @@ function syncRadarOverlayToUser() {
   const overlay = document.getElementById('radar-overlay');
   const wrap = document.querySelector('.radar-map-wrap');
   if (!overlay || !wrap) return;
+  const coords = getUserCoords(state.profile) || getRadarCenterCoords();
+  if (_mapLibreMap && typeof _mapLibreMap.project === 'function') {
+    const projected = _mapLibreMap.project([coords.lng, coords.lat]);
+    overlay.style.left = `${Math.round(projected.x)}px`;
+    overlay.style.top = `${Math.round(projected.y)}px`;
+    return;
+  }
   const rect = wrap.getBoundingClientRect();
   overlay.style.left = `${Math.round(rect.width / 2)}px`;
   overlay.style.top = `${Math.round(rect.height / 2)}px`;
@@ -7807,7 +7859,7 @@ let _campusGeoJsonLoadPromise = null;
 async function loadCampusGeoJson() {
   if (_campusGeoJsonCache) return _campusGeoJsonCache;
   if (_campusGeoJsonLoadPromise) return _campusGeoJsonLoadPromise;
-  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'no-store' })
+  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'force-cache' })
     .then(res => res.ok ? res.json() : null)
     .then(data => {
       _campusGeoJsonCache = data && Array.isArray(data.features) ? data : null;
@@ -7892,16 +7944,16 @@ async function mountCampusGeoJsonLayers(map) {
     type: 'fill',
     source: 'campus-geojson',
     paint: {
-      'fill-color': 'rgba(108,92,231,0.01)',
-      'fill-opacity': 0.001,
-      'fill-outline-color': 'rgba(108,92,231,0.01)'
+      'fill-color': 'rgba(108,92,231,0)',
+      'fill-opacity': 0,
+      'fill-outline-color': 'rgba(108,92,231,0)'
     }
   });
   map.addLayer({
     id: 'campus-outline',
     type: 'line',
     source: 'campus-geojson',
-    paint: { 'line-color': 'rgba(108,92,231,0.01)', 'line-opacity': 0.001, 'line-width': 1 }
+    paint: { 'line-color': 'rgba(108,92,231,0)', 'line-opacity': 0, 'line-width': 1 }
   });
   map.addLayer({
     id: 'campus-name-labels',
@@ -8166,10 +8218,13 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
 }
 
 function routeToMapPoint(lat, lng, label = 'Destination') {
-  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return;
+  closeModal();
+  closeChatPlusMenus();
+  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return toast('Could not build route');
+  exploreView = 'radar';
   if (state.page !== 'explore') {
-    exploreView = 'radar';
     navigate('explore');
+    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
     return;
   }
   if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
@@ -8178,14 +8233,15 @@ function routeToMapPoint(lat, lng, label = 'Destination') {
 
 function routeToCampusLocation(locationId = '') {
   const loc = getCampusLocationById(locationId);
-  if (!loc) return;
-  if (!setPendingMapRoute(loc, { label: loc.name, targetId: locationId, source: 'campus' })) return;
+  if (!loc) return toast('Location not found');
+  closeModal();
+  if (!setPendingMapRoute(loc, { label: loc.name, targetId: locationId, source: 'campus' })) return toast('Could not build route');
+  exploreView = 'radar';
   if (state.page !== 'explore') {
-    exploreView = 'radar';
     navigate('explore');
+    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
     return;
   }
-  exploreView = 'radar';
   if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
   else renderExploreView();
 }
@@ -9111,7 +9167,10 @@ function renderEventGroupChatBanner(group = {}) {
 
 
 function closeChatPlusMenus() {
-  $$('.chat-plus-menu').forEach(menu => menu.classList.remove('open'));
+  $$('.chat-plus-menu').forEach(menu => {
+    menu.classList.remove('open');
+    menu.style.display = 'none';
+  });
 }
 
 function ensureChatPlusMenu(menu, scope = 'dm') {
@@ -9141,6 +9200,7 @@ function openChatPlusMenu(scope = 'dm') {
   const isOpen = menu.classList.contains('open');
   closeChatPlusMenus();
   if (isOpen) return;
+  menu.style.display = 'grid';
   menu.classList.add('open');
 }
 
@@ -9439,7 +9499,7 @@ async function openGroupChat(groupId, collection = 'groups') {
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
-    $('#gchat-plus-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openChatPlusMenu('group'); });
+    const groupPlusBtn = $('#gchat-plus-btn'); if (groupPlusBtn) groupPlusBtn.onclick = (e) => { e.stopPropagation(); openChatPlusMenu('group'); };
     $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -11121,6 +11181,11 @@ async function setAllowAnonymousMessages(enabled) {
 }
 
 async function openChat(convoId) {
+  showScreen('chat-view');
+  _activeChatConvoId = convoId;
+  _activeGroupChat = { id: '', collection: '' };
+  const msgs = $('#chat-msgs');
+  if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
   try {
     const convoDoc = await db.collection('conversations').doc(convoId).get();
     if (!convoDoc.exists) return toast('Chat not found');
@@ -11134,13 +11199,6 @@ async function openChat(convoId) {
     const name = resolvedIdentity.name;
     const photo = resolvedIdentity.photo;
 
-    showScreen('chat-view');
-    _activeChatConvoId = convoId;
-    _activeGroupChat = { id: '', collection: '' };
-    
-    // IMMEDIATELY clear old messages to prevent flash of previous chat
-    const msgs = $('#chat-msgs');
-    if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
 
     // Only show anon toggle for anonymous conversations (non-friend chats)
     const anonBtn = $('#chat-anon-toggle');
@@ -11191,7 +11249,7 @@ async function openChat(convoId) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
             if (m.locationPin) content = renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
@@ -11411,7 +11469,7 @@ async function openChat(convoId) {
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
-    $('#chat-plus-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openChatPlusMenu('dm'); });
+    const dmPlusBtn = $('#chat-plus-btn'); if (dmPlusBtn) dmPlusBtn.onclick = (e) => { e.stopPropagation(); openChatPlusMenu('dm'); };
     input.onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     input.onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -12773,6 +12831,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   showBootStatus('Starting Unibo…');
   ensureBootFallback();
+  ensureChatPlusMenu($('#chat-plus-menu'), 'dm');
+  ensureChatPlusMenu($('#gchat-plus-menu'), 'group');
+  $('#chat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
+  $('#gchat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
+  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
+  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
