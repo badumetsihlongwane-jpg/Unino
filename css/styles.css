@@ -8061,3 +8061,15 @@ body.image-view-open .modal-bg {
 .story-reply-bar input { padding-right: 10px; }
 .campus-map-popup-actions { display:flex; gap:8px; margin-top:10px; }
 .map-popup-btn { flex:1; }
+
+
+/* v10 polish */
+.img-download{position:absolute;top:16px;right:62px;z-index:3;border:none;border-radius:999px;padding:10px 14px;background:rgba(15,23,42,.78);color:#fff;font-weight:700;backdrop-filter:blur(12px)}
+.img-download:hover{background:rgba(15,23,42,.9)}
+.suggested-card-event{justify-content:flex-start}.suggested-event-thumb{width:64px;height:64px;border-radius:18px;object-fit:cover;margin-bottom:10px}.suggested-event-emoji{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;background:linear-gradient(135deg, rgba(108,92,231,.16), rgba(168,85,247,.18));margin-bottom:10px}
+.story-insight-link{border:none;background:none;color:var(--accent);font:inherit;font-weight:700;padding:0;cursor:pointer}
+.nav-plus{transform:translateY(-8px)}
+.chat-plus-wrap{align-self:flex-end}
+.create-post-actions-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:nowrap}.create-post-actions-row .create-post-actions-left{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:auto;scrollbar-width:none}.create-post-actions-row .create-post-actions-left::-webkit-scrollbar{display:none}.create-post-actions-row .btn-primary{flex:0 0 auto}
+[data-theme="light"] .poll-question,[data-theme="light"] .poll-option-text,[data-theme="light"] .poll-footer,[data-theme="light"] .chat-plus-option.modern,[data-theme="light"] .create-anon-toggle,[data-theme="light"] .suggested-card-name,[data-theme="light"] .suggested-card-meta{color:var(--text-primary)}
+[data-theme="light"] .chat-plus-option-icon{color:var(--text-primary)}

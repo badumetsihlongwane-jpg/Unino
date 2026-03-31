@@ -1972,18 +1972,48 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
   }
 }
 
+async function syncThreadLastMessage(scope, primaryId, collection = '') {
+  try {
+    const parentRef = scope === 'group' ? db.collection(collection || 'groups').doc(primaryId) : db.collection('conversations').doc(primaryId);
+    const snap = await parentRef.collection('messages').orderBy('createdAt', 'desc').limit(12).get();
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const latest = items.find(m => !m.deleted && m.type !== 'deleted');
+    let lastMessage = '';
+    if (latest) {
+      if (latest.locationPin?.label) lastMessage = `📍 ${latest.locationPin.label}`;
+      else if (latest.type === 'poll' && latest.poll?.question) lastMessage = `📊 ${latest.poll.question}`;
+      else if (latest.audioURL) lastMessage = '🎤 Voice';
+      else if (latest.imageURL) lastMessage = latest.mediaType === 'video' ? '📹 Video' : (latest.text || '📷 Photo');
+      else lastMessage = latest.text || '';
+    }
+    await parentRef.set({ lastMessage, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+  } catch (_) {}
+}
+
 async function deleteMessage(scope, primaryId, messageId, collection = '') {
   try {
-    await getMessageDocRef(scope, primaryId, messageId, collection).set({
-      deleted: true,
-      deletedAt: FieldVal.serverTimestamp(),
-      text: '',
-      imageURL: null,
-      audioURL: null,
-      type: 'deleted',
-      payload: null,
-      reactions: {}
-    }, { merge: true });
+    const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+    const message = lookup.get(messageId) || {};
+    const ref = getMessageDocRef(scope, primaryId, messageId, collection);
+    const hardDelete = message.type === 'poll' || !!message.locationPin;
+    if (hardDelete) {
+      await ref.delete();
+      lookup.delete(messageId);
+    } else {
+      await ref.set({
+        deleted: true,
+        deletedAt: FieldVal.serverTimestamp(),
+        text: '',
+        imageURL: null,
+        audioURL: null,
+        type: 'deleted',
+        payload: null,
+        poll: null,
+        locationPin: null,
+        reactions: {}
+      }, { merge: true });
+    }
+    await syncThreadLastMessage(scope, primaryId, collection);
     closeModal();
     toast('Message deleted');
   } catch (e) {
@@ -4307,7 +4337,7 @@ function loadDiscoverPeople() {
 
   getUsersCache().then(allUsers => {
     let users = allUsers
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id));
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id));
 
     // Score & sort by relevance
     users = users.map(u => {
@@ -4316,16 +4346,18 @@ function loadDiscoverPeople() {
       const shared = myModules.filter(m => theirModules.includes(m));
       const nearby = getNearbySignal(state.profile, u);
       const nearbyScore = nearby.score;
+      const isFriend = myFriends.has(u.id);
       if (shared.length) score += 36 + shared.length * 14;
       if (u.major === myMajor) score += 22;
       if (u.year && myYear && u.year === myYear) score += 8;
       if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
       score += genderAffinityScore(state.profile, u);
+      if (isFriend) score -= 18;
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
-      return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
+      return { ...u, isFriend, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
     }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
-      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
+      .sort((a, b) => (a.isFriend === b.isFriend ? 0 : (a.isFriend ? 1 : -1)) || b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -4592,7 +4624,7 @@ function showStoryFrame() {
   const viewCount = Math.max(0, (story.viewedBy || []).filter(uid => uid !== state.user.uid).length);
   hdr.innerHTML = `
     ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
-    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · ${viewCount} view${viewCount === 1 ? '' : 's'}` : ''}</small></div>
+    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
     ${isMyStory ? `<button class="story-delete-btn" onclick="deleteStory('${story.id}')">Delete</button>` : ''}
   `;
 
@@ -4689,6 +4721,31 @@ function resumeStoryViewer(autoAdvanceMs = 5000) {
   if (vid && vid.paused) vid.play().catch(() => {});
   clearTimeout(storyViewerData.timer);
   if (wasPaused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
+}
+
+async function openStoryInsights(storyId = '') {
+  try {
+    const doc = await db.collection('stories').doc(storyId).get();
+    if (!doc.exists) return;
+    const story = { id: doc.id, ...doc.data() };
+    const viewerIds = (story.viewedBy || []).filter(uid => uid && uid !== state.user?.uid);
+    const likeIds = (story.likes || []).filter(Boolean);
+    const ids = [...new Set([...viewerIds, ...likeIds])];
+    await ensureUserContextCache(ids, { force: false });
+    const renderRows = (arr = [], kind = 'Viewed') => arr.length
+      ? arr.map(uid => {
+          const info = resolveUserIdentity(uid, uid, null);
+          return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
+        }).join('')
+      : `<div class="empty-state" style="padding:10px 0"><p>No one yet</p></div>`;
+    openModal(`
+      <div class="modal-header"><h2>Story activity</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px;display:grid;gap:14px">
+        <div><h3 style="margin:0 0 8px">Views</h3>${renderRows(viewerIds, 'Viewed')}</div>
+        <div><h3 style="margin:0 0 8px">Likes</h3>${renderRows(likeIds, 'Liked')}</div>
+      </div>
+    `);
+  } catch (e) { console.error(e); }
 }
 
 async function toggleStoryLike(story = {}) {
@@ -4873,12 +4930,13 @@ function renderFeedInlineSuggestionCard(user = {}) {
 }
 
 function renderFeedInlineSuggestionRail(users = []) {
-  const picks = (users || []).slice(0, 15);
-  if (!picks.length) return '';
+  const picks = (users || []).slice(0, 10);
+  const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
+  if (!picks.length && !eventPicks.length) return '';
   return `
     <div class="post-card feed-inline-suggestion feed-inline-suggestion-rail">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
-        <h3>People you may know</h3>
+        <h3>Suggestions</h3>
       </div>
       <div class="suggested-list">${picks.map(user => {
         const isFriend = (state.profile?.friends || []).includes(user.id);
@@ -4893,6 +4951,16 @@ function renderFeedInlineSuggestionRail(users = []) {
           <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
           <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
           ${action}
+        </div>`;
+      }).join('')}
+      ${eventPicks.map(ev => {
+        const loc = getCampusLocationById(ev.location);
+        const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
+        return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
+          ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : `<div class="suggested-event-emoji">${esc(ev.emoji || '📅')}</div>`}
+          <div class="suggested-card-name">${esc(ev.title || 'Campus event')}</div>
+          <div class="suggested-card-meta">${esc(loc ? loc.name : (ev.location || 'Event'))}</div>
+          <button class="btn-sm btn-outline" onclick="event.preventDefault();event.stopPropagation();openEventDetail('${ev.id || ''}')">Open</button>
         </div>`;
       }).join('')}</div>
     </div>`;
@@ -5030,6 +5098,7 @@ function renderPosts(posts) {
   }
 
   el.innerHTML = postCards.join('');
+  primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => {});
   el.classList.remove('feed-ready');
   requestAnimationFrame(() => el.classList.add('feed-ready'));
   hydratePostCommentPreviews(posts).then(() => {
@@ -6678,6 +6747,73 @@ function closeGalleryViewer() {
   document.body.classList.remove('image-view-open');
   _galleryUrls = [];
 }
+
+function guessDownloadFilename(url = '', fallback = 'download') {
+  try {
+    const clean = String(url || '').split('#')[0].split('?')[0];
+    const last = clean.split('/').pop() || '';
+    if (last && /\.[a-z0-9]{2,8}$/i.test(last)) return last;
+  } catch (_) {}
+  return fallback;
+}
+
+async function downloadMediaUrl(url = '', fallback = 'download') {
+  const target = String(url || '').trim();
+  if (!target) return;
+  try {
+    const name = guessDownloadFilename(target, fallback);
+    const a = document.createElement('a');
+    a.href = target;
+    a.download = name;
+    a.rel = 'noopener';
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    console.error(e);
+    toast('Could not start download');
+  }
+}
+
+function downloadCurrentGalleryImage() {
+  if (!_galleryUrls.length) return;
+  downloadMediaUrl(_galleryUrls[_galleryIdx], 'image');
+}
+
+function openVideoDownloadPrompt(url = '') {
+  const target = String(url || '').trim();
+  if (!target) return;
+  openModal(`
+    <div class="modal-header"><h2>Video</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px;display:grid;gap:10px">
+      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrl(${JSON.stringify(target)}, 'video')">Download</button>
+      <button class="btn-secondary btn-full" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+const _mediaCacheWarm = new Map();
+async function primeMediaCache(urls = [], limit = 6) {
+  if (!('caches' in window)) return;
+  const list = [...new Set((urls || []).filter(Boolean))].slice(0, limit);
+  if (!list.length) return;
+  try {
+    const cache = await caches.open('unino-media-v1');
+    const now = Date.now();
+    await Promise.all(list.map(async url => {
+      const last = _mediaCacheWarm.get(url) || 0;
+      if (now - last < 15 * 60 * 1000) return;
+      _mediaCacheWarm.set(url, now);
+      const match = await cache.match(url);
+      if (match) return;
+      try {
+        const resp = await fetch(url, { cache: 'force-cache', mode: 'cors' });
+        if (resp.ok) await cache.put(url, resp.clone());
+      } catch (_) {}
+    }));
+  } catch (_) {}
+}
 function openGallery(urls, startIdx = 0) {
   _galleryUrls = urls || [];
   _galleryIdx = startIdx;
@@ -6689,6 +6825,8 @@ function openGallery(urls, startIdx = 0) {
 function _renderGalleryFrame() {
   if (!_galleryUrls.length) return;
   $('#img-full').src = _galleryUrls[_galleryIdx];
+  const dl = $('#img-download');
+  if (dl) dl.style.display = 'flex';
   const counter = $('#img-counter');
   const prev = $('#img-prev');
   const next = $('#img-next');
@@ -6743,8 +6881,8 @@ function openCreateModal() {
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="create-post-actions-row">
+        <div class="create-post-actions-left">
           <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
           <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin</button>
           <button type="button" class="btn-outline" id="create-poll-btn" style="padding:7px 10px;font-size:12px">📊 Poll</button>
@@ -7151,7 +7289,7 @@ async function loadExploreUsers() {
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id))
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
@@ -7161,13 +7299,15 @@ async function loadExploreUsers() {
         if (shared.length > 0) proximity = 'module';
         else if (nearbyScore > 0) proximity = 'nearby';
         else if (u.major === myMajor) proximity = 'course';
+        const isFriend = myFriends.has(u.id);
         const affinityScore = (shared.length * 20)
           + (u.major === myMajor ? 18 : 0)
           + (u.year && myYear && u.year === myYear ? 6 : 0)
           + (nearbyScore * 8)
           + (u.status === 'online' ? 4 : 0)
+          + (isFriend ? 14 : 0)
           + genderAffinityScore(state.profile, u);
-        return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
+        return { ...u, isFriend, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
       })
       .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
     renderExploreView();
@@ -7535,13 +7675,6 @@ function syncRadarOverlayToUser() {
   const overlay = document.getElementById('radar-overlay');
   const wrap = document.querySelector('.radar-map-wrap');
   if (!overlay || !wrap) return;
-  const coords = getUserCoords(state.profile) || getRadarCenterCoords();
-  if (_mapLibreMap && typeof _mapLibreMap.project === 'function') {
-    const projected = _mapLibreMap.project([coords.lng, coords.lat]);
-    overlay.style.left = `${Math.round(projected.x)}px`;
-    overlay.style.top = `${Math.round(projected.y)}px`;
-    return;
-  }
   const rect = wrap.getBoundingClientRect();
   overlay.style.left = `${Math.round(rect.width / 2)}px`;
   overlay.style.top = `${Math.round(rect.height / 2)}px`;
@@ -8235,15 +8368,8 @@ function routeToCampusLocation(locationId = '') {
   const loc = getCampusLocationById(locationId);
   if (!loc) return toast('Location not found');
   closeModal();
-  if (!setPendingMapRoute(loc, { label: loc.name, targetId: locationId, source: 'campus' })) return toast('Could not build route');
-  exploreView = 'radar';
-  if (state.page !== 'explore') {
-    navigate('explore');
-    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
-    return;
-  }
-  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
-  else renderExploreView();
+  closeChatPlusMenus();
+  routeToMapPoint(loc.lat, loc.lng, loc.name || 'Destination');
 }
 
 let allCampusEvents = [];
@@ -9348,7 +9474,7 @@ function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
 function renderLocationPinCard(pin = {}) {
   if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
   const encoded = encodeURIComponent(JSON.stringify(pin));
-  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Open</span></button>`;
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Route</span></button>`;
 }
 
 
@@ -12855,6 +12981,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+  document.addEventListener('contextmenu', e => {
+    const video = e.target && e.target.closest ? e.target.closest('video') : null;
+    if (!video) return;
+    const src = video.currentSrc || video.src || video.getAttribute('src') || '';
+    if (!src) return;
+    e.preventDefault();
+    openVideoDownloadPrompt(src);
+  }, true);
 
   // Notifications dropdown toggle
   $('#notif-btn')?.addEventListener('click', (e) => {
@@ -12929,6 +13063,7 @@ document.addEventListener('DOMContentLoaded', () => {
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
+    downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled

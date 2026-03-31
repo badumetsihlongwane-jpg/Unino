@@ -1,0 +1,19 @@
+Unino v10 changes
+
+- Added image download button in the full-screen image viewer.
+- Added long-press / context-menu video download prompt.
+- Lowered the bottom-nav + button slightly.
+- Added light media cache warming for recent feed media to reduce repeated fetches without aggressively caching everything.
+- Feed suggestion rail now uses the heading 'Suggestions' and can include a small number of events.
+- Explore/Radar no longer excludes friends, so friended users can appear on the radar, in radar search, and in shared modules again.
+- Discover people now prioritizes non-friends first, then falls back to friends if needed.
+- Radar overlay circle is fixed to the center of the radar view instead of drifting with map movement.
+- Route-to-campus actions now route through the same direct map-point flow used by pinned posts.
+- Chat location pin preview now only shows Route here.
+- Poll and location-pin message deletes now remove properly; thread previews are recalculated so other users do not keep seeing stale deleted content in the conversation list.
+- Added story insights modal for your own story, showing viewers and likes in a clickable UI.
+- Create post actions row tightened so actions stay on one line more gracefully.
+
+Validated:
+- node --check js/app.js
+- npm run build:web
