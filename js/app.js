@@ -2418,6 +2418,8 @@ function escJsString(s = '') {
   return String(s || '')
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
+    .replace(/\u2028/g, ' ')
+    .replace(/\u2029/g, ' ')
     .replace(/\r?\n/g, ' ');
 }
 
@@ -3891,8 +3893,18 @@ function setupNav() {
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
         if (p === 'feed') navigate('feed', { refresh: true, restoreFeed: false });
+        if (p === 'chat') {
+          const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
+          const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
+          if (inGroupView || inDmView || state.lastMsgTab !== 'dm') {
+            state.lastMsgTab = 'dm';
+            showScreen('app');
+            navigate('chat', { refresh: true, pushHistory: false });
+          }
+        }
         return;
       }
+      if (p === 'chat') state.lastMsgTab = 'dm';
       navigate(p, { restoreFeed: p === 'feed' });
     });
   });
@@ -6943,7 +6955,9 @@ function openVideoDownloadPrompt(url = '') {
 const _mediaCacheWarm = new Map();
 async function primeMediaCache(urls = [], limit = 6) {
   if (!('caches' in window)) return;
-  const list = [...new Set((urls || []).filter(Boolean))].slice(0, limit);
+  const list = [...new Set((urls || []).filter(Boolean))]
+    .filter(url => !isLikelyVideoUrl(url))
+    .slice(0, limit);
   if (!list.length) return;
   try {
     const cache = await caches.open('unino-media-v1');
@@ -6955,7 +6969,7 @@ async function primeMediaCache(urls = [], limit = 6) {
       const match = await cache.match(url);
       if (match) return;
       try {
-        const resp = await fetch(url, { cache: 'force-cache', mode: 'cors' });
+        const resp = await fetch(url, { cache: 'no-store', mode: 'cors' });
         if (resp.ok) await cache.put(url, resp.clone());
       } catch (_) {}
     }));
@@ -7599,6 +7613,7 @@ function renderRadarView() {
   const renderRadarSuggestions = async (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
+    box.onmousedown = e => e.preventDefault();
     const rawQuery = (queryRaw || '').trim();
     const q = normalizePlaceKey(rawQuery);
     if (!q) {
@@ -7678,7 +7693,10 @@ function renderRadarView() {
     box.innerHTML = `${peopleHits.length ? `<div class="radar-suggestion-sub" style="padding:6px 12px 2px;font-weight:700;opacity:.75">People</div>${peopleMarkup}` : ''}${placeHits.length ? `<div class="radar-suggestion-sub" style="padding:8px 12px 2px;font-weight:700;opacity:.75">Places</div>${placeMarkup}` : ''}`;
     box.style.display = 'block';
     box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
-      btn.onclick = () => {
+      let handled = false;
+      const handleSelect = () => {
+        if (handled) return;
+        handled = true;
         const selected = btn.getAttribute('data-v') || '';
         const kind = btn.getAttribute('data-type') || '';
         const uid = btn.getAttribute('data-uid') || '';
@@ -7705,6 +7723,14 @@ function renderRadarView() {
         _exploreSearchQuery = selected;
         renderRadarSuggestions(selected);
         applyRadarFilter(selected);
+      };
+      btn.onclick = event => {
+        event.preventDefault();
+        handleSelect();
+      };
+      btn.onpointerdown = event => {
+        event.preventDefault();
+        handleSelect();
       };
     });
   };
@@ -8533,10 +8559,10 @@ async function mountCampusGeoJsonLayers(map) {
     const [lng, lat] = feature.geometry.coordinates || [];
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const name = feature.properties?.name || 'Building';
-    const safeName = escJsString(name);
+    const encodedName = encodeURIComponent(name || 'Building');
     new maplibregl.Popup({ closeButton: false, offset: 18 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, '${safeName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, '${safeName}')">Create event here</button></div></div>`)
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event here</button></div></div>`)
       .addTo(map);
   });
   map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -8797,6 +8823,22 @@ function routeToMapPoint(lat, lng, label = 'Destination') {
   exploreView = 'radar';
   if (state.page !== 'explore') navigate('explore');
   ensurePendingRouteVisible(0);
+}
+
+function routeToMapPointEncoded(lat, lng, encodedLabel = '') {
+  let label = 'Destination';
+  try {
+    label = decodeURIComponent(String(encodedLabel || '')) || 'Destination';
+  } catch (_) {}
+  routeToMapPoint(lat, lng, label);
+}
+
+function openCreateEventAtMapPointEncoded(lat, lng, encodedLabel = '') {
+  let label = 'Pinned location';
+  try {
+    label = decodeURIComponent(String(encodedLabel || '')) || 'Pinned location';
+  } catch (_) {}
+  openCreateEventAtMapPoint(lat, lng, label);
 }
 
 function routeToCampusLocation(locationId = '') {
@@ -9899,7 +9941,7 @@ function openLocationPinPreview(encoded = '') {
     const lat = Number(pin.lat);
     const lng = Number(pin.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const safeLabel = escJsString(pin.label || 'Pinned location');
+    const encodedLabel = encodeURIComponent(pin.label || 'Pinned location');
     openModal(`
       <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
@@ -9907,7 +9949,7 @@ function openLocationPinPreview(encoded = '') {
           ${pin.subLabel ? `<div class="location-preview-meta" style="margin-bottom:4px">${esc(pin.subLabel)}</div>` : ''}
           <div class="location-preview-meta">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
           <div class="location-preview-actions">
-            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${lat},${lng}, '${safeLabel}')">Route here</button>
+            <button class="btn-primary" onclick="closeModal();routeToMapPointEncoded(${lat},${lng}, '${encodedLabel}')">Route here</button>
           </div>
         </div>
       </div>
