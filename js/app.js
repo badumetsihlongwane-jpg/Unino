@@ -1770,10 +1770,13 @@ function resolveMapPoint(base, occupied = [], anchor = null) {
 }
 
 function openCommentActionSheet(postId, commentId, source = 'feed') {
+  const mode = arguments[3] || 'owner';
+  const title = mode === 'post-owner' ? 'Moderate Comment' : 'Comment';
+  const actionLabel = mode === 'admin' ? 'Admin Remove' : mode === 'post-owner' ? 'Remove Comment' : 'Delete Comment';
   openModal(`
-    <div class="modal-header"><h2>Comment</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>${title}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">Delete Comment</button>
+      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">${actionLabel}</button>
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -2110,12 +2113,16 @@ function bindPostReactionLongPress(container) {
   });
 }
 
-function bindCommentLongPress(container, postId, source = 'feed') {
+function bindCommentLongPress(container, postId, source = 'feed', postAuthorId = '') {
   if (!container) return;
   container.querySelectorAll('.comment-item[data-author-id]').forEach(item => {
     const authorId = item.getAttribute('data-author-id') || '';
     const commentId = item.getAttribute('data-comment-id') || '';
-    if (!commentId || authorId !== state.user?.uid) return;
+    const isCommentOwner = authorId === state.user?.uid;
+    const isPostOwner = !!postAuthorId && postAuthorId === state.user?.uid;
+    const canModerate = !!state.user?.uid && (_isAdmin || isCommentOwner || isPostOwner);
+    if (!commentId || !canModerate) return;
+    const mode = _isAdmin ? 'admin' : (isCommentOwner ? 'owner' : 'post-owner');
     let timer = null;
     let didOpen = false;
     const start = () => {
@@ -2126,7 +2133,7 @@ function bindCommentLongPress(container, postId, source = 'feed') {
         didOpen = true;
         item.classList.remove('comment-long-pressing');
         if (navigator.vibrate) navigator.vibrate(18);
-        openCommentActionSheet(postId, commentId, source);
+        openCommentActionSheet(postId, commentId, source, mode);
       }, 360);
     };
     const clear = () => {
@@ -2137,7 +2144,7 @@ function bindCommentLongPress(container, postId, source = 'feed') {
     item.oncontextmenu = e => {
       e.preventDefault();
       if (navigator.vibrate) navigator.vibrate(18);
-      openCommentActionSheet(postId, commentId, source);
+      openCommentActionSheet(postId, commentId, source, mode);
     };
     item.addEventListener('click', e => {
       if (!didOpen) return;
@@ -2188,8 +2195,18 @@ function handleCommentHeartClick(postId, commentId, source = 'feed') {
 async function deleteCommentThread(postId, commentId, source = 'feed') {
   try {
     const commentsRef = db.collection('posts').doc(postId).collection('comments');
+    const uid = state.user?.uid || '';
+    if (!uid) return;
+    const postSnap = await db.collection('posts').doc(postId).get();
+    const postAuthorId = postSnap.exists ? (postSnap.data()?.authorId || '') : '';
     const snap = await commentsRef.limit(200).get();
     const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const targetComment = comments.find(comment => comment.id === commentId) || null;
+    const canDelete = !!targetComment && (_isAdmin || targetComment.authorId === uid || postAuthorId === uid);
+    if (!canDelete) {
+      toast('Only the post owner or comment owner can delete this');
+      return;
+    }
     const toDelete = new Set([commentId]);
     let added = true;
     while (added) {
@@ -3309,7 +3326,11 @@ function initPlayer(id) {
   // Download current media without leaving the app context.
   root.querySelector('[data-act="download"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    downloadUrlInApp(src);
+    const currentSrc = vid.currentSrc
+      || vid.getAttribute('src')
+      || vid.querySelector('source')?.getAttribute('src')
+      || '';
+    downloadUrlInApp(currentSrc);
   });
 
   // Fullscreen
@@ -6287,7 +6308,8 @@ async function openReelComments(postId, options = {}) {
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
-    bindCommentLongPress(list, postId, 'reel');
+    const reelPost = (_reelVideos || []).find(p => p.id === postId) || (state.posts || []).find(p => p.id === postId) || {};
+    bindCommentLongPress(list, postId, 'reel', reelPost.authorId || '');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`rc-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -6611,7 +6633,7 @@ async function openComments(postId, options = {}) {
 
   const commentsList = $('#comments-container');
   if (commentsList) {
-    bindCommentLongPress(commentsList, postId, 'feed');
+    bindCommentLongPress(commentsList, postId, 'feed', postData?.authorId || '');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`c-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -6801,15 +6823,24 @@ function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
   return `${fallbackBase}-${Date.now()}.jpg`;
 }
 
+function isLikelyVideoUrl(url = '', mime = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const lowerMime = String(mime || '').toLowerCase();
+  return lowerMime.includes('video') || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/.test(lowerUrl);
+}
+
 async function downloadUrlInApp(url = '') {
-  if (!url) return;
+  const target = String(url || '').trim();
+  if (!target) return;
+  let started = false;
   try {
-    const response = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    const response = await fetch(target, { mode: 'cors', cache: 'no-cache' });
     if (!response.ok) throw new Error(`http-${response.status}`);
     const blob = await response.blob();
+    if (!blob.size) throw new Error('empty-blob');
     const objectUrl = URL.createObjectURL(blob);
-    const ext = (blob.type || '').includes('video') ? 'mp4' : 'jpg';
-    const filename = inferDownloadFilename(url, `unino-${ext}`);
+    const fallbackBase = isLikelyVideoUrl(target, blob.type) ? 'unino-video' : 'unino-image';
+    const filename = inferDownloadFilename(target, fallbackBase);
     const link = document.createElement('a');
     link.href = objectUrl;
     link.download = filename;
@@ -6818,9 +6849,24 @@ async function downloadUrlInApp(url = '') {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    started = true;
     toast('Download started');
   } catch (e) {
     console.warn('download failed', e);
+  }
+  if (started) return;
+  try {
+    const filename = inferDownloadFilename(target, isLikelyVideoUrl(target) ? 'unino-video' : 'unino-image');
+    const link = document.createElement('a');
+    link.href = target;
+    link.download = filename;
+    link.rel = 'noopener';
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast('Opening download...');
+  } catch (_) {
     toast('Could not download media');
   }
 }
@@ -7769,8 +7815,21 @@ function syncRadarOverlayToUser() {
   const wrap = document.querySelector('.radar-map-wrap');
   if (!overlay || !wrap) return;
   const rect = wrap.getBoundingClientRect();
-  overlay.style.left = `${Math.round(rect.width / 2)}px`;
-  overlay.style.top = `${Math.round(rect.height / 2)}px`;
+  let x = Math.round(rect.width / 2);
+  let y = Math.round(rect.height / 2);
+  const myCoords = getUserCoords(state.profile) || getRadarCenterCoords();
+  if (_mapLibreMap && typeof _mapLibreMap.project === 'function' && Number.isFinite(myCoords?.lat) && Number.isFinite(myCoords?.lng)) {
+    try {
+      const projected = _mapLibreMap.project([myCoords.lng, myCoords.lat]);
+      const canvasRect = _mapLibreMap.getCanvas()?.getBoundingClientRect?.();
+      if (projected && Number.isFinite(projected.x) && Number.isFinite(projected.y) && canvasRect) {
+        x = Math.round(projected.x + (canvasRect.left - rect.left));
+        y = Math.round(projected.y + (canvasRect.top - rect.top));
+      }
+    } catch (_) {}
+  }
+  overlay.style.left = `${x}px`;
+  overlay.style.top = `${y}px`;
 }
 
 function setRadarRouteFilterState(active = false) {
@@ -7805,6 +7864,13 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       _leafletMap = _mapLibreMap;
       _mapLibreMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
       _mapLibreMap.on('load', () => {
+        _mapLibreMap.on('styleimagemissing', evt => {
+          const missingId = evt?.id;
+          if (!missingId || _mapLibreMap.hasImage(missingId)) return;
+          try {
+            _mapLibreMap.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
+          } catch (_) {}
+        });
         try {
           const layers = _mapLibreMap.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
@@ -8204,6 +8270,7 @@ async function mountCampusGeoJsonLayers(map) {
     const feature = e.features && e.features[0];
     if (!feature) return;
     const [lng, lat] = feature.geometry.coordinates || [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const name = feature.properties?.name || 'Building';
     new maplibregl.Popup({ closeButton: false, offset: 18 })
       .setLngLat([lng, lat])
@@ -9624,7 +9691,7 @@ async function openGroupChat(groupId, collection = 'groups') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
             if (m.locationPin) content = renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
@@ -12480,27 +12547,28 @@ function editProfile() {
       </div>
       <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
       <div class="form-group"><label>Anonymous Identity</label>
+        <input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23">
+      </div>
+      <div class="form-group"><label>Quick Persona Theme</label>
         <select id="edit-anon-identity-theme">
+          <option value="__custom">Keep typed identity</option>
           ${ANON_PERSONA_THEMES.map(theme => `<option value="${esc(theme)}">${esc(theme)}</option>`).join('')}
-          <option value="__custom">Custom identity…</option>
         </select>
       </div>
-      <div class="form-group" id="edit-anon-custom-wrap" style="display:none"><label>Custom Anonymous Identity</label><input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23"></div>
+      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">Use the text box above directly, or pick a quick persona to auto-fill it.</p>
       <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user.uid}','${esc(p.displayName)}')" style="margin-bottom:12px">View Friends</button>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
   const themeSelect = $('#edit-anon-identity-theme');
-  const customWrap = $('#edit-anon-custom-wrap');
   const customInput = $('#edit-anon-custom');
   const existingBase = ANON_PERSONA_THEMES.find(theme => currentAnonIdentity.toLowerCase().startsWith(theme.toLowerCase()));
   if (themeSelect) themeSelect.value = existingBase || '__custom';
-  if (customWrap) customWrap.style.display = existingBase ? 'none' : 'block';
   if (themeSelect) {
     themeSelect.onchange = () => {
-      const custom = themeSelect.value === '__custom';
-      if (customWrap) customWrap.style.display = custom ? 'block' : 'none';
-      if (!custom && customInput) customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+      if (themeSelect.value !== '__custom' && customInput) {
+        customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+      }
     };
   }
   let newPhoto = null; let newPhotoFile = null;
@@ -12519,9 +12587,8 @@ function editProfile() {
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
     const selectedTheme = $('#edit-anon-identity-theme')?.value || '__custom';
-    let anonIdentity = '';
-    if (selectedTheme === '__custom') anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
-    else anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+    let anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
+    if (!anonIdentity && selectedTheme !== '__custom') anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
     const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
