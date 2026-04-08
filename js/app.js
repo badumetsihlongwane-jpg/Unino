@@ -4035,7 +4035,8 @@ function navigate(page, options = {}) {
   _pruneObj(_postTextStore, 100);
   _pruneObj(_postTextLimit, 100);
 
-  if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+  // Keep map references in sync; stale handles can outlive screen transitions.
+  destroyRadarMapInstance();
   if (page === 'feed') {
     _pendingFeedScrollRestore = restoreFeed ? _feedScrollTop : 0;
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
@@ -7854,10 +7855,15 @@ async function fetchOsrmRoute(start, end) {
     const route = data?.routes?.[0];
     if (!route?.geometry?.coordinates?.length) throw new Error('route-empty');
     const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+    const distanceKm = (route.distance || 0) / 1000;
+    const rawWalkMinutes = Math.max(1, Math.round((route.duration || 0) / 60));
+    const pacedWalkMinutes = Math.max(1, Math.round((distanceKm / 4.8) * 60));
+    const impliedSpeedKmh = rawWalkMinutes > 0 ? (distanceKm / (rawWalkMinutes / 60)) : 0;
+    const walkMinutes = impliedSpeedKmh > 8 ? pacedWalkMinutes : rawWalkMinutes;
     return {
       points,
-      distanceKm: (route.distance || 0) / 1000,
-      walkMinutes: Math.max(1, Math.round((route.duration || 0) / 60)),
+      distanceKm,
+      walkMinutes,
       direct: false,
       source: 'osrm'
     };
@@ -7915,7 +7921,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     setRadarRouteFilterState(routeOnlyMode);
 
     if (typeof maplibregl !== 'undefined') {
-      _mapLibreMap = new maplibregl.Map({
+      const mapRef = new maplibregl.Map({
         container: 'radar-map',
         style: 'https://tiles.openfreemap.org/styles/bright',
         center: [center.lng, center.lat],
@@ -7925,22 +7931,25 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         attributionControl: false,
         canvasContextAttributes: { antialias: true }
       });
-      _leafletMap = _mapLibreMap;
-      _mapLibreMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
-      _mapLibreMap.on('load', () => {
-        _mapLibreMap.on('styleimagemissing', evt => {
+      _mapLibreMap = mapRef;
+      _leafletMap = mapRef;
+      mapRef.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+      mapRef.on('load', () => {
+        if (_mapLibreMap !== mapRef) return;
+        mapRef.on('styleimagemissing', evt => {
+          if (_mapLibreMap !== mapRef) return;
           const missingId = evt?.id;
-          if (!missingId || _mapLibreMap.hasImage(missingId)) return;
+          if (!missingId || mapRef.hasImage(missingId)) return;
           try {
-            _mapLibreMap.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
+            mapRef.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
           } catch (_) {}
         });
         try {
-          const layers = _mapLibreMap.getStyle().layers || [];
+          const layers = mapRef.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
-          _mapLibreMap.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
-          if (!_mapLibreMap.getLayer('3d-buildings')) {
-            _mapLibreMap.addLayer({
+          mapRef.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!mapRef.getLayer('3d-buildings')) {
+            mapRef.addLayer({
               id: '3d-buildings',
               source: 'openfreemap-buildings',
               'source-layer': 'building',
@@ -7957,15 +7966,16 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           }
         } catch (_) {}
 
-        mountCampusGeoJsonLayers(_mapLibreMap).catch(() => {});
+        if (_mapLibreMap !== mapRef) return;
+        mountCampusGeoJsonLayers(mapRef).catch(() => {});
         attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
         syncRadarOverlayToUser();
-        _mapLibreMap.on('move', syncRadarOverlayToUser);
-        _mapLibreMap.on('render', syncRadarOverlayToUser);
+        mapRef.on('move', syncRadarOverlayToUser);
+        mapRef.on('render', syncRadarOverlayToUser);
 
         if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
           attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
-          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
+          if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
           _pendingRadarPinnedPoint = null;
         }
 
@@ -8738,47 +8748,62 @@ function clearMapRoute() {
 }
 
 async function drawPendingMapRouteOnCurrentMap() {
-  if (!_pendingMapRoute || (!_leafletMap && !_mapLibreMap)) {
+  const mapLibreRef = _mapLibreMap;
+  const leafletRef = _leafletMap;
+  if (!_pendingMapRoute || (!leafletRef && !mapLibreRef)) {
     if (!_pendingMapRoute) updateMapRoutePanel(null);
     return;
   }
   clearActiveMapRoute({ clearPending: false });
-  const map = _mapLibreMap || _leafletMap;
   const start = getUserCoords(state.profile) || getRadarCenterCoords();
   const route = await buildBestRoute(start, _pendingMapRoute.target);
+  if (!_pendingMapRoute) return;
+  if ((mapLibreRef && _mapLibreMap !== mapLibreRef) || (leafletRef && _leafletMap !== leafletRef)) {
+    setTimeout(() => ensurePendingRouteVisible(1), 120);
+    return;
+  }
   const coordinates = route.points.map(point => [point.lng, point.lat]);
+  if (!coordinates.length) return;
 
-  if (_mapLibreMap && typeof maplibregl !== 'undefined') {
-    if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line');
-    if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line');
-    _mapLibreMap.addSource('route-line', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
-    });
-    _mapLibreMap.addLayer({
-      id: 'route-line',
-      type: 'line',
-      source: 'route-line',
-      paint: {
-        'line-color': '#6C5CE7',
-        'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
-        'line-opacity': 0.92
-      }
-    });
-    _activeMapRouteLayer = 'route-line';
-    const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
-    const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
-    _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
-    const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
-    if (!bounds.isEmpty()) _mapLibreMap.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
-  } else if (_leafletMap && typeof L !== 'undefined') {
+  if (mapLibreRef && _mapLibreMap === mapLibreRef && typeof maplibregl !== 'undefined') {
+    try {
+      if (mapLibreRef.getLayer('route-line')) mapLibreRef.removeLayer('route-line');
+      if (mapLibreRef.getSource('route-line')) mapLibreRef.removeSource('route-line');
+      mapLibreRef.addSource('route-line', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
+      });
+      mapLibreRef.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route-line',
+        paint: {
+          'line-color': '#6C5CE7',
+          'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
+          'line-opacity': 0.92
+        }
+      });
+      _activeMapRouteLayer = 'route-line';
+      const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
+      const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
+      _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
+      const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+      if (!bounds.isEmpty()) mapLibreRef.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
+    } catch (_) {
+      setTimeout(() => ensurePendingRouteVisible(1), 120);
+      return;
+    }
+  } else if (leafletRef && _leafletMap === leafletRef && typeof L !== 'undefined') {
     const latLngs = route.points.map(point => [point.lat, point.lng]);
-    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(_leafletMap);
-    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(_leafletMap);
-    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(_leafletMap);
+    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(leafletRef);
+    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(leafletRef);
+    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(leafletRef);
     _activeMapRouteMarkers = [startMarker, endMarker];
     const bounds = L.latLngBounds(latLngs);
-    if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+    if (bounds.isValid()) leafletRef.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+  } else {
+    setTimeout(() => ensurePendingRouteVisible(1), 120);
+    return;
   }
 
   _activeMapRouteSummary = { ...route, label: _pendingMapRoute.label || 'Destination' };
@@ -8798,7 +8823,9 @@ function ensurePendingRouteVisible(attempt = 0) {
     setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
     return;
   }
-  drawPendingMapRouteOnCurrentMap();
+  drawPendingMapRouteOnCurrentMap().catch(() => {
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+  });
 }
 
 function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
@@ -8821,8 +8848,10 @@ function routeToMapPoint(lat, lng, label = 'Destination') {
   closeChatPlusMenus();
   if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source: 'manual' })) return toast('Could not build route');
   exploreView = 'radar';
+  if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
   if (state.page !== 'explore') navigate('explore');
   ensurePendingRouteVisible(0);
+  setTimeout(() => ensurePendingRouteVisible(1), 180);
 }
 
 function routeToMapPointEncoded(lat, lng, encodedLabel = '') {
