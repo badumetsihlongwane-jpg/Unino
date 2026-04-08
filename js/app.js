@@ -2414,6 +2414,13 @@ function dateSeparatorLabel(ts) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
+function escJsString(s = '') {
+  return String(s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, ' ');
+}
+
 function isStudentEmail(email = '') {
   const e = (email || '').trim().toLowerCase();
   if (e === ADMIN_EMAIL.toLowerCase()) return true;
@@ -8182,8 +8189,18 @@ let _campusGeoJsonLoadPromise = null;
 async function loadCampusGeoJson() {
   if (_campusGeoJsonCache) return _campusGeoJsonCache;
   if (_campusGeoJsonLoadPromise) return _campusGeoJsonLoadPromise;
-  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'force-cache' })
-    .then(res => res.ok ? res.json() : null)
+  _campusGeoJsonLoadPromise = (async () => {
+    const candidates = ['NWUCAMP.geojson', './NWUCAMP.geojson', '/NWUCAMP.geojson'];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(path, { cache: 'force-cache' });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && Array.isArray(data.features)) return data;
+      } catch (_) {}
+    }
+    return null;
+  })()
     .then(data => {
       _campusGeoJsonCache = data && Array.isArray(data.features) ? data : null;
       return _campusGeoJsonCache;
@@ -8322,17 +8339,42 @@ async function resolveLocationPinLabel(lat, lng) {
     .filter(Boolean)
     .sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
 
-  if (bestKnown && Number.isFinite(bestKnown.distanceKm) && bestKnown.distanceKm <= 0.32) {
+  if (buildingNearest && Number.isFinite(buildingNearest.distanceKm) && buildingNearest.distanceKm <= 0.2) {
+    return {
+      label: buildingNearest.label || 'Pinned location',
+      sub: buildingNearest.sub || 'Campus building'
+    };
+  }
+
+  const reverse = await reverseGeocodeLabel(point.lat, point.lng);
+  const reverseKey = normalizePlaceKey(reverse?.label || '');
+  const reverseGeneric = !reverseKey || reverseKey === 'pinned location' || reverseKey === 'location';
+
+  if (!reverseGeneric && reverse?.label) {
+    return {
+      label: reverse.label,
+      sub: reverse.sub || ''
+    };
+  }
+
+  if (campusNearest && Number.isFinite(campusNearest.distanceKm) && campusNearest.distanceKm <= 0.1) {
+    return {
+      label: campusNearest.label || 'Pinned location',
+      sub: campusNearest.sub || ''
+    };
+  }
+
+  if (bestKnown && Number.isFinite(bestKnown.distanceKm) && bestKnown.distanceKm <= 0.2) {
     return {
       label: bestKnown.label || 'Pinned location',
       sub: bestKnown.sub || ''
     };
   }
 
-  const reverse = await reverseGeocodeLabel(point.lat, point.lng);
-  const label = reverse?.label || bestKnown?.label || 'Pinned location';
-  const sub = reverse?.sub || bestKnown?.sub || '';
-  return { label, sub };
+  return {
+    label: reverse?.label || 'Pinned location',
+    sub: reverse?.sub || ''
+  };
 }
 
 async function searchOpenStreetMapDestinations(queryRaw = '', limit = 4) {
@@ -8491,9 +8533,10 @@ async function mountCampusGeoJsonLayers(map) {
     const [lng, lat] = feature.geometry.coordinates || [];
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const name = feature.properties?.name || 'Building';
+    const safeName = escJsString(name);
     new maplibregl.Popup({ closeButton: false, offset: 18 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Create event here</button></div></div>`)
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, '${safeName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, '${safeName}')">Create event here</button></div></div>`)
       .addTo(map);
   });
   map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -8717,6 +8760,21 @@ async function drawPendingMapRouteOnCurrentMap() {
   updateMapRoutePanel(_activeMapRouteSummary);
 }
 
+function ensurePendingRouteVisible(attempt = 0) {
+  if (!_pendingMapRoute) return;
+  if (attempt > 24) return;
+  if (state.page !== 'explore') {
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+    return;
+  }
+  if (!_mapLibreMap && !_leafletMap) {
+    renderExploreView();
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+    return;
+  }
+  drawPendingMapRouteOnCurrentMap();
+}
+
 function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
   const name = (label || 'Pinned location').trim();
   navigate('create');
@@ -8737,13 +8795,8 @@ function routeToMapPoint(lat, lng, label = 'Destination') {
   closeChatPlusMenus();
   if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source: 'manual' })) return toast('Could not build route');
   exploreView = 'radar';
-  if (state.page !== 'explore') {
-    navigate('explore');
-    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
-    return;
-  }
-  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
-  else renderExploreView();
+  if (state.page !== 'explore') navigate('explore');
+  ensurePendingRouteVisible(0);
 }
 
 function routeToCampusLocation(locationId = '') {
@@ -9846,6 +9899,7 @@ function openLocationPinPreview(encoded = '') {
     const lat = Number(pin.lat);
     const lng = Number(pin.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const safeLabel = escJsString(pin.label || 'Pinned location');
     openModal(`
       <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
@@ -9853,7 +9907,7 @@ function openLocationPinPreview(encoded = '') {
           ${pin.subLabel ? `<div class="location-preview-meta" style="margin-bottom:4px">${esc(pin.subLabel)}</div>` : ''}
           <div class="location-preview-meta">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
           <div class="location-preview-actions">
-            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${lat},${lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
+            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${lat},${lng}, '${safeLabel}')">Route here</button>
           </div>
         </div>
       </div>
