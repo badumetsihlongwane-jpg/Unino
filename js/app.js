@@ -4391,12 +4391,14 @@ function loadDiscoverPeople() {
   const blockedUsers = new Set(state.profile.blockedUsers || []);
   const blockedBy = new Set(state.profile.blockedBy || []);
   const myFriends = new Set(state.profile.friends || []);
+  const sentRequests = new Set(state.profile.sentRequests || []);
 
   getUsersCache().then(allUsers => {
     let users = allUsers
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id));
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
+      .filter(u => !myFriends.has(u.id) && !sentRequests.has(u.id));
 
-    // Score & sort by relevance
+    // Blend relevance with session randomness so suggestions rotate between feed visits.
     users = users.map(u => {
       let score = 0;
       const theirModules = normalizeModules(u.modules || []);
@@ -4412,9 +4414,23 @@ function loadDiscoverPeople() {
       score += genderAffinityScore(state.profile, u);
       if (isFriend) score -= 18;
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
+      score += sessionSeed(`discover-rank:${u.id}`) * 8;
       return { ...u, isFriend, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
-    }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
-      .sort((a, b) => (a.isFriend === b.isFriend ? 0 : (a.isFriend ? 1 : -1)) || b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
+    });
+
+    const relevant = users
+      .filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
+      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+
+    const relevantIds = new Set(relevant.map(u => u.id));
+    const randomFallback = users
+      .filter(u => !relevantIds.has(u.id))
+      .sort((a, b) => sessionSeed(`discover-fallback:${a.id}`) - sessionSeed(`discover-fallback:${b.id}`));
+
+    const relevantTake = Math.min(7, relevant.length);
+    users = [...relevant.slice(0, relevantTake), ...randomFallback.slice(0, 10 - relevantTake)];
+    if (users.length < 10) users.push(...relevant.slice(relevantTake, relevantTake + (10 - users.length)));
+    users = users.slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -5011,6 +5027,50 @@ function renderFeedInlineEventCard(eventDoc = {}) {
   </div>`;
 }
 
+function buildFeedSuggestedPeople(users = [], limit = 15) {
+  const blockedUsers = new Set(state.profile?.blockedUsers || []);
+  const blockedBy = new Set(state.profile?.blockedBy || []);
+  const myFriends = new Set(state.profile?.friends || []);
+  const sentRequests = new Set(state.profile?.sentRequests || []);
+  const myModules = normalizeModules(state.profile?.modules || []);
+  const myMajor = (state.profile?.major || '').toLowerCase();
+
+  const candidates = (users || []).filter(u => {
+    if (!u?.id || u.id === state.user?.uid) return false;
+    if (_feedInlineSuggestedUserIds.has(u.id)) return false;
+    if (myFriends.has(u.id) || sentRequests.has(u.id)) return false;
+    if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
+    return true;
+  }).map(u => {
+    const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
+    const majorBoost = (u.major || '').toLowerCase() === myMajor ? 3 : 0;
+    const nearby = getNearbySignal(state.profile || {}, u || {});
+    const nearbyBoost = nearby.score > 0 ? (2 + nearby.score * 1.5) : 0;
+    const genderBoost = genderAffinityScore(state.profile || {}, u || {}) * 0.3;
+    const onlineBoost = u.status === 'online' ? 1.2 : 0;
+    const relevance = overlap * 4.2 + majorBoost + nearbyBoost + genderBoost + onlineBoost;
+    return { ...u, _relevance: relevance, _overlap: overlap };
+  });
+
+  if (!candidates.length) return [];
+  const relevant = candidates
+    .filter(u => u._overlap > 0 || u._relevance >= 6)
+    .sort((a, b) => (b._relevance + sessionSeed(`feed-sugg-rel:${b.id}`) * 4) - (a._relevance + sessionSeed(`feed-sugg-rel:${a.id}`) * 4));
+  const relevantIds = new Set(relevant.map(u => u.id));
+  const randomPool = candidates
+    .filter(u => !relevantIds.has(u.id))
+    .sort((a, b) => sessionSeed(`feed-sugg-rand:${a.id}`) - sessionSeed(`feed-sugg-rand:${b.id}`));
+
+  const takeRelevant = Math.min(relevant.length, Math.max(4, Math.floor(limit * 0.6)));
+  const picks = [...relevant.slice(0, takeRelevant)];
+  if (picks.length < limit) picks.push(...randomPool.slice(0, limit - picks.length));
+  if (picks.length < limit) picks.push(...relevant.slice(takeRelevant, takeRelevant + (limit - picks.length)));
+
+  return picks
+    .slice(0, limit)
+    .sort((a, b) => sessionSeed(`feed-sugg-order:${a.id}`) - sessionSeed(`feed-sugg-order:${b.id}`));
+}
+
 function renderFeedInlineSuggestionRail(users = []) {
   const picks = (users || []).slice(0, 10);
   const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
@@ -5148,22 +5208,7 @@ function renderPosts(posts) {
 
   const maxSuggestionsLeft = Math.max(0, 2 - _feedInlineSuggestionSlotsUsed);
   if (maxSuggestionsLeft > 0 && Array.isArray(_usersCache?.data) && _usersCache.data.length) {
-    const blockedUsers = new Set(state.profile?.blockedUsers || []);
-    const blockedBy = new Set(state.profile?.blockedBy || []);
-    const myModules = normalizeModules(state.profile?.modules || []);
-    const myMajor = (state.profile?.major || '').toLowerCase();
-    const pool = _usersCache.data.filter(u => {
-      if (!u?.id || u.id === state.user?.uid) return false;
-      if (_feedInlineSuggestedUserIds.has(u.id)) return false;
-      if ((state.profile?.friends || []).includes(u.id)) return false;
-      if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
-      return true;
-    }).map(u => {
-      const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
-      const majorBoost = (u.major || '').toLowerCase() === myMajor ? 2 : 0;
-      const genderBoost = genderAffinityScore(state.profile, u) * 0.25;
-      return { ...u, _score: overlap * 3 + majorBoost + genderBoost + scoreSeed(u.id) };
-    }).sort((a, b) => b._score - a._score);
+    const pool = buildFeedSuggestedPeople(_usersCache.data || [], 15);
     const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
     const featuredEventForFeed = pickFeedSuggestedEvent();
     const shouldInject = !!featuredEventForFeed || (posts.length >= 10 && scoreSeed(seedBase) > 0.42);
@@ -7058,7 +7103,17 @@ function openCreateModal() {
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
-      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div><div id="create-poll-pill" style="display:none;margin-top:8px;font-size:12px;color:var(--text-secondary)"></div>
+      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
+      <div id="create-poll-pill" class="create-poll-pill" style="display:none;margin-top:8px"></div>
+      <div id="create-poll-editor" class="create-poll-editor" style="display:none;margin-top:12px">
+        <div class="form-group"><label>Poll question</label><input type="text" id="post-poll-question" placeholder="Ask something"></div>
+        <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:110px;resize:none" placeholder="One option per line">Yes
+No</textarea></div>
+        <div class="create-poll-editor-actions">
+          <button type="button" class="btn-outline" id="cancel-post-poll">Cancel</button>
+          <button type="button" class="btn-primary" id="save-post-poll">Save Poll</button>
+        </div>
+      </div>
       ` : `
       <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
       <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
@@ -7089,6 +7144,22 @@ function openCreateModal() {
     let createAnon = false;
     const anonIdentity = getUserAnonIdentity(state.profile || {});
     const mentionMap = new Map();
+    const normalizeCreatePoll = (questionRaw = '', optionsRaw = '') => {
+      const question = String(questionRaw || '').trim().slice(0, 160);
+      const options = Array.from(new Set(String(optionsRaw || '').split('\n').map(v => v.trim()).filter(Boolean))).slice(0, 6);
+      return { question, options };
+    };
+    const setPollEditorVisible = (visible = false) => {
+      const editor = $('#create-poll-editor');
+      if (!editor) return;
+      editor.style.display = visible ? 'block' : 'none';
+      if (!visible) return;
+      const qInput = $('#post-poll-question');
+      const oInput = $('#post-poll-options');
+      if (qInput) qInput.value = postPoll?.question || '';
+      if (oInput) oInput.value = (postPoll?.options?.length ? postPoll.options : ['Yes', 'No']).join('\n');
+      qInput?.focus();
+    };
 
     const refreshLocationUI = () => {
       const pill = $('#create-location-pill');
@@ -7105,10 +7176,22 @@ function openCreateModal() {
 
     const refreshPollUI = () => {
       const pill = $('#create-poll-pill');
+      const pollBtn = $('#create-poll-btn');
+      if (pollBtn) pollBtn.textContent = postPoll?.question ? '📊 Edit poll' : '📊 Poll';
       if (!pill) return;
-      if (!postPoll?.question) { pill.style.display = 'none'; pill.textContent = ''; return; }
-      pill.style.display = 'block';
-      pill.textContent = `📊 ${postPoll.question} · ${postPoll.options.length} options`;
+      if (!postPoll?.question) {
+        pill.style.display = 'none';
+        pill.innerHTML = '';
+        return;
+      }
+      pill.style.display = 'flex';
+      pill.innerHTML = `<strong>📊 ${esc(postPoll.question)}</strong><div class="create-poll-pill-actions"><button type="button" class="create-pill-action" data-act="edit">Edit</button><button type="button" class="create-pill-action" data-act="remove">Remove</button></div>`;
+      pill.querySelector('[data-act="edit"]')?.addEventListener('click', () => setPollEditorVisible(true));
+      pill.querySelector('[data-act="remove"]')?.addEventListener('click', () => {
+        postPoll = null;
+        setPollEditorVisible(false);
+        refreshPollUI();
+      });
     };
 
     const applyAnonUi = () => {
@@ -7233,25 +7316,7 @@ function openCreateModal() {
           lng,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
         };
-        if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
-      openModal(`
-        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
-          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
-          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
-        </div>`);
-      $('#save-post-poll').onclick = () => {
-        const question = ($('#post-poll-question')?.value || '').trim();
-        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
-        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
-        postPoll = { question, options, votes: {} };
-        closeModal();
-        refreshPollUI();
-      };
-    };
-    refreshLocationUI();
-    refreshPollUI();
+        refreshLocationUI();
         toast('Pinned for 24h');
       }, () => toast('Could not get location'), {
         enableHighAccuracy: true,
@@ -7259,22 +7324,20 @@ function openCreateModal() {
         maximumAge: 0
       });
     };
-    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
-      openModal(`
-        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
-          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
-          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
-        </div>`);
-      $('#save-post-poll').onclick = () => {
-        const question = ($('#post-poll-question')?.value || '').trim();
-        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
-        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
-        postPoll = { question, options, votes: {} };
-        closeModal();
-        refreshPollUI();
-      };
+    const savePostPoll = () => {
+      const questionRaw = $('#post-poll-question')?.value || '';
+      const optionsRaw = $('#post-poll-options')?.value || '';
+      const parsed = normalizeCreatePoll(questionRaw, optionsRaw);
+      if (!parsed.question || parsed.options.length < 2) return toast('Add a question and at least 2 options');
+      postPoll = { question: parsed.question, options: parsed.options, votes: {} };
+      setPollEditorVisible(false);
+      refreshPollUI();
+    };
+    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => setPollEditorVisible(true);
+    if ($('#save-post-poll')) $('#save-post-poll').onclick = savePostPoll;
+    if ($('#cancel-post-poll')) $('#cancel-post-poll').onclick = () => {
+      setPollEditorVisible(false);
+      refreshPollUI();
     };
     refreshLocationUI();
     refreshPollUI();
@@ -7285,10 +7348,24 @@ function openCreateModal() {
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
       const mentionHandles = extractMentionHandles(text);
+      const pollEditor = $('#create-poll-editor');
+      const pollEditorOpen = !!pollEditor && pollEditor.style.display !== 'none';
+      if (pollEditorOpen) {
+        const questionRaw = $('#post-poll-question')?.value || '';
+        const optionsRaw = $('#post-poll-options')?.value || '';
+        const parsed = normalizeCreatePoll(questionRaw, optionsRaw);
+        const hasDraft = !!parsed.question || !!String(optionsRaw || '').trim();
+        if (hasDraft) {
+          if (!parsed.question || parsed.options.length < 2) return toast('Add a poll question and at least 2 options, or remove it');
+          postPoll = { question: parsed.question, options: parsed.options, votes: {} };
+          refreshPollUI();
+        }
+      }
       if (!safeText && !pendingFiles.length && !postPoll) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = !!createAnon;
       const anonIdentity = getUserAnonIdentity(state.profile || {});
+      const postPollPayload = postPoll?.question ? { question: postPoll.question, options: [...(postPoll.options || [])], votes: {} } : null;
       closeModal(); toast('Uploading...');
       try {
         let mediaURL = null, mediaType = 'text', imageURLs = null;
@@ -7322,7 +7399,7 @@ function openCreateModal() {
           locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
           visibility,
-          poll: postPoll ? { question: postPoll.question, options: postPoll.options, votes: {} } : null,
+          poll: postPollPayload,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
         shadowSyncPost(postRef.id, {
@@ -9854,18 +9931,32 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
   const voters = poll.votes || {};
   const total = Object.keys(voters).length;
   const myVote = voters[state.user?.uid] || '';
+  const isFeedPoll = scope === 'post';
+  const totalLabel = total ? `${total} total vote${total === 1 ? '' : 's'}` : 'No votes yet';
   return `
-    <div class="poll-card modern-poll" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
+    <div class="poll-card modern-poll ${isFeedPoll ? 'feed-poll' : ''}" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
+      ${isFeedPoll ? `<div class="feed-poll-head"><span class="feed-poll-chip">Campus poll</span><span class="feed-poll-total">${totalLabel}</span></div>` : ''}
       ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
       <div class="poll-options">
         ${options.map(opt => {
           const count = Object.values(voters).filter(v => v === opt).length;
           const pct = total ? Math.round((count / total) * 100) : 0;
-          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(8, pct)}%"></span></button>`;
+          const encodedOpt = encodeURIComponent(opt || '');
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 12 : 0, pct)}%"></span></button>`;
         }).join('')}
       </div>
-      <div class="poll-footer">${total} total vote${total === 1 ? '' : 's'}</div>
+      <div class="poll-footer">${isFeedPoll ? 'Tap an option to vote' : totalLabel}</div>
     </div>`;
+}
+
+function voteOnPollEncoded(scope = 'post', primaryId = '', messageId = '', encodedOption = '') {
+  let option = '';
+  try {
+    option = decodeURIComponent(String(encodedOption || ''));
+  } catch (_) {
+    option = String(encodedOption || '');
+  }
+  voteOnPoll(scope, primaryId, messageId, option);
 }
 
 async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {

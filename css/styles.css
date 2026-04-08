@@ -8065,6 +8065,20 @@ body.image-view-open .modal-bg {
 .poll-option.active .poll-option-fill{background:linear-gradient(90deg, rgba(108,92,231,.3), rgba(168,85,247,.34))}
 .modern-poll-composer .form-group input,.modern-poll-composer .form-group textarea{border-radius:16px}
 .poll-composer-tip{font-size:12px;color:var(--text-secondary);margin:2px 0 14px}
+.create-poll-pill{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)}
+.create-poll-pill strong{font-weight:700;color:var(--text-primary);display:-webkit-box;line-clamp:1;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.create-poll-pill-actions{display:flex;gap:6px;flex-shrink:0}
+.create-pill-action{padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:11px;font-weight:700}
+.create-poll-editor{padding:12px;border-radius:16px;border:1px solid var(--border);background:var(--bg-tertiary)}
+.create-poll-editor-actions{display:flex;justify-content:flex-end;gap:8px}
+.feed-poll{border-color:color-mix(in srgb, var(--accent) 22%, var(--border));background:linear-gradient(165deg, color-mix(in srgb,var(--bg-secondary) 93%, white 7%), var(--bg-secondary));box-shadow:0 16px 30px rgba(17,24,39,.1)}
+.feed-poll-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.feed-poll-chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:linear-gradient(135deg, rgba(108,92,231,.16), rgba(168,85,247,.2));color:var(--accent);font-size:11px;font-weight:800;letter-spacing:.02em}
+.feed-poll-total{font-size:11px;color:var(--text-secondary);font-weight:700}
+.feed-poll .poll-question{font-size:16px;line-height:1.35;letter-spacing:.01em}
+.feed-poll .poll-option{border:1px solid color-mix(in srgb, var(--accent) 12%, var(--border));transition:transform .12s ease,border-color .12s ease}
+.feed-poll .poll-option:hover{transform:translateY(-1px);border-color:color-mix(in srgb, var(--accent) 38%, var(--border))}
+.feed-poll .poll-footer{margin-top:10px;text-align:right;font-size:11px;letter-spacing:.01em;color:var(--text-secondary)}
 .chat-location-card.modern{display:flex;align-items:center;gap:12px;padding:14px 15px;border-radius:20px;background:linear-gradient(180deg, color-mix(in srgb,var(--bg-secondary) 95%, white 5%), var(--bg-secondary));box-shadow:0 14px 28px rgba(17,24,39,.08)}
 .chat-location-icon{display:flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:16px;background:linear-gradient(135deg,#6C5CE7,#A855F7);color:#fff;font-size:20px}
 .chat-location-copy{flex:1;min-width:0}
