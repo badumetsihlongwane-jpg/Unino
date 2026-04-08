@@ -79,7 +79,6 @@ public class MainActivity extends BridgeActivity {
 
 		dispatchNotificationIntent(getIntent());
 	}
-
 	@Override
 	protected void onNewIntent(Intent intent) {
 		super.onNewIntent(intent);
@@ -101,7 +100,6 @@ public class MainActivity extends BridgeActivity {
 		String script = "window.__UNINO_PENDING_NOTIFICATION={extra:JSON.parse('" + json + "'),actionId:'tap'};window.dispatchEvent(new CustomEvent('unino:native-notification-open',{detail:window.__UNINO_PENDING_NOTIFICATION}));";
 		getBridge().getWebView().postDelayed(() -> getBridge().getWebView().evaluateJavascript(script, null), 300);
 	}
-
 
 	private void invokeClientSetter(Client client, String methodName, String value) throws Exception {
 		for (Method method : Client.class.getMethods()) {

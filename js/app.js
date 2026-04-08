@@ -2997,6 +2997,9 @@ function buildPlayerHTML(src, id) {
 
     <div class="up-top-bar">
       <span class="up-top-title"></span>
+      <button class="up-btn up-download-btn" data-act="download" aria-label="Download video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 3v12"/><polyline points="7 11 12 16 17 11"/><rect x="4" y="18" width="16" height="3" rx="1"/></svg>
+      </button>
     </div>
 
     <div class="up-controls">
@@ -3301,6 +3304,12 @@ function initPlayer(id) {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await vid.requestPictureInPicture();
     } catch (err) { console.warn('PiP not supported'); }
+  });
+
+  // Download current media without leaving the app context.
+  root.querySelector('[data-act="download"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    downloadUrlInApp(src);
   });
 
   // Fullscreen
@@ -4165,6 +4174,9 @@ function renderFeed() {
     loadDiscoverPeople();
     loadFeedLiveSpotlight();
   }
+  loadCampusEvents().then(() => {
+    if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
+  }).catch(() => {});
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -4929,6 +4941,31 @@ function renderFeedInlineSuggestionCard(user = {}) {
     </div>`;
 }
 
+function pickFeedSuggestedEvent() {
+  if (!Array.isArray(allCampusEvents) || !allCampusEvents.length) return null;
+  const now = Date.now();
+  const upcoming = allCampusEvents.filter(ev => eventStartTimeMs(ev) >= now - (30 * 60 * 1000));
+  return (upcoming[0] || allCampusEvents[0] || null);
+}
+
+function renderFeedInlineEventCard(eventDoc = {}) {
+  if (!eventDoc?.id) return '';
+  const thumb = (eventDoc.imageURLs && eventDoc.imageURLs.length) ? eventDoc.imageURLs[0] : '';
+  const gradient = eventDoc.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+  const loc = getCampusLocationById(eventDoc.location);
+  const locationLabel = loc ? loc.name : (eventDoc.location || 'Campus');
+  const goingCount = Array.isArray(eventDoc.going) ? eventDoc.going.length : 0;
+  return `<div class="suggested-card suggested-event-card" onclick="openEventDetail('${eventDoc.id}')">
+    <div class="suggested-event-thumb">${thumb
+      ? `<img src="${thumb}" loading="lazy" decoding="async" alt="${esc(eventDoc.title || 'Event')}">`
+      : `<div class="suggested-event-gradient" style="background:${gradient}">${eventDoc.emoji || '📅'}</div>`}</div>
+    <div class="suggested-card-name">${esc(eventDoc.title || 'Campus Event')}</div>
+    <div class="suggested-card-meta">📍 ${esc(locationLabel)}</div>
+    <div class="suggested-card-meta">📅 ${esc(eventDoc.date || 'TBA')} ${eventDoc.time ? esc(eventDoc.time) : ''}</div>
+    <button class="btn-sm btn-outline" style="pointer-events:none">${goingCount ? `${goingCount} going` : 'View event'}</button>
+  </div>`;
+}
+
 function renderFeedInlineSuggestionRail(users = []) {
   const picks = (users || []).slice(0, 10);
   const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
@@ -5041,7 +5078,7 @@ function renderPosts(posts) {
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
         ${post.poll ? renderInteractivePoll(post.poll, 'post', post.id, '') : ''}
-        ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
+        ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" decoding="async" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
         ${post.repostOf ? renderQuoteEmbed(post.repostOf, { repostStyle: true }) : ''}
@@ -5083,11 +5120,12 @@ function renderPosts(posts) {
       return { ...u, _score: overlap * 3 + majorBoost + genderBoost + scoreSeed(u.id) };
     }).sort((a, b) => b._score - a._score);
     const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
-    const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
+    const featuredEventForFeed = pickFeedSuggestedEvent();
+    const shouldInject = !!featuredEventForFeed || (posts.length >= 10 && scoreSeed(seedBase) > 0.42);
     const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
       const picks = pool.slice(0, 15);
-      if (!picks.length) break;
+      if (!picks.length && !featuredEventForFeed) break;
       const spread = Math.max(4, Math.min(9, posts.length - 2));
       const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
       const slot = Math.min(postCards.length, offset + i * 7);
@@ -5220,6 +5258,7 @@ let _liveViewerHeartbeat = null;
 let _liveViewerPresenceId = null;
 let _liveViewerCountTimer = null;
 let _liveViewingStreamId = null;
+let _liveViewerMirrored = false;
 
 // ─── Open Video Hub ──────────────────────────────
 function openVideoHub(tab) {
@@ -5646,6 +5685,7 @@ function openHostLiveView(streamId) {
   const hostVideo = document.getElementById('host-live-video');
   if (hostVideo && _hostStream) {
     hostVideo.srcObject = _hostStream;
+    hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
   }
 
   // Listen for viewers wanting to connect (WebRTC signaling)
@@ -5712,6 +5752,12 @@ async function switchLiveCamera() {
   }
 }
 
+function toggleLiveViewerMirror() {
+  _liveViewerMirrored = !_liveViewerMirrored;
+  const video = document.getElementById('viewer-live-video');
+  if (video) video.classList.toggle('viewer-mirrored', _liveViewerMirrored);
+}
+
 // ─── VIEWER JOIN STREAM ──────────────────────────
 async function joinLiveStream(streamId) {
   const hub = document.getElementById('video-hub');
@@ -5744,9 +5790,12 @@ async function joinLiveStream(streamId) {
           </button>
         </div>
         <button class="live-react-btn" onclick="sendLiveReaction('${streamId}')">❤️</button>
+        <button class="live-view-mirror-btn" onclick="toggleLiveViewerMirror()" title="Mirror only my view">⇋</button>
       </div>
     </div>
   `;
+
+  _liveViewerMirrored = false;
 
   // Register viewer presence
   const uid = state.user.uid;
@@ -6009,6 +6058,7 @@ async function leaveLiveStream(streamId) {
     _liveViewerPresenceId = null;
   }
   _liveViewingStreamId = null;
+  _liveViewerMirrored = false;
   stopLiveListeners();
   loadLiveTab();
 }
@@ -6741,6 +6791,46 @@ function clearCommentImage() {
 let _galleryUrls = [];
 let _galleryIdx = 0;
 function viewImage(url) { openGallery([url], 0); }
+
+function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
+  try {
+    const clean = String(url || '').split('?')[0].split('#')[0];
+    const last = clean.split('/').pop() || '';
+    if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return last;
+  } catch (_) {}
+  return `${fallbackBase}-${Date.now()}.jpg`;
+}
+
+async function downloadUrlInApp(url = '') {
+  if (!url) return;
+  try {
+    const response = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    if (!response.ok) throw new Error(`http-${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const ext = (blob.type || '').includes('video') ? 'mp4' : 'jpg';
+    const filename = inferDownloadFilename(url, `unino-${ext}`);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    toast('Download started');
+  } catch (e) {
+    console.warn('download failed', e);
+    toast('Could not download media');
+  }
+}
+
+function downloadCurrentGalleryMedia() {
+  const url = _galleryUrls[_galleryIdx] || '';
+  if (!url) return;
+  downloadUrlInApp(url);
+}
+
 function closeGalleryViewer() {
   const v = $('#img-view');
   if (v) v.style.display = 'none';
@@ -6824,12 +6914,15 @@ function openGallery(urls, startIdx = 0) {
 }
 function _renderGalleryFrame() {
   if (!_galleryUrls.length) return;
-  $('#img-full').src = _galleryUrls[_galleryIdx];
-  const dl = $('#img-download');
-  if (dl) dl.style.display = 'flex';
+  const currentUrl = _galleryUrls[_galleryIdx];
+  $('#img-full').src = currentUrl;
   const counter = $('#img-counter');
   const prev = $('#img-prev');
   const next = $('#img-next');
+  const downloadBtn = $('#img-download');
+  if (downloadBtn) {
+    downloadBtn.style.display = currentUrl ? 'flex' : 'none';
+  }
   if (_galleryUrls.length > 1) {
     counter.textContent = `${_galleryIdx + 1} / ${_galleryUrls.length}`;
     counter.style.display = 'block';
@@ -8436,7 +8529,14 @@ async function upsertEventChatGroup(eventData = {}) {
 
 async function loadCampusEvents() {
   try {
-    const snap = await db.collection('events').orderBy('date','asc').limit(50).get();
+    let snap;
+    try {
+      snap = await db.collection('events').orderBy('date', 'asc').limit(80).get();
+    } catch (orderedErr) {
+      // Some legacy docs can break ordered queries; fall back so events still render.
+      console.warn('Ordered events query failed, using fallback:', orderedErr?.message || orderedErr);
+      snap = await db.collection('events').limit(80).get();
+    }
     const now = Date.now();
     const expiredDocs = [];
     const upcoming = [];
@@ -12966,6 +13066,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
+  $('#img-download')?.addEventListener('click', () => { downloadCurrentGalleryMedia(); });
   $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
   $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
   // Touch swipe support for gallery

@@ -75,7 +75,8 @@ async function pruneInvalidTokens(userId, tokens = [], responses = []) {
     if (!invalidCodes.has(code)) return [];
     const token = tokens[index];
     if (!token?.token) return [];
-    return [db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token.token)).delete().catch(() => {})];
+    const docId = token.id || tokenDocId(token.token);
+    return [db.collection('users').doc(userId).collection('pushTokens').doc(docId).delete().catch(() => {})];
   });
   await Promise.all(deletes);
 }
@@ -84,44 +85,70 @@ async function sendPushToUser(userId, payload) {
   const tokenRows = await getUserTokens(userId);
   if (!tokenRows.length) return;
 
-  const tokens = tokenRows.map(row => row.token);
   const channelId = payload.channelId || 'unibo-general';
-  const data = cleanDataMap({
-    ...(payload.data || {}),
+  const mergedData = cleanDataMap({
     title: payload.title || 'Unibo',
     body: payload.body || 'You have a new notification',
-    channelId
+    channelId,
+    imageUrl: payload.imageUrl || '',
+    ...(payload.data || {})
   });
-  const multicast = {
-    tokens,
-    notification: {
-      title: payload.title,
-      body: payload.body
-    },
-    data,
-    android: {
-      priority: 'high',
-      notification: {
-        channelId,
-        sound: 'default',
-        imageUrl: payload.imageUrl || undefined,
-        clickAction: 'OPEN_UNIBO'
-      }
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: 'default'
-        }
-      }
-    }
-  };
 
-  try {
-    const result = await messaging.sendEachForMulticast(multicast);
-    await pruneInvalidTokens(userId, tokenRows, result.responses || []);
-  } catch (error) {
-    logger.error('FCM send failed', { userId, error });
+  const androidRows = tokenRows.filter(row => String(row.platform || 'android').toLowerCase() === 'android');
+  const otherRows = tokenRows.filter(row => String(row.platform || '').toLowerCase() !== 'android');
+
+  if (androidRows.length) {
+    try {
+      // Data-first payload keeps Android delivery reliable even when the app is closed.
+      const androidResult = await messaging.sendEachForMulticast({
+        tokens: androidRows.map(row => row.token),
+        data: mergedData,
+        android: {
+          priority: 'high',
+          ttl: 60 * 60 * 1000,
+          notification: {
+            channelId,
+            sound: 'default',
+            clickAction: 'OPEN_UNIBO'
+          }
+        }
+      });
+      await pruneInvalidTokens(userId, androidRows, androidResult.responses || []);
+    } catch (error) {
+      logger.error('FCM android send failed', { userId, error });
+    }
+  }
+
+  if (otherRows.length) {
+    try {
+      const result = await messaging.sendEachForMulticast({
+        tokens: otherRows.map(row => row.token),
+        notification: {
+          title: payload.title,
+          body: payload.body
+        },
+        data: mergedData,
+        android: {
+          priority: 'high',
+          notification: {
+            channelId,
+            sound: 'default',
+            imageUrl: payload.imageUrl || undefined,
+            clickAction: 'OPEN_UNIBO'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default'
+            }
+          }
+        }
+      });
+      await pruneInvalidTokens(userId, otherRows, result.responses || []);
+    } catch (error) {
+      logger.error('FCM multi-platform send failed', { userId, error });
+    }
   }
 }
 

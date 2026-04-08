@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.text.TextUtils;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -28,17 +29,18 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         RemoteMessage.Notification notification = remoteMessage.getNotification();
         Map<String, String> data = remoteMessage.getData();
 
-        // Let the OS render notification payloads in background. We only render
-        // a local fallback for data payloads to avoid duplicate notifications.
-        if (notification != null) {
-            return;
-        }
+        String title = firstNonBlank(
+            valueOrDefault(data.get("title"), ""),
+            notification != null ? valueOrDefault(notification.getTitle(), "") : "",
+            "Unino"
+        );
+        String body = firstNonBlank(
+            valueOrDefault(data.get("body"), ""),
+            notification != null ? valueOrDefault(notification.getBody(), "") : "",
+            "You have a new notification"
+        );
 
-        String title = valueOrDefault(data.get("title"), "Unino");
-        String body = valueOrDefault(data.get("body"), "You have a new notification");
-        String channelId = resolveChannelId(data);
-
-        showSystemNotification(title, body, channelId, data);
+        showSystemNotification(title, body, resolveChannelId(data), data);
     }
 
     @Override
@@ -54,7 +56,7 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         if (manager == null) return;
 
         ensureChannel(manager, CHANNEL_MESSAGES, "Messages", "Direct and group message notifications", NotificationManager.IMPORTANCE_HIGH);
-        ensureChannel(manager, CHANNEL_GENERAL, "Activity", "General Unibo notifications", NotificationManager.IMPORTANCE_DEFAULT);
+        ensureChannel(manager, CHANNEL_GENERAL, "Activity", "General Unino notifications", NotificationManager.IMPORTANCE_DEFAULT);
     }
 
     private static void ensureChannel(NotificationManager manager, String channelId, String name, String description, int importance) {
@@ -67,10 +69,11 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
     }
 
     private String resolveChannelId(Map<String, String> data) {
-        String channelId = valueOrDefault(data.get("channelId"), "");
-        if (!channelId.isEmpty()) return channelId;
+        String explicitChannel = valueOrDefault(data.get("channelId"), "");
+        if (!TextUtils.isEmpty(explicitChannel)) return explicitChannel;
+
         String kind = valueOrDefault(data.get("kind"), "");
-        return ("dm".equals(kind) || "group".equals(kind)) ? CHANNEL_MESSAGES : CHANNEL_GENERAL;
+        return ("dm".equalsIgnoreCase(kind) || "group".equalsIgnoreCase(kind)) ? CHANNEL_MESSAGES : CHANNEL_GENERAL;
     }
 
     private void showSystemNotification(String title, String body, String channelId, Map<String, String> data) {
@@ -82,6 +85,7 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
 
         if (data != null) {
             for (Map.Entry<String, String> entry : data.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) continue;
                 launchIntent.putExtra(entry.getKey(), entry.getValue());
             }
         }
@@ -100,12 +104,19 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setContentText(body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
         NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
+    }
+
+    private String firstNonBlank(String first, String second, String fallback) {
+        if (!TextUtils.isEmpty(first)) return first;
+        if (!TextUtils.isEmpty(second)) return second;
+        return fallback;
     }
 
     private String valueOrDefault(String value, String fallback) {
