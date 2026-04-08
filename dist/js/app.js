@@ -11306,11 +11306,7 @@ async function setAllowAnonymousMessages(enabled) {
   }
 }
 
-async function openChat(convoIdArg) {
-  const convoId = (typeof convoIdArg !== 'undefined' && convoIdArg)
-    ? convoIdArg
-    : (_activeChatConvoId || '');
-  if (!convoId) return toast('Chat not found');
+async function openChat(convoId) {
   showScreen('chat-view');
   _activeChatConvoId = convoId;
   _activeGroupChat = { id: '', collection: '' };
