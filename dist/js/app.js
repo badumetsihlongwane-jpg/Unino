@@ -15,7 +15,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 43;
+const APP_VERSION = 47;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -57,12 +57,24 @@ let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
 let _pendingFeedScrollRestore = null;
 let _notifDropdownCloseHandler = null;
+let _contentScrollGestureAt = 0;
+let _pendingMapRoute = null;
+let _activeMapRouteLayer = null;
+let _activeMapRouteMarkers = [];
+let _mapLibreMap = null;
+let _mapLibreMarkers = [];
+let _mapLibrePopups = [];
+let _bootReady = false;
+let _bootFallbackTimer = null;
+let _activeMapRouteSummary = null;
 let _feedRestorePendingPaint = false;
 const _nativeGeneralNotifIds = new Set();
 let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
+let _pendingNativeNotificationOpen = null;
+let _commentReactionPopover = null;
 let _reelCommentReplyTo = null;
 let _sendingReelComment = false;
 let _lastFeedCommentSubmit = { key: '', at: 0 };
@@ -72,6 +84,7 @@ const _authorPhotoCache = {};
 const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
+let _postTopCommentCache = new Map();
 
 const ANON_PERSONA_THEMES = ['Anonymous', 'Campus Ghost', 'Res Phantom'];
 const SOFT_FILTER_RULES = [
@@ -252,34 +265,64 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const allowSelf = !!options.allowSelf;
   if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
 
-  const mode = shouldMirrorToAppwrite() ? 'appwrite-first' : 'firebase-only';
+  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite-native-fcm' : 'firestore-only';
   const { docId = null } = options;
   let appwriteStatus = 'skipped';
   let appwriteDetail = '';
 
-  if (shouldMirrorToAppwrite() && APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
+  const notifType = String(data.type || 'generic');
+  const notifPayload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+  const kind = notifPayload.kind
+    || (notifPayload.convoId ? 'dm'
+      : notifPayload.groupId ? 'group'
+      : notifPayload.streamId ? 'live'
+      : notifPayload.postId ? 'post'
+      : notifType === 'message' ? 'dm'
+      : notifType === 'group' ? 'group'
+      : 'app');
+  const from = data.from && typeof data.from === 'object' ? data.from : {};
+  const pushTitle = String(from.name || 'Unino').trim() || 'Unino';
+  const pushBody = String(data.text || 'You have a new notification').trim() || 'You have a new notification';
+  const bridgePayload = {
+    mode,
+    targetId,
+    type: notifType,
+    title: pushTitle,
+    text: pushBody,
+    body: pushBody,
+    kind,
+    channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    at: new Date().toISOString(),
+    payload: notifPayload,
+    from: {
+      uid: String(from.uid || ''),
+      name: pushTitle,
+      photo: String(from.photo || '')
+    }
+  };
+
+  if (APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
     try {
-      const resp = await postToAppwriteBridge(APPWRITE_EVENT_SYNC_URLS[0], {
-        eventType: 'notification_dispatch',
-        payload: {
-          mode,
-          targetId,
-          type: data.type || 'generic',
-          text: data.text || '',
-          payload: data.payload || {},
-          at: new Date().toISOString()
+      let delivered = false;
+      for (const url of APPWRITE_EVENT_SYNC_URLS) {
+        const resp = await postToAppwriteBridge(url, {
+          eventType: 'notification_dispatch',
+          payload: bridgePayload
+        });
+        if (resp.ok) {
+          const body = await resp.clone().json().catch(() => null);
+          const push = body?.result?.push;
+          appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
+          if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
+          else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
+          delivered = !!push;
+          if (delivered) break;
+        } else {
+          appwriteStatus = `http-${resp.status}`;
+          appwriteDetail = await resp.text().catch(() => '');
         }
-      });
-      if (resp.ok) {
-        const body = await resp.clone().json().catch(() => null);
-        const push = body?.result?.push;
-        appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
-        if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
-        else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
-      } else {
-        appwriteStatus = `http-${resp.status}`;
-        appwriteDetail = await resp.text().catch(() => '');
       }
+      if (!delivered && appwriteStatus === 'skipped') appwriteStatus = 'failed';
     } catch (e) {
       appwriteStatus = 'error';
       appwriteDetail = e?.message || String(e);
@@ -625,6 +668,15 @@ function renderPostLikeMarkup(post = {}) {
   `;
 }
 
+function renderCommentLikeMarkup(liked = false, total = 0, currentReaction = '') {
+  const showEmoji = currentReaction && currentReaction !== '❤️';
+  return `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="${liked ? 'var(--red)' : 'none'}" stroke="${liked ? 'var(--red)' : 'currentColor'}" stroke-width="2" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+    ${showEmoji ? `<span class="comment-like-emoji">${currentReaction}</span>` : ''}
+    ${total ? `<span class="comment-like-count">${total}</span>` : ''}
+  `;
+}
+
 function refreshPostCardsUI(postId) {
   const post = getLocalPostById(postId);
   if (!post) return;
@@ -780,6 +832,14 @@ function appIsForeground() {
   return _nativeAppIsActive && !document.hidden;
 }
 
+function noteContentScrollGesture() {
+  _contentScrollGestureAt = Date.now();
+}
+
+function isRecentContentScrollGesture(windowMs = 520) {
+  return (Date.now() - (_contentScrollGestureAt || 0)) <= windowMs;
+}
+
 function closeNotifDropdown() {
   const dd = $('#notif-dropdown');
   if (dd) dd.style.display = 'none';
@@ -795,14 +855,14 @@ function clearTransientUi() {
     notifDropdown.style.display = 'none';
     return true;
   }
+  const imageView = $('#img-view');
+  if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
+    closeGalleryViewer();
+    return true;
+  }
   const modal = $('#modal-bg');
   if (modal?.style.display === 'block' || modal?.style.display === 'flex') {
     closeModal();
-    return true;
-  }
-  const imageView = $('#img-view');
-  if (imageView?.style.display === 'block' || imageView?.style.display === 'flex') {
-    imageView.style.display = 'none';
     return true;
   }
   const storyViewer = $('#story-viewer');
@@ -853,6 +913,11 @@ function handleAppBackAction(options = {}) {
 
   if ($('#settings-view')?.classList.contains('active')) {
     showScreen('app');
+  if (_pendingNativeNotificationOpen) {
+    const pendingOpen = { ..._pendingNativeNotificationOpen };
+    _pendingNativeNotificationOpen = null;
+    setTimeout(() => handleNativeNotificationOpen(pendingOpen.extra || pendingOpen, pendingOpen.actionId || 'tap'), 200);
+  }
     return true;
   }
 
@@ -996,7 +1061,11 @@ async function requestLocalNotificationPermission() {
 }
 
 function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
-  if (!extra || !state.user) return;
+  if (!extra) return;
+  if (!state.user) {
+    _pendingNativeNotificationOpen = { extra, actionId };
+    return;
+  }
   if (extra.notifDocId) markNotifRead(extra.notifDocId);
   if (extra.kind === 'dm' && extra.convoId) {
     openChat(extra.convoId);
@@ -1006,6 +1075,10 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
   if (extra.kind === 'group' && extra.groupId) {
     openGroupChat(extra.groupId, extra.collection || 'groups');
     if (actionId === 'reply') setTimeout(() => $('#gchat-input')?.focus(), 250);
+    return;
+  }
+  if (extra.kind === 'live' && extra.streamId) {
+    openLiveStreamFromFeed(extra.streamId, !!extra.profileId && extra.profileId === state.user?.uid);
     return;
   }
   if (extra.postId) {
@@ -1098,9 +1171,11 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
       ? 'dm'
       : notification.payload?.groupId
         ? 'group'
-        : notification.payload?.postId
-          ? 'post'
-          : 'app';
+        : notification.payload?.streamId
+          ? 'live'
+          : notification.payload?.postId
+            ? 'post'
+            : 'app';
     scheduleLocalNotification({
       id: hashStringToId(`notif-${notification.id}`),
       title: fromName,
@@ -1114,6 +1189,7 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
         groupId: notification.payload?.groupId || '',
         collection: notification.payload?.collection || 'groups',
         postId: notification.payload?.postId || '',
+        streamId: notification.payload?.streamId || '',
         profileId: notification.from?.uid || '',
         notifDocId: notification.id
       }
@@ -1189,6 +1265,19 @@ async function initNativeShell() {
       localNotifications.addListener('localNotificationActionPerformed', event => {
         handleNativeNotificationOpen(event.notification?.extra || {}, event.actionId || 'tap');
       });
+    }
+  }
+
+  if (!_nativeNotificationListenersBound) {
+    _nativeNotificationListenersBound = true;
+    window.addEventListener('unino:native-notification-open', event => {
+      const detail = event?.detail || {};
+      handleNativeNotificationOpen(detail.extra || detail, detail.actionId || 'tap');
+    });
+    const pending = window.__UNINO_PENDING_NOTIFICATION || null;
+    if (pending) {
+      window.__UNINO_PENDING_NOTIFICATION = null;
+      setTimeout(() => handleNativeNotificationOpen(pending.extra || pending, pending.actionId || 'tap'), 120);
     }
   }
 }
@@ -1308,7 +1397,15 @@ function colorFor(n) {
 }
 
 function normalizeModules(modules = []) {
-  return (modules || []).map(m => (m || '').trim().toUpperCase()).filter(Boolean);
+  return (modules || [])
+    .map(m => (m || '')
+      .toString()
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s-]/g, '')
+      .replace(/[\s_-]+/g, '')
+    )
+    .filter(Boolean);
 }
 
 function normalizeAddress(address = '') {
@@ -1489,19 +1586,43 @@ function openLocationHelpModal(message = '') {
   `);
 }
 
-async function ensureUserContextCache(userIds = []) {
-  const missing = [...new Set((userIds || []).filter(Boolean))].filter(uid => !_userContextCache[uid]);
+async function ensureUserContextCache(userIds = [], options = {}) {
+  const force = !!options.force;
+  const missing = [...new Set((userIds || []).filter(Boolean))].filter(uid => force || !_userContextCache[uid] || _userContextCache[uid]?.pending);
   if (!missing.length) return;
   await Promise.all(missing.map(async uid => {
-    _userContextCache[uid] = { pending: true };
+    _userContextCache[uid] = { ...(force ? (_userContextCache[uid] || {}) : {}), pending: true };
     try {
       const doc = await db.collection('users').doc(uid).get();
-      _userContextCache[uid] = doc.exists ? { id: doc.id, ...doc.data() } : null;
+      const next = doc.exists ? { id: doc.id, ...doc.data() } : null;
+      _userContextCache[uid] = next;
+      updateCachedUserRecord(uid, next || {});
     } catch (e) {
       console.error('user context', e);
       _userContextCache[uid] = null;
     }
   }));
+}
+
+function updateCachedUserRecord(userId, fields = {}) {
+  if (!userId) return null;
+  const next = { id: userId, ...(_userContextCache[userId] || {}), ...(fields || {}) };
+  _userContextCache[userId] = next;
+  const users = Array.isArray(_usersCache?.data) ? [..._usersCache.data] : [];
+  const idx = users.findIndex(u => u.id === userId);
+  if (idx >= 0) users[idx] = { ...users[idx], ...(fields || {}), id: userId };
+  else users.unshift({ ...(fields || {}), id: userId });
+  _usersCache = { data: users, expiresAt: Math.max(_usersCache?.expiresAt || 0, Date.now() + 60 * 1000) };
+  return next;
+}
+
+function getResolvedUserIdentity(userId = '', fallbackName = 'User', fallbackPhoto = null) {
+  const cached = _userContextCache[userId] || {};
+  return {
+    name: cached.displayName || cached.firstName || fallbackName || 'User',
+    photo: cached.photoURL || fallbackPhoto || null,
+    data: cached
+  };
 }
 
 function buildInterestProfile() {
@@ -1526,6 +1647,84 @@ function textInterestScore(text = '', interestProfile = buildInterestProfile()) 
   interestProfile.modules.forEach(token => { if (hay.includes(token.toLowerCase())) score += 8; });
   interestProfile.tags.forEach(token => { if (hay.includes(token.toLowerCase())) score += 4; });
   return score;
+}
+
+function normalizeIdentityValue(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+
+function normalizeSearchParts(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function userSearchScore(user = {}, query = '') {
+  const parts = normalizeSearchParts(query);
+  if (!parts.length) return 0;
+
+  const displayName = user.displayName || `${user.firstName || ''} ${user.lastName || ''}`.trim();
+  const nameParts = normalizeSearchParts(displayName);
+  const majorParts = normalizeSearchParts(user.major || '');
+  const uniParts = normalizeSearchParts(user.university || '');
+  const addressParts = normalizeSearchParts(user.address || '');
+  const moduleParts = normalizeSearchParts((user.modules || []).join(' '));
+  const haystack = [...nameParts, ...majorParts, ...uniParts, ...addressParts, ...moduleParts];
+  let score = 0;
+  let matched = 0;
+  const nameJoined = nameParts.join(' ');
+
+  parts.forEach(part => {
+    let partScore = 0;
+    if (nameJoined === part) partScore = Math.max(partScore, 48);
+    if (nameJoined.startsWith(part)) partScore = Math.max(partScore, 34);
+    if (nameParts.some(token => token === part)) partScore = Math.max(partScore, 28);
+    if (nameParts.some(token => token.startsWith(part))) partScore = Math.max(partScore, 22);
+    if (moduleParts.some(token => token === part)) partScore = Math.max(partScore, 18);
+    if (majorParts.some(token => token === part) || uniParts.some(token => token === part)) partScore = Math.max(partScore, 16);
+    if (addressParts.some(token => token === part)) partScore = Math.max(partScore, 12);
+    if (haystack.some(token => token.includes(part))) partScore = Math.max(partScore, 8);
+    if (partScore > 0) {
+      matched += 1;
+      score += partScore;
+    }
+  });
+
+  if (!matched) return 0;
+  if (matched === parts.length) score += 14;
+  if (displayName && normalizeSearchParts(displayName).join(' ').startsWith(parts.join(' '))) score += 10;
+  return score;
+}
+
+function userMatchesQuery(user = {}, query = '') {
+  return userSearchScore(user, query) > 0;
+}
+
+function genderAffinityScore(viewer = {}, candidate = {}) {
+  const viewerGender = normalizeIdentityValue(viewer.gender);
+  const viewerOrientation = normalizeIdentityValue(viewer.orientation);
+  const candidateGender = normalizeIdentityValue(candidate.gender);
+  if (!candidateGender) return 0;
+
+  const isMale = g => g.includes('male') || g === 'm' || g === 'man';
+  const isFemale = g => g.includes('female') || g === 'f' || g === 'woman';
+
+  if (viewerOrientation.includes('lesbian')) return isFemale(candidateGender) ? 20 : -4;
+  if (viewerOrientation.includes('gay')) {
+    if (isMale(viewerGender)) return isMale(candidateGender) ? 20 : -4;
+    if (isFemale(viewerGender)) return isFemale(candidateGender) ? 20 : -4;
+    return 8;
+  }
+  if (viewerOrientation.includes('bi')) return 8;
+
+  if (isMale(viewerGender)) return isFemale(candidateGender) ? 14 : -2;
+  if (isFemale(viewerGender)) return isMale(candidateGender) ? 14 : -2;
+  return 2;
 }
 
 function getCampusLocationById(locationId) {
@@ -1571,13 +1770,10 @@ function resolveMapPoint(base, occupied = [], anchor = null) {
 }
 
 function openCommentActionSheet(postId, commentId, source = 'feed') {
-  const mode = arguments[3] || 'owner';
-  const title = mode === 'post-owner' ? 'Moderate Comment' : 'Comment';
-  const actionLabel = mode === 'admin' ? 'Admin Remove' : mode === 'post-owner' ? 'Remove Comment' : 'Delete Comment';
   openModal(`
-    <div class="modal-header"><h2>${title}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>Comment</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">${actionLabel}</button>
+      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">Delete Comment</button>
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -1636,34 +1832,96 @@ async function reactToPost(postId, emoji, source = 'feed') {
   }
 }
 
-function openCommentReactionPicker(postId, commentId, source = 'feed', current = '') {
-  openModal(`
-    <div class="modal-header"><h2>React</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body" style="padding:16px">
-      <div class="reaction-picker-row">
-        ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToComment('${postId}','${commentId}','${emoji}','${source}')">${emoji}</button>`).join('')}
-      </div>
-      <button class="btn-secondary btn-full" style="margin-top:10px" onclick="closeModal()">Cancel</button>
-    </div>
-  `);
+function closeCommentReactionPopover() {
+  if (_commentReactionPopover?.parentNode) _commentReactionPopover.parentNode.removeChild(_commentReactionPopover);
+  _commentReactionPopover = null;
+  document.removeEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
+  document.removeEventListener('scroll', closeCommentReactionPopover, true);
+}
+
+function handleCommentReactionPopoverOutside(event) {
+  if (_commentReactionPopover && !_commentReactionPopover.contains(event.target)) closeCommentReactionPopover();
+}
+
+function openCommentReactionPicker(postId, commentId, source = 'feed', current = '', event = null) {
+  closeCommentReactionPopover();
+  const anchor = event?.currentTarget || event?.target;
+  if (!anchor?.getBoundingClientRect) return;
+  const pop = document.createElement('div');
+  pop.className = 'comment-reaction-popover';
+  pop.innerHTML = REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" type="button" data-emoji="${emoji}">${emoji}</button>`).join('');
+  pop.addEventListener('click', ev => {
+    const btn = ev.target.closest('.reaction-option');
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    reactToComment(postId, commentId, btn.dataset.emoji || '', source);
+  });
+  document.body.appendChild(pop);
+  const rect = anchor.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let top = rect.top - popRect.height - 10;
+  if (top < 12) top = rect.bottom + 10;
+  let left = rect.left + (rect.width / 2) - (popRect.width / 2);
+  left = Math.max(12, Math.min(left, window.innerWidth - popRect.width - 12));
+  pop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+  _commentReactionPopover = pop;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
+    document.addEventListener('scroll', closeCommentReactionPopover, true);
+  }, 0);
 }
 
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
+  const previous = _commentStateCache[commentId]
+    ? { reactions: { ...(_commentStateCache[commentId].reactions || {}) }, likes: [...(_commentStateCache[commentId].likes || [])] }
+    : null;
+  closeCommentReactionPopover();
+  if (previous) {
+    const optimistic = buildLocalReactionResult(previous, emoji);
+    _commentStateCache[commentId] = { reactions: optimistic.reactions, likes: optimistic.likes };
+    refreshCommentReactionUI(commentId, optimistic.reactions, optimistic.likes);
+  }
   try {
-    await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    const result = await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    if (result) {
+      _commentStateCache[commentId] = { reactions: result.reactions || {}, likes: result.likes || [] };
+      refreshCommentReactionUI(commentId, result.reactions, result.likes || []);
+    }
     syncEventWithAppwrite('comment_reaction', {
       postId,
       commentId,
       emoji,
       reactedAt: Date.now()
     }).catch(() => {});
-    // Update in-place without closing/reopening — prevents modal flash and scroll jump
-    if (source === 'reel') openReelComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
-    else openComments(postId, { focusCommentId: commentId, scrollMode: 'preserve' });
   } catch (e) {
+    if (previous) {
+      _commentStateCache[commentId] = previous;
+      refreshCommentReactionUI(commentId, previous.reactions, previous.likes || []);
+    }
     console.error(e);
     toast('Could not react right now');
   }
+}
+
+function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
+  const normalizedReactions = normalizeReactionMap(reactions, likes || []);
+  _commentStateCache[commentId] = { reactions: normalizedReactions, likes: [...(likes || [])] };
+  const liked = (likes || []).includes(state.user?.uid);
+  const currentReaction = normalizedReactions[state.user?.uid] || '';
+  const total = getReactionSummary(normalizedReactions, likes).total;
+  ['c-', 'rc-'].forEach(prefix => {
+    const row = document.getElementById(`${prefix}${commentId}`);
+    if (!row) return;
+    const likeBtn = row.querySelector('.c-act.like-only');
+    if (likeBtn) {
+      likeBtn.classList.toggle('liked', liked);
+      likeBtn.classList.toggle('reacted', !!currentReaction && currentReaction !== '❤️');
+      likeBtn.classList.toggle('has-emoji', !!currentReaction && currentReaction !== '❤️');
+      likeBtn.innerHTML = renderCommentLikeMarkup(liked, total, currentReaction);
+    }
+  });
 }
 
 function getMessageDocRef(scope, primaryId, messageId, collection = '') {
@@ -1714,18 +1972,48 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
   }
 }
 
+async function syncThreadLastMessage(scope, primaryId, collection = '') {
+  try {
+    const parentRef = scope === 'group' ? db.collection(collection || 'groups').doc(primaryId) : db.collection('conversations').doc(primaryId);
+    const snap = await parentRef.collection('messages').orderBy('createdAt', 'desc').limit(12).get();
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const latest = items.find(m => !m.deleted && m.type !== 'deleted');
+    let lastMessage = '';
+    if (latest) {
+      if (latest.locationPin?.label) lastMessage = `📍 ${latest.locationPin.label}`;
+      else if (latest.type === 'poll' && latest.poll?.question) lastMessage = `📊 ${latest.poll.question}`;
+      else if (latest.audioURL) lastMessage = '🎤 Voice';
+      else if (latest.imageURL) lastMessage = latest.mediaType === 'video' ? '📹 Video' : (latest.text || '📷 Photo');
+      else lastMessage = latest.text || '';
+    }
+    await parentRef.set({ lastMessage, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+  } catch (_) {}
+}
+
 async function deleteMessage(scope, primaryId, messageId, collection = '') {
   try {
-    await getMessageDocRef(scope, primaryId, messageId, collection).set({
-      deleted: true,
-      deletedAt: FieldVal.serverTimestamp(),
-      text: '',
-      imageURL: null,
-      audioURL: null,
-      type: 'deleted',
-      payload: null,
-      reactions: {}
-    }, { merge: true });
+    const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+    const message = lookup.get(messageId) || {};
+    const ref = getMessageDocRef(scope, primaryId, messageId, collection);
+    const hardDelete = message.type === 'poll' || !!message.locationPin;
+    if (hardDelete) {
+      await ref.delete();
+      lookup.delete(messageId);
+    } else {
+      await ref.set({
+        deleted: true,
+        deletedAt: FieldVal.serverTimestamp(),
+        text: '',
+        imageURL: null,
+        audioURL: null,
+        type: 'deleted',
+        payload: null,
+        poll: null,
+        locationPin: null,
+        reactions: {}
+      }, { merge: true });
+    }
+    await syncThreadLastMessage(scope, primaryId, collection);
     closeModal();
     toast('Message deleted');
   } catch (e) {
@@ -1822,16 +2110,12 @@ function bindPostReactionLongPress(container) {
   });
 }
 
-function bindCommentLongPress(container, postId, source = 'feed', postAuthorId = '') {
+function bindCommentLongPress(container, postId, source = 'feed') {
   if (!container) return;
   container.querySelectorAll('.comment-item[data-author-id]').forEach(item => {
     const authorId = item.getAttribute('data-author-id') || '';
     const commentId = item.getAttribute('data-comment-id') || '';
-    const isCommentOwner = authorId === state.user?.uid;
-    const isPostOwner = !!postAuthorId && postAuthorId === state.user?.uid;
-    const canModerate = !!state.user?.uid && (_isAdmin || isCommentOwner || isPostOwner);
-    if (!commentId || !canModerate) return;
-    const mode = _isAdmin ? 'admin' : (isCommentOwner ? 'owner' : 'post-owner');
+    if (!commentId || authorId !== state.user?.uid) return;
     let timer = null;
     let didOpen = false;
     const start = () => {
@@ -1842,7 +2126,7 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
         didOpen = true;
         item.classList.remove('comment-long-pressing');
         if (navigator.vibrate) navigator.vibrate(18);
-        openCommentActionSheet(postId, commentId, source, mode);
+        openCommentActionSheet(postId, commentId, source);
       }, 360);
     };
     const clear = () => {
@@ -1853,7 +2137,7 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
     item.oncontextmenu = e => {
       e.preventDefault();
       if (navigator.vibrate) navigator.vibrate(18);
-      openCommentActionSheet(postId, commentId, source, mode);
+      openCommentActionSheet(postId, commentId, source);
     };
     item.addEventListener('click', e => {
       if (!didOpen) return;
@@ -1871,21 +2155,41 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
   });
 }
 
+let _commentHeartHoldTimer = null;
+let _commentHeartHoldConsumed = '';
+
+function startCommentHeartHold(postId, commentId, source = 'feed', currentReaction = '', event) {
+  if (event?.stopPropagation) event.stopPropagation();
+  clearTimeout(_commentHeartHoldTimer);
+  _commentHeartHoldConsumed = '';
+  _commentHeartHoldTimer = setTimeout(() => {
+    _commentHeartHoldConsumed = `${source}:${commentId}`;
+    if (navigator.vibrate) navigator.vibrate(18);
+    openCommentReactionPicker(postId, commentId, source, currentReaction || '', event);
+  }, 360);
+}
+
+function endCommentHeartHold(event) {
+  if (event?.stopPropagation) event.stopPropagation();
+  clearTimeout(_commentHeartHoldTimer);
+  _commentHeartHoldTimer = null;
+}
+
+function handleCommentHeartClick(postId, commentId, source = 'feed') {
+  const key = `${source}:${commentId}`;
+  if (_commentHeartHoldConsumed === key) {
+    _commentHeartHoldConsumed = '';
+    return;
+  }
+  if (source === 'reel') toggleReelCommentLike(commentId, postId);
+  else toggleCommentLike(commentId, postId);
+}
+
 async function deleteCommentThread(postId, commentId, source = 'feed') {
   try {
     const commentsRef = db.collection('posts').doc(postId).collection('comments');
-    const uid = state.user?.uid || '';
-    if (!uid) return;
-    const postSnap = await db.collection('posts').doc(postId).get();
-    const postAuthorId = postSnap.exists ? (postSnap.data()?.authorId || '') : '';
     const snap = await commentsRef.limit(200).get();
     const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const targetComment = comments.find(comment => comment.id === commentId) || null;
-    const canDelete = !!targetComment && (_isAdmin || targetComment.authorId === uid || postAuthorId === uid);
-    if (!canDelete) {
-      toast('Only the post owner or comment owner can delete this');
-      return;
-    }
     const toDelete = new Set([commentId]);
     let added = true;
     while (added) {
@@ -1991,18 +2295,50 @@ function isPostShadowHiddenForViewer(post = {}, viewerUid = '') {
 function renderPostContextTags(post = {}) {
   const chips = [];
   const author = _userContextCache[post.authorId] || null;
-  if (author) {
-    const nearby = getNearbySignal(state.profile, author);
-    if (Number.isFinite(nearby.distanceKm)) chips.push(`📍 ${nearby.distanceKm.toFixed(1)}km away`);
+  const pingExpiry = post.locationPing?.expiresAt?.toDate
+    ? post.locationPing.expiresAt.toDate()
+    : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
+  const hasExplicitPing = !!post.locationPing?.enabled && (!pingExpiry || pingExpiry.getTime() > Date.now());
+  if (author && hasExplicitPing) {
+    chips.push({ text: '📍 Pin', className: 'clickable', onClick: `openPinnedPostOnRadar('${post.id}')` });
     const addr = (author.address || '').toLowerCase();
-    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push('🏠 Res life');
+    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
   }
   const sharedModule = normalizeModules(post.moduleTags || []).some(tag => normalizeModules(state.profile?.modules || []).includes(tag));
-  if (sharedModule) chips.push('🎓 Same module');
+  if (sharedModule) chips.push({ text: '🎓 Same module' });
   const trendScore = getReactionSummary(post.reactions, post.likes || []).total + (post.commentsCount || 0) * 2;
-  if (trendScore >= 12) chips.push('🔥 Trending');
+  if (trendScore >= 12) chips.push({ text: '🔥 Trending' });
   if (!chips.length) return '';
-  return `<div class="post-context-tags">${chips.slice(0, 4).map(chip => `<span class="post-context-chip">${esc(chip)}</span>`).join('')}</div>`;
+  return `<div class="post-context-tags">${chips.slice(0, 4).map(chip => {
+    const text = typeof chip === 'string' ? chip : chip.text;
+    const cls = typeof chip === 'string' ? '' : (chip.className || '');
+    const click = typeof chip === 'string' || !chip.onClick ? '' : ` onclick="${chip.onClick}"`;
+    return `<button class="post-context-chip ${cls}" type="button"${click}>${esc(text)}</button>`;
+  }).join('')}</div>`;
+}
+
+let _pendingRadarPinnedPoint = null;
+
+function openPinnedPostOnRadar(postId) {
+  const post = (state.posts || []).find(p => p.id === postId);
+  if (!post) return;
+  const context = _userContextCache[post.authorId] || {};
+  const ping = post.locationPing || {};
+  const lat = Number(ping.lat ?? context.geoLat ?? context.lat);
+  const lng = Number(ping.lng ?? context.geoLng ?? context.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    toast('Pinned location not available yet');
+    return;
+  }
+  const label = ping.label || post.authorName || 'Pinned';
+  _pendingRadarPinnedPoint = {
+    lat,
+    lng,
+    label
+  };
+  setPendingMapRoute({ lat, lng }, { label, targetId: postId, source: 'post' });
+  exploreView = 'radar';
+  navigate('explore');
 }
 
 function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
@@ -2106,13 +2442,48 @@ function extractHashTags(text = '') {
   return [...found].slice(0, 8);
 }
 
+function extractMentionHandles(text = '') {
+  const found = new Set();
+  const regex = /@([A-Za-z][A-Za-z0-9._-]{1,31})\b/g;
+  let match;
+  while ((match = regex.exec(text || ''))) {
+    found.add((match[1] || '').toLowerCase());
+  }
+  return [...found].slice(0, 20);
+}
+
+function mentionHandleForName(name = '') {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '');
+}
+
+async function openMentionProfileByHandle(handle = '') {
+  const clean = String(handle || '').trim().toLowerCase();
+  if (!clean) return;
+  const local = (_usersCache?.data || []).find(u => mentionHandleForName(u.displayName || '') === clean);
+  if (local?.id) {
+    openProfile(local.id);
+    return;
+  }
+  try {
+    const users = await getUsersCache();
+    const hit = (users || []).find(u => mentionHandleForName(u.displayName || '') === clean);
+    if (hit?.id) {
+      openProfile(hit.id);
+      return;
+    }
+  } catch (_) {}
+  toast('Profile not found');
+}
+
 function extractModuleTags(text = '', manualTags = '') {
   const found = new Set();
   extractHashTags(`${text} ${manualTags}`)
     .map(tag => tag.toUpperCase())
     .filter(tag => /^[A-Z]{3,5}\d{3}$/.test(tag))
     .forEach(tag => found.add(tag));
-  manualTags.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean).forEach(tag => found.add(tag));
+  normalizeModules((manualTags || '').split(',')).forEach(tag => found.add(tag));
   return [...found].slice(0, 5);
 }
 
@@ -2250,13 +2621,13 @@ function renderTrendingPostsRail(posts = []) {
 }
 
 async function openModuleFeed(tag) {
-  const moduleTag = (tag || '').toUpperCase();
+  const moduleTag = normalizeModules([tag])[0] || '';
   if (!moduleTag) return;
-  let posts = (state.posts || []).filter(post => (post.moduleTags || []).includes(moduleTag));
+  let posts = (state.posts || []).filter(post => normalizeModules(post.moduleTags || []).includes(moduleTag));
   if (!posts.length) {
     try {
       const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(50).get();
-      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => (post.moduleTags || []).includes(moduleTag));
+      posts = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(post => normalizeModules(post.moduleTags || []).includes(moduleTag));
     } catch (e) { console.error(e); }
   }
   openModal(`
@@ -2588,6 +2959,11 @@ function formatContent(text) {
       return `<span class="hashtag module-hashtag" onclick="openModuleFeed('${tag}')">#${tag}</span>`;
     }
     return `<span class="hashtag" onclick="openTagFeed('${rawTag.toLowerCase()}')">#${rawTag}</span>`;
+  });
+  // Mentions
+  html = html.replace(/(^|\s)@([A-Za-z][A-Za-z0-9._-]{1,31})\b/g, (_, lead, handle) => {
+    const cleanHandle = (handle || '').toLowerCase();
+    return `${lead}<span class="mention-handle" onclick="openMentionProfileByHandle('${cleanHandle}')">@${handle}</span>`;
   });
   return html;
 }
@@ -3000,14 +3376,60 @@ function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
 // ══════════════════════════════════════════════════
 //  THEME
 // ══════════════════════════════════════════════════
+const THEME_ASSETS = {
+  light: { icon: `unino-icon-light.png?v=${APP_VERSION}`, themeColor: '#FFFFFF' },
+  dark: { icon: `unino-icon-dark.png?v=${APP_VERSION}`, themeColor: '#12121F' }
+};
+
+function applyThemeAssets(theme = document.documentElement.getAttribute('data-theme') || 'light') {
+  const mode = theme === 'dark' ? 'dark' : 'light';
+  const asset = THEME_ASSETS[mode];
+  document.querySelectorAll('[data-theme-logo]').forEach(img => {
+    if (img.getAttribute('src') !== asset.icon) img.setAttribute('src', asset.icon);
+  });
+  const favicon = document.getElementById('theme-favicon');
+  if (favicon) favicon.setAttribute('href', asset.icon);
+  const themeMeta = document.getElementById('theme-color-meta');
+  if (themeMeta) themeMeta.setAttribute('content', asset.themeColor);
+}
+
+
+function showBootStatus(message = 'Loading…') {
+  const splash = $('#splash');
+  if (splash) splash.classList.add('active');
+  const title = document.querySelector('#splash .splash-status');
+  if (title) title.textContent = message;
+}
+
+function markBootReady(message = '') {
+  _bootReady = true;
+  const splash = $('#splash');
+  if (!splash) return;
+  const status = document.querySelector('#splash .splash-status');
+  if (status && message) status.textContent = message;
+  requestAnimationFrame(() => {
+    setTimeout(() => splash.classList.remove('active'), 180);
+  });
+}
+
+function ensureBootFallback() {
+  if (_bootFallbackTimer) clearTimeout(_bootFallbackTimer);
+  _bootFallbackTimer = setTimeout(() => {
+    if (_bootReady) return;
+    showBootStatus('Still starting… reconnecting to your account.');
+  }, 4500);
+}
+
 function initTheme() {
   const saved = localStorage.getItem('unino-theme') || 'light';
   document.documentElement.setAttribute('data-theme', saved);
+  applyThemeAssets(saved);
   syncNativeStatusBar().catch(() => {});
   $('#theme-btn')?.addEventListener('click', () => {
     const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('unino-theme', next);
+    applyThemeAssets(next);
     syncNativeStatusBar().catch(() => {});
   });
 }
@@ -3078,9 +3500,11 @@ function initAuth() {
     const email = $('#s-email').value.trim(), pass = $('#s-pass').value;
     const uni = $('#s-uni').value, major = $('#s-major').value, year = $('#s-year')?.value || '';
     const modulesRaw = $('#s-modules')?.value || '';
-    const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+    const modules = normalizeModules(modulesRaw.split(','));
+    const gender = ($('#s-gender')?.value || '').trim();
+    const orientation = ($('#s-orientation')?.value || '').trim();
     const address = $('#s-address')?.value.trim() || '';
-    if (!fname || !lname || !email || !pass || !uni || !major || !address) return toast('All fields required');
+    if (!fname || !lname || !email || !pass || !uni || !major || !address || !gender) return toast('All fields required');
     if (pass.length < 6) return toast('Password must be 6+ characters');
     if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
@@ -3091,7 +3515,8 @@ function initAuth() {
       const anonIdentity = buildDefaultAnonIdentity(uid, fname);
       await db.collection('users').doc(uid).set({
         displayName, firstName: fname, lastName: lname,
-        email, university: uni, major, year, modules, address,
+        email, university: uni, major, year, modules, address, gender,
+        orientation,
         bio: `${major} student at ${uni}`,
         photoURL: '', status: 'online', allowAutoFill: true,
         allowAnonymousMessages: true,
@@ -3212,7 +3637,7 @@ function initAuth() {
       _nativeDmNotificationPrimed = false;
       _nativeGeneralNotificationPrimed = false;
       _nativeGeneralNotifIds.clear();
-      state.user = null; state.profile = null; unsub(); showScreen('auth-screen');
+      state.user = null; state.profile = null; unsub(); showScreen('auth-screen'); markBootReady('Welcome back');
     }
   });
 
@@ -3258,7 +3683,10 @@ function checkForAppUpdate() {
 //  ENTER APP
 // ══════════════════════════════════════════════════
 function enterApp() {
-  showScreen('app'); setupHeader(); setupNav(); setupStatusPill(); 
+  showScreen('app');
+  const content = $('#content');
+  if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
+  setupHeader(); setupNav(); setupStatusPill(); 
   initNativeShell().catch(() => {});
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
@@ -3274,6 +3702,7 @@ function enterApp() {
     _inAppBackInit = true;
   }
   navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
   listenForVerifiedUsers();
   listenForNotifications();
   listenForUnreadDMs();
@@ -3583,11 +4012,14 @@ function renderFeedPeopleSuggestions(query) {
     searchBar.style.position = 'relative';
     searchBar.appendChild(box);
   }
-  const q = (query || '').toLowerCase();
+  const q = String(query || '').trim();
   if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
   getUsersCache().then(users => {
     const hits = users
-      .filter(u => u.id !== state.user?.uid && (u.displayName || '').toLowerCase().includes(q))
+      .filter(u => u.id !== state.user?.uid)
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, q) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''))
       .slice(0, 5);
     if (!hits.length) { box.style.display = 'none'; return; }
     box.innerHTML = hits.map(u => `
@@ -3595,7 +4027,7 @@ function renderFeedPeopleSuggestions(query) {
         ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
         <div class="feed-people-info">
           <span class="feed-people-name">${esc(u.displayName || 'User')}</span>
-          <span class="feed-people-meta">${esc(u.major || u.university || 'Student')}</span>
+          <span class="feed-people-meta">${esc(u.major || u.university || u.address || 'Student')}</span>
         </div>
       </button>
     `).join('');
@@ -3663,10 +4095,17 @@ function renderFeedResults(posts = []) {
 function renderFeed() {
   resetFeedSeeds(); // new random order every time feed is opened / refreshed
   const c = $('#content'), p = state.profile;
+  const shouldDelayDiscover = !!_feedRestorePendingPaint;
+  let discoverLoaded = !shouldDelayDiscover;
+  const ensureDiscoverLoaded = () => {
+    if (discoverLoaded) return;
+    discoverLoaded = true;
+    loadDiscoverPeople();
+    loadFeedLiveSpotlight();
+  };
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
-  if (_feedRestorePendingPaint) c.style.opacity = '0';
-  else c.style.opacity = '';
+  c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
       <div class="feed-toolbar">
@@ -3678,22 +4117,19 @@ function renderFeed() {
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
 
-      <div class="stories-row" id="stories-row">
-        <div class="story-item add-story" onclick="openStoryCreator()">
-          <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
-          <div class="story-name">Story</div>
-        </div>
-      </div>
-
-      <div class="discover-section">
+      <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
         <div class="discover-tabs">
           <button class="discover-tab active" data-dt="people">👥 People</button>
           <button class="discover-tab" data-dt="events">📅 Events</button>
         </div>
         <div class="discover-content" id="discover-content">
-          <div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>
+          ${shouldDelayDiscover
+            ? '<div class="discover-empty"><span>⏳</span><p>Loading your feed…</p></div>'
+            : '<div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>'}
         </div>
       </div>
+
+      <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <div class="create-post-prompt" onclick="openCreateModal()">
         ${avatar(p.displayName, p.photoURL, 'avatar-md')}
@@ -3721,11 +4157,14 @@ function renderFeed() {
       tab.classList.add('active');
       if (tab.dataset.dt === 'people') loadDiscoverPeople();
       else loadDiscoverEvents();
+      if (!shouldDelayDiscover) loadFeedLiveSpotlight();
     };
   });
 
-  loadDiscoverPeople();
-  loadStories();
+  if (!shouldDelayDiscover) {
+    loadDiscoverPeople();
+    loadFeedLiveSpotlight();
+  }
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -3752,8 +4191,16 @@ function renderFeed() {
       const myFriends = state.profile.friends || [];
       const uid = state.user.uid;
       const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const expiredPinned = [];
+      const activePosts = allPosts.filter(post => {
+        const expiry = post.locationPing?.expiresAt?.toDate ? post.locationPing.expiresAt.toDate() : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
+        const isExpiredPinned = !!post.locationPing?.enabled && expiry && expiry.getTime() <= Date.now();
+        if (isExpiredPinned) expiredPinned.push(post.id);
+        return !isExpiredPinned;
+      });
+      expiredPinned.forEach(pid => db.collection('posts').doc(pid).delete().catch(() => {}));
       // Filter: show public posts, own posts, and friends-only posts from friends
-      const visible = allPosts.filter(post => {
+      const visible = activePosts.filter(post => {
         if (isPostShadowHiddenForViewer(post, uid)) return false;
         if (post.authorId === uid) return true;
         if (post.visibility === 'friends') return myFriends.includes(post.authorId);
@@ -3838,6 +4285,7 @@ function renderFeed() {
         c.style.opacity = '';
         _feedRestorePendingPaint = false;
         _pendingFeedScrollRestore = null;
+        ensureDiscoverLoaded();
         return;
       }
 
@@ -3852,10 +4300,12 @@ function renderFeed() {
           contentEl.scrollTop = restoreScroll;
           c.style.opacity = '';
           _feedRestorePendingPaint = false;
+          ensureDiscoverLoaded();
         });
       } else {
         c.style.opacity = '';
         _feedRestorePendingPaint = false;
+        ensureDiscoverLoaded();
       }
       _pendingFeedScrollRestore = null;
       window._lastLikedPost = null;
@@ -3863,6 +4313,7 @@ function renderFeed() {
       console.error('Feed listener error:', err);
       c.style.opacity = '';
       _feedRestorePendingPaint = false;
+      ensureDiscoverLoaded();
       const postsEl = document.getElementById('feed-posts');
       if (postsEl) {
         postsEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load posts</h3><p>${isInvalidSessionError(err) ? 'Your session expired. Log in again.' : (isPermissionDeniedError(err) ? 'This account cannot load posts right now.' : 'Reopen the app or try again in a moment.')}</p></div>`;
@@ -3886,7 +4337,7 @@ function loadDiscoverPeople() {
 
   getUsersCache().then(allUsers => {
     let users = allUsers
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id));
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id));
 
     // Score & sort by relevance
     users = users.map(u => {
@@ -3895,15 +4346,18 @@ function loadDiscoverPeople() {
       const shared = myModules.filter(m => theirModules.includes(m));
       const nearby = getNearbySignal(state.profile, u);
       const nearbyScore = nearby.score;
+      const isFriend = myFriends.has(u.id);
       if (shared.length) score += 36 + shared.length * 14;
       if (u.major === myMajor) score += 22;
       if (u.year && myYear && u.year === myYear) score += 8;
       if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
+      score += genderAffinityScore(state.profile, u);
+      if (isFriend) score -= 18;
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
-      return { ...u, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
+      return { ...u, isFriend, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
     }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
-      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
+      .sort((a, b) => (a.isFriend === b.isFriend ? 0 : (a.isFriend ? 1 : -1)) || b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -3923,9 +4377,9 @@ function loadDiscoverPeople() {
         ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')">Message</button>`
         : isPending
           ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-          : `<button class="discover-card-btn" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
+          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
       return `
-        <div class="discover-card" onclick="openProfile('${u.id}')">
+        <div class="discover-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
           <div class="discover-card-avatar">
             ${avatar(u.displayName, u.photoURL, 'avatar-lg')}
             ${online}
@@ -3988,7 +4442,7 @@ function cleanupExpiredStories() {
 }
 
 function loadStories() {
-  const row = $('#stories-row'); if (!row) return;
+  const row = $('#stories-row') || $('#messages-stories-row'); if (!row) return;
   // Clear all but the add-story button
   row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
 
@@ -4170,7 +4624,7 @@ function showStoryFrame() {
   const viewCount = Math.max(0, (story.viewedBy || []).filter(uid => uid !== state.user.uid).length);
   hdr.innerHTML = `
     ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
-    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · ${viewCount} view${viewCount === 1 ? '' : 's'}` : ''}</small></div>
+    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
     ${isMyStory ? `<button class="story-delete-btn" onclick="deleteStory('${story.id}')">Delete</button>` : ''}
   `;
 
@@ -4217,15 +4671,20 @@ function showStoryFrame() {
     if (!isMyStory) {
       replyBar.style.display = 'flex';
       replyInput.value = '';
+      if (replySend) {
+        replySend.type = 'button';
+        replySend.innerHTML = '❤';
+        replySend.title = 'Like story';
+      }
       replyInput.onfocus = () => clearTimeout(storyViewerData.timer);
-      replyInput.onblur = () => { storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
+      replyInput.onblur = () => { if (!storyViewerData.paused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
       const doReply = () => {
         const text = replyInput.value.trim();
         if (!text) return;
         replyInput.value = '';
         sendStoryReply(story, text);
       };
-      replySend.onclick = doReply;
+      replySend.onclick = () => toggleStoryLike(story);
       replyInput.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doReply(); } };
     } else {
       replyBar.style.display = 'none';
@@ -4236,6 +4695,72 @@ function showStoryFrame() {
   $('#story-prev').onclick = () => advanceStory(-1);
   $('#story-next').onclick = () => advanceStory(1);
   $('#story-close').onclick = closeStoryViewer;
+  const storyContentEl = $('#story-viewer-content');
+  if (storyContentEl) {
+    storyContentEl.onpointerdown = () => pauseStoryViewer();
+    storyContentEl.onpointerup = () => resumeStoryViewer(autoAdvanceMs);
+    storyContentEl.onpointercancel = () => resumeStoryViewer(autoAdvanceMs);
+    storyContentEl.onclick = () => {
+      if (storyViewerData.paused) resumeStoryViewer(autoAdvanceMs);
+      else pauseStoryViewer();
+    };
+  }
+}
+
+function pauseStoryViewer() {
+  clearTimeout(storyViewerData.timer);
+  storyViewerData.paused = true;
+  const vid = $('#story-viewer-content video');
+  if (vid && !vid.paused) vid.pause();
+}
+
+function resumeStoryViewer(autoAdvanceMs = 5000) {
+  const wasPaused = !!storyViewerData.paused;
+  storyViewerData.paused = false;
+  const vid = $('#story-viewer-content video');
+  if (vid && vid.paused) vid.play().catch(() => {});
+  clearTimeout(storyViewerData.timer);
+  if (wasPaused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
+}
+
+async function openStoryInsights(storyId = '') {
+  try {
+    const doc = await db.collection('stories').doc(storyId).get();
+    if (!doc.exists) return;
+    const story = { id: doc.id, ...doc.data() };
+    const viewerIds = (story.viewedBy || []).filter(uid => uid && uid !== state.user?.uid);
+    const likeIds = (story.likes || []).filter(Boolean);
+    const ids = [...new Set([...viewerIds, ...likeIds])];
+    await ensureUserContextCache(ids, { force: false });
+    const renderRows = (arr = [], kind = 'Viewed') => arr.length
+      ? arr.map(uid => {
+          const info = resolveUserIdentity(uid, uid, null);
+          return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
+        }).join('')
+      : `<div class="empty-state" style="padding:10px 0"><p>No one yet</p></div>`;
+    openModal(`
+      <div class="modal-header"><h2>Story activity</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px;display:grid;gap:14px">
+        <div><h3 style="margin:0 0 8px">Views</h3>${renderRows(viewerIds, 'Viewed')}</div>
+        <div><h3 style="margin:0 0 8px">Likes</h3>${renderRows(likeIds, 'Liked')}</div>
+      </div>
+    `);
+  } catch (e) { console.error(e); }
+}
+
+async function toggleStoryLike(story = {}) {
+  const storyId = story.id || '';
+  if (!storyId || !state.user?.uid) return;
+  const ref = db.collection('stories').doc(storyId);
+  const myId = state.user.uid;
+  const likes = Array.isArray(story.likes) ? [...story.likes] : [];
+  const liked = likes.includes(myId);
+  try {
+    await ref.update({ likes: liked ? FieldVal.arrayRemove(myId) : FieldVal.arrayUnion(myId) });
+    story.likes = liked ? likes.filter(id => id !== myId) : [...likes, myId];
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 function advanceStory(dir) {
@@ -4318,6 +4843,7 @@ async function sendStoryReply(story, text) {
       lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
       unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
     }, { merge: true });
+    await addNotification(authorId, 'message', 'sent you a story reply', { convoId });
     toast('Reply sent!');
   } catch (e) { console.error(e); toast('Failed to send reply'); }
 }
@@ -4355,15 +4881,16 @@ const _pendingQuotePlayers = [];
 function renderQuoteEmbed(rp, options = {}) {
   if (!rp) return '';
   const { repostStyle = false } = options;
-  const hasImg = rp.imageURL && rp.mediaType !== 'video';
-  const hasVid = rp.videoURL || (rp.mediaType === 'video');
+  const hasVid = !!(rp.videoURL || (rp.mediaType === 'video') || (rp.imageURL && /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(rp.imageURL)));
+  const hasImg = !!(rp.imageURL && !hasVid);
   const vidUrl = hasVid ? (rp.videoURL || rp.imageURL) : null;
   let vidHtml = '';
   if (hasVid && vidUrl) {
     const vpd = createVideoPlayer(vidUrl);
     _pendingQuotePlayers.push(vpd);
-    vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;max-height:200px">${vpd.html}</div>`;
+    vidHtml = `<div onclick="event.stopPropagation()" style="border-radius:8px;overflow:hidden;margin-top:8px">${vpd.html}</div>`;
   }
+  const quoteImgMax = repostStyle ? 260 : 200;
   return `
     <div class="quote-embed${repostStyle ? ' quote-embed-repost' : ''}" onclick="${rp.id ? `viewPost('${rp.id}')` : ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:8px 0;background:var(--bg-secondary)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -4371,7 +4898,7 @@ function renderQuoteEmbed(rp, options = {}) {
         <span style="font-weight:600;font-size:13px">${esc(rp.authorName || 'User')}</span>
       </div>
       ${rp.content ? `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(rp.content)}</div>` : ''}
-      ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
+      ${hasImg && rp.imageURL ? `<img src="${rp.imageURL}" style="width:100%;max-height:${quoteImgMax}px;object-fit:cover;border-radius:8px" onclick="event.stopPropagation();viewImage('${rp.imageURL}')">` : ''}
       ${vidHtml}
     </div>`;
 }
@@ -4384,11 +4911,11 @@ function renderFeedInlineSuggestionCard(user = {}) {
     ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
     : isPending
       ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-      : `<button class="discover-card-btn" onclick="event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
+      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
   return `
-    <div class="post-card feed-inline-suggestion" onclick="openProfile('${user.id}')">
+    <div class="post-card feed-inline-suggestion" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
-        <h3>Suggested for you</h3>
+        <h3>People you may know</h3>
       </div>
       <div class="discover-card" style="margin:0 14px 14px">
         <div class="discover-card-avatar">
@@ -4396,10 +4923,75 @@ function renderFeedInlineSuggestionCard(user = {}) {
           ${user.status === 'online' ? '<span class="online-dot"></span>' : ''}
         </div>
         <div class="discover-card-name">${esc(user.displayName || 'User')}</div>
-        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}</div>
+        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
         ${action}
       </div>
     </div>`;
+}
+
+function renderFeedInlineSuggestionRail(users = []) {
+  const picks = (users || []).slice(0, 10);
+  const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
+  if (!picks.length && !eventPicks.length) return '';
+  return `
+    <div class="post-card feed-inline-suggestion feed-inline-suggestion-rail">
+      <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
+        <h3>Suggestions</h3>
+      </div>
+      <div class="suggested-list">${picks.map(user => {
+        const isFriend = (state.profile?.friends || []).includes(user.id);
+        const isPending = (state.profile?.sentRequests || []).includes(user.id);
+        const action = isFriend
+          ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
+          : isPending
+            ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
+            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
+          return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
+          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
+          <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
+          <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+          ${action}
+        </div>`;
+      }).join('')}
+      ${eventPicks.map(ev => {
+        const loc = getCampusLocationById(ev.location);
+        const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
+        return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
+          ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : `<div class="suggested-event-emoji">${esc(ev.emoji || '📅')}</div>`}
+          <div class="suggested-card-name">${esc(ev.title || 'Campus event')}</div>
+          <div class="suggested-card-meta">${esc(loc ? loc.name : (ev.location || 'Event'))}</div>
+          <button class="btn-sm btn-outline" onclick="event.preventDefault();event.stopPropagation();openEventDetail('${ev.id || ''}')">Open</button>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+}
+
+function renderPostCommentPreview(postId) {
+  const cached = _postTopCommentCache.get(postId);
+  const hidden = cached ? '' : 'style="display:none"';
+  return `<button class="post-comment-preview" onclick="openComments('${postId}')" ${hidden}><span class="post-comment-preview-label">Top comment</span><span class="post-comment-preview-text">${esc(cached || '')}</span></button>`;
+}
+
+async function hydratePostCommentPreviews(posts = []) {
+  const needs = posts.map(p => p.id).filter(id => id && !_postTopCommentCache.has(id)).slice(0, 8);
+  await Promise.all(needs.map(async postId => {
+    try {
+      const snap = await db.collection('posts').doc(postId).collection('comments').limit(25).get();
+      const comments = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => !c.replyTo && (c.text || '').trim());
+      if (!comments.length) {
+        _postTopCommentCache.set(postId, '');
+        return;
+      }
+      comments.sort((a, b) => {
+        const aScore = getReactionSummary(a.reactions, a.likes || []).total;
+        const bScore = getReactionSummary(b.reactions, b.likes || []).total;
+        return bScore - aScore || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+      });
+      _postTopCommentCache.set(postId, clampText(comments[0].text || '', 90));
+    } catch (_) {
+      _postTopCommentCache.set(postId, '');
+    }
+  }));
 }
 
 // ─── Render Posts ────────────────────────────────
@@ -4448,6 +5040,7 @@ function renderPosts(posts) {
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
+        ${post.poll ? renderInteractivePoll(post.poll, 'post', post.id, '') : ''}
         ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
@@ -4467,32 +5060,56 @@ function renderPosts(posts) {
             </button>
           </div>
         </div>
+        ${renderPostCommentPreview(post.id)}
       </div>`;
   });
 
-  const maxSuggestionsLeft = Math.max(0, 4 - _feedInlineSuggestionSlotsUsed);
+  const maxSuggestionsLeft = Math.max(0, 2 - _feedInlineSuggestionSlotsUsed);
   if (maxSuggestionsLeft > 0 && Array.isArray(_usersCache?.data) && _usersCache.data.length) {
     const blockedUsers = new Set(state.profile?.blockedUsers || []);
     const blockedBy = new Set(state.profile?.blockedBy || []);
+    const myModules = normalizeModules(state.profile?.modules || []);
+    const myMajor = (state.profile?.major || '').toLowerCase();
     const pool = _usersCache.data.filter(u => {
       if (!u?.id || u.id === state.user?.uid) return false;
       if (_feedInlineSuggestedUserIds.has(u.id)) return false;
       if ((state.profile?.friends || []).includes(u.id)) return false;
       if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
       return true;
-    }).sort(() => Math.random() - 0.5);
-    const desired = Math.min(maxSuggestionsLeft, Math.ceil(posts.length / 8));
+    }).map(u => {
+      const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
+      const majorBoost = (u.major || '').toLowerCase() === myMajor ? 2 : 0;
+      const genderBoost = genderAffinityScore(state.profile, u) * 0.25;
+      return { ...u, _score: overlap * 3 + majorBoost + genderBoost + scoreSeed(u.id) };
+    }).sort((a, b) => b._score - a._score);
+    const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
+    const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
+    const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
-      const pick = pool[i];
-      if (!pick) break;
-      const slot = Math.min(postCards.length, (i + 1) * 6);
-      postCards.splice(slot, 0, renderFeedInlineSuggestionCard(pick));
-      _feedInlineSuggestedUserIds.add(pick.id);
+      const picks = pool.slice(0, 15);
+      if (!picks.length) break;
+      const spread = Math.max(4, Math.min(9, posts.length - 2));
+      const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
+      const slot = Math.min(postCards.length, offset + i * 7);
+      postCards.splice(slot, 0, renderFeedInlineSuggestionRail(picks));
+      picks.forEach(p => _feedInlineSuggestedUserIds.add(p.id));
       _feedInlineSuggestionSlotsUsed += 1;
     }
   }
 
   el.innerHTML = postCards.join('');
+  primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => {});
+  el.classList.remove('feed-ready');
+  requestAnimationFrame(() => el.classList.add('feed-ready'));
+  hydratePostCommentPreviews(posts).then(() => {
+    posts.forEach(post => {
+      const card = document.querySelector(`.post-card[data-post-id="${post.id}"] .post-comment-preview`);
+      const text = _postTopCommentCache.get(post.id) || '';
+      if (!card || !text) return;
+      card.innerHTML = `<span class="post-comment-preview-label">Top comment</span><span class="post-comment-preview-text">${esc(text)}</span>`;
+      card.style.display = 'flex';
+    });
+  });
 
   // Initialize all custom video players after DOM update
   requestAnimationFrame(() => {
@@ -4523,6 +5140,66 @@ function renderPosts(posts) {
     }, { threshold: 0.5 });
     el.querySelectorAll('.post-card[data-post-id]').forEach(card => _feedSeenObserver.observe(card));
   });
+}
+
+function openLiveStreamFromFeed(streamId = '', isOwn = false) {
+  if (!streamId) return;
+  openVideoHub('live');
+  setTimeout(() => {
+    if (isOwn) openHostLiveView(streamId);
+    else joinLiveStream(streamId);
+  }, 90);
+}
+
+function loadFeedLiveSpotlight() {
+  const host = document.getElementById('feed-live-spotlight');
+  if (!host) return;
+  host.innerHTML = '<div class="feed-live-card feed-live-card-loading"><span class="inline-spinner"></span><span>Checking who is live…</span></div>';
+  host.style.display = 'block';
+  db.collection('liveStreams')
+    .where('status', 'in', ['live', 'starting'])
+    .limit(6)
+    .get()
+    .then(snap => {
+      const streams = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.currentViewerCount || 0) - (a.currentViewerCount || 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+      if (!streams.length) {
+        host.style.display = 'none';
+        host.innerHTML = '';
+        return;
+      }
+      const picks = streams.slice(0, 3);
+      host.innerHTML = `
+        <div class="feed-live-head">
+          <div class="feed-live-title">🔴 Live now</div>
+          <button class="btn-outline btn-sm" onclick="openVideoHub('live')">Open live</button>
+        </div>
+        <div class="feed-live-row">
+          ${picks.map(stream => {
+            const isOwn = stream.hostUid === state.user?.uid;
+            const viewers = Number(stream.currentViewerCount || 0);
+            const cover = stream.thumbnailUrl || stream.hostPhotoURL || '';
+            return `
+              <button type="button" class="feed-live-card" onclick="openLiveStreamFromFeed('${stream.id}', ${isOwn ? 'true' : 'false'})">
+                <div class="feed-live-media">
+                  ${cover ? `<img src="${cover}" alt="">` : `<div class="feed-live-fallback">${avatar(stream.hostName || 'Live', stream.hostPhotoURL || null, 'avatar-lg')}</div>`}
+                  <span class="feed-live-badge">● LIVE</span>
+                </div>
+                <div class="feed-live-copy">
+                  <div class="feed-live-card-title">${esc(stream.title || 'Untitled stream')}</div>
+                  <div class="feed-live-card-meta">${esc(stream.hostName || 'User')} · ${viewers} watching</div>
+                </div>
+              </button>`;
+          }).join('')}
+        </div>
+      `;
+    })
+    .catch(err => {
+      console.warn('feed live spotlight', err);
+      host.style.display = 'none';
+      host.innerHTML = '';
+    });
 }
 
 // ═══════════════════════════════════════════════════
@@ -4706,6 +5383,11 @@ function openReelsViewer() { openVideoHub('clips'); }
 function closeReelsViewer() { closeVideoHub(); }
 
 function toggleReelPlay(overlay) {
+  const panel = document.getElementById('reel-comments-panel');
+  if (panel) {
+    closeReelComments();
+    return;
+  }
   const vid = overlay.parentElement.querySelector('.reel-video');
   if (!vid) return;
   if (vid.paused) {
@@ -4985,36 +5667,48 @@ function openHostLiveView(streamId) {
 
 // ─── SWITCH CAMERA (front/back) ──────────────────
 async function switchLiveCamera() {
-  _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user';
+  const previousFacingMode = _hostFacingMode;
+  const currentVideoTrack = _hostStream?.getVideoTracks?.()[0] || null;
+  const currentAudioTrack = _hostStream?.getAudioTracks?.()[0] || null;
   try {
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: _hostFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true
+    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    const videoInputs = devices.filter(device => device.kind === 'videoinput');
+    let targetConstraints;
+    if (videoInputs.length > 1) {
+      const currentId = currentVideoTrack?.getSettings?.().deviceId || '';
+      const currentIndex = Math.max(0, videoInputs.findIndex(device => device.deviceId === currentId));
+      const nextDevice = videoInputs[(currentIndex + 1) % videoInputs.length];
+      _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user';
+      targetConstraints = { deviceId: { exact: nextDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } };
+    } else {
+      _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user';
+      targetConstraints = { facingMode: { ideal: _hostFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } };
+    }
+
+    const videoOnlyStream = await navigator.mediaDevices.getUserMedia({ video: targetConstraints, audio: false }).catch(async () => {
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: _hostFacingMode }, audio: false });
     });
-    // Replace tracks in existing peer connections
-    const newVideoTrack = newStream.getVideoTracks()[0];
-    const newAudioTrack = newStream.getAudioTracks()[0];
-    Object.values(_viewerPeerConns).forEach(pc => {
-      const senders = pc.getSenders();
-      senders.forEach(sender => {
-        if (sender.track?.kind === 'video' && newVideoTrack) sender.replaceTrack(newVideoTrack).catch(() => {});
-        if (sender.track?.kind === 'audio' && newAudioTrack) sender.replaceTrack(newAudioTrack).catch(() => {});
-      });
-    });
-    // Stop old tracks
-    if (_hostStream) _hostStream.getTracks().forEach(t => t.stop());
-    _hostStream = newStream;
-    // Update host preview
+    const newVideoTrack = videoOnlyStream.getVideoTracks()[0];
+    if (!newVideoTrack) throw new Error('missing-video-track');
+
+    await Promise.all(Object.values(_viewerPeerConns).map(async pc => {
+      const videoSender = pc.getSenders().find(sender => sender.track?.kind === 'video');
+      if (videoSender) await videoSender.replaceTrack(newVideoTrack).catch(() => {});
+    }));
+
+    const oldVideoTracks = _hostStream?.getVideoTracks?.() || [];
+    _hostStream = new MediaStream([newVideoTrack, ...(currentAudioTrack ? [currentAudioTrack] : [])]);
     const hostVideo = document.getElementById('host-live-video');
     if (hostVideo) {
-      hostVideo.srcObject = newStream;
-      // Mirror only front camera, not back
+      hostVideo.srcObject = _hostStream;
       hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
+      await hostVideo.play?.().catch(() => {});
     }
+    oldVideoTracks.forEach(track => { try { track.stop(); } catch (_) {} });
   } catch (e) {
     console.error('Camera switch error:', e);
     toast('Could not switch camera');
-    _hostFacingMode = _hostFacingMode === 'user' ? 'environment' : 'user'; // revert
+    _hostFacingMode = previousFacingMode;
   }
 }
 
@@ -5447,6 +6141,23 @@ async function openReelComments(postId, options = {}) {
 
   if (reelsScroll) reelsScroll.scrollTop = scrollPos;
 
+  const panel = existing || document.createElement('div');
+  panel.id = 'reel-comments-panel';
+  panel.className = 'reel-comments-panel is-loading';
+  panel.onclick = e => e.stopPropagation();
+  panel.innerHTML = `
+    <div class="reel-comments-header">
+      <h3>Comments</h3>
+      <button class="icon-btn" onclick="closeReelComments()">✕</button>
+    </div>
+    <div class="reel-comments-list" id="reel-comments-list">
+      <div style="display:flex;align-items:center;justify-content:center;padding:24px 0"><span class="inline-spinner" style="width:24px;height:24px"></span></div>
+    </div>
+  `;
+  if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
+  document.getElementById('video-hub')?.classList.add('reel-comments-open');
+  requestAnimationFrame(() => panel.classList.add('is-open'));
+
   let comments = [];
   try {
     const snap = await db.collection('posts').doc(postId).collection('comments').limit(100).get();
@@ -5469,7 +6180,6 @@ async function openReelComments(postId, options = {}) {
   const renderComment = (c, isReply = false) => {
     const liked = (c.likes || []).includes(state.user.uid);
     const myReaction = getUserReaction(c.reactions, c.likes || []);
-    const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
     const cReplies = replyMap[c.id] || [];
     const target = c.replyTo ? commentById[c.replyTo] : null;
     const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
@@ -5486,10 +6196,8 @@ async function openReelComments(postId, options = {}) {
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
-            ${reactionSummary}
-            <button class="c-act ${liked ? 'liked' : ''}" onclick="toggleReelCommentLike('${c.id}','${postId}')">Like ${c.likeCount > 0 ? c.likeCount : ''}</button>
-            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
+            <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','reel')" onmousedown="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
           </div>
           ${cReplies.length ? `
             <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -5501,10 +6209,7 @@ async function openReelComments(postId, options = {}) {
       </div>`;
   };
 
-  const panel = existing || document.createElement('div');
-  panel.id = 'reel-comments-panel';
-  panel.className = 'reel-comments-panel';
-  panel.onclick = e => e.stopPropagation();
+  panel.className = 'reel-comments-panel is-open';
   panel.innerHTML = `
     <div class="reel-comments-header">
       <h3>Comments</h3>
@@ -5529,12 +6234,10 @@ async function openReelComments(postId, options = {}) {
       </div>
     </div>
   `;
-  if (!existing) (document.getElementById('video-hub') || document.body).appendChild(panel);
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
-    const reelPost = (_reelVideos || []).find(p => p.id === postId) || (state.posts || []).find(p => p.id === postId) || {};
-    bindCommentLongPress(list, postId, 'reel', reelPost.authorId || '');
+    bindCommentLongPress(list, postId, 'reel');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`rc-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -5571,6 +6274,7 @@ async function openReelComments(postId, options = {}) {
 function closeReelComments() {
   const panel = document.getElementById('reel-comments-panel');
   if (panel) panel.remove();
+  document.getElementById('video-hub')?.classList.remove('reel-comments-open');
 }
 
 async function postReelComment(postId) {
@@ -5616,6 +6320,7 @@ async function postReelComment(postId) {
       createdAt: new Date().toISOString()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
+    _postTopCommentCache.set(postId, clampText(text || 'Photo comment', 90));
     _pendingReelCommentImageFile = null;
     _reelCommentReplyTo = null;
     clearReelCommentImage();
@@ -5666,7 +6371,12 @@ function setupFeedVideoAutoplay() {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-        vid.play().catch(() => {});
+        vid.muted = false;
+        vid.play().catch(() => {
+          // Browser policy fallback if autoplay with sound is blocked.
+          vid.muted = true;
+          vid.play().catch(() => {});
+        });
       } else {
         vid.pause();
       }
@@ -5684,6 +6394,7 @@ async function toggleLike(pid) {
 // ─── Comments with Replies ────────────────────────────────────
 let _commentReplyTo = null; // { id, authorName } or null
 let _sendingComment = false;
+const _commentStateCache = {};
 
 async function toggleCommentLike(cid, pid) {
   await reactToComment(pid, cid, '❤️', 'feed');
@@ -5695,6 +6406,17 @@ async function openComments(postId, options = {}) {
   const existingList = $('#comments-container');
   const prevListScroll = existingList ? existingList.scrollTop : 0;
   const isExistingCommentsModal = modalBg?.style.display === 'flex' && !!modalInner?.querySelector('.comment-modal-body');
+  const loadingHtml = `
+    <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body comment-modal-body" style="display:flex;align-items:center;justify-content:center;height:72vh;padding:0">
+      <span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span>
+    </div>
+  `;
+  if (isExistingCommentsModal) {
+    modalInner.innerHTML = loadingHtml;
+  } else {
+    openModal(loadingHtml);
+  }
   let postData = null;
   let comments = [];
   try {
@@ -5721,7 +6443,13 @@ async function openComments(postId, options = {}) {
     replyMap[r.replyTo].push(r);
   });
   const commentById = {};
-  comments.forEach(c => { commentById[c.id] = c; });
+  comments.forEach(c => {
+    commentById[c.id] = c;
+    _commentStateCache[c.id] = {
+      reactions: normalizeReactionMap(c.reactions, c.likes || []),
+      likes: [...(c.likes || [])]
+    };
+  });
 
   _commentReplyTo = null;
   _pendingCommentImageFile = null;
@@ -5732,7 +6460,6 @@ async function openComments(postId, options = {}) {
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
       const myReaction = getUserReaction(c.reactions, c.likes || []);
-      const reactionSummary = renderReactionSummary(c.reactions, c.likes || [], 'inline');
      const cReplies = replyMap[c.id] || [];
       const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
       const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
@@ -5740,8 +6467,7 @@ async function openComments(postId, options = {}) {
       const target = c.replyTo ? commentById[c.replyTo] : null;
       const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
       const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
-      const fromLabel = c.authorId === state.user.uid ? 'me' : displayName;
-      const toLabel = target ? (target.authorId === state.user.uid ? 'me' : targetDisplayName) : '';
+      const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
      
      return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
@@ -5751,20 +6477,15 @@ async function openComments(postId, options = {}) {
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(displayName)}</span>
+                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(replyLabel)}</span>
               </div>
-                ${target ? `<div class="comment-reply-to">${esc(fromLabel)} &gt; ${esc(toLabel)}</div>` : ''}
               <div class="comment-text">${esc(c.text)}</div>
               ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
            </div>
            <div class="comment-actions-row">
                <span class="comment-time">${timeAgo(c.createdAt)}</span>
-              ${reactionSummary}
-               <button class="c-act ${liked?'liked':''}" onclick="toggleCommentLike('${c.id}','${postId}')">
-                  ${liked ? 'Like' : 'Like'} ${c.likeCount > 0 ? c.likeCount : ''}
-               </button>
-            <button class="c-act ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction}')">${myReaction && myReaction !== '❤️' ? myReaction : 'React'}</button>
             <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
+            <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -5811,11 +6532,9 @@ async function openComments(postId, options = {}) {
     </div>
   `;
 
-  if (isExistingCommentsModal) {
-    modalInner.innerHTML = commentModalHtml;
-  } else {
-    openModal(commentModalHtml);
-  }
+  const activeInner = $('#modal-inner');
+  if (!activeInner) return;
+  activeInner.innerHTML = commentModalHtml;
 
   const cInput = $('#comment-input');
   if (cInput) {
@@ -5842,7 +6561,7 @@ async function openComments(postId, options = {}) {
 
   const commentsList = $('#comments-container');
   if (commentsList) {
-    bindCommentLongPress(commentsList, postId, 'feed', postData?.authorId || '');
+    bindCommentLongPress(commentsList, postId, 'feed');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`c-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -5935,12 +6654,77 @@ async function postComment(postId) {
     
     if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId }, { anonymous: commentAnon });
 
-    // Reopen to show the new comment
+    // Silent UI update: append new comment without rebuilding modal.
+    const list = $('#comments-container');
+    if (list) {
+      const displayName = commentAnon ? 'Anonymous' : state.profile.displayName;
+      const displayPhoto = commentAnon ? null : (state.profile.photoURL || null);
+      const tempId = `tmp-${Date.now()}`;
+      const node = document.createElement('div');
+      node.className = 'comment-item';
+      node.id = `c-${tempId}`;
+      node.dataset.commentId = tempId;
+      node.dataset.authorId = state.user.uid;
+      _commentStateCache[tempId] = { reactions: {}, likes: [] };
+      node.innerHTML = `
+        <div class="comment-avatar-col">${commentAnon ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(displayName, displayPhoto, 'avatar-sm')}</div>
+        <div class="comment-content-col">
+          <div class="comment-bubble enhanced">
+            <div class="comment-header"><span class="comment-author">${esc(displayName)}</span></div>
+            <div class="comment-text">${esc(text || '')}</div>
+            ${imageURL ? `<img src="${imageURL}" class="comment-inline-image" onclick="viewImage('${imageURL}')">` : ''}
+          </div>
+          <div class="comment-actions-row">
+            <span class="comment-time">Just now</span>
+            <button class="c-act" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
+            <button class="c-act like-only" type="button" disabled title="Syncing...">${renderCommentLikeMarkup(false, 0, '')}</button>
+          </div>
+        </div>
+      `;
+      if (replyTo) {
+        const parentItem = list.querySelector(`#c-${replyTo}`);
+        if (parentItem) {
+          let parentReplyWrap = parentItem.querySelector('.comment-replies');
+          let toggleBtn = parentItem.querySelector('.toggle-replies-btn');
+          if (!parentReplyWrap) {
+            const contentCol = parentItem.querySelector('.comment-content-col');
+            toggleBtn = document.createElement('button');
+            toggleBtn.className = 'toggle-replies-btn expanded';
+            toggleBtn.setAttribute('onclick', 'toggleCommentReplies(this)');
+            toggleBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 15 12 9 18 15"/></svg> Hide 1 reply';
+            parentReplyWrap = document.createElement('div');
+            parentReplyWrap.className = 'comment-replies';
+            parentReplyWrap.style.display = 'flex';
+            if (contentCol) {
+              contentCol.appendChild(toggleBtn);
+              contentCol.appendChild(parentReplyWrap);
+            }
+          }
+          const nextCount = (parentReplyWrap?.querySelectorAll('.comment-item').length || 0) + 1;
+          if (toggleBtn) {
+            toggleBtn.classList.add('expanded');
+            toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 15 12 9 18 15"/></svg> Hide ${nextCount} repl${nextCount === 1 ? 'y' : 'ies'}`;
+          }
+          if (parentReplyWrap) {
+            parentReplyWrap.style.display = 'flex';
+            parentReplyWrap.appendChild(node);
+          } else {
+            list.prepend(node);
+          }
+        } else {
+          list.prepend(node);
+        }
+      } else {
+        list.prepend(node);
+      }
+    }
+
     _pendingCommentImageFile = null;
     _commentReplyTo = null;
     clearCommentImage();
     clearCommentReply();
-    openComments(postId, { focusCommentId: docRef.id, scrollMode: 'preserve' });
+    state.posts = (state.posts || []).map(p => p.id === postId ? { ...p, commentsCount: Number(p.commentsCount || 0) + 1 } : p);
+    refreshPostCardsUI(postId);
   } catch (e) { console.error(e); toast('Failed'); }
   finally { _sendingComment = false; if (sendBtn) sendBtn.disabled = false; }
 }
@@ -5957,16 +6741,92 @@ function clearCommentImage() {
 let _galleryUrls = [];
 let _galleryIdx = 0;
 function viewImage(url) { openGallery([url], 0); }
+function closeGalleryViewer() {
+  const v = $('#img-view');
+  if (v) v.style.display = 'none';
+  document.body.classList.remove('image-view-open');
+  _galleryUrls = [];
+}
+
+function guessDownloadFilename(url = '', fallback = 'download') {
+  try {
+    const clean = String(url || '').split('#')[0].split('?')[0];
+    const last = clean.split('/').pop() || '';
+    if (last && /\.[a-z0-9]{2,8}$/i.test(last)) return last;
+  } catch (_) {}
+  return fallback;
+}
+
+async function downloadMediaUrl(url = '', fallback = 'download') {
+  const target = String(url || '').trim();
+  if (!target) return;
+  try {
+    const name = guessDownloadFilename(target, fallback);
+    const a = document.createElement('a');
+    a.href = target;
+    a.download = name;
+    a.rel = 'noopener';
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    console.error(e);
+    toast('Could not start download');
+  }
+}
+
+function downloadCurrentGalleryImage() {
+  if (!_galleryUrls.length) return;
+  downloadMediaUrl(_galleryUrls[_galleryIdx], 'image');
+}
+
+function openVideoDownloadPrompt(url = '') {
+  const target = String(url || '').trim();
+  if (!target) return;
+  openModal(`
+    <div class="modal-header"><h2>Video</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px;display:grid;gap:10px">
+      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrl(${JSON.stringify(target)}, 'video')">Download</button>
+      <button class="btn-secondary btn-full" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+const _mediaCacheWarm = new Map();
+async function primeMediaCache(urls = [], limit = 6) {
+  if (!('caches' in window)) return;
+  const list = [...new Set((urls || []).filter(Boolean))].slice(0, limit);
+  if (!list.length) return;
+  try {
+    const cache = await caches.open('unino-media-v1');
+    const now = Date.now();
+    await Promise.all(list.map(async url => {
+      const last = _mediaCacheWarm.get(url) || 0;
+      if (now - last < 15 * 60 * 1000) return;
+      _mediaCacheWarm.set(url, now);
+      const match = await cache.match(url);
+      if (match) return;
+      try {
+        const resp = await fetch(url, { cache: 'force-cache', mode: 'cors' });
+        if (resp.ok) await cache.put(url, resp.clone());
+      } catch (_) {}
+    }));
+  } catch (_) {}
+}
 function openGallery(urls, startIdx = 0) {
   _galleryUrls = urls || [];
   _galleryIdx = startIdx;
   const v = $('#img-view'); if (!v) return;
   _renderGalleryFrame();
+  document.body.classList.add('image-view-open');
   v.style.display = 'flex';
 }
 function _renderGalleryFrame() {
   if (!_galleryUrls.length) return;
   $('#img-full').src = _galleryUrls[_galleryIdx];
+  const dl = $('#img-download');
+  if (dl) dl.style.display = 'flex';
   const counter = $('#img-counter');
   const prev = $('#img-prev');
   const next = $('#img-next');
@@ -5986,6 +6846,8 @@ function _renderGalleryFrame() {
 function openCreateModal() {
   let pendingFiles = [];
   let pendingIsVideo = false;
+  let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
+  let postPoll = null;
   let createTab = 'post'; // 'post' or 'event'
   window._eventFiles = [];
 
@@ -6000,31 +6862,38 @@ function openCreateModal() {
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
-      <div style="display:flex;gap:12px;margin-bottom:16px">
-        ${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}
-        <div>
-          <div style="font-weight:600">${esc(state.profile.displayName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
+      <div class="create-author-row">
+        <div class="create-author-main">
+          <div id="create-author-avatar">${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}</div>
+          <div>
+            <div id="create-author-name" style="font-weight:600">${esc(state.profile.displayName)}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
+          </div>
+        </div>
+        <div class="create-author-actions">
+          <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
         </div>
       </div>
       <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
       <div class="create-post-hint">Use #MATH301-style tags inside your post so students in that module can discover it. Choose Anonymous if you want the post hidden from your identity.</div>
+      <div id="create-mention-suggestions" class="create-mention-suggestions" style="display:none"></div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <label class="add-photo-btn" title="Photos"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*" id="create-file" multiple></label>
-          <label class="add-photo-btn" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" stroke="var(--accent)" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7" fill="var(--accent)"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none"/></svg><input type="file" hidden accept="video/*" id="create-video-file"></label>
+      <div class="create-post-actions-row">
+        <div class="create-post-actions-left">
+          <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
+          <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin</button>
+          <button type="button" class="btn-outline" id="create-poll-btn" style="padding:7px 10px;font-size:12px">📊 Poll</button>
           <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
-            <option value="anonymous">👻 Anonymous</option>
           </select>
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
+      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div><div id="create-poll-pill" style="display:none;margin-top:8px;font-size:12px;color:var(--text-secondary)"></div>
       ` : `
       <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
       <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
@@ -6052,6 +6921,88 @@ function openCreateModal() {
   };
 
   const wirePostTab = () => {
+    let createAnon = false;
+    const anonIdentity = getUserAnonIdentity(state.profile || {});
+    const mentionMap = new Map();
+
+    const refreshLocationUI = () => {
+      const pill = $('#create-location-pill');
+      if (!pill) return;
+      if (!locationPing.enabled) {
+        pill.style.display = 'none';
+        pill.textContent = '';
+        return;
+      }
+      const label = locationPing.label || 'Current location';
+      pill.style.display = 'block';
+      pill.textContent = `📍 ${label} · expires in 24h`;
+    };
+
+    const refreshPollUI = () => {
+      const pill = $('#create-poll-pill');
+      if (!pill) return;
+      if (!postPoll?.question) { pill.style.display = 'none'; pill.textContent = ''; return; }
+      pill.style.display = 'block';
+      pill.textContent = `📊 ${postPoll.question} · ${postPoll.options.length} options`;
+    };
+
+    const applyAnonUi = () => {
+      const btn = $('#create-anon-toggle');
+      if (!btn) return;
+      btn.setAttribute('aria-pressed', createAnon ? 'true' : 'false');
+      btn.textContent = createAnon ? '👻 Anon on' : '👻 Anon off';
+      btn.classList.toggle('anon-active', createAnon);
+      const nameEl = $('#create-author-name');
+      if (nameEl) nameEl.textContent = createAnon ? anonIdentity : (state.profile.displayName || 'User');
+      const avatarEl = $('#create-author-avatar');
+      if (avatarEl) {
+        avatarEl.innerHTML = createAnon
+          ? '<div class="avatar-md anon-avatar">👻</div>'
+          : avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md');
+      }
+    };
+
+    const renderMentionSuggestions = async () => {
+      const input = $('#create-text');
+      const box = $('#create-mention-suggestions');
+      if (!input || !box) return;
+      const value = input.value || '';
+      const atIndex = value.lastIndexOf('@');
+      if (atIndex < 0) { box.style.display = 'none'; return; }
+      const tail = value.slice(atIndex + 1);
+      if (!tail || /\s/.test(tail)) { box.style.display = 'none'; return; }
+      const q = tail.trim().toLowerCase();
+      if (q.length < 1) { box.style.display = 'none'; return; }
+      const users = await getUsersCache().catch(() => []);
+      const hits = users
+        .filter(u => u.id !== state.user.uid)
+        .map(u => ({ user: u, score: userSearchScore(u, q) }))
+        .filter(entry => entry.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6)
+        .map(entry => entry.user);
+      if (!hits.length) { box.style.display = 'none'; return; }
+      box.innerHTML = hits.map(u => `
+        <button type="button" class="create-mention-item" data-uid="${u.id}" data-name="${esc(u.displayName || 'User')}">
+          ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+          <span>${esc(u.displayName || 'User')}</span>
+        </button>
+      `).join('');
+      box.style.display = 'block';
+      box.querySelectorAll('.create-mention-item').forEach(btn => {
+        btn.onclick = () => {
+          const name = btn.getAttribute('data-name') || 'User';
+          const uid = btn.getAttribute('data-uid') || '';
+          const handle = mentionHandleForName(name);
+          const next = `${value.slice(0, atIndex)}@${handle} `;
+          input.value = next;
+          mentionMap.set(handle, uid);
+          box.style.display = 'none';
+          input.focus();
+        };
+      });
+    };
+
     const showPreviews = () => {
       const pc = $('#create-preview-content');
       if (!pendingFiles.length) { $('#create-preview').style.display = 'none'; return; }
@@ -6069,29 +7020,109 @@ function openCreateModal() {
       }
       $('#create-preview').style.display = 'block';
     };
-    if ($('#create-file')) $('#create-file').onchange = e => {
-      if (e.target.files.length) {
-        pendingFiles = [...pendingFiles, ...Array.from(e.target.files)];
-        pendingIsVideo = false;
-        showPreviews();
-      }
-    };
-    if ($('#create-video-file')) $('#create-video-file').onchange = e => {
-      if (e.target.files[0]) {
-        pendingFiles = [e.target.files[0]];
+    if ($('#create-media-file')) $('#create-media-file').onchange = e => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      const pickedVideo = files.find(file => file.type?.startsWith('video/'));
+      if (pickedVideo) {
+        pendingFiles = [pickedVideo];
         pendingIsVideo = true;
-        showPreviews();
+      } else {
+        pendingFiles = files;
+        pendingIsVideo = false;
       }
+      showPreviews();
     };
+    if ($('#create-anon-toggle')) {
+      $('#create-anon-toggle').onclick = () => {
+        createAnon = !createAnon;
+        applyAnonUi();
+      };
+      applyAnonUi();
+    }
+    const createTextInput = $('#create-text');
+    if (createTextInput) {
+      createTextInput.addEventListener('input', () => { renderMentionSuggestions().catch(() => {}); });
+      createTextInput.addEventListener('blur', () => {
+        setTimeout(() => {
+          const box = $('#create-mention-suggestions');
+          if (box) box.style.display = 'none';
+        }, 120);
+      });
+      createTextInput.addEventListener('focus', () => { renderMentionSuggestions().catch(() => {}); });
+    }
+    if ($('#create-pin-location')) $('#create-pin-location').onclick = () => {
+      if (!navigator.geolocation) return toast('Location is not available on this device');
+      toast('Getting location...');
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+          const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+          return !best || dist < best.dist ? { loc, dist } : best;
+        }, null);
+        locationPing = {
+          enabled: true,
+          label: nearestCampus?.loc?.name || `${lat}, ${lng}`,
+          lat,
+          lng,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        };
+        if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
+      openModal(`
+        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
+          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
+          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
+        </div>`);
+      $('#save-post-poll').onclick = () => {
+        const question = ($('#post-poll-question')?.value || '').trim();
+        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+        postPoll = { question, options, votes: {} };
+        closeModal();
+        refreshPollUI();
+      };
+    };
+    refreshLocationUI();
+    refreshPollUI();
+        toast('Pinned for 24h');
+      }, () => toast('Could not get location'), {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0
+      });
+    };
+    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
+      openModal(`
+        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
+          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
+          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
+        </div>`);
+      $('#save-post-poll').onclick = () => {
+        const question = ($('#post-poll-question')?.value || '').trim();
+        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
+        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+        postPoll = { question, options, votes: {} };
+        closeModal();
+        refreshPollUI();
+      };
+    };
+    refreshLocationUI();
+    refreshPollUI();
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
       const text = $('#create-text').value.trim();
       const moderation = applySoftKeywordFilterText(text);
       const safeText = moderation.text;
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
-      if (!safeText && !pendingFiles.length) return toast('Post cannot be empty');
+      const mentionHandles = extractMentionHandles(text);
+      if (!safeText && !pendingFiles.length && !postPoll) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
-      const isAnon = visibility === 'anonymous';
+      const isAnon = !!createAnon;
       const anonIdentity = getUserAnonIdentity(state.profile || {});
       closeModal(); toast('Uploading...');
       try {
@@ -6120,10 +7151,13 @@ function openCreateModal() {
           authorUni: state.profile.university || '',
           moduleTags,
           hashTags,
+          mentionHandles,
           moderationFlags: moderation.flags,
           moderationReviewNeeded: moderation.flagged,
+          locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
-          visibility: isAnon ? 'public' : visibility,
+          visibility,
+          poll: postPoll ? { question: postPoll.question, options: postPoll.options, votes: {} } : null,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
         shadowSyncPost(postRef.id, {
@@ -6132,10 +7166,23 @@ function openCreateModal() {
           content: safeText,
           imageURL: mediaType === 'image' || mediaType === 'collage' ? mediaURL : null,
           videoURL: mediaType === 'video' ? mediaURL : null,
-          visibility: isAnon ? 'public' : visibility,
+          visibility,
           createdAt: new Date().toISOString()
         });
         if (moduleTags.length) notifyRelevantModuleUsers(moduleTags, safeText, postRef.id, isAnon);
+        if (mentionHandles.length) {
+          const users = await getUsersCache().catch(() => []);
+          const byName = new Map(users.map(u => [mentionHandleForName(u.displayName || ''), u.id]));
+          const targets = new Set();
+          mentionHandles.forEach(handle => {
+            if (mentionMap.has(handle)) targets.add(mentionMap.get(handle));
+            else if (byName.has(handle)) targets.add(byName.get(handle));
+          });
+          targets.forEach(uid => {
+            if (!uid || uid === state.user.uid) return;
+            addNotification(uid, 'mention', 'mentioned you in a post', { postId: postRef.id }, { anonymous: isAnon });
+          });
+        }
         toast('Posted!');
       } catch (e) { toast('Failed'); console.error(e); }
     };
@@ -6167,7 +7214,7 @@ function openCreateModal() {
           const url = await uploadToR2(f, 'events');
           if (url) imageURLs.push(url);
         }
-        await db.collection('events').add({
+        const eventPayload = {
           title, location: locationText, date, time, description: desc,
           imageURLs,
           gradient: gradients[Math.floor(Math.random() * gradients.length)],
@@ -6175,7 +7222,9 @@ function openCreateModal() {
           creatorName: state.profile.displayName,
           going: [state.user.uid],
           createdAt: FieldVal.serverTimestamp()
-        });
+        };
+        const evRef = await db.collection('events').add(eventPayload);
+        await upsertEventChatGroup({ id: evRef.id, ...eventPayload });
         toast('Event created!');
         await loadCampusEvents();
         if (exploreView === 'radar') renderRadarView();
@@ -6194,15 +7243,16 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
+  if (!['radar', 'list'].includes(exploreView)) exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
       <div class="explore-toggle">
-        <button class="explore-toggle-btn active" data-v="radar">
+        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
           Radar
         </button>
-        <button class="explore-toggle-btn" data-v="list">
+        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           List
         </button>
@@ -6215,9 +7265,8 @@ function renderExplore() {
 
   $$('.explore-toggle-btn').forEach(btn => {
     btn.onclick = () => {
-      $$('.explore-toggle-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      exploreView = btn.dataset.v;
+      exploreView = btn.dataset.v || 'radar';
+      syncExploreToggleButtons();
       renderExploreView();
     };
   });
@@ -6240,7 +7289,7 @@ async function loadExploreUsers() {
 
     allExploreUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id) && !myFriends.has(u.id))
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
@@ -6250,12 +7299,15 @@ async function loadExploreUsers() {
         if (shared.length > 0) proximity = 'module';
         else if (nearbyScore > 0) proximity = 'nearby';
         else if (u.major === myMajor) proximity = 'course';
+        const isFriend = myFriends.has(u.id);
         const affinityScore = (shared.length * 20)
           + (u.major === myMajor ? 18 : 0)
           + (u.year && myYear && u.year === myYear ? 6 : 0)
           + (nearbyScore * 8)
-          + (u.status === 'online' ? 4 : 0);
-        return { ...u, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
+          + (u.status === 'online' ? 4 : 0)
+          + (isFriend ? 14 : 0)
+          + genderAffinityScore(state.profile, u);
+        return { ...u, isFriend, sharedModules: shared, proximity, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source, affinityScore };
       })
       .sort((a, b) => b.affinityScore - a.affinityScore || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
     renderExploreView();
@@ -6266,16 +7318,33 @@ async function loadExploreUsers() {
   }
 }
 
+function syncExploreToggleButtons() {
+  $$('.explore-toggle-btn').forEach(button => {
+    button.classList.toggle('active', button.dataset.v === exploreView);
+  });
+}
+
+function openCampusMapView() {
+  exploreView = 'radar';
+  if (state.page !== 'explore') {
+    navigate('explore');
+    return;
+  }
+  syncExploreToggleButtons();
+  renderExploreView();
+}
+
 function renderExploreView() {
-  if (exploreView === 'radar') renderRadarView();
-  else renderListView();
+  syncExploreToggleButtons();
+  if (exploreView === 'list') renderListView();
+  else renderRadarView();
 }
 
 function switchToExploreList(filter = 'all', queryRaw = '') {
   exploreView = 'list';
   const query = (queryRaw || '').trim();
   _exploreSearchQuery = query;
-  $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+  syncExploreToggleButtons();
   renderListView(query, filter);
 }
 
@@ -6291,26 +7360,24 @@ function renderRadarView() {
     </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
-      <div class="radar-overlay">
+      <div class="radar-overlay" id="radar-overlay">
         <div class="radar-ring r3"></div>
         <div class="radar-ring r2"></div>
         <div class="radar-ring r1"></div>
         <div class="radar-sweep-anim"></div>
       </div>
     </div>
+    <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
     <div id="radar-dynamic"></div>
   `;
 
   const applyRadarFilter = (queryRaw = '') => {
-    const searchQuery = (queryRaw || '').trim().toLowerCase();
-    let filteredUsers = allExploreUsers;
+    const searchQuery = (queryRaw || '').trim();
+    let filteredUsers = allExploreUsers.map(u => ({ ...u, _searchScore: userSearchScore(u, searchQuery) }));
     if (searchQuery) {
-      filteredUsers = allExploreUsers.filter(u =>
-        (u.displayName || '').toLowerCase().includes(searchQuery) ||
-        (u.address || '').toLowerCase().includes(searchQuery) ||
-        (u.major || '').toLowerCase().includes(searchQuery) ||
-        (u.modules || []).some(m => m.toLowerCase().includes(searchQuery))
-      );
+      filteredUsers = filteredUsers
+        .filter(u => u._searchScore > 0)
+        .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0));
     }
 
     const moduleUsers = filteredUsers.filter(u => u.proximity === 'module');
@@ -6381,7 +7448,8 @@ function renderRadarView() {
   const renderRadarSuggestions = (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
-    const q = (queryRaw || '').trim().toLowerCase();
+    const rawQuery = (queryRaw || '').trim();
+    const q = rawQuery.toLowerCase();
     if (!q) {
       box.style.display = 'none';
       box.innerHTML = '';
@@ -6389,20 +7457,23 @@ function renderRadarView() {
     }
 
     const peopleHits = allExploreUsers
-      .filter(u => (u.displayName || '').toLowerCase().includes(q))
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0))
       .slice(0, 4)
       .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
-    const addressPool = [
-      ...CAMPUS_LOCATIONS.map(l => l.name),
-      ...allExploreUsers.map(u => u.address || '').filter(Boolean)
-    ];
-    const addressHits = Array.from(new Set(addressPool))
-      .filter(a => a.toLowerCase().includes(q))
+    const locationHits = CAMPUS_LOCATIONS
+      .filter(loc => (loc.name || '').toLowerCase().includes(q))
       .slice(0, 4)
+      .map(loc => ({ type: 'location', locationId: loc.id, label: loc.name, sub: 'Campus pin' }));
+
+    const addressHits = Array.from(new Set(allExploreUsers.map(u => u.address || '').filter(Boolean)))
+      .filter(a => a.toLowerCase().includes(q))
+      .slice(0, 3)
       .map(a => ({ type: 'address', label: a, sub: 'Address' }));
 
-    const hits = [...peopleHits, ...addressHits].slice(0, 7);
+    const hits = [...peopleHits, ...locationHits, ...addressHits].slice(0, 7);
     if (!hits.length) {
       box.style.display = 'none';
       box.innerHTML = '';
@@ -6415,7 +7486,7 @@ function renderRadarView() {
         const photo = user?.photoURL || null;
         const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
         return `
-          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
             ${avatarHTML}
             <div class="radar-suggestion-text">
               <span class="radar-suggestion-main">${esc(h.label)}</span>
@@ -6425,7 +7496,7 @@ function renderRadarView() {
         `;
       }
       return `
-        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}">
+        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
           <span class="radar-suggestion-icon">📍</span>
           <div class="radar-suggestion-text">
             <span class="radar-suggestion-main">${esc(h.label)}</span>
@@ -6440,9 +7511,15 @@ function renderRadarView() {
         const selected = btn.getAttribute('data-v') || '';
         const kind = btn.getAttribute('data-type') || '';
         const uid = btn.getAttribute('data-uid') || '';
+        const locationId = btn.getAttribute('data-location-id') || '';
         if (kind === 'person' && uid) {
           box.style.display = 'none';
           openProfile(uid);
+          return;
+        }
+        if (kind === 'location' && locationId) {
+          box.style.display = 'none';
+          routeToCampusLocation(locationId);
           return;
         }
         const inp = $('#radar-search');
@@ -6465,7 +7542,7 @@ function renderRadarView() {
     window._radarSearchQuery = q;
     _exploreSearchQuery = q;
     exploreView = 'list';
-    $$('.explore-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'list'));
+    syncExploreToggleButtons();
     renderListView(q);
   };
 
@@ -6494,93 +7571,217 @@ function renderRadarView() {
 }
 
 
+
+function destroyRadarMapInstance() {
+  (_mapLibreMarkers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+  (_mapLibrePopups || []).forEach(popup => { try { popup.remove(); } catch (_) {} });
+  _mapLibreMarkers = [];
+  _mapLibrePopups = [];
+  if (_mapLibreMap) {
+    try { _mapLibreMap.remove(); } catch (_) {}
+    _mapLibreMap = null;
+  }
+  if (_leafletMap) {
+    try { _leafletMap.remove(); } catch (_) {}
+    _leafletMap = null;
+  }
+}
+
+function createMapLibreMarkerHTML(kind = 'user', options = {}) {
+  if (kind === 'me') return `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
+  if (kind === 'user') return `<div class="map-user-pin ${options.cls || ''}">${options.photoURL ? `<img src="${options.photoURL}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
+  if (kind === 'cluster') return `<div class="map-user-cluster">${Number(options.count || 0)}</div>`;
+  return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''} ${options.floating ? 'is-floating' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}${options.label ? `<span class="map-pin-label">${esc(options.label)}</span>` : ''}</div>`;
+}
+
+function buildRadarUserClusters(users = [], center = null) {
+  const grid = users.length > 42 ? 0.00042 : 0.00028;
+  const buckets = new Map();
+  users.forEach(u => {
+    const coords = getUserCoords(u);
+    if (!coords) return;
+    const distanceKm = distanceKmBetween(center, coords);
+    if (!Number.isFinite(distanceKm) || distanceKm > 5) return;
+    const key = `${Math.round(coords.lat / grid)}:${Math.round(coords.lng / grid)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(u);
+  });
+  return Array.from(buckets.values());
+}
+
+function openRadarClusterPreview(encoded = '') {
+  try {
+    const users = JSON.parse(decodeURIComponent(encoded || '[]')) || [];
+    if (!users.length) return;
+    openModal(`
+      <div class="modal-header"><h2>Nearby people</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body" style="padding:16px;display:grid;gap:10px">${users.slice(0,18).map(u => `
+        <button class="cluster-user-row" onclick="closeModal();showUserPreview('${u.id}')">
+          ${avatar(u.displayName || 'User', u.photoURL || '', 'avatar-sm')}
+          <span>${esc(u.displayName || 'User')}</span>
+        </button>`).join('')}
+      </div>
+    `);
+  } catch (_) {}
+}
+
+function attachMapLibreMarker(lng, lat, html, onClick) {
+  if (!_mapLibreMap || typeof maplibregl === 'undefined') return null;
+  const el = document.createElement('div');
+  el.className = 'maplibre-custom-marker';
+  el.innerHTML = html;
+  if (onClick) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      onClick();
+    });
+  }
+  const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(_mapLibreMap);
+  _mapLibreMarkers.push(marker);
+  return marker;
+}
+
+async function fetchOsrmRoute(start, end) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/foot/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('route-http');
+    const data = await res.json();
+    const route = data?.routes?.[0];
+    if (!route?.geometry?.coordinates?.length) throw new Error('route-empty');
+    const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+    return {
+      points,
+      distanceKm: (route.distance || 0) / 1000,
+      walkMinutes: Math.max(1, Math.round((route.duration || 0) / 60)),
+      direct: false,
+      source: 'osrm'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function buildBestRoute(startCoords = null, endCoords = null) {
+  const safeStart = startCoords || getRadarCenterCoords();
+  const safeEnd = endCoords || safeStart;
+  const osrm = await fetchOsrmRoute(safeStart, safeEnd);
+  if (osrm) return osrm;
+  return buildCampusRoute(safeStart, safeEnd);
+}
+
+function syncRadarOverlayToUser() {
+  const overlay = document.getElementById('radar-overlay');
+  const wrap = document.querySelector('.radar-map-wrap');
+  if (!overlay || !wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  overlay.style.left = `${Math.round(rect.width / 2)}px`;
+  overlay.style.top = `${Math.round(rect.height / 2)}px`;
+}
+
+function setRadarRouteFilterState(active = false) {
+  const dynamic = $('#radar-dynamic');
+  if (dynamic) dynamic.classList.toggle('route-focus-active', !!active);
+  const overlay = document.querySelector('.radar-overlay');
+  if (overlay) overlay.style.display = active ? 'none' : 'block';
+}
+
 function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc) {
   requestAnimationFrame(() => {
     const el = document.getElementById('radar-map');
-    if (!el || typeof L === 'undefined') return;
-    if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+    if (!el) return;
+    clearActiveMapRoute({ clearPending: false });
+    destroyRadarMapInstance();
 
     const center = getRadarCenterCoords();
+    const routeOnlyMode = !!_pendingMapRoute;
+    setRadarRouteFilterState(routeOnlyMode);
 
-    _leafletMap = L.map('radar-map', { zoomControl: false }).setView([center.lat, center.lng], 17);
-    L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
-    _leafletMap.dragging.enable();
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; CARTO', maxZoom: 20, subdomains: 'abcd'
-    }).addTo(_leafletMap);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
-    }).addTo(_leafletMap);
-
-    const myIcon = L.divIcon({
-      className: 'leaflet-user-pin',
-      html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
-      iconSize: [36, 36], iconAnchor: [18, 18]
-    });
-    L.marker([center.lat, center.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
-
-    CAMPUS_LOCATIONS.forEach(loc => {
-      const evts = eventsByLoc[loc.id] || [];
-      const icon = L.divIcon({
-        className: 'leaflet-emoji-pin',
-        html: `<div class="map-pin-wrap ${evts.length ? 'has-events' : ''}"><span class="map-pin-emoji">${loc.emoji}</span>${evts.length ? `<span class="map-pin-count">${evts.length}</span>` : ''}</div>`,
-        iconSize: [36, 36], iconAnchor: [18, 36]
+    if (typeof maplibregl !== 'undefined') {
+      _mapLibreMap = new maplibregl.Map({
+        container: 'radar-map',
+        style: 'https://tiles.openfreemap.org/styles/bright',
+        center: [center.lng, center.lat],
+        zoom: routeOnlyMode ? 18 : 16.6,
+        pitch: routeOnlyMode ? 56 : 48,
+        bearing: -17.6,
+        attributionControl: false,
+        canvasContextAttributes: { antialias: true }
       });
-      L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap)
-        .bindPopup(`<b>${loc.emoji} ${loc.name}</b>${evts.length ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`)
-        .on('click', () => openLocationDetail(loc.id));
-    });
+      _leafletMap = _mapLibreMap;
+      _mapLibreMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+      _mapLibreMap.on('load', () => {
+        try {
+          const layers = _mapLibreMap.getStyle().layers || [];
+          const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
+          _mapLibreMap.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!_mapLibreMap.getLayer('3d-buildings')) {
+            _mapLibreMap.addLayer({
+              id: '3d-buildings',
+              source: 'openfreemap-buildings',
+              'source-layer': 'building',
+              type: 'fill-extrusion',
+              minzoom: 15,
+              filter: ['!=', ['get', 'hide_3d'], true],
+              paint: {
+                'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 0], 0, '#d9d3c9', 60, '#c7b8a0', 120, '#b89e7a', 240, '#8f6f47'],
+                'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_height'], 0]],
+                'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_min_height'], 0]],
+                'fill-extrusion-opacity': 0.9
+              }
+            }, labelLayerId);
+          }
+        } catch (_) {}
 
-    const usersToPlot = [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
-    const plottedIds = new Set();
-    const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
+        mountCampusGeoJsonLayers(_mapLibreMap).catch(() => {});
+        attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
+        syncRadarOverlayToUser();
+        _mapLibreMap.on('move', syncRadarOverlayToUser);
+        _mapLibreMap.on('render', syncRadarOverlayToUser);
 
-    usersToPlot.forEach(u => {
-      const coords = getUserCoords(u);
-      if (!coords) return;
-      const distanceKm = distanceKmBetween(center, coords);
-      if (distanceKm > 5) return;
-      plottedIds.add(u.id);
-      const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
-      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-      const uIcon = L.divIcon({
-        className: 'leaflet-user-pin',
-        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
-        iconSize: [28, 28], iconAnchor: [14, 14]
+        if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
+          attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
+          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
+          _pendingRadarPinnedPoint = null;
+        }
+
+        if (!routeOnlyMode) {
+          CAMPUS_LOCATIONS.forEach(loc => {
+            const evts = eventsByLoc[loc.id] || [];
+            attachMapLibreMarker(loc.lng, loc.lat, createMapLibreMarkerHTML('pin', { emoji: loc.emoji, hasEvents: evts.length > 0, count: evts.length, label: loc.name, floating: true }), () => openLocationDetail(loc.id));
+          });
+        }
+
+        const usersToPlot = routeOnlyMode ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
+        const plottedIds = new Set();
+        const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
+        usersToPlot.forEach((u, i) => {
+          const coords = getUserCoords(u);
+          if (!coords) return;
+          const distanceKm = distanceKmBetween(center, coords);
+          if (distanceKm > 5) return;
+          plottedIds.add(u.id);
+          const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
+          const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+        });
+        usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
+          const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
+          const angle = (i / Math.max(1, usersToPlot.length)) * Math.PI * 2 + (i * 0.7);
+          const rawPoint = { lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8), lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8) };
+          const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
+          const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+        });
+
+        if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
+        else updateMapRoutePanel(null);
       });
-      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
-        .on('click', () => showUserPreview(u.id));
-    });
+      return;
+    }
 
-    usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
-      const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
-      const angle = (i / usersToPlot.length) * Math.PI * 2 + (i * 0.7);
-      const rawPoint = {
-        lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8),
-        lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8)
-      };
-      const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
-      const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-      const uIcon = L.divIcon({
-        className: 'leaflet-user-pin',
-        html: `<div class="map-user-pin ${cls}">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
-        iconSize: [28, 28], iconAnchor: [14, 14]
-      });
-      L.marker([displayPoint.lat, displayPoint.lng], { icon: uIcon }).addTo(_leafletMap)
-        .on('click', () => showUserPreview(u.id));
-    });
-
-    const syncRadarOverlay = () => {
-      const overlay = document.querySelector('.radar-overlay');
-      if (!overlay || !_leafletMap) return;
-      const point = _leafletMap.latLngToContainerPoint([center.lat, center.lng]);
-      overlay.style.left = `${point.x}px`;
-      overlay.style.top = `${point.y}px`;
-    };
-    syncRadarOverlay();
-    _leafletMap.on('move zoom resize', syncRadarOverlay);
-
-    setTimeout(() => _leafletMap?.invalidateSize(), 300);
+    if (typeof L === 'undefined') return;
   });
 }
 
@@ -6636,7 +7837,7 @@ async function showUserPreview(uid) {
       <div class="modal-body" style="text-align:center;padding:24px">
         <div style="margin-bottom:12px">${avatar(user.displayName, user.photoURL, 'avatar-xl')}</div>
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(user.displayName)}</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}${user.gender ? ' · ' + esc(user.gender) : ''}</div>
         ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
         ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
         ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
@@ -6677,7 +7878,7 @@ function renderListView(initialQuery = _exploreSearchQuery || window._radarSearc
   $('#explore-search')?.addEventListener('input', e => {
     clearTimeout(timer); timer = setTimeout(() => {
       _exploreSearchQuery = e.target.value;
-      renderExploreGrid(_exploreSearchQuery);
+      renderExploreGrid(_exploreSearchQuery, document.querySelector('#explore-body .filter-chips .chip.active')?.dataset.f || 'all');
     }, 160);
   });
   $$('#explore-body .filter-chips .chip').forEach(ch => {
@@ -6701,14 +7902,12 @@ async function renderExploreGrid(query = '', filter = 'all') {
   let users = [...allExploreUsers];
 
   if (query) {
-    const q = query.toLowerCase();
-    users = users.filter(u =>
-      (u.displayName || '').toLowerCase().includes(q) ||
-      (u.address || '').toLowerCase().includes(q) ||
-      (u.major || '').toLowerCase().includes(q) ||
-      (u.university || '').toLowerCase().includes(q) ||
-      (u.modules || []).some(m => m.toLowerCase().includes(q))
-    );
+    const rawQuery = String(query || '').trim();
+    const q = rawQuery.toLowerCase();
+    users = users
+      .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+      .filter(u => u._searchScore > 0)
+      .sort((a, b) => b._searchScore - a._searchScore || (b.affinityScore || 0) - (a.affinityScore || 0));
     // If no local matches and query is 2+ chars, search Firestore directly
     if (!users.length && q.length >= 2) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><span class="inline-spinner" style="width:24px;height:24px"></span></div>';
@@ -6718,12 +7917,9 @@ async function renderExploreGrid(query = '', filter = 'all') {
         users = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(u => u.id !== uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
-          .filter(u =>
-            (u.displayName || '').toLowerCase().includes(q) ||
-            (u.major || '').toLowerCase().includes(q) ||
-            (u.university || '').toLowerCase().includes(q) ||
-            (u.modules || []).some(m => m.toLowerCase().includes(q))
-          );
+          .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
+          .filter(u => u._searchScore > 0)
+          .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''));
       } catch (_) {}
     }
   }
@@ -6770,6 +7966,412 @@ const CAMPUS_LOCATIONS = [
   { id: 'parking', name: 'Parking', emoji: '🅿️', x: 90, y: 85, lat: -26.6868, lng: 27.0985 },
 ];
 
+const CAMPUS_ROUTE_EDGES = [
+  ['library', 'lab-block'],
+  ['library', 'main-hall'],
+  ['lab-block', 'cs-building'],
+  ['cs-building', 'amphitheatre'],
+  ['cs-building', 'cafeteria'],
+  ['main-hall', 'amphitheatre'],
+  ['main-hall', 'student-center'],
+  ['main-hall', 'admin'],
+  ['student-center', 'admin'],
+  ['student-center', 'sports-complex'],
+  ['student-center', 'res-halls'],
+  ['admin', 'quad'],
+  ['amphitheatre', 'quad'],
+  ['quad', 'cafeteria'],
+  ['quad', 'res-halls'],
+  ['sports-complex', 'res-halls'],
+  ['res-halls', 'parking']
+];
+
+let _campusGeoJsonCache = null;
+let _campusGeoJsonLoadPromise = null;
+
+async function loadCampusGeoJson() {
+  if (_campusGeoJsonCache) return _campusGeoJsonCache;
+  if (_campusGeoJsonLoadPromise) return _campusGeoJsonLoadPromise;
+  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'force-cache' })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      _campusGeoJsonCache = data && Array.isArray(data.features) ? data : null;
+      return _campusGeoJsonCache;
+    })
+    .catch(() => null)
+    .finally(() => { _campusGeoJsonLoadPromise = null; });
+  return _campusGeoJsonLoadPromise;
+}
+
+function getCampusExtent(geojson) {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  (geojson?.features || []).forEach(feature => {
+    const coords = feature?.geometry?.coordinates || [];
+    coords.forEach(poly => poly.forEach(ring => ring.forEach(coord => {
+      const [lng, lat] = coord || [];
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    })));
+  });
+  if (!Number.isFinite(minLng)) return null;
+  return { center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2], bounds: [[minLng, minLat], [maxLng, maxLat]] };
+}
+
+function polygonCentroid(ring = []) {
+  let area = 0, cx = 0, cy = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [x1, y1] = ring[i] || [];
+    const [x2, y2] = ring[i + 1] || [];
+    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    const f = x1 * y2 - x2 * y1;
+    area += f;
+    cx += (x1 + x2) * f;
+    cy += (y1 + y2) * f;
+  }
+  area *= 0.5;
+  return area ? [cx / (6 * area), cy / (6 * area)] : (ring[0] || [0, 0]);
+}
+
+function labelPointsFromPolygons(geojson) {
+  return {
+    type: 'FeatureCollection',
+    features: (geojson?.features || []).map((feature, index) => {
+      const polys = feature?.geometry?.coordinates || [];
+      let bestRing = null;
+      let bestSize = -Infinity;
+      polys.forEach(poly => {
+        const outerRing = poly?.[0];
+        if (!outerRing || outerRing.length < 4) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        outerRing.forEach(([x, y]) => {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        });
+        const boxSize = (maxX - minX) * (maxY - minY);
+        if (boxSize > bestSize) { bestSize = boxSize; bestRing = outerRing; }
+      });
+      const center = polygonCentroid(bestRing || []);
+      return {
+        type: 'Feature',
+        properties: { name: feature?.properties?.name || `Building ${index + 1}` },
+        geometry: { type: 'Point', coordinates: center }
+      };
+    })
+  };
+}
+
+async function mountCampusGeoJsonLayers(map) {
+  if (!map || typeof map.getStyle !== 'function') return;
+  const geojson = await loadCampusGeoJson();
+  if (!geojson || map.getSource('campus-geojson')) return;
+  const labelPoints = labelPointsFromPolygons(geojson);
+  map.addSource('campus-geojson', { type: 'geojson', data: geojson });
+  map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
+  map.addLayer({
+    id: 'campus-fill',
+    type: 'fill',
+    source: 'campus-geojson',
+    paint: {
+      'fill-color': 'rgba(108,92,231,0)',
+      'fill-opacity': 0,
+      'fill-outline-color': 'rgba(108,92,231,0)'
+    }
+  });
+  map.addLayer({
+    id: 'campus-outline',
+    type: 'line',
+    source: 'campus-geojson',
+    paint: { 'line-color': 'rgba(108,92,231,0)', 'line-opacity': 0, 'line-width': 1 }
+  });
+  map.addLayer({
+    id: 'campus-name-labels',
+    type: 'symbol',
+    source: 'campus-label-points',
+    minzoom: 16,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 16, 11, 18.5, 16],
+      'text-font': ['Open Sans Bold'],
+      'text-anchor': 'center',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
+    },
+    paint: {
+      'text-color': '#171717',
+      'text-halo-color': 'rgba(255,255,255,0.96)',
+      'text-halo-width': 2.2
+    }
+  });
+  map.on('click', 'campus-name-labels', e => {
+    const feature = e.features && e.features[0];
+    if (!feature) return;
+    const [lng, lat] = feature.geometry.coordinates || [];
+    const name = feature.properties?.name || 'Building';
+    new maplibregl.Popup({ closeButton: false, offset: 18 })
+      .setLngLat([lng, lat])
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Create event here</button></div></div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'campus-name-labels', () => { map.getCanvas().style.cursor = ''; });
+}
+
+function setPendingMapRoute(target = {}, options = {}) {
+  const lat = Number(target.lat);
+  const lng = Number(target.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  _pendingMapRoute = {
+    target: { lat, lng },
+    label: options.label || 'Destination',
+    targetId: options.targetId || '',
+    source: options.source || 'manual'
+  };
+  return true;
+}
+
+function calculateRouteDistance(points = []) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distanceKmBetween(points[i - 1], points[i]);
+  return total;
+}
+
+function dedupeRoutePoints(points = []) {
+  return points.filter((point, index, arr) => {
+    if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return false;
+    if (index === 0) return true;
+    const prev = arr[index - 1];
+    return !prev || Math.abs(prev.lat - point.lat) > 0.000001 || Math.abs(prev.lng - point.lng) > 0.000001;
+  });
+}
+
+function nearestCampusNode(coords = null, maxDistanceKm = 0.75) {
+  if (!coords) return null;
+  let best = null;
+  CAMPUS_LOCATIONS.forEach(loc => {
+    const distanceKm = distanceKmBetween(coords, loc);
+    if (!best || distanceKm < best.distanceKm) best = { loc, distanceKm };
+  });
+  if (!best || best.distanceKm > maxDistanceKm) return null;
+  return best;
+}
+
+function shortestCampusPath(startId = '', endId = '') {
+  if (!startId || !endId) return [];
+  if (startId === endId) return [getCampusLocationById(startId)].filter(Boolean);
+  const graph = {};
+  CAMPUS_LOCATIONS.forEach(loc => { graph[loc.id] = []; });
+  CAMPUS_ROUTE_EDGES.forEach(([left, right]) => {
+    const a = getCampusLocationById(left);
+    const b = getCampusLocationById(right);
+    if (!a || !b) return;
+    const distanceKm = distanceKmBetween(a, b);
+    graph[left].push({ id: right, distanceKm });
+    graph[right].push({ id: left, distanceKm });
+  });
+
+  const distances = {};
+  const previous = {};
+  const remaining = new Set(Object.keys(graph));
+  Object.keys(graph).forEach(id => { distances[id] = Number.POSITIVE_INFINITY; });
+  distances[startId] = 0;
+
+  while (remaining.size) {
+    let current = '';
+    let bestDistance = Number.POSITIVE_INFINITY;
+    remaining.forEach(id => {
+      if (distances[id] < bestDistance) {
+        bestDistance = distances[id];
+        current = id;
+      }
+    });
+    if (!current) break;
+    remaining.delete(current);
+    if (current === endId) break;
+    (graph[current] || []).forEach(edge => {
+      if (!remaining.has(edge.id)) return;
+      const nextDistance = distances[current] + edge.distanceKm;
+      if (nextDistance < distances[edge.id]) {
+        distances[edge.id] = nextDistance;
+        previous[edge.id] = current;
+      }
+    });
+  }
+
+  if (!Number.isFinite(distances[endId])) return [];
+  const path = [];
+  let cursor = endId;
+  while (cursor) {
+    path.unshift(cursor);
+    if (cursor === startId) break;
+    cursor = previous[cursor];
+  }
+  return path.map(getCampusLocationById).filter(Boolean);
+}
+
+function buildCampusRoute(startCoords = null, endCoords = null) {
+  const safeStart = startCoords || getRadarCenterCoords();
+  const safeEnd = endCoords || safeStart;
+  const startNode = nearestCampusNode(safeStart);
+  const endNode = nearestCampusNode(safeEnd);
+  let direct = true;
+  let points = [safeStart, safeEnd];
+
+  if (startNode && endNode) {
+    const pathNodes = shortestCampusPath(startNode.loc.id, endNode.loc.id);
+    if (pathNodes.length) {
+      direct = false;
+      points = dedupeRoutePoints([
+        safeStart,
+        ...pathNodes.map(node => ({ lat: node.lat, lng: node.lng })),
+        safeEnd
+      ]);
+    }
+  }
+
+  const distanceKm = calculateRouteDistance(points);
+  const walkMinutes = Math.max(1, Math.round((distanceKm / 4.8) * 60));
+  return { points, distanceKm, walkMinutes, direct };
+}
+
+function updateMapRoutePanel(summary = null) {
+  const host = document.getElementById('map-route-panel');
+  if (!host) return;
+  if (!summary) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const usingCampusFallback = !getUserCoords(state.profile);
+  host.innerHTML = `
+    <div class="map-route-card">
+      <div class="map-route-copy">
+        <div class="map-route-title">Route to ${esc(summary.label || 'destination')}</div>
+        <div class="map-route-meta">
+          <span>🧭 ${esc(formatDistanceText(summary.distanceKm) || 'Nearby')}</span>
+          <span>🚶 ${summary.walkMinutes} min walk</span>
+          <span>${summary.source === 'osrm' ? '🗺 Real route' : (summary.direct ? '↗ Direct line' : '🛣 Campus route')}</span>
+        </div>
+        ${usingCampusFallback ? '<div class="map-route-note">Using campus center. Save GPS in profile for better routing.</div>' : ''}
+      </div>
+      <div class="map-route-actions">
+        <button class="btn-primary btn-sm" onclick="clearMapRoute()">Clear</button>
+      </div>
+    </div>
+  `;
+  host.style.display = 'block';
+}
+
+function clearActiveMapRoute(options = {}) {
+  const { clearPending = true } = options;
+  if (_mapLibreMap && _activeMapRouteLayer === 'route-line') {
+    try { if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line'); } catch (_) {}
+    try { if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line'); } catch (_) {}
+  } else if (_leafletMap && _activeMapRouteLayer) {
+    try { _leafletMap.removeLayer(_activeMapRouteLayer); } catch (_) {}
+  }
+  (_activeMapRouteMarkers || []).forEach(marker => {
+    try { marker?.remove ? marker.remove() : _leafletMap?.removeLayer(marker); } catch (_) {}
+  });
+  _activeMapRouteLayer = null;
+  _activeMapRouteMarkers = [];
+  _activeMapRouteSummary = null;
+  if (clearPending) _pendingMapRoute = null;
+  setRadarRouteFilterState(false);
+  updateMapRoutePanel(null);
+}
+
+function clearMapRoute() {
+  clearActiveMapRoute({ clearPending: true });
+}
+
+async function drawPendingMapRouteOnCurrentMap() {
+  if (!_pendingMapRoute || (!_leafletMap && !_mapLibreMap)) {
+    if (!_pendingMapRoute) updateMapRoutePanel(null);
+    return;
+  }
+  clearActiveMapRoute({ clearPending: false });
+  const map = _mapLibreMap || _leafletMap;
+  const start = getUserCoords(state.profile) || getRadarCenterCoords();
+  const route = await buildBestRoute(start, _pendingMapRoute.target);
+  const coordinates = route.points.map(point => [point.lng, point.lat]);
+
+  if (_mapLibreMap && typeof maplibregl !== 'undefined') {
+    if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line');
+    if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line');
+    _mapLibreMap.addSource('route-line', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
+    });
+    _mapLibreMap.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route-line',
+      paint: {
+        'line-color': '#6C5CE7',
+        'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
+        'line-opacity': 0.92
+      }
+    });
+    _activeMapRouteLayer = 'route-line';
+    const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
+    const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
+    _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
+    const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+    if (!bounds.isEmpty()) _mapLibreMap.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
+  } else if (_leafletMap && typeof L !== 'undefined') {
+    const latLngs = route.points.map(point => [point.lat, point.lng]);
+    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(_leafletMap);
+    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(_leafletMap);
+    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(_leafletMap);
+    _activeMapRouteMarkers = [startMarker, endMarker];
+    const bounds = L.latLngBounds(latLngs);
+    if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+  }
+
+  _activeMapRouteSummary = { ...route, label: _pendingMapRoute.label || 'Destination' };
+  setRadarRouteFilterState(true);
+  updateMapRoutePanel(_activeMapRouteSummary);
+}
+
+function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
+  const name = (label || 'Pinned location').trim();
+  navigate('create');
+  setTimeout(() => {
+    const title = document.getElementById('create-event-title') || document.getElementById('event-title') || document.querySelector('input[placeholder*="event" i]');
+    const loc = document.getElementById('create-event-location') || document.getElementById('event-location') || document.querySelector('input[placeholder*="location" i]');
+    if (loc && !loc.value) loc.value = name;
+    if (title && !title.value) title.value = `${name} meetup`;
+    window._pendingRadarPinnedPoint = { lat, lng, label: name };
+  }, 80);
+}
+
+function routeToMapPoint(lat, lng, label = 'Destination') {
+  closeModal();
+  closeChatPlusMenus();
+  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return toast('Could not build route');
+  exploreView = 'radar';
+  if (state.page !== 'explore') {
+    navigate('explore');
+    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
+    return;
+  }
+  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
+  else renderExploreView();
+}
+
+function routeToCampusLocation(locationId = '') {
+  const loc = getCampusLocationById(locationId);
+  if (!loc) return toast('Location not found');
+  closeModal();
+  closeChatPlusMenus();
+  routeToMapPoint(loc.lat, loc.lng, loc.name || 'Destination');
+}
+
 let allCampusEvents = [];
 
 function eventStartTimeMs(eventDoc = {}) {
@@ -6781,6 +8383,55 @@ function eventStartTimeMs(eventDoc = {}) {
     : `${dateRaw} ${timeRaw || '23:59'}`;
   const parsed = new Date(iso).getTime();
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function eventGroupId(eventId = '') {
+  return `event-${eventId}`;
+}
+
+async function upsertEventChatGroup(eventData = {}) {
+  const eventId = eventData.id || '';
+  if (!eventId) return;
+  const members = Array.from(new Set((eventData.going || []).filter(Boolean)));
+  if (!members.length) {
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
+    return;
+  }
+
+  const userDocs = await Promise.all(members.map(uid => db.collection('users').doc(uid).get().catch(() => null)));
+  const memberNames = {};
+  const memberPhotos = {};
+  userDocs.forEach((doc, idx) => {
+    const uid = members[idx];
+    if (!uid) return;
+    if (doc?.exists) {
+      const data = doc.data() || {};
+      memberNames[uid] = data.displayName || 'Student';
+      memberPhotos[uid] = data.photoURL || '';
+    } else if (uid === state.user?.uid) {
+      memberNames[uid] = state.profile?.displayName || 'Student';
+      memberPhotos[uid] = state.profile?.photoURL || '';
+    }
+  });
+
+  await db.collection('groups').doc(eventGroupId(eventId)).set({
+    name: `Event: ${eventData.title || 'Campus Event'}`,
+    description: `Auto group for event attendees${eventData.date ? ` · ${eventData.date}` : ''}${eventData.time ? ` ${eventData.time}` : ''}`,
+    type: 'event',
+    isEventGroup: true,
+    eventId,
+    eventImage: (eventData.imageURLs && eventData.imageURLs.length ? eventData.imageURLs[0] : '') || eventData.coverURL || eventData.imageURL || '',
+    eventDate: eventData.date || '',
+    eventTime: eventData.time || '',
+    createdBy: eventData.createdBy || state.user.uid,
+    admins: [eventData.createdBy || state.user.uid],
+    members,
+    memberNames,
+    memberPhotos,
+    lastMessage: eventData.lastMessage || 'Event attendee group created',
+    updatedAt: FieldVal.serverTimestamp(),
+    createdAt: FieldVal.serverTimestamp()
+  }, { merge: true });
 }
 
 async function loadCampusEvents() {
@@ -6797,6 +8448,7 @@ async function loadCampusEvents() {
     });
     if (expiredDocs.length) {
       await Promise.all(expiredDocs.map(ref => ref.delete().catch(() => {})));
+      await Promise.all(expiredDocs.map(ref => db.collection('groups').doc(eventGroupId(ref.id)).delete().catch(() => {})));
     }
     allCampusEvents = upcoming.sort((a, b) => eventStartTimeMs(a) - eventStartTimeMs(b));
   } catch (e) {
@@ -6823,6 +8475,7 @@ function renderCampusMapView() {
         <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
       <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
+      <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
 
       <div class="campus-events-section">
         <div class="campus-events-header">
@@ -6861,10 +8514,13 @@ function initLeafletMap(eventsByLoc) {
   const el = document.getElementById('leaflet-map');
   if (!el || typeof L === 'undefined') return;
 
+  clearActiveMapRoute({ clearPending: false });
   if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
 
+  const myCoords = getUserCoords(state.profile) || { lat: -26.6840, lng: 27.0945 };
+
   // NWU Potchefstroom campus center
-  _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([-26.6840, 27.0945], 16);
+  _leafletMap = L.map('leaflet-map', { zoomControl: false }).setView([myCoords.lat, myCoords.lng], 16);
   L.control.zoom({ position: 'topright' }).addTo(_leafletMap);
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
@@ -6875,6 +8531,14 @@ function initLeafletMap(eventsByLoc) {
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
     maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
   }).addTo(_leafletMap);
+
+  const myIcon = L.divIcon({
+    className: 'leaflet-user-pin',
+    html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+  L.marker([myCoords.lat, myCoords.lng], { icon: myIcon }).addTo(_leafletMap).bindPopup('<b>You</b>');
 
   // Campus location pins
   CAMPUS_LOCATIONS.forEach(loc => {
@@ -6890,23 +8554,26 @@ function initLeafletMap(eventsByLoc) {
       iconAnchor: [18, 36]
     });
     const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(_leafletMap);
-    marker.bindPopup(`<b>${loc.emoji} ${loc.name}</b>${hasEvents ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}`);
-    marker.on('click', () => openLocationDetail(loc.id));
+    marker.bindPopup(`<div class="map-popup-card"><b>${loc.emoji} ${loc.name}</b>${hasEvents ? `<br><small>${evts.length} event${evts.length > 1 ? 's' : ''}</small>` : ''}<div class="map-popup-actions"><button class="map-popup-btn" onclick="routeToCampusLocation('${loc.id}')">Route here</button><button class="map-popup-btn secondary" onclick="openLocationDetail('${loc.id}')">Details</button></div></div>`);
   });
 
   // User pins - show friends on map
   allExploreUsers.forEach(u => {
-    if (!u.lat || !u.lng) return;
+    const coords = getUserCoords(u);
+    if (!coords) return;
     const userIcon = L.divIcon({
       className: 'leaflet-user-pin',
       html: `<div class="map-user-pin">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
       iconSize: [28, 28],
       iconAnchor: [14, 14]
     });
-    const m = L.marker([u.lat, u.lng], { icon: userIcon }).addTo(_leafletMap);
+    const m = L.marker([coords.lat, coords.lng], { icon: userIcon }).addTo(_leafletMap);
     m.bindPopup(`<b>${esc(u.displayName)}</b><br><small>${esc(u.major || '')}</small>`);
     m.on('click', () => showUserPreview(u.id));
   });
+
+  if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
+  else updateMapRoutePanel(null);
 
   // Invalidate size after animation
   setTimeout(() => _leafletMap?.invalidateSize(), 300);
@@ -6931,8 +8598,9 @@ function openLocationDetail(locationId) {
             ${ev.id ? `<button class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" style="margin-top:8px" onclick="toggleEventGoing('${ev.id}');closeModal()">${amGoing ? 'Cancel RSVP' : 'I\'m Going!'}</button>` : ''}
           </div>`;
         }).join('')}
-      ` : '<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>'}
-      <button class="btn-primary btn-full" style="margin-top:12px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
+      ` : `<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>`}
+      <button class="btn-outline btn-full" style="margin-top:12px" onclick="closeModal();routeToCampusLocation('${locationId}')">🧭 Route Here</button>
+      <button class="btn-primary btn-full" style="margin-top:10px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
     </div>
   `);
 }
@@ -6955,6 +8623,11 @@ function removeEventImage(idx) {
       previewEl.innerHTML = window._eventFiles.map((f, i) => `<div class="ev-img-thumb"><img src="${URL.createObjectURL(f)}"><button type="button" class="ev-img-remove" onclick="removeEventImage(${i})">&times;</button></div>`).join('');
     }
   }
+}
+
+function renderStarString(score = 0) {
+  const rounded = Math.max(1, Math.min(5, Math.round(Number(score) || 0)));
+  return `${'★'.repeat(rounded)}${'☆'.repeat(5 - rounded)}`;
 }
 
 async function openEventDetail(eventId) {
@@ -6990,6 +8663,8 @@ async function openEventDetail(eventId) {
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
+        ${loc ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToCampusLocation('${loc.id}')">🧭 Route Here</button>` : ''}
+        ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
         ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
     `);
@@ -7004,6 +8679,7 @@ async function deleteEvent(eventId) {
     if (!doc.exists) return toast('Event not found');
     if (doc.data().createdBy !== state.user.uid) return toast('Only the creator can delete this event');
     await db.collection('events').doc(eventId).delete();
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
     closeModal();
     await loadCampusEvents();
     if (state.page === 'explore') renderExploreView();
@@ -7018,16 +8694,22 @@ async function toggleEventGoing(eventId) {
   try {
     const doc = await db.collection('events').doc(eventId).get();
     if (!doc.exists) return;
-    const going = doc.data().going || [];
+    const eventData = doc.data() || {};
+    const going = eventData.going || [];
+    let nextGoing = going;
     if (going.includes(uid)) {
       await db.collection('events').doc(eventId).update({ going: FieldVal.arrayRemove(uid) });
+      nextGoing = going.filter(id => id !== uid);
       toast('RSVP cancelled');
     } else {
       await db.collection('events').doc(eventId).update({ going: FieldVal.arrayUnion(uid) });
+      nextGoing = Array.from(new Set([...going, uid]));
       toast("You're going! 🎉");
     }
+    await upsertEventChatGroup({ id: eventId, ...eventData, going: nextGoing });
     await loadCampusEvents();
-    if (exploreView === 'map') renderCampusMapView();
+    if (state.page === 'explore') renderExploreView();
+    if (state.page === 'feed') loadDiscoverEvents();
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -7038,7 +8720,7 @@ function renderHustle() {
   const c = $('#content');
   c.innerHTML = `
     <div class="hustle-page">
-      <div class="hustle-header"><h2>Marketplace</h2><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div>
+      <div class="hustle-header"><h2>Marketplace</h2><div class="hustle-header-actions"><button class="btn-outline btn-sm" onclick="openSavedCartView()">Saved</button><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div></div>
       <div style="padding:0 16px 12px">
         <div class="search-bar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -7155,8 +8837,8 @@ async function loadListings(cat = 'all', query = '') {
           </div>
           <div class="listing-price">R${esc(String(item.price))}</div>
           <div class="listing-title">${esc(item.title)}</div>
-          <div class="listing-rating">⭐ ${item._ratingAvg.toFixed(1)}${item._ratingCount ? ` (${item._ratingCount})` : ''}</div>
-          <div class="listing-seller">${avatar(item.sellerName, null, 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
+          <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
+          <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
         </div>
       </div>
     `).join('');
@@ -7172,11 +8854,81 @@ async function saveListingToProfile(itemId) {
     await db.collection('users').doc(state.user.uid).set({
       savedListings: FieldVal.arrayUnion(itemId)
     }, { merge: true });
+    state.profile.savedListings = Array.from(new Set([...(state.profile.savedListings || []), itemId]));
+    if (typeof window._savedCartRefresh === 'function') window._savedCartRefresh();
     toast('Saved listing');
   } catch (e) {
     console.error(e);
     toast('Could not save listing');
   }
+}
+
+async function removeSavedListingFromProfile(itemId) {
+  if (!itemId) return;
+  try {
+    await db.collection('users').doc(state.user.uid).set({
+      savedListings: FieldVal.arrayRemove(itemId)
+    }, { merge: true });
+    state.profile.savedListings = (state.profile.savedListings || []).filter(id => id !== itemId);
+    if (typeof window._savedCartRefresh === 'function') window._savedCartRefresh();
+    toast('Removed');
+  } catch (e) {
+    console.error(e);
+    toast('Could not remove');
+  }
+}
+
+async function openSavedCartView() {
+  openModal(`
+    <div class="modal-header"><h2>Saved Cart</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Budget (R)</label><input type="number" id="cart-budget" placeholder="e.g. 1200"></div>
+      <div id="saved-cart-list"><div style="text-align:center;padding:18px"><span class="inline-spinner"></span></div></div>
+      <div id="saved-cart-total" style="margin-top:12px;font-weight:700"></div>
+    </div>
+  `);
+  const budgetInput = $('#cart-budget');
+  const key = `unino-budget-${state.user.uid}`;
+  if (budgetInput) budgetInput.value = localStorage.getItem(key) || '';
+
+  const renderSaved = async () => {
+    const holder = $('#saved-cart-list');
+    const totalEl = $('#saved-cart-total');
+    if (!holder || !totalEl) return;
+    const ids = state.profile.savedListings || [];
+    if (!ids.length) {
+      holder.innerHTML = '<p style="color:var(--text-secondary)">No saved listings yet.</p>';
+      totalEl.textContent = 'Total: R0';
+      return;
+    }
+    const docs = await Promise.all(ids.slice(0, 30).map(id => db.collection('listings').doc(id).get().catch(() => null)));
+    const items = docs.filter(d => d?.exists).map(d => ({ id: d.id, ...d.data() }));
+    const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const budget = Number(budgetInput?.value || 0);
+    holder.innerHTML = items.map(item => `
+      <div class="saved-cart-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          ${item.imageURL ? `<img src="${item.imageURL}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border)">` : ''}
+          <div style="min-width:0">
+          <div style="font-weight:600">${esc(item.title || 'Listing')}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">R${esc(String(item.price || 0))}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-outline" style="padding:6px 10px;font-size:12px" onclick="openProductDetail('${item.id}')">View</button>
+          <button class="btn-outline saved-cart-remove" title="Remove from saved" aria-label="Remove from saved" style="padding:6px 10px;font-size:12px" onclick="removeSavedListingFromProfile('${item.id}')">&times;</button>
+        </div>
+      </div>
+    `).join('');
+    totalEl.textContent = `Total: R${total.toFixed(2)}${budget > 0 ? ` · ${total <= budget ? 'Within budget' : 'Over budget'}` : ''}`;
+  };
+
+  budgetInput?.addEventListener('input', () => {
+    localStorage.setItem(key, budgetInput.value || '');
+    renderSaved();
+  });
+  window._savedCartRefresh = renderSaved;
+  renderSaved();
 }
 
 function shareListingCard(itemId) {
@@ -7258,6 +9010,7 @@ function openProductDetail(itemId) {
   const sellerContext = _userContextCache[item.sellerId] || null;
   const sellerCoords = getUserCoords(sellerContext || {});
   const distanceText = (!isSelf && myCoords && sellerCoords) ? formatDistanceText(distanceKmBetween(myCoords, sellerCoords)) : '';
+  const myRating = Number((item.userRatings || {})[state.user.uid] || 0);
 
   openModal(`
     <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -7266,10 +9019,10 @@ function openProductDetail(itemId) {
       <div style="font-size:24px;font-weight:800;color:var(--accent);margin-bottom:4px">R${esc(String(item.price))}</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(item.title)}</div>
       ${item.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(item.description)}</p>` : ''}
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        ${avatar(item.sellerName, null, 'avatar-sm')}
+      <div id="product-seller-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer" onclick="openProfile('${item.sellerId}')">
+        <span id="product-seller-avatar">${avatar(item.sellerName, (sellerContext?.photoURL || null), 'avatar-sm')}</span>
         <div>
-          <div style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
+          <div id="product-seller-name" style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
           <div style="font-size:12px;color:var(--text-secondary)">Seller</div>
         </div>
       </div>
@@ -7278,6 +9031,14 @@ function openProductDetail(itemId) {
         <span>·</span>
         <span>📅 ${timeAgo(item.createdAt)}</span>
         <span id="product-distance-meta">${distanceText ? `· 📍 ${esc(distanceText)}` : ''}</span>
+      </div>
+      <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-tertiary)">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Rate this listing</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="product-rating-stars" id="product-rating-stars">${renderProductRatingStars(itemId, myRating)}</div>
+          <input type="hidden" id="product-rating-value" value="${myRating || ''}">
+          <button class="btn-outline" onclick="saveListingToProfile('${itemId}')" style="padding:8px 12px">Save</button>
+        </div>
       </div>
       <div style="display:flex;gap:12px;margin-top:16px">
         ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
@@ -7296,11 +9057,84 @@ function openProductDetail(itemId) {
     db.collection('users').doc(item.sellerId).get().then(doc => {
       if (!doc.exists) return;
       const seller = { id: doc.id, ...doc.data() };
+      _userContextCache[item.sellerId] = seller;
+      const sellerAvatarEl = document.getElementById('product-seller-avatar');
+      if (sellerAvatarEl) sellerAvatarEl.innerHTML = avatar(seller.displayName || item.sellerName || 'Seller', seller.photoURL || null, 'avatar-sm');
+      const sellerNameEl = document.getElementById('product-seller-name');
+      if (sellerNameEl) sellerNameEl.textContent = seller.displayName || item.sellerName || 'Seller';
       const sellerCoordsLive = getUserCoords(seller);
       const sellerDistanceText = sellerCoordsLive ? formatDistanceText(distanceKmBetween(myCoords, sellerCoordsLive)) : '';
       const target = document.getElementById('product-distance-meta');
       if (target) target.textContent = sellerDistanceText ? `· 📍 ${sellerDistanceText}` : '';
     }).catch(() => {});
+  }
+}
+
+function renderProductRatingStars(itemId, value = 0) {
+  const score = Number(value || 0);
+  return [1, 2, 3, 4, 5].map(i => {
+    const active = i <= score ? 'active' : '';
+    return `<button type="button" class="product-rate-star ${active}" onclick="setProductRating('${itemId}', ${i})" aria-label="Rate ${i} stars">★</button>`;
+  }).join('');
+}
+
+const _listingRatingBusy = new Set();
+
+function setProductRating(itemId, value) {
+  const input = $('#product-rating-value');
+  if (input) input.value = String(value);
+  const wrap = $('#product-rating-stars');
+  if (wrap) wrap.innerHTML = renderProductRatingStars(itemId, value);
+  submitListingRating(itemId, value, { silent: true, keepOpen: true });
+}
+
+async function submitListingRating(itemId, explicitScore = null, options = {}) {
+  const score = Number(explicitScore != null ? explicitScore : ($('#product-rating-value')?.value || 0));
+  if (!itemId || !score || score < 1 || score > 5) return toast('Choose a rating first');
+  if (_listingRatingBusy.has(itemId)) return;
+  _listingRatingBusy.add(itemId);
+  try {
+    const ref = db.collection('listings').doc(itemId);
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('missing');
+      const data = snap.data() || {};
+      const userRatings = data.userRatings || {};
+      const prev = Number(userRatings[state.user.uid] || 0);
+      const ratingCount = Number(data.ratingCount || 0);
+      const ratingTotal = Number(data.ratingTotal || 0);
+      const nextCount = prev ? ratingCount : ratingCount + 1;
+      const nextTotal = ratingTotal - prev + score;
+      tx.update(ref, {
+        userRatings: { ...userRatings, [state.user.uid]: score },
+        ratingCount: nextCount,
+        ratingTotal: nextTotal,
+        ratingAvg: nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0
+      });
+    });
+    const local = (window._hustleItems || {})[itemId];
+    if (local) {
+      const userRatings = local.userRatings || {};
+      const prev = Number(userRatings[state.user.uid] || 0);
+      const ratingCount = Number(local.ratingCount || 0);
+      const ratingTotal = Number(local.ratingTotal || 0);
+      const nextCount = prev ? ratingCount : ratingCount + 1;
+      const nextTotal = ratingTotal - prev + score;
+      local.userRatings = { ...userRatings, [state.user.uid]: score };
+      local.ratingCount = nextCount;
+      local.ratingTotal = nextTotal;
+      local.ratingAvg = nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0;
+    }
+    if (!options.silent) toast('Rating saved');
+    if (!options.keepOpen) {
+      closeModal();
+      loadListings();
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Could not save rating');
+  } finally {
+    _listingRatingBusy.delete(itemId);
   }
 }
 
@@ -7427,6 +9261,223 @@ function openCreateGroup() {
 
 let gchatUnsub = null;
 
+function renderEventGroupChatBanner(group = {}) {
+  if (!group?.isEventGroup) return '';
+  const members = Array.isArray(group.members) ? group.members : [];
+  const attendeePreview = members.slice(0, 5).map(memberId => {
+    const fallbackName = (group.memberNames || {})[memberId] || 'Student';
+    const fallbackPhoto = (group.memberPhotos || {})[memberId] || null;
+    const identity = getResolvedUserIdentity(memberId, fallbackName, fallbackPhoto);
+    return `<button type="button" class="event-chat-attendee" onclick="event.stopPropagation();openProfile('${memberId}')">${avatar(identity.name, identity.photo, 'avatar-xs')}</button>`;
+  }).join('');
+  return `
+    <div class="event-chat-banner clickable" onclick="${group.eventId ? `openEventDetail('${group.eventId}')` : `openGroupDetail('${group.id}')`}">
+      <div class="event-chat-banner-media">
+        ${group.eventImage ? `<img src="${group.eventImage}" alt="">` : '<div class="event-chat-banner-fallback">📅</div>'}
+      </div>
+      <div class="event-chat-banner-copy">
+        <div class="event-chat-banner-title">${esc(group.name || 'Event Chat')}</div>
+        <div class="event-chat-banner-meta">${group.eventDate ? `📅 ${esc(group.eventDate)}` : ''}${group.eventTime ? ` · 🕐 ${esc(group.eventTime)}` : ''}</div>
+        <div class="event-chat-banner-members">
+          <div class="event-chat-attendees">${attendeePreview}</div>
+          <span>${members.length} going</span>
+        </div>
+        <div class="event-chat-banner-actions">
+          ${group.eventId ? `<button class="btn-outline btn-sm" onclick="event.stopPropagation();openEventDetail('${group.eventId}')">Event details</button>` : ''}
+          <button class="btn-primary btn-sm" onclick="event.stopPropagation();openGroupDetail('${group.id}')">Group info</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+
+function closeChatPlusMenus() {
+  $$('.chat-plus-menu').forEach(menu => {
+    menu.classList.remove('open');
+    menu.style.display = 'none';
+  });
+}
+
+function ensureChatPlusMenu(menu, scope = 'dm') {
+  const fileInput = scope === 'group' ? $('#gchat-file-input') : $('#chat-file-input');
+  if (!menu || menu.dataset.ready === '1') return;
+  menu.innerHTML = `
+    <button type="button" class="chat-plus-option modern" data-act="upload"><span class="chat-plus-option-icon">🖼️</span><span>UPLOAD</span></button>
+    <button type="button" class="chat-plus-option modern" data-act="poll"><span class="chat-plus-option-icon">📊</span><span>POLL</span></button>
+    <button type="button" class="chat-plus-option modern" data-act="pin"><span class="chat-plus-option-icon">📍</span><span>PIN</span></button>
+  `;
+  menu.dataset.ready = '1';
+  menu.querySelectorAll('.chat-plus-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.act || '';
+      closeChatPlusMenus();
+      if (act === 'upload') { fileInput?.click(); return; }
+      if (act === 'poll') { openChatPollComposer(scope); return; }
+      if (act === 'pin') { sendChatLocationPin(scope); }
+    });
+  });
+}
+
+function openChatPlusMenu(scope = 'dm') {
+  const menu = scope === 'group' ? $('#gchat-plus-menu') : $('#chat-plus-menu');
+  if (!menu) return;
+  ensureChatPlusMenu(menu, scope);
+  const isOpen = menu.classList.contains('open');
+  closeChatPlusMenus();
+  if (isOpen) return;
+  menu.style.display = 'grid';
+  menu.classList.add('open');
+}
+
+document.addEventListener('pointerdown', event => {
+  if (event.target.closest('.chat-plus-wrap')) return;
+  closeChatPlusMenus();
+}, true);
+document.addEventListener('scroll', () => closeChatPlusMenus(), true);
+
+function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
+  const options = Array.isArray(poll.options) ? poll.options : [];
+  const voters = poll.votes || {};
+  const total = Object.keys(voters).length;
+  const myVote = voters[state.user?.uid] || '';
+  return `
+    <div class="poll-card modern-poll" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
+      ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
+      <div class="poll-options">
+        ${options.map(opt => {
+          const count = Object.values(voters).filter(v => v === opt).length;
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(8, pct)}%"></span></button>`;
+        }).join('')}
+      </div>
+      <div class="poll-footer">${total} total vote${total === 1 ? '' : 's'}</div>
+    </div>`;
+}
+
+async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {
+  try {
+    let ref = null;
+    if (scope === 'post') ref = db.collection('posts').doc(primaryId);
+    else if (scope === 'group') ref = db.collection(_activeGroupChat.collection || 'groups').doc(primaryId).collection('messages').doc(messageId);
+    else if (scope === 'dm') ref = db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
+    if (!ref) return;
+    const host = document.querySelector(`[data-poll-scope="${scope}"][data-poll-primary="${primaryId}"][data-poll-message="${messageId}"]`);
+    if (host) {
+      host.querySelectorAll('.poll-option').forEach(btn => {
+        const active = btn.getAttribute('data-opt') === option;
+        btn.classList.toggle('active', active);
+      });
+    }
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const poll = data.poll || { options: [], votes: {} };
+    const votes = { ...(poll.votes || {}) };
+    votes[state.user.uid] = option;
+    await ref.update({ poll: { ...poll, votes } });
+  } catch (e) { console.error(e); toast('Could not save vote'); }
+}
+
+function openChatPollComposer(scope = 'dm') {
+  openModal(`
+    <div class="modal-header"><h2>Create poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body modern-poll-composer">
+      <div class="form-group"><label>Question</label><input type="text" id="chat-poll-question" placeholder="What should we do after class?"></div>
+      <div class="form-group"><label>Options</label><textarea id="chat-poll-options" placeholder="One option per line" style="height:110px;resize:none">Yes
+No</textarea></div>
+      <div class="poll-composer-tip">Tip: keep options short so voting looks clean in chat.</div>
+      <button class="btn-primary btn-full" id="chat-poll-send-btn" onclick="submitChatPoll('${scope}')">Send poll</button>
+    </div>
+  `);
+}
+
+async function submitChatPoll(scope = 'dm') {
+  if (window._sendingChatPoll) return;
+  const question = ($('#chat-poll-question')?.value || '').trim();
+  const options = Array.from(new Set(($('#chat-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean))).slice(0, 6);
+  if (!question || options.length < 2) return toast('Add a question and at least 2 options');
+  const btn = $('#chat-poll-send-btn');
+  window._sendingChatPoll = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  closeModal();
+  try {
+    if (scope === 'group') {
+      const { id, collection } = _activeGroupChat || {};
+      if (!id) return;
+      await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', poll: { question, options, votes: {} }, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
+      await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📊 ${question}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+    } else {
+      const convoId = _activeChatConvoId;
+      if (!convoId) return;
+      const convoDoc = await db.collection('conversations').doc(convoId).get();
+      const convo = convoDoc.data() || {};
+      const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
+      await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', poll: { question, options, votes: {} }, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
+      await db.collection('conversations').doc(convoId).set({ lastMessage: `📊 ${question}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
+    }
+  } catch (e) { console.error(e); toast('Could not send poll'); }
+  finally { window._sendingChatPoll = false; }
+}
+
+async function sendChatLocationPin(scope = 'dm') {
+  if (!navigator.geolocation) return toast('Location unavailable');
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = Number(pos.coords.latitude.toFixed(6));
+    const lng = Number(pos.coords.longitude.toFixed(6));
+    const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
+      const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
+      return !best || dist < best.dist ? { loc, dist } : best;
+    }, null);
+    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || 'Pinned location' };
+    try {
+      if (scope === 'group') {
+        const { id, collection } = _activeGroupChat || {};
+        if (!id) return;
+        await db.collection(collection || 'groups').doc(id).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderName: state.profile.displayName, senderPhoto: state.profile.photoURL || null, createdAt: FieldVal.serverTimestamp() });
+        await db.collection(collection || 'groups').doc(id).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
+      } else {
+        const convoId = _activeChatConvoId;
+        if (!convoId) return;
+        const convoDoc = await db.collection('conversations').doc(convoId).get();
+        const convo = convoDoc.data() || {};
+        const otherUid = (convo.participants || []).find(id => id !== state.user.uid) || '';
+        await db.collection('conversations').doc(convoId).collection('messages').add({ text: '', locationPin, senderId: state.user.uid, senderAnon: !!(convo.anonymous || {})[state.user.uid], createdAt: FieldVal.serverTimestamp(), status: 'sent' });
+        await db.collection('conversations').doc(convoId).set({ lastMessage: `📍 ${locationPin.label}`, updatedAt: FieldVal.serverTimestamp(), unread: otherUid ? { [otherUid]: FieldVal.increment(1), [state.user.uid]: 0 } : {} }, { merge: true });
+      }
+    } catch (e) { console.error(e); toast('Could not send location'); }
+  }, () => toast('Could not get location'), { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+}
+
+function openLocationPinPreview(encoded = '') {
+  try {
+    const pin = JSON.parse(decodeURIComponent(encoded || '')) || {};
+    if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return;
+    openModal(`
+      <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div class="location-preview-card">
+          <div class="location-preview-meta">${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}</div>
+          <div class="location-preview-actions">
+            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
+          </div>
+        </div>
+      </div>
+    `);
+  } catch (_) {}
+}
+
+function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
+  routeToMapPoint(lat, lng, label);
+}
+
+function renderLocationPinCard(pin = {}) {
+  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
+  const encoded = encodeURIComponent(JSON.stringify(pin));
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Route</span></button>`;
+}
+
+
 async function openGroupChat(groupId, collection = 'groups') {
   try {
     const gDoc = await db.collection(collection).doc(groupId).get();
@@ -7435,13 +9486,15 @@ async function openGroupChat(groupId, collection = 'groups') {
     const uid = state.user.uid;
     const gName = group.name || group.groupTitle || 'Group';
     const gType = group.type || 'study';
+    await ensureUserContextCache(group.members || []);
     const gEmoji = collection === 'assignmentGroups' ? '📋' : (gType === 'study' ? '📚' : gType === 'project' ? '💻' : gType === 'module' ? '🧩' : '🎉');
 
     showScreen('group-chat-view');
     _activeGroupChat = { id: groupId, collection };
     _activeChatConvoId = '';
+    const groupHeaderAction = group.isEventGroup && group.eventId ? `openEventDetail('${group.eventId}')` : `openGroupDetail('${group.id}')`;
     $('#gchat-hdr-info').innerHTML = `
-      <div class="group-header-info">
+      <div class="group-header-info clickable" onclick="${groupHeaderAction}">
         <div class="group-icon">${gEmoji}</div>
         <div><h3 style="font-size:15px;font-weight:700">${esc(gName)}</h3>
         <small style="color:var(--text-secondary)">${(group.members || []).length} members${group.moduleCode ? ' · ' + esc(group.moduleCode) : ''}</small></div>
@@ -7460,17 +9513,27 @@ async function openGroupChat(groupId, collection = 'groups') {
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         _gMsgLookup = new Map(messages.map(m => [m.id, m]));
+        const bannerHtml = renderEventGroupChatBanner(group);
         if (!messages.length) {
-          msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>';
+          msgs.innerHTML = `${bannerHtml}<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>`;
         } else {
-          msgs.innerHTML = messages.map((m, idx) => {
+          msgs.innerHTML = bannerHtml + messages.map((m, idx) => {
             const isMe = m.senderId === uid;
             let content = '';
             if (m.deleted || m.type === 'deleted') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.locationPin) content = renderLocationPinCard(m.locationPin);
+            if (m.imageURL) {
+              const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
+              if (isVideoMedia) {
+                content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
+              } else {
+                content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+              }
+            }
             if (!m.deleted && m.text) content += esc(m.text);
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
@@ -7480,11 +9543,12 @@ async function openGroupChat(groupId, collection = 'groups') {
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+            const senderIdentity = getResolvedUserIdentity(m.senderId, m.senderName || '?', m.senderPhoto || null);
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
-              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(m.senderName || '?', m.senderPhoto, 'avatar-xs')}</div>` : ''}
+              ${!isMe ? `<div class="msg-avatar-wrap">${avatar(senderIdentity.name || '?', senderIdentity.photo, 'avatar-xs')}</div>` : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">
-              ${!isMe ? `<div class="gchat-sender">${esc(m.senderName?.split(' ')[0] || '?')}</div>` : ''}
+              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
+              ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
               ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
               ${content}
               ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
@@ -7508,19 +9572,22 @@ async function openGroupChat(groupId, collection = 'groups') {
       gInput.style.height = '40px';
       gInput.oninput = resizeGInput;
     }
+    let gchatPendingImg = null;
 
     const sendGMsg = async () => {
       const input = gInput || $('#gchat-input');
       const text = input?.value.trim();
       const moderation = applySoftKeywordFilterText(text || '');
       const safeText = moderation.text;
+      const img = gchatPendingImg;
+      const gchatFile = window._gchatFile || null;
       let audioURL = null;
       if (window._gchatVoiceBlob) {
         const af = new File([window._gchatVoiceBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
         audioURL = await uploadToR2(af, 'voice');
         window._gchatVoiceBlob = null;
       }
-      if (!safeText && !audioURL) return;
+      if (!safeText && !img && !audioURL) return;
       const replyPayload = _gReplyTo ? {
         replyToId: _gReplyTo.id,
         replyToText: _gReplyTo.text,
@@ -7528,13 +9595,23 @@ async function openGroupChat(groupId, collection = 'groups') {
         replyToSenderId: _gReplyTo.senderId
       } : {};
       input.value = '';
+      gchatPendingImg = null;
+      window._gchatFile = null;
       resizeGInput();
       input.focus();
       _gReplyTo = null;
       if (gReply) gReply.style.display = 'none';
+      const preview = $('#gchat-img-preview');
+      if (preview) preview.style.display = 'none';
       try {
+        let imageURL = null;
+        let mediaType = null;
+        if (gchatFile) {
+          imageURL = await uploadToR2(gchatFile, 'chat-images');
+          mediaType = (gchatFile.type || '').startsWith('video/') ? 'video' : 'image';
+        }
         await db.collection(collection).doc(groupId).collection('messages').add({
-          text: safeText || '', audioURL: audioURL || null,
+          text: safeText || '', imageURL: imageURL || null, mediaType: mediaType || null, audioURL: audioURL || null,
           moderationFlags: moderation.flags,
           senderId: uid, senderName: state.profile.displayName,
           senderPhoto: state.profile.photoURL || null,
@@ -7542,17 +9619,36 @@ async function openGroupChat(groupId, collection = 'groups') {
           createdAt: FieldVal.serverTimestamp()
         });
         await db.collection(collection).doc(groupId).update({
-          lastMessage: audioURL ? '🎤 Voice' : safeText, updatedAt: FieldVal.serverTimestamp()
+          lastMessage: audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText,
+          updatedAt: FieldVal.serverTimestamp()
         });
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
+    const groupPlusBtn = $('#gchat-plus-btn'); if (groupPlusBtn) groupPlusBtn.onclick = (e) => { e.stopPropagation(); openChatPlusMenu('group'); };
     $('#gchat-input').onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     $('#gchat-input').onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
+
+    const gchatFileInput = $('#gchat-file-input');
+    if (gchatFileInput) {
+      gchatFileInput.onchange = e => {
+        if (e.target.files[0]) {
+          window._gchatFile = e.target.files[0];
+          gchatPendingImg = localPreview(e.target.files[0]);
+          const preview = $('#gchat-img-preview');
+          if (preview) {
+            preview.querySelector('img').src = gchatPendingImg;
+            preview.style.display = 'block';
+          }
+        }
+      };
+    }
+
     $('#gchat-back').onclick = () => {
       _activeGroupChat = { id: '', collection: '' };
       if (gchatUnsub) { gchatUnsub(); gchatUnsub = null; }
       if (_gchatViewportCleanup) { _gchatViewportCleanup(); _gchatViewportCleanup = null; }
+      window._gchatFile = null;
       showScreen('app');
       if (state.page !== 'chat') navigate('chat');
     };
@@ -7616,18 +9712,15 @@ async function joinGroup(groupId) {
 
 function renderMessages() {
   const c = $('#content');
+  const inGroupsView = state.lastMsgTab === 'groups';
   c.innerHTML = `
     <div class="messages-page">
-      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
-      <div class="msg-tabs">
-        <button class="msg-tab active" data-mt="dm">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          DMs <span class="tab-badge" id="dm-tab-badge"></span>
-        </button>
-        <button class="msg-tab" data-mt="groups">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Groups <span class="tab-badge" id="asg-tab-badge"></span>
-        </button>
+      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="btn-outline btn-sm" id="messages-groups-toggle" title="Open groups">${inGroupsView ? 'Chats' : 'Groups'}</button><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
+      <div class="stories-row messages-stories-row" id="messages-stories-row">
+        <div class="story-item add-story" onclick="openStoryCreator()">
+          <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
+          <div class="story-name">Story</div>
+        </div>
       </div>
       <div id="msg-tab-content">
         <div class="convo-list" id="convo-list">
@@ -7648,41 +9741,67 @@ function renderMessages() {
     anonPrefBtn.onclick = openAnonDmSettings;
     updateAnonPrefButton('messages-anon-pref');
   }
-  $$('.msg-tab').forEach(tab => {
-    tab.onclick = () => {
-      $$('.msg-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      state.lastMsgTab = tab.dataset.mt;
-      if (tab.dataset.mt === 'dm') loadDMList();
-      else loadGroups();
-      updateArchiveFabState();
-    };
-  });
-  // Restore last active tab
-  const restoreTab = state.lastMsgTab || 'dm';
-  if (restoreTab === 'groups') state.lastMsgTab = 'dm';
-  if (restoreTab === 'archived') {
-    $$('.msg-tab').forEach(t => t.classList.remove('active'));
-    loadArchivedDMList();
-  } else {
-    const tabBtn = document.querySelector(`.msg-tab[data-mt="${state.lastMsgTab || 'dm'}"]`);
-    if (tabBtn) { tabBtn.click(); } else { loadDMList(); }
+  const groupsToggleBtn = $('#messages-groups-toggle');
+  if (groupsToggleBtn) {
+    groupsToggleBtn.onclick = toggleMessagesGroupsView;
   }
+  if (!inGroupsView) loadStories();
+  bindMessagesScrollEffects();
+  syncMessagesStoriesVisibility();
+
+  const restoreTab = state.lastMsgTab || 'dm';
+  if (restoreTab === 'archived') {
+    loadArchivedDMList();
+  } else if (restoreTab === 'groups') {
+    loadGroups();
+  } else {
+    loadDMList();
+  }
+  updateMessagesGroupsToggle();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
+}
+
+function syncMessagesStoriesVisibility() {
+  const page = document.querySelector('.messages-page');
+  const row = document.getElementById('messages-stories-row');
+  const hideStories = state.lastMsgTab === 'groups';
+  if (page) page.classList.toggle('stories-collapsed', hideStories);
+  if (row) row.style.display = hideStories ? 'none' : '';
+}
+
+function updateMessagesGroupsToggle() {
+  const btn = $('#messages-groups-toggle');
+  if (!btn) return;
+  btn.textContent = state.lastMsgTab === 'groups' ? 'Chats' : 'Groups';
+}
+
+function toggleMessagesGroupsView() {
+  if (state.lastMsgTab === 'groups') {
+    state.lastMsgTab = 'dm';
+    loadDMList();
+  } else {
+    state.lastMsgTab = 'groups';
+    loadGroups();
+  }
+  updateMessagesGroupsToggle();
+  updateArchiveFabState();
+  syncMessagesStoriesVisibility();
 }
 
 function toggleArchiveDmView() {
   if (state.lastMsgTab === 'archived') {
-    state.lastMsgTab = 'dm';
-    const dmTab = document.querySelector('.msg-tab[data-mt="dm"]');
-    if (dmTab) dmTab.click();
+    state.lastMsgTab = state.lastMsgTabBeforeArchive || 'dm';
+    if (state.lastMsgTab === 'groups') loadGroups();
     else loadDMList();
   } else {
+    state.lastMsgTabBeforeArchive = state.lastMsgTab === 'archived' ? 'dm' : (state.lastMsgTab || 'dm');
     state.lastMsgTab = 'archived';
-    $$('.msg-tab').forEach(t => t.classList.remove('active'));
     loadArchivedDMList();
   }
+  updateMessagesGroupsToggle();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
 }
 
 function updateArchiveFabState() {
@@ -7700,6 +9819,44 @@ function refreshCurrentMessageList() {
   else if (state.lastMsgTab === 'groups') loadGroups();
   else loadDMList();
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
+}
+
+function bindMessagesScrollEffects() {
+  const page = document.querySelector('.messages-page');
+  const host = document.getElementById('msg-tab-content');
+  if (!page || !host || host.dataset.storyScrollBound === '1') return;
+  let lastTop = 0;
+  let lastObservedTop = 0;
+  let collapsed = false;
+  let ticking = false;
+  page.classList.toggle('stories-collapsed', state.lastMsgTab === 'groups');
+
+  const applyState = (st) => {
+    if (state.lastMsgTab === 'groups') {
+      page.classList.add('stories-collapsed');
+      lastTop = st;
+      return;
+    }
+    const delta = st - lastTop;
+    if (!collapsed && st > 44 && delta > 3) collapsed = true;
+    if (collapsed && (delta < -2 || st < 12)) collapsed = false;
+    page.classList.toggle('stories-collapsed', collapsed);
+    lastTop = st;
+  };
+
+  host.addEventListener('scroll', e => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement) || !target.classList.contains('convo-list')) return;
+    lastObservedTop = target.scrollTop || 0;
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      applyState(lastObservedTop);
+      ticking = false;
+    });
+  }, true);
+  host.dataset.storyScrollBound = '1';
 }
 
 function loadGroupList() {
@@ -7740,6 +9897,7 @@ function loadGroups() {
   const myModules = state.profile.modules || [];
   container.innerHTML = `
     <div class="asg-page">
+      <div id="event-chat-groups" style="padding:8px 12px 0"></div>
       <div style="padding:12px 16px;display:flex;gap:8px">
         <button class="btn-primary" style="flex:1" onclick="openCreateModuleGroup()">+ New Group</button>
       </div>
@@ -7758,13 +9916,51 @@ function loadGroups() {
       loadAsgList(ch.dataset.af);
     };
   });
+  loadEventChatGroups();
   loadAsgList('my');
+}
+
+async function loadEventChatGroups() {
+  const host = $('#event-chat-groups');
+  if (!host) return;
+  const uid = state.user?.uid;
+  if (!uid) { host.innerHTML = ''; return; }
+  try {
+    const snap = await db.collection('groups').where('members', 'array-contains', uid).limit(40).get();
+    const groups = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(g => g.isEventGroup)
+      .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+    if (!groups.length) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = `
+      <div style="padding:6px 4px 8px;font-size:12px;font-weight:700;color:var(--text-secondary)">EVENT GROUPS</div>
+      ${groups.map(g => `
+        <div class="convo-item" style="margin-bottom:8px" onclick="openGroupChat('${g.id}','groups')">
+          <div class="convo-avatar">${g.eventImage ? `<img class="avatar-md group-avatar-photo" src="${g.eventImage}" alt="">` : '<div class="avatar-md group-avatar-icon">📅</div>'}</div>
+          <div class="convo-info">
+            <div class="convo-name">${esc(g.name || 'Event Group')}</div>
+            <div class="convo-last-msg">${esc(g.lastMessage || 'Event chat')}</div>
+          </div>
+          <div class="convo-right">
+            <div class="convo-time">${timeAgo(g.updatedAt)}</div>
+            <div style="font-size:11px;color:var(--text-tertiary)">${(g.members || []).length} members</div>
+          </div>
+        </div>
+      `).join('')}
+    `;
+  } catch (e) {
+    console.error(e);
+    host.innerHTML = '';
+  }
 }
 
 async function loadAsgList(filter = 'my') {
   const el = $('#asg-list'); if (!el) return;
   const uid = state.user.uid;
-  const myModules = state.profile.modules || [];
+  const myModules = normalizeModules(state.profile.modules || []);
   try {
     let snap;
     if (filter === 'mine') {
@@ -7774,7 +9970,7 @@ async function loadAsgList(filter = 'my') {
     }
     let groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (filter === 'my') {
-      groups = groups.filter(g => myModules.includes(g.moduleCode));
+      groups = groups.filter(g => myModules.includes(normalizeModules([g.moduleCode])[0] || ''));
     }
     groups.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
@@ -7876,6 +10072,7 @@ function openCreateModuleGroup() {
   $('#asg-create-btn').onclick = async () => {
     let moduleCode = $('#asg-module').value;
     if (moduleCode === '_custom') moduleCode = ($('#asg-custom-module')?.value || '').trim().toUpperCase();
+    moduleCode = normalizeModules([moduleCode])[0] || '';
     const title = $('#asg-title')?.value.trim();
     const maxSize = parseInt($('#asg-size')?.value) || 5;
     const dueDate = $('#asg-due')?.value || '';
@@ -8284,7 +10481,7 @@ async function openAsgPreferences(groupId) {
   // Search filter
   $('#pref-search').oninput = (e) => {
     const q = (e.target.value || '').toLowerCase();
-    const filtered = q ? modulePeople.filter(u => (u.displayName || '').toLowerCase().includes(q)) : modulePeople;
+    const filtered = q ? modulePeople.map(u => ({ user: u, score: userSearchScore(u, q) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : modulePeople;
     peopleEl.innerHTML = filtered.length ? filtered.map(u => renderPersonItem(u)).join('') : '<p class="pref-empty">No matches found.</p>';
   };
 
@@ -8497,13 +10694,22 @@ function listenForNotifications() {
 
   notifUnsub = db.collection('users').doc(state.user.uid).onSnapshot(doc => {
     if (!doc.exists) return;
-    const data = doc.data();
+    const data = doc.data() || {};
+    const prevName = state.profile?.displayName || '';
+    const prevPhoto = state.profile?.photoURL || '';
+    Object.assign(state.profile, data);
     state.profile.friends = data.friends || [];
     state.profile.friendRequests = sanitizeFriendRequests(data.friendRequests || []);
     state.profile.sentRequests = data.sentRequests || [];
     state.profile.blockedUsers = data.blockedUsers || [];
     state.profile.blockedBy = data.blockedBy || [];
     state.profile.allowAnonymousMessages = data.allowAnonymousMessages !== false;
+    updateCachedUserRecord(state.user.uid, state.profile || {});
+    setupHeader();
+    updateAnonPrefButton('messages-anon-pref');
+    if ((data.displayName || '') !== prevName || (data.photoURL || '') !== prevPhoto) {
+      if (state.page === 'chat') refreshCurrentMessageList();
+    }
     updateNotifBadge();
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display === 'block') loadNotifications();
@@ -8628,16 +10834,19 @@ function loadNotifications() {
   if (otherNotifs.length) {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : '🔔';
+      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : n.type === 'live' ? '🔴' : '🔔';
+      const isOwnLive = !!n.from?.uid && n.from.uid === state.user?.uid;
       const clickAction = n.payload?.convoId
         ? `closeNotifDropdown();openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
-        : n.payload?.postId
-          ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
-          : n.payload?.groupId
-            ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
-            : n.from?.uid && n.from.uid !== 'anonymous'
-              ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
-              : `closeNotifDropdown();markNotifRead('${n.id}')`;
+        : n.payload?.streamId
+          ? `closeNotifDropdown();openLiveStreamFromFeed('${n.payload.streamId}', ${isOwnLive ? 'true' : 'false'});markNotifRead('${n.id}')`
+          : n.payload?.postId
+            ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+            : n.payload?.groupId
+              ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+              : n.from?.uid && n.from.uid !== 'anonymous'
+                ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
+                : `closeNotifDropdown();markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unibo', photo: null };
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
@@ -8659,6 +10868,18 @@ function loadNotifications() {
 
 async function markNotifRead(nid) {
   try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
+}
+
+async function markAllBellNotifsRead() {
+  if (!state.user?.uid) return;
+  const unreadIds = bellNotifications(_notifications).filter(n => !n.read).map(n => n.id);
+  if (!unreadIds.length) return;
+  const unreadSet = new Set(unreadIds);
+  _notifications = _notifications.map(n => unreadSet.has(n.id) ? { ...n, read: true } : n);
+  updateNotifBadge();
+  await Promise.all(unreadIds.map(id =>
+    db.collection('users').doc(state.user.uid).collection('notifications').doc(id).update({ read: true }).catch(() => {})
+  ));
 }
 
 async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null, fromOverride = null } = {}) {
@@ -8735,24 +10956,26 @@ async function viewPost(pid) {
 function loadDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const convos = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
 
       const el = $('#convo-list'); if (!el) return;
-
       if (!convos.length) {
         el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">💬</div><h3>No chats yet</h3><p>Visit a profile to start a conversation</p></div>`;
         return;
       }
 
       const uid = state.user.uid;
+      const otherUids = convos.map(c => c.participants.find(p => p !== uid)).filter(Boolean);
+      await ensureUserContextCache(otherUids);
       let archivedUnread = 0;
       convos.forEach(c => {
         if ((c.archived || []).includes(uid)) archivedUnread += (c.unread || {})[uid] || 0;
@@ -8769,8 +10992,9 @@ function loadDMList() {
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
         const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
-        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
-        const displayPhoto = theirAnon ? null : rawPhoto;
+        const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
+        const displayPhoto = theirAnon ? null : resolved.photo;
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -8803,12 +11027,13 @@ function loadDMList() {
 function loadArchivedDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
   updateArchiveFabState();
+  syncMessagesStoriesVisibility();
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
   const u = db.collection('conversations')
     .where('participants', 'array-contains', state.user.uid)
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const convos = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(c => (c.archived || []).includes(state.user.uid))
@@ -8822,6 +11047,8 @@ function loadArchivedDMList() {
       }
 
       const uid = state.user.uid;
+      const otherUids = convos.map(c => c.participants.find(p => p !== uid)).filter(Boolean);
+      await ensureUserContextCache(otherUids);
       el.innerHTML = convos.map(c => {
         const idx = c.participants.indexOf(uid) === 0 ? 1 : 0;
         const otherUid = c.participants[idx];
@@ -8829,8 +11056,9 @@ function loadArchivedDMList() {
         const rawPhoto = (c.participantPhotos || [])[idx] || null;
         const otherStatus = (c.participantStatuses || {})[otherUid] || 'offline';
         const theirAnon = !!((c.anonymous || {})[otherUid]);
-        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : rawName;
-        const displayPhoto = theirAnon ? null : rawPhoto;
+        const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
+        const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
+        const displayPhoto = theirAnon ? null : resolved.photo;
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -8884,8 +11112,11 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const { meAnon, themAnon, revealRequests } = getAnonState(convo, uid);
   const otherUid = convo.participants.find(p => p !== uid);
   const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
-  const otherName = (convo.participantNames || [])[idx] || 'User';
-  const otherPhoto = (convo.participantPhotos || [])[idx] || null;
+  const rawOtherName = (convo.participantNames || [])[idx] || realName || 'User';
+  const rawOtherPhoto = (convo.participantPhotos || [])[idx] || realPhoto || null;
+  const resolvedIdentity = getResolvedUserIdentity(otherUid, rawOtherName, rawOtherPhoto);
+  const otherName = resolvedIdentity.name;
+  const otherPhoto = resolvedIdentity.photo;
   const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
   const anonName = getAnonDisplayName(convo, uid, otherUid);
 
@@ -9076,27 +11307,28 @@ async function setAllowAnonymousMessages(enabled) {
 }
 
 async function openChat(convoIdArg) {
+  const convoId = (typeof convoIdArg !== 'undefined' && convoIdArg)
+    ? convoIdArg
+    : (_activeChatConvoId || '');
+  if (!convoId) return toast('Chat not found');
+  showScreen('chat-view');
+  _activeChatConvoId = convoId;
+  _activeGroupChat = { id: '', collection: '' };
+  const msgs = $('#chat-msgs');
+  if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
   try {
-    const convoId = (typeof convoIdArg !== 'undefined' && convoIdArg)
-      ? convoIdArg
-      : (_activeChatConvoId || '');
-    if (!convoId) return toast('Chat not found');
     const convoDoc = await db.collection('conversations').doc(convoId).get();
     if (!convoDoc.exists) return toast('Chat not found');
     const convo = convoDoc.data();
     convo._id = convoId;
     const uid = state.user.uid;
     const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
-    const name = (convo.participantNames || [])[idx] || 'User';
-    const photo = (convo.participantPhotos || [])[idx] || null;
+    const otherUid = convo.participants[idx];
+    await ensureUserContextCache([otherUid], { force: true });
+    const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
+    const name = resolvedIdentity.name;
+    const photo = resolvedIdentity.photo;
 
-    showScreen('chat-view');
-    _activeChatConvoId = convoId;
-    _activeGroupChat = { id: '', collection: '' };
-    
-    // IMMEDIATELY clear old messages to prevent flash of previous chat
-    const msgs = $('#chat-msgs');
-    if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
 
     // Only show anon toggle for anonymous conversations (non-friend chats)
     const anonBtn = $('#chat-anon-toggle');
@@ -9147,7 +11379,13 @@ async function openChat(convoIdArg) {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.imageURL) content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.locationPin) content = renderLocationPinCard(m.locationPin);
+            if (m.imageURL) {
+              const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
+              if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
+              else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+            }
             // Handle shared post messages
             if (!m.deleted && m.type === 'share_post' && m.payload?.postId) {
               const pl = m.payload;
@@ -9227,8 +11465,9 @@ async function openChat(convoIdArg) {
 
             // Determine anonymous display
             const senderAnon = m.senderAnon || false;
-            const displayName = (!isMe && senderAnon) ? 'Anonymous' : name;
-            const displayPhoto = (!isMe && senderAnon) ? null : photo;
+            const liveIdentity = getResolvedUserIdentity(m.senderId, name, photo);
+            const displayName = (!isMe && senderAnon) ? 'Anonymous' : liveIdentity.name;
+            const displayPhoto = (!isMe && senderAnon) ? null : liveIdentity.photo;
             const avatarHTML = senderAnon && !isMe
               ? '<div class="avatar-xs anon-avatar">👻</div>'
               : avatar(displayName, displayPhoto, 'avatar-xs');
@@ -9243,7 +11482,7 @@ async function openChat(convoIdArg) {
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -9316,7 +11555,11 @@ async function openChat(convoIdArg) {
       try {
         // Upload image to R2 if file exists
         let imageURL = null;
-        if (chatFile) { imageURL = await uploadToR2(chatFile, 'chat-images'); }
+        let mediaType = null;
+        if (chatFile) {
+          imageURL = await uploadToR2(chatFile, 'chat-images');
+          mediaType = (chatFile.type || '').startsWith('video/') ? 'video' : 'image';
+        }
         // Upload voice to R2
         let audioURL = null;
         if (window._chatVoiceBlob) {
@@ -9336,12 +11579,12 @@ async function openChat(convoIdArg) {
           }
         } catch (_) {}
         await db.collection('conversations').doc(convoId).collection('messages').add({
-          text: safeText || '', imageURL: imageURL || null, audioURL: audioURL || null,
+          text: safeText || '', imageURL: imageURL || null, mediaType: mediaType || null, audioURL: audioURL || null,
           moderationFlags: moderation.flags,
           senderId: uid, senderAnon, ...replyPayload,
           createdAt: FieldVal.serverTimestamp(), status: 'sent'
         });
-        const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (safeText || '📷 Photo') : safeText;
+        const lastMsg = audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText;
         const mergeData = {
           lastMessage: lastMsg, updatedAt: FieldVal.serverTimestamp(),
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
@@ -9352,9 +11595,11 @@ async function openChat(convoIdArg) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
+        await addNotification(otherUid, 'message', 'sent you a message', { convoId });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
+    const dmPlusBtn = $('#chat-plus-btn'); if (dmPlusBtn) dmPlusBtn.onclick = (e) => { e.stopPropagation(); openChatPlusMenu('dm'); };
     input.onfocus = () => setTimeout(() => scrollToLatest(msgs), 100);
     input.onblur = () => setTimeout(() => scrollToLatest(msgs), 150);
 
@@ -9674,6 +11919,7 @@ async function openProfile(uid) {
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
           ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
+          ${user.gender ? `<span class="profile-badge">🧬 ${esc(user.gender)}</span>` : ''}
           ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
@@ -10037,6 +12283,7 @@ async function doAdminDataClear() {
 
     toast('Kill switch complete. Data wiped.');
     navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
   } catch (e) {
     console.error(e);
     toast('Wipe failed');
@@ -10050,6 +12297,7 @@ function renderProfileAbout(user) {
     <div class="profile-about">
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
+      <div class="about-item"><span class="about-icon">🧬</span><div><div class="about-label">Gender</div><div class="about-value">${esc(user.gender || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
       ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
@@ -10123,6 +12371,7 @@ function editProfile() {
         <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
       </div>
       <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
+      <div class="form-group"><label>Gender</label><input type="text" id="edit-gender" value="${esc(p.gender || '')}" placeholder="e.g. female, male, non-binary, prefer not to say"></div>
       <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="edit-autofill" style="width:auto" ${p.allowAutoFill !== false ? 'checked' : ''}>
@@ -10135,28 +12384,27 @@ function editProfile() {
       </div>
       <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
       <div class="form-group"><label>Anonymous Identity</label>
-        <input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23">
-      </div>
-      <div class="form-group"><label>Quick Persona Theme</label>
         <select id="edit-anon-identity-theme">
-          <option value="__custom">Keep typed identity</option>
           ${ANON_PERSONA_THEMES.map(theme => `<option value="${esc(theme)}">${esc(theme)}</option>`).join('')}
+          <option value="__custom">Custom identity…</option>
         </select>
       </div>
-      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">Use the text box above directly, or pick a quick persona to auto-fill it.</p>
+      <div class="form-group" id="edit-anon-custom-wrap" style="display:none"><label>Custom Anonymous Identity</label><input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23"></div>
       <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user.uid}','${esc(p.displayName)}')" style="margin-bottom:12px">View Friends</button>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
   const themeSelect = $('#edit-anon-identity-theme');
+  const customWrap = $('#edit-anon-custom-wrap');
   const customInput = $('#edit-anon-custom');
   const existingBase = ANON_PERSONA_THEMES.find(theme => currentAnonIdentity.toLowerCase().startsWith(theme.toLowerCase()));
   if (themeSelect) themeSelect.value = existingBase || '__custom';
+  if (customWrap) customWrap.style.display = existingBase ? 'none' : 'block';
   if (themeSelect) {
     themeSelect.onchange = () => {
-      if (themeSelect.value !== '__custom' && customInput) {
-        customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
-      }
+      const custom = themeSelect.value === '__custom';
+      if (customWrap) customWrap.style.display = custom ? 'block' : 'none';
+      if (!custom && customInput) customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     };
   }
   let newPhoto = null; let newPhotoFile = null;
@@ -10168,24 +12416,29 @@ function editProfile() {
     const bio = $('#edit-bio').value.trim();
     const address = $('#edit-address')?.value.trim() || '';
     const modulesRaw = $('#edit-modules').value || '';
-    const modules = modulesRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean);
+    const modules = normalizeModules(modulesRaw.split(','));
+    const gender = ($('#edit-gender')?.value || '').trim();
     if (!name) return toast('Name required');
     closeModal(); toast('Saving...');
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
     const selectedTheme = $('#edit-anon-identity-theme')?.value || '__custom';
-    let anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
-    if (!anonIdentity && selectedTheme !== '__custom') anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+    let anonIdentity = '';
+    if (selectedTheme === '__custom') anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
+    else anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
-    const updates = { displayName: name, bio, modules, address, allowAutoFill, allowAnonymousMessages, anonIdentity };
+    const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
+      updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
-      setupHeader(); toast('Profile updated!'); openProfile(state.user.uid);
+      setupHeader();
+      if (state.page === 'chat') { loadDMList().catch(() => {}); }
+      toast('Profile updated!'); openProfile(state.user.uid);
     } catch (e) { toast('Failed'); console.error(e); }
   };
 }
@@ -10469,6 +12722,7 @@ async function openQuoteRepost(postId) {
         });
         toast('Reposted!');
         navigate('feed');
+  setTimeout(() => markBootReady('Loaded'), 220);
       } catch (e) { toast('Failed'); console.error(e); }
     };
   } catch (e) { console.error(e); toast('Error loading post'); }
@@ -10573,7 +12827,7 @@ async function adminViewAllUsers() {
     $('#admin-users-list').innerHTML = renderAdminUsers(users);
     $('#admin-user-search').oninput = (e) => {
       const q = (e.target.value || '').toLowerCase();
-      const filtered = q ? users.filter(u => (u.displayName||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q)) : users;
+      const filtered = q ? users.map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : users;
       $('#admin-users-list').innerHTML = renderAdminUsers(filtered);
     };
   } catch (e) { console.error(e); }
@@ -10599,7 +12853,10 @@ function adminVerifyUser() {
       try {
         const snap = await db.collection('users').limit(50).get();
         const users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .filter(u => (u.displayName||'').toLowerCase().includes(q.toLowerCase()) || (u.email||'').toLowerCase().includes(q.toLowerCase()));
+          .map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) }))
+          .filter(entry => entry.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map(entry => entry.user);
         $('#verify-results').innerHTML = users.map(u => `
           <div class="pref-person" style="cursor:pointer">
             ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
@@ -10702,11 +12959,17 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuth();
   initNativeShell().catch(() => {});
 
-  // Dismiss splash
-  setTimeout(() => { const s = $('#splash'); if (s) s.classList.remove('active'); }, 1500);
+  showBootStatus('Starting Unibo…');
+  ensureBootFallback();
+  ensureChatPlusMenu($('#chat-plus-menu'), 'dm');
+  ensureChatPlusMenu($('#gchat-plus-menu'), 'group');
+  $('#chat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
+  $('#gchat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
+  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
+  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
 
   // Image viewer close + gallery navigation + swipe
-  $('#img-close')?.addEventListener('click', () => { $('#img-view').style.display = 'none'; _galleryUrls = []; });
+  $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
   $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
   $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
   // Touch swipe support for gallery
@@ -10722,6 +12985,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+  document.addEventListener('contextmenu', e => {
+    const video = e.target && e.target.closest ? e.target.closest('video') : null;
+    if (!video) return;
+    const src = video.currentSrc || video.src || video.getAttribute('src') || '';
+    if (!src) return;
+    e.preventDefault();
+    openVideoDownloadPrompt(src);
+  }, true);
 
   // Notifications dropdown toggle
   $('#notif-btn')?.addEventListener('click', (e) => {
@@ -10731,6 +13002,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dd.style.display === 'block') { closeNotifDropdown(); return; }
     loadNotifications();
     dd.style.display = 'block';
+    markAllBellNotifsRead().then(() => {
+      if (dd.style.display === 'block') loadNotifications();
+    }).catch(() => {});
     _notifDropdownCloseHandler = ev => {
       const trigger = $('#notif-btn');
       if (!dd.contains(ev.target) && ev.target !== trigger && !trigger?.contains(ev.target)) {
@@ -10740,12 +13014,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
 
-  // Close notification dropdown when scrolling the main content
+  // Close notification dropdown only for real user scroll gestures, not auto scroll/restore.
   const contentEl = $('#content');
   if (contentEl) {
+    ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach(eventName => {
+      contentEl.addEventListener(eventName, () => noteContentScrollGesture(), { passive: true, capture: true });
+    });
     contentEl.addEventListener('scroll', () => {
       const dd = $('#notif-dropdown');
-      if (dd && dd.style.display === 'block') closeNotifDropdown();
+      if (!dd || dd.style.display !== 'block') return;
+      if (isRecentContentScrollGesture()) closeNotifDropdown();
     }, true);
   }
 
@@ -10788,6 +13066,9 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
+    downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
+    openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
