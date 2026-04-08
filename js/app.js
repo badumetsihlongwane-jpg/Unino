@@ -85,6 +85,10 @@ const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
+let _campusPlacePointsCache = [];
+const _destinationSearchCache = new Map();
+const _destinationSearchInflight = new Map();
+const _reverseGeocodeCache = new Map();
 
 const ANON_PERSONA_THEMES = ['Anonymous', 'Campus Ghost', 'Res Phantom'];
 const SOFT_FILTER_RULES = [
@@ -7584,16 +7588,18 @@ function renderRadarView() {
     renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc);
   };
 
-  const renderRadarSuggestions = (queryRaw = '') => {
+  let radarSuggestionSeq = 0;
+  const renderRadarSuggestions = async (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
     const rawQuery = (queryRaw || '').trim();
-    const q = rawQuery.toLowerCase();
+    const q = normalizePlaceKey(rawQuery);
     if (!q) {
       box.style.display = 'none';
       box.innerHTML = '';
       return;
     }
+    const seq = ++radarSuggestionSeq;
 
     const peopleHits = allExploreUsers
       .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
@@ -7602,41 +7608,48 @@ function renderRadarView() {
       .slice(0, 4)
       .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
-    const locationHits = CAMPUS_LOCATIONS
-      .filter(loc => (loc.name || '').toLowerCase().includes(q))
-      .slice(0, 4)
-      .map(loc => ({ type: 'location', locationId: loc.id, label: loc.name, sub: 'Campus pin' }));
+    const campusPlaces = CAMPUS_LOCATIONS
+      .map(loc => ({
+        type: 'place',
+        label: loc.name,
+        sub: 'Campus location',
+        lat: Number(loc.lat),
+        lng: Number(loc.lng),
+        locationId: loc.id,
+        source: 'campus'
+      }))
+      .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0);
 
-    const addressHits = Array.from(new Set(allExploreUsers.map(u => u.address || '').filter(Boolean)))
-      .filter(a => a.toLowerCase().includes(q))
-      .slice(0, 3)
-      .map(a => ({ type: 'address', label: a, sub: 'Address' }));
+    const geojsonPlaces = (await ensureCampusPlacePoints())
+      .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0)
+      .map(place => ({ type: 'place', ...place }));
 
-    const hits = [...peopleHits, ...locationHits, ...addressHits].slice(0, 7);
-    if (!hits.length) {
+    const remotePlaces = await searchOpenStreetMapDestinations(rawQuery, 4);
+    if (seq !== radarSuggestionSeq) return;
+
+    const placeHits = dedupePlaceCandidates([
+      ...campusPlaces,
+      ...geojsonPlaces,
+      ...(remotePlaces || [])
+    ])
+      .map(place => ({ ...place, type: 'place', _score: scorePlaceQueryMatch(place.label || '', rawQuery) + (place.source === 'campus' ? 10 : 0) }))
+      .filter(place => place._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 5);
+
+    if (!peopleHits.length && !placeHits.length) {
       box.style.display = 'none';
       box.innerHTML = '';
       return;
     }
 
-    box.innerHTML = hits.map(h => {
-      if (h.type === 'person') {
-        const user = allExploreUsers.find(u => u.id === h.uid);
-        const photo = user?.photoURL || null;
-        const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
-        return `
-          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
-            ${avatarHTML}
-            <div class="radar-suggestion-text">
-              <span class="radar-suggestion-main">${esc(h.label)}</span>
-              ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
-            </div>
-          </button>
-        `;
-      }
+    const peopleMarkup = peopleHits.map(h => {
+      const user = allExploreUsers.find(u => u.id === h.uid);
+      const photo = user?.photoURL || null;
+      const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
       return `
-        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
-          <span class="radar-suggestion-icon">📍</span>
+        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="person" data-uid="${h.uid || ''}">
+          ${avatarHTML}
           <div class="radar-suggestion-text">
             <span class="radar-suggestion-main">${esc(h.label)}</span>
             ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
@@ -7644,21 +7657,39 @@ function renderRadarView() {
         </button>
       `;
     }).join('');
+
+    const placeMarkup = placeHits.map(h => `
+      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="place" data-lat="${Number(h.lat)}" data-lng="${Number(h.lng)}">
+        <span class="radar-suggestion-icon">📍</span>
+        <div class="radar-suggestion-text">
+          <span class="radar-suggestion-main">${esc(h.label)}</span>
+          ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
+        </div>
+      </button>
+    `).join('');
+
+    box.innerHTML = `${peopleHits.length ? `<div class="radar-suggestion-sub" style="padding:6px 12px 2px;font-weight:700;opacity:.75">People</div>${peopleMarkup}` : ''}${placeHits.length ? `<div class="radar-suggestion-sub" style="padding:8px 12px 2px;font-weight:700;opacity:.75">Places</div>${placeMarkup}` : ''}`;
     box.style.display = 'block';
     box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
       btn.onclick = () => {
         const selected = btn.getAttribute('data-v') || '';
         const kind = btn.getAttribute('data-type') || '';
         const uid = btn.getAttribute('data-uid') || '';
-        const locationId = btn.getAttribute('data-location-id') || '';
         if (kind === 'person' && uid) {
           box.style.display = 'none';
           openProfile(uid);
           return;
         }
-        if (kind === 'location' && locationId) {
+        if (kind === 'place') {
+          const lat = Number(btn.getAttribute('data-lat'));
+          const lng = Number(btn.getAttribute('data-lng'));
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const inp = $('#radar-search');
+          if (inp) inp.value = selected;
+          window._radarSearchQuery = selected;
+          _exploreSearchQuery = selected;
           box.style.display = 'none';
-          routeToCampusLocation(locationId);
+          routeToMapPoint(lat, lng, selected || 'Destination');
           return;
         }
         const inp = $('#radar-search');
@@ -8162,6 +8193,194 @@ async function loadCampusGeoJson() {
   return _campusGeoJsonLoadPromise;
 }
 
+function normalizePlaceKey(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scorePlaceQueryMatch(label = '', query = '') {
+  const cleanLabel = normalizePlaceKey(label);
+  const cleanQuery = normalizePlaceKey(query);
+  if (!cleanLabel || !cleanQuery) return 0;
+  if (cleanLabel === cleanQuery) return 120;
+  if (cleanLabel.startsWith(cleanQuery)) return 90;
+  if (cleanLabel.includes(cleanQuery)) return 70;
+  const parts = cleanQuery.split(' ').filter(Boolean);
+  if (!parts.length) return 0;
+  const matched = parts.filter(part => cleanLabel.includes(part)).length;
+  if (!matched) return 0;
+  return 40 + (matched * 12);
+}
+
+async function ensureCampusPlacePoints() {
+  if (_campusPlacePointsCache.length) return _campusPlacePointsCache;
+  const geojson = await loadCampusGeoJson();
+  if (!geojson) {
+    _campusPlacePointsCache = [];
+    return _campusPlacePointsCache;
+  }
+  const labels = labelPointsFromPolygons(geojson)?.features || [];
+  _campusPlacePointsCache = labels
+    .map(feature => {
+      const coords = feature?.geometry?.coordinates || [];
+      const lng = Number(coords[0]);
+      const lat = Number(coords[1]);
+      const label = String(feature?.properties?.name || '').trim();
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !label) return null;
+      return { label, sub: 'Campus building', lat, lng, source: 'geojson' };
+    })
+    .filter(Boolean);
+  return _campusPlacePointsCache;
+}
+
+function dedupePlaceCandidates(candidates = []) {
+  const seen = new Set();
+  const deduped = [];
+  (candidates || []).forEach(item => {
+    const lat = Number(item?.lat);
+    const lng = Number(item?.lng);
+    const label = String(item?.label || '').trim();
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !label) return;
+    const key = `${normalizePlaceKey(label)}|${lat.toFixed(5)}|${lng.toFixed(5)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push({ ...item, lat, lng, label });
+  });
+  return deduped;
+}
+
+function reverseGeocodeSummary(address = {}) {
+  const road = address.road || address.pedestrian || address.footway || address.path || '';
+  const area = address.suburb || address.neighbourhood || address.city_district || address.town || address.city || address.village || '';
+  return [road, area].filter(Boolean).join(', ');
+}
+
+async function reverseGeocodeLabel(lat, lng) {
+  const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+  if (_reverseGeocodeCache.has(key)) return _reverseGeocodeCache.get(key);
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=en`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`reverse-${res.status}`);
+    const data = await res.json();
+    const address = data?.address || {};
+    const primary = String(
+      address.building
+      || address.amenity
+      || address.attraction
+      || address.university
+      || address.college
+      || address.road
+      || address.pedestrian
+      || address.neighbourhood
+      || data?.name
+      || ''
+    ).trim();
+    const sub = reverseGeocodeSummary(address);
+    const out = {
+      label: primary || 'Pinned location',
+      sub: sub || ''
+    };
+    _reverseGeocodeCache.set(key, out);
+    return out;
+  } catch (_) {
+    const fallback = { label: 'Pinned location', sub: '' };
+    _reverseGeocodeCache.set(key, fallback);
+    return fallback;
+  }
+}
+
+async function resolveLocationPinLabel(lat, lng) {
+  const point = { lat: Number(lat), lng: Number(lng) };
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+    return { label: 'Pinned location', sub: '' };
+  }
+
+  const campusNearest = CAMPUS_LOCATIONS
+    .map(loc => ({
+      label: loc.name,
+      sub: 'Campus location',
+      lat: Number(loc.lat),
+      lng: Number(loc.lng),
+      distanceKm: distanceKmBetween(point, { lat: Number(loc.lat), lng: Number(loc.lng) })
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0];
+
+  const buildingNearest = (await ensureCampusPlacePoints())
+    .map(place => ({
+      ...place,
+      distanceKm: distanceKmBetween(point, { lat: place.lat, lng: place.lng })
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0];
+
+  const bestKnown = [buildingNearest, campusNearest]
+    .filter(Boolean)
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
+
+  if (bestKnown && Number.isFinite(bestKnown.distanceKm) && bestKnown.distanceKm <= 0.32) {
+    return {
+      label: bestKnown.label || 'Pinned location',
+      sub: bestKnown.sub || ''
+    };
+  }
+
+  const reverse = await reverseGeocodeLabel(point.lat, point.lng);
+  const label = reverse?.label || bestKnown?.label || 'Pinned location';
+  const sub = reverse?.sub || bestKnown?.sub || '';
+  return { label, sub };
+}
+
+async function searchOpenStreetMapDestinations(queryRaw = '', limit = 4) {
+  const query = normalizePlaceKey(queryRaw);
+  if (!query || query.length < 3) return [];
+  if (_destinationSearchCache.has(query)) return _destinationSearchCache.get(query) || [];
+  if (_destinationSearchInflight.has(query)) return _destinationSearchInflight.get(query);
+
+  const task = (async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&q=${encodeURIComponent(queryRaw)}`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`search-${res.status}`);
+      const rows = await res.json();
+      const mapped = (rows || []).map(row => {
+        const lat = Number(row?.lat);
+        const lng = Number(row?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const address = row?.address || {};
+        const label = String(
+          address.building
+          || address.amenity
+          || address.attraction
+          || address.road
+          || address.neighbourhood
+          || row?.name
+          || (row?.display_name || '').split(',')[0]
+          || ''
+        ).trim();
+        if (!label) return null;
+        const sub = reverseGeocodeSummary(address) || String(row?.display_name || '').split(',').slice(1, 3).join(', ').trim();
+        return { type: 'place', label, sub, lat, lng, source: 'nominatim' };
+      }).filter(Boolean);
+      const deduped = dedupePlaceCandidates(mapped).slice(0, limit);
+      _destinationSearchCache.set(query, deduped);
+      return deduped;
+    } catch (_) {
+      _destinationSearchCache.set(query, []);
+      return [];
+    } finally {
+      _destinationSearchInflight.delete(query);
+    }
+  })();
+
+  _destinationSearchInflight.set(query, task);
+  return task;
+}
+
 function getCampusExtent(geojson) {
   let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
   (geojson?.features || []).forEach(feature => {
@@ -8511,9 +8730,12 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
 }
 
 function routeToMapPoint(lat, lng, label = 'Destination') {
+  const safeLat = Number(lat);
+  const safeLng = Number(lng);
+  if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return toast('Could not build route');
   closeModal();
   closeChatPlusMenus();
-  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return toast('Could not build route');
+  if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source: 'manual' })) return toast('Could not build route');
   exploreView = 'radar';
   if (state.page !== 'explore') {
     navigate('explore');
@@ -9592,11 +9814,13 @@ async function sendChatLocationPin(scope = 'dm') {
   navigator.geolocation.getCurrentPosition(async pos => {
     const lat = Number(pos.coords.latitude.toFixed(6));
     const lng = Number(pos.coords.longitude.toFixed(6));
-    const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
-      const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
-      return !best || dist < best.dist ? { loc, dist } : best;
-    }, null);
-    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || 'Pinned location' };
+    const resolved = await resolveLocationPinLabel(lat, lng).catch(() => ({ label: 'Pinned location', sub: '' }));
+    const locationPin = {
+      lat,
+      lng,
+      label: resolved?.label || 'Pinned location',
+      subLabel: resolved?.sub || ''
+    };
     try {
       if (scope === 'group') {
         const { id, collection } = _activeGroupChat || {};
@@ -9619,14 +9843,17 @@ async function sendChatLocationPin(scope = 'dm') {
 function openLocationPinPreview(encoded = '') {
   try {
     const pin = JSON.parse(decodeURIComponent(encoded || '')) || {};
-    if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return;
+    const lat = Number(pin.lat);
+    const lng = Number(pin.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     openModal(`
       <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
         <div class="location-preview-card">
-          <div class="location-preview-meta">${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}</div>
+          ${pin.subLabel ? `<div class="location-preview-meta" style="margin-bottom:4px">${esc(pin.subLabel)}</div>` : ''}
+          <div class="location-preview-meta">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
           <div class="location-preview-actions">
-            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
+            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${lat},${lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
           </div>
         </div>
       </div>
@@ -9639,9 +9866,12 @@ function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
 }
 
 function renderLocationPinCard(pin = {}) {
-  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
+  const lat = Number(pin.lat);
+  const lng = Number(pin.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
   const encoded = encodeURIComponent(JSON.stringify(pin));
-  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Route</span></button>`;
+  const sub = (pin.subLabel || '').trim();
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">${esc(sub || 'Tap to route here')}</div></div><span class="chat-location-cta">Route</span></button>`;
 }
 
 
