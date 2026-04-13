@@ -3,7 +3,6 @@ import {
   Client,
   Databases,
   ID,
-  MessagePriority,
   Messaging,
   MessagingProviderType,
   Query,
@@ -224,12 +223,15 @@ async function ensureMessagingUser(users, appwriteUserId, email = '') {
   }
 
   const normalizedEmail = String(email || '').trim();
-  if (!normalizedEmail || !normalizedEmail.includes('@')) {
-    return { ok: false, skipped: true, reason: 'missing-email-for-user-create', userId: appwriteUserId };
-  }
+  const fallbackEmail = `${appwriteUserId}@push.unino.local`;
+  const createEmail = normalizedEmail && normalizedEmail.includes('@') ? normalizedEmail : fallbackEmail;
 
-  await users.create(appwriteUserId, normalizedEmail);
-  return { ok: true, mode: 'created', userId: appwriteUserId };
+  await users.create(appwriteUserId, createEmail);
+  return {
+    ok: true,
+    mode: normalizedEmail && normalizedEmail.includes('@') ? 'created' : 'created-fallback-email',
+    userId: appwriteUserId
+  };
 }
 
 async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', email = '' }) {
@@ -296,17 +298,15 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     [],
     targetIds,
     data,
-    '',
-    '',
-    '',
-    '',
-    '',
-    1,
-    false,
     undefined,
-    true,
-    true,
-    MessagePriority.High
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    undefined
   );
 
   return {

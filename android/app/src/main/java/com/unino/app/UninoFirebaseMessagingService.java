@@ -19,6 +19,8 @@ import java.util.Map;
 public class UninoFirebaseMessagingService extends FirebaseMessagingService {
     public static final String CHANNEL_MESSAGES = "unibo-messages";
     public static final String CHANNEL_GENERAL = "unibo-general";
+    private static final String PREFS_PUSH = "unino_push";
+    private static final String PREF_FCM_TOKEN = "fcm_token";
 
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
@@ -47,7 +49,22 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
     public void onNewToken(String token) {
         super.onNewToken(token);
         ensureNotificationChannels(this);
-        // Token sync remains handled by the JS Capacitor registration path.
+        storeFcmToken(this, token);
+        // Final sync to Firestore/Appwrite still happens through the JS bridge path.
+    }
+
+    public static void storeFcmToken(Context context, String token) {
+        if (context == null || TextUtils.isEmpty(token)) return;
+        context.getSharedPreferences(PREFS_PUSH, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_FCM_TOKEN, token)
+            .apply();
+    }
+
+    public static String getStoredFcmToken(Context context) {
+        if (context == null) return "";
+        return context.getSharedPreferences(PREFS_PUSH, Context.MODE_PRIVATE)
+            .getString(PREF_FCM_TOKEN, "");
     }
 
     public static void ensureNotificationChannels(Context context) {

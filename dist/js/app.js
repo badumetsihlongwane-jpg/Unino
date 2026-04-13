@@ -44,6 +44,7 @@ let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
 let _nativePushReady = false;
 let _nativePushToken = '';
+let _nativePendingFcmToken = '';
 let _nativePushListenersBound = false;
 let _nativePushLastRegisterAt = 0;
 let _nativePushRegisterInFlight = false;
@@ -480,6 +481,28 @@ async function runAppwriteBackendDiagnostics() {
     }
   }
 
+  const pushUrl = APPWRITE_PUSH_SYNC_URLS[0] || '';
+  if (pushUrl && auth.currentUser && state.user?.uid && _nativePushToken) {
+    try {
+      const pushResp = await postToAppwriteBridge(pushUrl, {
+        action: 'upsert',
+        userId: state.user.uid,
+        token: _nativePushToken,
+        platform: window.Capacitor?.getPlatform?.() || 'android'
+      });
+      const body = await pushResp.clone().json().catch(() => null);
+      const targetStatus = body?.result?.messagingTarget?.mode
+        || body?.result?.messagingTarget?.reason
+        || body?.error
+        || '';
+      lines.push(`${pushUrl} -> POST /push-sync ${pushResp.status}${targetStatus ? ` (${String(targetStatus).slice(0, 120)})` : ''}`);
+    } catch (e) {
+      lines.push(`${pushUrl} -> POST /push-sync failed (${e?.message || 'network/cors'})`);
+    }
+  } else if (pushUrl && state.user?.uid) {
+    lines.push(`${pushUrl} -> POST /push-sync skipped (missing native token)`);
+  }
+
   refreshBackendDebugStatus(lines.join('\n'));
 }
 
@@ -808,6 +831,20 @@ function hashStringToId(value = '') {
 
 function tokenDocId(token = '') {
   return btoa(token).replace(/[^a-zA-Z0-9]/g, '').slice(0, 120) || String(hashStringToId(token));
+}
+
+function queueNativeFcmTokenHint(token = '') {
+  const hinted = String(token || '').trim();
+  if (!hinted || hinted.length < 20) return;
+  _nativePendingFcmToken = hinted;
+  if (state.user?.uid) savePushTokenForCurrentUser(hinted).catch(() => {});
+}
+
+function consumeNativeFcmTokenHint() {
+  const hinted = String(_nativePendingFcmToken || window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+  if (!hinted || hinted.length < 20) return;
+  queueNativeFcmTokenHint(hinted);
+  window.__UNINO_NATIVE_FCM_TOKEN = '';
 }
 
 async function syncNativeStatusBar() {
@@ -1303,11 +1340,16 @@ async function initNativeShell() {
       const detail = event?.detail || {};
       handleNativeNotificationOpen(detail.extra || detail, detail.actionId || 'tap');
     });
+    window.addEventListener('unino:native-fcm-token', event => {
+      queueNativeFcmTokenHint(event?.detail?.token || '');
+    });
     const pending = window.__UNINO_PENDING_NOTIFICATION || null;
     if (pending) {
       window.__UNINO_PENDING_NOTIFICATION = null;
       setTimeout(() => handleNativeNotificationOpen(pending.extra || pending, pending.actionId || 'tap'), 120);
     }
+    const pendingNativeToken = String(window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+    if (pendingNativeToken) queueNativeFcmTokenHint(pendingNativeToken);
   }
 }
 
@@ -3764,6 +3806,7 @@ function enterApp() {
     initNativePushNotifications();
     refreshPushRegistration(true);
   });
+  consumeNativeFcmTokenHint();
   if (!_inAppBackInit) {
     // Fence: replace current history with app state, then push initial state
     history.replaceState({ app: true, screen: 'app', page: 'feed' }, '');

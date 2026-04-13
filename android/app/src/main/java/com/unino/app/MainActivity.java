@@ -17,12 +17,16 @@ import org.json.JSONObject;
 import android.content.Intent;
 
 import com.getcapacitor.BridgeActivity;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
 import io.appwrite.Client;
 
 import java.lang.reflect.Method;
 
 public class MainActivity extends BridgeActivity {
 	private static final String TAG = "MainActivity";
+	private static final String APPWRITE_ENDPOINT = "https://fra.cloud.appwrite.io/v1";
+	private static final String APPWRITE_PROJECT_ID = "69dd43b6002414cdfb70";
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -30,13 +34,31 @@ public class MainActivity extends BridgeActivity {
 		UninoFirebaseMessagingService.ensureNotificationChannels(this);
 
 		try {
+			FirebaseApp.initializeApp(this);
+			FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+				if (!task.isSuccessful()) {
+					Log.w(TAG, "Unable to fetch FCM token", task.getException());
+					return;
+				}
+				String token = task.getResult();
+				UninoFirebaseMessagingService.storeFcmToken(this, token);
+				dispatchNativeFcmToken(token);
+				Log.i(TAG, "FCM token fetched");
+			});
+		} catch (Exception e) {
+			Log.w(TAG, "Firebase init/token fetch failed", e);
+		}
+
+		try {
 			Client appwriteClient = new Client(this);
-			invokeClientSetter(appwriteClient, "setEndpoint", "https://syd.cloud.appwrite.io/v1");
-			invokeClientSetter(appwriteClient, "setProject", "69b4202c00370d4748d6");
+			invokeClientSetter(appwriteClient, "setEndpoint", APPWRITE_ENDPOINT);
+			invokeClientSetter(appwriteClient, "setProject", APPWRITE_PROJECT_ID);
 			Log.i(TAG, "Appwrite client initialized");
 		} catch (Exception e) {
 			Log.w(TAG, "Appwrite client init failed", e);
 		}
+
+		dispatchNativeFcmToken(UninoFirebaseMessagingService.getStoredFcmToken(this));
 
 		Window window = getWindow();
 
@@ -99,6 +121,13 @@ public class MainActivity extends BridgeActivity {
 		String json = payload.toString().replace("\\", "\\\\").replace("'", "\\'");
 		String script = "window.__UNINO_PENDING_NOTIFICATION={extra:JSON.parse('" + json + "'),actionId:'tap'};window.dispatchEvent(new CustomEvent('unino:native-notification-open',{detail:window.__UNINO_PENDING_NOTIFICATION}));";
 		getBridge().getWebView().postDelayed(() -> getBridge().getWebView().evaluateJavascript(script, null), 300);
+	}
+
+	private void dispatchNativeFcmToken(String token) {
+		if (token == null || token.trim().isEmpty() || getBridge() == null) return;
+		String safeToken = token.replace("\\", "\\\\").replace("'", "\\'");
+		String script = "window.__UNINO_NATIVE_FCM_TOKEN='" + safeToken + "';window.dispatchEvent(new CustomEvent('unino:native-fcm-token',{detail:{token:'" + safeToken + "'}}));";
+		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
 	}
 
 	private void invokeClientSetter(Client client, String methodName, String value) throws Exception {
