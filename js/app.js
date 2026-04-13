@@ -540,7 +540,7 @@ async function runNotificationDiagnostics() {
       await requestLocalNotificationPermission();
       refreshPushRegistration(true);
       lines.push('triggered push registration refresh');
-      sendDebugLocalNotification();
+      await sendDebugLocalNotification();
       lines.push('sent local test notification');
     } catch (e) {
       lines.push(`push refresh failed (${e?.message || 'unknown'})`);
@@ -553,7 +553,7 @@ async function runNotificationDiagnostics() {
         if (Notification.permission === 'default') await Notification.requestPermission();
       } catch (_) {}
       lines.push(`browser notification permission=${Notification.permission}`);
-      sendDebugLocalNotification();
+      await sendDebugLocalNotification();
       lines.push('sent browser/local test notification');
     }
   }
@@ -621,16 +621,24 @@ async function runShadowSyncProbe() {
   }
 }
 
-function sendDebugLocalNotification() {
-  scheduleLocalNotification({
-    id: hashStringToId(`debug-local-${Date.now()}`),
-    title: 'Unibo Debug Test',
-    body: 'If you see this, local notifications are working.',
-    channelId: 'unibo-general',
-    actionTypeId: 'app-preview',
-    extra: { kind: 'debug' }
-  });
-  toast('Debug notification sent');
+async function sendDebugLocalNotification() {
+  try {
+    if (isNativeApp() && !_nativeLocalNotificationsReady) {
+      await requestLocalNotificationPermission().catch(() => {});
+    }
+    await scheduleLocalNotification({
+      id: hashStringToId(`debug-local-${Date.now()}`),
+      title: 'Unibo Debug Test',
+      body: 'If you see this, local notifications are working.',
+      channelId: 'unibo-general',
+      actionTypeId: 'app-preview',
+      extra: { kind: 'debug' }
+    });
+    toast('Debug notification sent');
+  } catch (e) {
+    console.warn('Debug notification failed:', e);
+    toast('Debug notification failed');
+  }
 }
 
 function normalizeReactionMap(raw = {}, likes = []) {
@@ -1036,6 +1044,9 @@ async function scheduleLocalNotification(notification) {
     }
     return;
   }
+  if (!_nativeLocalNotificationsReady) {
+    await requestLocalNotificationPermission().catch(() => {});
+  }
   if (!_nativeLocalNotificationsReady) return;
   const localNotifications = getCapacitorPlugin('LocalNotifications');
   if (!localNotifications) return;
@@ -1190,18 +1201,12 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
 
 function maybeNotifyForUnreadDMs(conversations = []) {
   if (!state.user) return;
-  // Keep unread state in sync, but avoid local duplicates when native push is healthy.
+  // Always track and notify — do not depend solely on FCM readiness.
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
     nextUnreadMap[conversation.id] = (conversation.unread || {})[myUid] || 0;
   });
-
-  if (isNativeApp() && _nativePushReady) {
-    _nativeDmNotificationPrimed = true;
-    _nativeDmUnreadMap = nextUnreadMap;
-    return;
-  }
 
   if (!_nativeDmNotificationPrimed) {
     _nativeDmNotificationPrimed = true;
@@ -1256,12 +1261,7 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
-  // Keep IDs in sync, but suppress local fallback when native push is healthy.
-  if (isNativeApp() && _nativePushReady) {
-    _nativeGeneralNotificationPrimed = true;
-    notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
-    return;
-  }
+  // Always process notification docs — this is the safety net when push delivery flakes.
 
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
