@@ -246,9 +246,12 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
   const notifId = event.params.notifId;
   if (!notification || !userId || !notifId) return;
 
+  // Reliability-first default: keep Firebase fallback enabled unless explicitly
+  // opted into Appwrite-only dedupe via env.
+  const appwriteSkipEnabled = String(process.env.APPWRITE_SKIP_FIREBASE_WHEN_SENT || '').trim() === '1';
   const pushMeta = notification.pushMeta && typeof notification.pushMeta === 'object' ? notification.pushMeta : {};
   const appwriteAlreadySent = pushMeta.appwritePushSent === true;
-  if (appwriteAlreadySent) {
+  if (appwriteSkipEnabled && appwriteAlreadySent) {
     logger.info('Skipping Firebase push (already delivered via Appwrite)', {
       userId,
       notifId,
