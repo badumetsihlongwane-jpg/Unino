@@ -273,7 +273,10 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
     title: from.name || 'Unibo',
     body: clampText(notification.text || 'You have a new notification', 120),
     channelId: kind === 'dm' || kind === 'group' ? 'unibo-messages' : 'unibo-general',
-    imageUrl: from.photo || undefined,
+    imageUrl: notification.imageUrl || from.photo || undefined,
+    androidIcon: notification.androidIcon || 'ic_notification_small',
+    androidColor: notification.androidColor || '#6D28D9',
+    clickAction: notification.clickAction || 'OPEN_UNIBO',
     data: {
       kind,
       convoId: payload.convoId || '',

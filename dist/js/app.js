@@ -11596,7 +11596,15 @@ async function markAllBellNotifsRead() {
   ));
 }
 
-async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null, fromOverride = null } = {}) {
+async function addNotification(targetId, type, text, payload, {
+  anonymous = false,
+  docId = null,
+  fromOverride = null,
+  imageUrl = '',
+  androidIcon = 'ic_notification_small',
+  androidColor = '#6D28D9',
+  clickAction = 'OPEN_UNIBO'
+} = {}) {
   if (targetId === state.user.uid) return;
   try {
     const from = fromOverride || {
@@ -11604,9 +11612,14 @@ async function addNotification(targetId, type, text, payload, { anonymous = fals
       name: anonymous ? 'Anonymous' : state.profile.displayName,
       photo: anonymous ? null : (state.profile.photoURL || null)
     };
+    const resolvedImage = String(imageUrl || from.photo || '').trim();
     const data = {
       type, text, payload, read: false, createdAt: FieldVal.serverTimestamp(),
-      from
+      from,
+      imageUrl: resolvedImage,
+      androidIcon: String(androidIcon || 'ic_notification_small').trim() || 'ic_notification_small',
+      androidColor: String(androidColor || '#6D28D9').trim() || '#6D28D9',
+      clickAction: String(clickAction || 'OPEN_UNIBO').trim() || 'OPEN_UNIBO'
     };
     await dispatchNotificationGateway(targetId, data, { docId });
   } catch (e) { console.error(e); }
