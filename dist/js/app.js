@@ -85,6 +85,10 @@ const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
+let _campusPlacePointsCache = [];
+const _destinationSearchCache = new Map();
+const _destinationSearchInflight = new Map();
+const _reverseGeocodeCache = new Map();
 
 const ANON_PERSONA_THEMES = ['Anonymous', 'Campus Ghost', 'Res Phantom'];
 const SOFT_FILTER_RULES = [
@@ -410,6 +414,31 @@ function appwriteRootUrl(url) {
     return parsed.toString();
   } catch {
     return url;
+  }
+}
+
+async function sendAppwritePing() {
+  refreshBackendDebugStatus('Sending Appwrite ping...');
+  const urls = [...new Set([...APPWRITE_PUSH_SYNC_URLS, ...APPWRITE_EVENT_SYNC_URLS])];
+  const probeUrl = urls[0] || '';
+  if (!probeUrl) {
+    refreshBackendDebugStatus('No Appwrite bridge URLs configured.');
+    toast('No Appwrite bridge URL set');
+    return;
+  }
+
+  const rootUrl = appwriteRootUrl(probeUrl);
+  try {
+    const resp = await fetch(rootUrl, { method: 'GET' });
+    const body = await resp.clone().json().catch(() => null);
+    const service = body?.service || 'bridge';
+    const version = body?.version ? ` v${body.version}` : '';
+    const detail = `${rootUrl} -> GET / ${resp.status} (${service}${version})`;
+    refreshBackendDebugStatus(detail);
+    toast(resp.ok ? 'Appwrite ping successful' : `Appwrite ping failed (${resp.status})`);
+  } catch (e) {
+    refreshBackendDebugStatus(`${rootUrl} -> ping failed (${e?.message || 'network/cors'})`);
+    toast('Appwrite ping failed');
   }
 }
 
@@ -1770,10 +1799,13 @@ function resolveMapPoint(base, occupied = [], anchor = null) {
 }
 
 function openCommentActionSheet(postId, commentId, source = 'feed') {
+  const mode = arguments[3] || 'owner';
+  const title = mode === 'post-owner' ? 'Moderate Comment' : 'Comment';
+  const actionLabel = mode === 'admin' ? 'Admin Remove' : mode === 'post-owner' ? 'Remove Comment' : 'Delete Comment';
   openModal(`
-    <div class="modal-header"><h2>Comment</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>${title}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">Delete Comment</button>
+      <button class="btn-primary btn-full" style="background:var(--red);border:none" onclick="deleteCommentThread('${postId}','${commentId}','${source}')">${actionLabel}</button>
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -2110,12 +2142,16 @@ function bindPostReactionLongPress(container) {
   });
 }
 
-function bindCommentLongPress(container, postId, source = 'feed') {
+function bindCommentLongPress(container, postId, source = 'feed', postAuthorId = '') {
   if (!container) return;
   container.querySelectorAll('.comment-item[data-author-id]').forEach(item => {
     const authorId = item.getAttribute('data-author-id') || '';
     const commentId = item.getAttribute('data-comment-id') || '';
-    if (!commentId || authorId !== state.user?.uid) return;
+    const isCommentOwner = authorId === state.user?.uid;
+    const isPostOwner = !!postAuthorId && postAuthorId === state.user?.uid;
+    const canModerate = !!state.user?.uid && (_isAdmin || isCommentOwner || isPostOwner);
+    if (!commentId || !canModerate) return;
+    const mode = _isAdmin ? 'admin' : (isCommentOwner ? 'owner' : 'post-owner');
     let timer = null;
     let didOpen = false;
     const start = () => {
@@ -2126,7 +2162,7 @@ function bindCommentLongPress(container, postId, source = 'feed') {
         didOpen = true;
         item.classList.remove('comment-long-pressing');
         if (navigator.vibrate) navigator.vibrate(18);
-        openCommentActionSheet(postId, commentId, source);
+        openCommentActionSheet(postId, commentId, source, mode);
       }, 360);
     };
     const clear = () => {
@@ -2137,7 +2173,7 @@ function bindCommentLongPress(container, postId, source = 'feed') {
     item.oncontextmenu = e => {
       e.preventDefault();
       if (navigator.vibrate) navigator.vibrate(18);
-      openCommentActionSheet(postId, commentId, source);
+      openCommentActionSheet(postId, commentId, source, mode);
     };
     item.addEventListener('click', e => {
       if (!didOpen) return;
@@ -2188,8 +2224,18 @@ function handleCommentHeartClick(postId, commentId, source = 'feed') {
 async function deleteCommentThread(postId, commentId, source = 'feed') {
   try {
     const commentsRef = db.collection('posts').doc(postId).collection('comments');
+    const uid = state.user?.uid || '';
+    if (!uid) return;
+    const postSnap = await db.collection('posts').doc(postId).get();
+    const postAuthorId = postSnap.exists ? (postSnap.data()?.authorId || '') : '';
     const snap = await commentsRef.limit(200).get();
     const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const targetComment = comments.find(comment => comment.id === commentId) || null;
+    const canDelete = !!targetComment && (_isAdmin || targetComment.authorId === uid || postAuthorId === uid);
+    if (!canDelete) {
+      toast('Only the post owner or comment owner can delete this');
+      return;
+    }
     const toDelete = new Set([commentId]);
     let added = true;
     while (added) {
@@ -2392,6 +2438,15 @@ function dateSeparatorLabel(ts) {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function escJsString(s = '') {
+  return String(s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\u2028/g, ' ')
+    .replace(/\u2029/g, ' ')
+    .replace(/\r?\n/g, ' ');
+}
 
 function isStudentEmail(email = '') {
   const e = (email || '').trim().toLowerCase();
@@ -2997,6 +3052,9 @@ function buildPlayerHTML(src, id) {
 
     <div class="up-top-bar">
       <span class="up-top-title"></span>
+      <button class="up-btn up-download-btn" data-act="download" aria-label="Download video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 3v12"/><polyline points="7 11 12 16 17 11"/><rect x="4" y="18" width="16" height="3" rx="1"/></svg>
+      </button>
     </div>
 
     <div class="up-controls">
@@ -3301,6 +3359,16 @@ function initPlayer(id) {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await vid.requestPictureInPicture();
     } catch (err) { console.warn('PiP not supported'); }
+  });
+
+  // Download current media without leaving the app context.
+  root.querySelector('[data-act="download"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const currentSrc = vid.currentSrc
+      || vid.getAttribute('src')
+      || vid.querySelector('source')?.getAttribute('src')
+      || '';
+    downloadUrlInApp(currentSrc);
   });
 
   // Fullscreen
@@ -3850,8 +3918,18 @@ function setupNav() {
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
         if (p === 'feed') navigate('feed', { refresh: true, restoreFeed: false });
+        if (p === 'chat') {
+          const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
+          const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
+          if (inGroupView || inDmView || state.lastMsgTab !== 'dm') {
+            state.lastMsgTab = 'dm';
+            showScreen('app');
+            navigate('chat', { refresh: true, pushHistory: false });
+          }
+        }
         return;
       }
+      if (p === 'chat') state.lastMsgTab = 'dm';
       navigate(p, { restoreFeed: p === 'feed' });
     });
   });
@@ -3982,7 +4060,8 @@ function navigate(page, options = {}) {
   _pruneObj(_postTextStore, 100);
   _pruneObj(_postTextLimit, 100);
 
-  if (_leafletMap) { _leafletMap.remove(); _leafletMap = null; }
+  // Keep map references in sync; stale handles can outlive screen transitions.
+  destroyRadarMapInstance();
   if (page === 'feed') {
     _pendingFeedScrollRestore = restoreFeed ? _feedScrollTop : 0;
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
@@ -4165,6 +4244,9 @@ function renderFeed() {
     loadDiscoverPeople();
     loadFeedLiveSpotlight();
   }
+  loadCampusEvents().then(() => {
+    if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
+  }).catch(() => {});
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -4334,12 +4416,14 @@ function loadDiscoverPeople() {
   const blockedUsers = new Set(state.profile.blockedUsers || []);
   const blockedBy = new Set(state.profile.blockedBy || []);
   const myFriends = new Set(state.profile.friends || []);
+  const sentRequests = new Set(state.profile.sentRequests || []);
 
   getUsersCache().then(allUsers => {
     let users = allUsers
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id));
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
+      .filter(u => !myFriends.has(u.id) && !sentRequests.has(u.id));
 
-    // Score & sort by relevance
+    // Blend relevance with session randomness so suggestions rotate between feed visits.
     users = users.map(u => {
       let score = 0;
       const theirModules = normalizeModules(u.modules || []);
@@ -4355,9 +4439,23 @@ function loadDiscoverPeople() {
       score += genderAffinityScore(state.profile, u);
       if (isFriend) score -= 18;
       if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
+      score += sessionSeed(`discover-rank:${u.id}`) * 8;
       return { ...u, isFriend, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
-    }).filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
-      .sort((a, b) => (a.isFriend === b.isFriend ? 0 : (a.isFriend ? 1 : -1)) || b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity)).slice(0, 10);
+    });
+
+    const relevant = users
+      .filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
+      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+
+    const relevantIds = new Set(relevant.map(u => u.id));
+    const randomFallback = users
+      .filter(u => !relevantIds.has(u.id))
+      .sort((a, b) => sessionSeed(`discover-fallback:${a.id}`) - sessionSeed(`discover-fallback:${b.id}`));
+
+    const relevantTake = Math.min(7, relevant.length);
+    users = [...relevant.slice(0, relevantTake), ...randomFallback.slice(0, 10 - relevantTake)];
+    if (users.length < 10) users.push(...relevant.slice(relevantTake, relevantTake + (10 - users.length)));
+    users = users.slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -4929,6 +5027,75 @@ function renderFeedInlineSuggestionCard(user = {}) {
     </div>`;
 }
 
+function pickFeedSuggestedEvent() {
+  if (!Array.isArray(allCampusEvents) || !allCampusEvents.length) return null;
+  const now = Date.now();
+  const upcoming = allCampusEvents.filter(ev => eventStartTimeMs(ev) >= now - (30 * 60 * 1000));
+  return (upcoming[0] || allCampusEvents[0] || null);
+}
+
+function renderFeedInlineEventCard(eventDoc = {}) {
+  if (!eventDoc?.id) return '';
+  const thumb = (eventDoc.imageURLs && eventDoc.imageURLs.length) ? eventDoc.imageURLs[0] : '';
+  const gradient = eventDoc.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+  const loc = getCampusLocationById(eventDoc.location);
+  const locationLabel = loc ? loc.name : (eventDoc.location || 'Campus');
+  const goingCount = Array.isArray(eventDoc.going) ? eventDoc.going.length : 0;
+  return `<div class="suggested-card suggested-event-card" onclick="openEventDetail('${eventDoc.id}')">
+    <div class="suggested-event-thumb">${thumb
+      ? `<img src="${thumb}" loading="lazy" decoding="async" alt="${esc(eventDoc.title || 'Event')}">`
+      : `<div class="suggested-event-gradient" style="background:${gradient}">${eventDoc.emoji || '📅'}</div>`}</div>
+    <div class="suggested-card-name">${esc(eventDoc.title || 'Campus Event')}</div>
+    <div class="suggested-card-meta">📍 ${esc(locationLabel)}</div>
+    <div class="suggested-card-meta">📅 ${esc(eventDoc.date || 'TBA')} ${eventDoc.time ? esc(eventDoc.time) : ''}</div>
+    <button class="btn-sm btn-outline" style="pointer-events:none">${goingCount ? `${goingCount} going` : 'View event'}</button>
+  </div>`;
+}
+
+function buildFeedSuggestedPeople(users = [], limit = 15) {
+  const blockedUsers = new Set(state.profile?.blockedUsers || []);
+  const blockedBy = new Set(state.profile?.blockedBy || []);
+  const myFriends = new Set(state.profile?.friends || []);
+  const sentRequests = new Set(state.profile?.sentRequests || []);
+  const myModules = normalizeModules(state.profile?.modules || []);
+  const myMajor = (state.profile?.major || '').toLowerCase();
+
+  const candidates = (users || []).filter(u => {
+    if (!u?.id || u.id === state.user?.uid) return false;
+    if (_feedInlineSuggestedUserIds.has(u.id)) return false;
+    if (myFriends.has(u.id) || sentRequests.has(u.id)) return false;
+    if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
+    return true;
+  }).map(u => {
+    const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
+    const majorBoost = (u.major || '').toLowerCase() === myMajor ? 3 : 0;
+    const nearby = getNearbySignal(state.profile || {}, u || {});
+    const nearbyBoost = nearby.score > 0 ? (2 + nearby.score * 1.5) : 0;
+    const genderBoost = genderAffinityScore(state.profile || {}, u || {}) * 0.3;
+    const onlineBoost = u.status === 'online' ? 1.2 : 0;
+    const relevance = overlap * 4.2 + majorBoost + nearbyBoost + genderBoost + onlineBoost;
+    return { ...u, _relevance: relevance, _overlap: overlap };
+  });
+
+  if (!candidates.length) return [];
+  const relevant = candidates
+    .filter(u => u._overlap > 0 || u._relevance >= 6)
+    .sort((a, b) => (b._relevance + sessionSeed(`feed-sugg-rel:${b.id}`) * 4) - (a._relevance + sessionSeed(`feed-sugg-rel:${a.id}`) * 4));
+  const relevantIds = new Set(relevant.map(u => u.id));
+  const randomPool = candidates
+    .filter(u => !relevantIds.has(u.id))
+    .sort((a, b) => sessionSeed(`feed-sugg-rand:${a.id}`) - sessionSeed(`feed-sugg-rand:${b.id}`));
+
+  const takeRelevant = Math.min(relevant.length, Math.max(4, Math.floor(limit * 0.6)));
+  const picks = [...relevant.slice(0, takeRelevant)];
+  if (picks.length < limit) picks.push(...randomPool.slice(0, limit - picks.length));
+  if (picks.length < limit) picks.push(...relevant.slice(takeRelevant, takeRelevant + (limit - picks.length)));
+
+  return picks
+    .slice(0, limit)
+    .sort((a, b) => sessionSeed(`feed-sugg-order:${a.id}`) - sessionSeed(`feed-sugg-order:${b.id}`));
+}
+
 function renderFeedInlineSuggestionRail(users = []) {
   const picks = (users || []).slice(0, 10);
   const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
@@ -5041,7 +5208,7 @@ function renderPosts(posts) {
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
         ${post.poll ? renderInteractivePoll(post.poll, 'post', post.id, '') : ''}
-        ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" onclick="viewImage('${mediaURL}')"></div>` : ''}
+        ${!post.repostOf && hasImage ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" decoding="async" onclick="viewImage('${mediaURL}')"></div>` : ''}
         ${hasCollage ? renderCollage(post.imageURLs) : ''}
         ${!post.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
         ${post.repostOf ? renderQuoteEmbed(post.repostOf, { repostStyle: true }) : ''}
@@ -5066,28 +5233,14 @@ function renderPosts(posts) {
 
   const maxSuggestionsLeft = Math.max(0, 2 - _feedInlineSuggestionSlotsUsed);
   if (maxSuggestionsLeft > 0 && Array.isArray(_usersCache?.data) && _usersCache.data.length) {
-    const blockedUsers = new Set(state.profile?.blockedUsers || []);
-    const blockedBy = new Set(state.profile?.blockedBy || []);
-    const myModules = normalizeModules(state.profile?.modules || []);
-    const myMajor = (state.profile?.major || '').toLowerCase();
-    const pool = _usersCache.data.filter(u => {
-      if (!u?.id || u.id === state.user?.uid) return false;
-      if (_feedInlineSuggestedUserIds.has(u.id)) return false;
-      if ((state.profile?.friends || []).includes(u.id)) return false;
-      if (blockedUsers.has(u.id) || blockedBy.has(u.id)) return false;
-      return true;
-    }).map(u => {
-      const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
-      const majorBoost = (u.major || '').toLowerCase() === myMajor ? 2 : 0;
-      const genderBoost = genderAffinityScore(state.profile, u) * 0.25;
-      return { ...u, _score: overlap * 3 + majorBoost + genderBoost + scoreSeed(u.id) };
-    }).sort((a, b) => b._score - a._score);
+    const pool = buildFeedSuggestedPeople(_usersCache.data || [], 15);
     const seedBase = `${posts[0]?.id || 'seed'}:${posts.length}:${_feedInlineSuggestionSlotsUsed}`;
-    const shouldInject = posts.length >= 10 && scoreSeed(seedBase) > 0.42;
+    const featuredEventForFeed = pickFeedSuggestedEvent();
+    const shouldInject = !!featuredEventForFeed || (posts.length >= 10 && scoreSeed(seedBase) > 0.42);
     const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
       const picks = pool.slice(0, 15);
-      if (!picks.length) break;
+      if (!picks.length && !featuredEventForFeed) break;
       const spread = Math.max(4, Math.min(9, posts.length - 2));
       const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
       const slot = Math.min(postCards.length, offset + i * 7);
@@ -5220,6 +5373,7 @@ let _liveViewerHeartbeat = null;
 let _liveViewerPresenceId = null;
 let _liveViewerCountTimer = null;
 let _liveViewingStreamId = null;
+let _liveViewerMirrored = false;
 
 // ─── Open Video Hub ──────────────────────────────
 function openVideoHub(tab) {
@@ -5646,6 +5800,7 @@ function openHostLiveView(streamId) {
   const hostVideo = document.getElementById('host-live-video');
   if (hostVideo && _hostStream) {
     hostVideo.srcObject = _hostStream;
+    hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
   }
 
   // Listen for viewers wanting to connect (WebRTC signaling)
@@ -5712,6 +5867,12 @@ async function switchLiveCamera() {
   }
 }
 
+function toggleLiveViewerMirror() {
+  _liveViewerMirrored = !_liveViewerMirrored;
+  const video = document.getElementById('viewer-live-video');
+  if (video) video.classList.toggle('viewer-mirrored', _liveViewerMirrored);
+}
+
 // ─── VIEWER JOIN STREAM ──────────────────────────
 async function joinLiveStream(streamId) {
   const hub = document.getElementById('video-hub');
@@ -5744,9 +5905,12 @@ async function joinLiveStream(streamId) {
           </button>
         </div>
         <button class="live-react-btn" onclick="sendLiveReaction('${streamId}')">❤️</button>
+        <button class="live-view-mirror-btn" onclick="toggleLiveViewerMirror()" title="Mirror only my view">⇋</button>
       </div>
     </div>
   `;
+
+  _liveViewerMirrored = false;
 
   // Register viewer presence
   const uid = state.user.uid;
@@ -6009,6 +6173,7 @@ async function leaveLiveStream(streamId) {
     _liveViewerPresenceId = null;
   }
   _liveViewingStreamId = null;
+  _liveViewerMirrored = false;
   stopLiveListeners();
   loadLiveTab();
 }
@@ -6237,7 +6402,8 @@ async function openReelComments(postId, options = {}) {
 
   const list = document.getElementById('reel-comments-list');
   if (list) {
-    bindCommentLongPress(list, postId, 'reel');
+    const reelPost = (_reelVideos || []).find(p => p.id === postId) || (state.posts || []).find(p => p.id === postId) || {};
+    bindCommentLongPress(list, postId, 'reel', reelPost.authorId || '');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`rc-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -6561,7 +6727,7 @@ async function openComments(postId, options = {}) {
 
   const commentsList = $('#comments-container');
   if (commentsList) {
-    bindCommentLongPress(commentsList, postId, 'feed');
+    bindCommentLongPress(commentsList, postId, 'feed', postData?.authorId || '');
     requestAnimationFrame(() => {
       if (options.focusCommentId) {
         document.getElementById(`c-${options.focusCommentId}`)?.scrollIntoView({ block: 'nearest' });
@@ -6741,6 +6907,70 @@ function clearCommentImage() {
 let _galleryUrls = [];
 let _galleryIdx = 0;
 function viewImage(url) { openGallery([url], 0); }
+
+function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
+  try {
+    const clean = String(url || '').split('?')[0].split('#')[0];
+    const last = clean.split('/').pop() || '';
+    if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return last;
+  } catch (_) {}
+  return `${fallbackBase}-${Date.now()}.jpg`;
+}
+
+function isLikelyVideoUrl(url = '', mime = '') {
+  const lowerUrl = String(url || '').toLowerCase();
+  const lowerMime = String(mime || '').toLowerCase();
+  return lowerMime.includes('video') || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/.test(lowerUrl);
+}
+
+async function downloadUrlInApp(url = '') {
+  const target = String(url || '').trim();
+  if (!target) return;
+  let started = false;
+  try {
+    const response = await fetch(target, { mode: 'cors', cache: 'no-cache' });
+    if (!response.ok) throw new Error(`http-${response.status}`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('empty-blob');
+    const objectUrl = URL.createObjectURL(blob);
+    const fallbackBase = isLikelyVideoUrl(target, blob.type) ? 'unino-video' : 'unino-image';
+    const filename = inferDownloadFilename(target, fallbackBase);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    started = true;
+    toast('Download started');
+  } catch (e) {
+    console.warn('download failed', e);
+  }
+  if (started) return;
+  try {
+    const filename = inferDownloadFilename(target, isLikelyVideoUrl(target) ? 'unino-video' : 'unino-image');
+    const link = document.createElement('a');
+    link.href = target;
+    link.download = filename;
+    link.rel = 'noopener';
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast('Opening download...');
+  } catch (_) {
+    toast('Could not download media');
+  }
+}
+
+function downloadCurrentGalleryMedia() {
+  const url = _galleryUrls[_galleryIdx] || '';
+  if (!url) return;
+  downloadUrlInApp(url);
+}
+
 function closeGalleryViewer() {
   const v = $('#img-view');
   if (v) v.style.display = 'none';
@@ -6796,7 +7026,9 @@ function openVideoDownloadPrompt(url = '') {
 const _mediaCacheWarm = new Map();
 async function primeMediaCache(urls = [], limit = 6) {
   if (!('caches' in window)) return;
-  const list = [...new Set((urls || []).filter(Boolean))].slice(0, limit);
+  const list = [...new Set((urls || []).filter(Boolean))]
+    .filter(url => !isLikelyVideoUrl(url))
+    .slice(0, limit);
   if (!list.length) return;
   try {
     const cache = await caches.open('unino-media-v1');
@@ -6808,7 +7040,7 @@ async function primeMediaCache(urls = [], limit = 6) {
       const match = await cache.match(url);
       if (match) return;
       try {
-        const resp = await fetch(url, { cache: 'force-cache', mode: 'cors' });
+        const resp = await fetch(url, { cache: 'no-store', mode: 'cors' });
         if (resp.ok) await cache.put(url, resp.clone());
       } catch (_) {}
     }));
@@ -6824,12 +7056,15 @@ function openGallery(urls, startIdx = 0) {
 }
 function _renderGalleryFrame() {
   if (!_galleryUrls.length) return;
-  $('#img-full').src = _galleryUrls[_galleryIdx];
-  const dl = $('#img-download');
-  if (dl) dl.style.display = 'flex';
+  const currentUrl = _galleryUrls[_galleryIdx];
+  $('#img-full').src = currentUrl;
   const counter = $('#img-counter');
   const prev = $('#img-prev');
   const next = $('#img-next');
+  const downloadBtn = $('#img-download');
+  if (downloadBtn) {
+    downloadBtn.style.display = currentUrl ? 'flex' : 'none';
+  }
   if (_galleryUrls.length > 1) {
     counter.textContent = `${_galleryIdx + 1} / ${_galleryUrls.length}`;
     counter.style.display = 'block';
@@ -6893,7 +7128,17 @@ function openCreateModal() {
         </div>
         <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
       </div>
-      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div><div id="create-poll-pill" style="display:none;margin-top:8px;font-size:12px;color:var(--text-secondary)"></div>
+      <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
+      <div id="create-poll-pill" class="create-poll-pill" style="display:none;margin-top:8px"></div>
+      <div id="create-poll-editor" class="create-poll-editor" style="display:none;margin-top:12px">
+        <div class="form-group"><label>Poll question</label><input type="text" id="post-poll-question" placeholder="Ask something"></div>
+        <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:110px;resize:none" placeholder="One option per line">Yes
+No</textarea></div>
+        <div class="create-poll-editor-actions">
+          <button type="button" class="btn-outline" id="cancel-post-poll">Cancel</button>
+          <button type="button" class="btn-primary" id="save-post-poll">Save Poll</button>
+        </div>
+      </div>
       ` : `
       <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
       <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
@@ -6924,6 +7169,22 @@ function openCreateModal() {
     let createAnon = false;
     const anonIdentity = getUserAnonIdentity(state.profile || {});
     const mentionMap = new Map();
+    const normalizeCreatePoll = (questionRaw = '', optionsRaw = '') => {
+      const question = String(questionRaw || '').trim().slice(0, 160);
+      const options = Array.from(new Set(String(optionsRaw || '').split('\n').map(v => v.trim()).filter(Boolean))).slice(0, 6);
+      return { question, options };
+    };
+    const setPollEditorVisible = (visible = false) => {
+      const editor = $('#create-poll-editor');
+      if (!editor) return;
+      editor.style.display = visible ? 'block' : 'none';
+      if (!visible) return;
+      const qInput = $('#post-poll-question');
+      const oInput = $('#post-poll-options');
+      if (qInput) qInput.value = postPoll?.question || '';
+      if (oInput) oInput.value = (postPoll?.options?.length ? postPoll.options : ['Yes', 'No']).join('\n');
+      qInput?.focus();
+    };
 
     const refreshLocationUI = () => {
       const pill = $('#create-location-pill');
@@ -6940,10 +7201,22 @@ function openCreateModal() {
 
     const refreshPollUI = () => {
       const pill = $('#create-poll-pill');
+      const pollBtn = $('#create-poll-btn');
+      if (pollBtn) pollBtn.textContent = postPoll?.question ? '📊 Edit poll' : '📊 Poll';
       if (!pill) return;
-      if (!postPoll?.question) { pill.style.display = 'none'; pill.textContent = ''; return; }
-      pill.style.display = 'block';
-      pill.textContent = `📊 ${postPoll.question} · ${postPoll.options.length} options`;
+      if (!postPoll?.question) {
+        pill.style.display = 'none';
+        pill.innerHTML = '';
+        return;
+      }
+      pill.style.display = 'flex';
+      pill.innerHTML = `<strong>📊 ${esc(postPoll.question)}</strong><div class="create-poll-pill-actions"><button type="button" class="create-pill-action" data-act="edit">Edit</button><button type="button" class="create-pill-action" data-act="remove">Remove</button></div>`;
+      pill.querySelector('[data-act="edit"]')?.addEventListener('click', () => setPollEditorVisible(true));
+      pill.querySelector('[data-act="remove"]')?.addEventListener('click', () => {
+        postPoll = null;
+        setPollEditorVisible(false);
+        refreshPollUI();
+      });
     };
 
     const applyAnonUi = () => {
@@ -7068,25 +7341,7 @@ function openCreateModal() {
           lng,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
         };
-        if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
-      openModal(`
-        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
-          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
-          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
-        </div>`);
-      $('#save-post-poll').onclick = () => {
-        const question = ($('#post-poll-question')?.value || '').trim();
-        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
-        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
-        postPoll = { question, options, votes: {} };
-        closeModal();
-        refreshPollUI();
-      };
-    };
-    refreshLocationUI();
-    refreshPollUI();
+        refreshLocationUI();
         toast('Pinned for 24h');
       }, () => toast('Could not get location'), {
         enableHighAccuracy: true,
@@ -7094,22 +7349,20 @@ function openCreateModal() {
         maximumAge: 0
       });
     };
-    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => {
-      openModal(`
-        <div class="modal-header"><h2>Create Poll</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label>Question</label><input type="text" id="post-poll-question" placeholder="Ask something" value="${esc(postPoll?.question || '')}"></div>
-          <div class="form-group"><label>Options</label><textarea id="post-poll-options" style="height:120px;resize:none" placeholder="One option per line">${esc((postPoll?.options || []).join('\n'))}</textarea></div>
-          <button class="btn-primary btn-full" id="save-post-poll">Save Poll</button>
-        </div>`);
-      $('#save-post-poll').onclick = () => {
-        const question = ($('#post-poll-question')?.value || '').trim();
-        const options = ($('#post-poll-options')?.value || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 6);
-        if (!question || options.length < 2) return toast('Add a question and at least 2 options');
-        postPoll = { question, options, votes: {} };
-        closeModal();
-        refreshPollUI();
-      };
+    const savePostPoll = () => {
+      const questionRaw = $('#post-poll-question')?.value || '';
+      const optionsRaw = $('#post-poll-options')?.value || '';
+      const parsed = normalizeCreatePoll(questionRaw, optionsRaw);
+      if (!parsed.question || parsed.options.length < 2) return toast('Add a question and at least 2 options');
+      postPoll = { question: parsed.question, options: parsed.options, votes: {} };
+      setPollEditorVisible(false);
+      refreshPollUI();
+    };
+    if ($('#create-poll-btn')) $('#create-poll-btn').onclick = () => setPollEditorVisible(true);
+    if ($('#save-post-poll')) $('#save-post-poll').onclick = savePostPoll;
+    if ($('#cancel-post-poll')) $('#cancel-post-poll').onclick = () => {
+      setPollEditorVisible(false);
+      refreshPollUI();
     };
     refreshLocationUI();
     refreshPollUI();
@@ -7120,10 +7373,24 @@ function openCreateModal() {
       const moduleTags = extractModuleTags(text);
       const hashTags = extractHashTags(text);
       const mentionHandles = extractMentionHandles(text);
+      const pollEditor = $('#create-poll-editor');
+      const pollEditorOpen = !!pollEditor && pollEditor.style.display !== 'none';
+      if (pollEditorOpen) {
+        const questionRaw = $('#post-poll-question')?.value || '';
+        const optionsRaw = $('#post-poll-options')?.value || '';
+        const parsed = normalizeCreatePoll(questionRaw, optionsRaw);
+        const hasDraft = !!parsed.question || !!String(optionsRaw || '').trim();
+        if (hasDraft) {
+          if (!parsed.question || parsed.options.length < 2) return toast('Add a poll question and at least 2 options, or remove it');
+          postPoll = { question: parsed.question, options: parsed.options, votes: {} };
+          refreshPollUI();
+        }
+      }
       if (!safeText && !pendingFiles.length && !postPoll) return toast('Post cannot be empty');
       const visibility = $('#create-visibility')?.value || 'public';
       const isAnon = !!createAnon;
       const anonIdentity = getUserAnonIdentity(state.profile || {});
+      const postPollPayload = postPoll?.question ? { question: postPoll.question, options: [...(postPoll.options || [])], votes: {} } : null;
       closeModal(); toast('Uploading...');
       try {
         let mediaURL = null, mediaType = 'text', imageURLs = null;
@@ -7157,7 +7424,7 @@ function openCreateModal() {
           locationPing: locationPing.enabled ? locationPing : null,
           isAnonymous: isAnon || false,
           visibility,
-          poll: postPoll ? { question: postPoll.question, options: postPoll.options, votes: {} } : null,
+          poll: postPollPayload,
           createdAt: FieldVal.serverTimestamp(), likes: [], commentsCount: 0
         });
         shadowSyncPost(postRef.id, {
@@ -7445,16 +7712,19 @@ function renderRadarView() {
     renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc);
   };
 
-  const renderRadarSuggestions = (queryRaw = '') => {
+  let radarSuggestionSeq = 0;
+  const renderRadarSuggestions = async (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
+    box.onmousedown = e => e.preventDefault();
     const rawQuery = (queryRaw || '').trim();
-    const q = rawQuery.toLowerCase();
+    const q = normalizePlaceKey(rawQuery);
     if (!q) {
       box.style.display = 'none';
       box.innerHTML = '';
       return;
     }
+    const seq = ++radarSuggestionSeq;
 
     const peopleHits = allExploreUsers
       .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
@@ -7463,41 +7733,48 @@ function renderRadarView() {
       .slice(0, 4)
       .map(u => ({ type: 'person', uid: u.id, label: u.displayName || 'User', sub: u.major || u.address || '' }));
 
-    const locationHits = CAMPUS_LOCATIONS
-      .filter(loc => (loc.name || '').toLowerCase().includes(q))
-      .slice(0, 4)
-      .map(loc => ({ type: 'location', locationId: loc.id, label: loc.name, sub: 'Campus pin' }));
+    const campusPlaces = CAMPUS_LOCATIONS
+      .map(loc => ({
+        type: 'place',
+        label: loc.name,
+        sub: 'Campus location',
+        lat: Number(loc.lat),
+        lng: Number(loc.lng),
+        locationId: loc.id,
+        source: 'campus'
+      }))
+      .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0);
 
-    const addressHits = Array.from(new Set(allExploreUsers.map(u => u.address || '').filter(Boolean)))
-      .filter(a => a.toLowerCase().includes(q))
-      .slice(0, 3)
-      .map(a => ({ type: 'address', label: a, sub: 'Address' }));
+    const geojsonPlaces = (await ensureCampusPlacePoints())
+      .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0)
+      .map(place => ({ type: 'place', ...place }));
 
-    const hits = [...peopleHits, ...locationHits, ...addressHits].slice(0, 7);
-    if (!hits.length) {
+    const remotePlaces = await searchOpenStreetMapDestinations(rawQuery, 4);
+    if (seq !== radarSuggestionSeq) return;
+
+    const placeHits = dedupePlaceCandidates([
+      ...campusPlaces,
+      ...geojsonPlaces,
+      ...(remotePlaces || [])
+    ])
+      .map(place => ({ ...place, type: 'place', _score: scorePlaceQueryMatch(place.label || '', rawQuery) + (place.source === 'campus' ? 10 : 0) }))
+      .filter(place => place._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 5);
+
+    if (!peopleHits.length && !placeHits.length) {
       box.style.display = 'none';
       box.innerHTML = '';
       return;
     }
 
-    box.innerHTML = hits.map(h => {
-      if (h.type === 'person') {
-        const user = allExploreUsers.find(u => u.id === h.uid);
-        const photo = user?.photoURL || null;
-        const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
-        return `
-          <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
-            ${avatarHTML}
-            <div class="radar-suggestion-text">
-              <span class="radar-suggestion-main">${esc(h.label)}</span>
-              ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
-            </div>
-          </button>
-        `;
-      }
+    const peopleMarkup = peopleHits.map(h => {
+      const user = allExploreUsers.find(u => u.id === h.uid);
+      const photo = user?.photoURL || null;
+      const avatarHTML = photo ? `<img src="${photo}" alt="" class="radar-suggestion-avatar">` : `<div class="radar-suggestion-avatar">${initials(h.label)}</div>`;
       return `
-        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="${h.type}" data-uid="${h.uid || ''}" data-location-id="${h.locationId || ''}">
-          <span class="radar-suggestion-icon">📍</span>
+        <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="person" data-uid="${h.uid || ''}">
+          ${avatarHTML}
           <div class="radar-suggestion-text">
             <span class="radar-suggestion-main">${esc(h.label)}</span>
             ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
@@ -7505,21 +7782,42 @@ function renderRadarView() {
         </button>
       `;
     }).join('');
+
+    const placeMarkup = placeHits.map(h => `
+      <button type="button" class="radar-suggestion-item" data-v="${esc(h.label)}" data-type="place" data-lat="${Number(h.lat)}" data-lng="${Number(h.lng)}">
+        <span class="radar-suggestion-icon">📍</span>
+        <div class="radar-suggestion-text">
+          <span class="radar-suggestion-main">${esc(h.label)}</span>
+          ${h.sub ? `<span class="radar-suggestion-sub">${esc(h.sub)}</span>` : ''}
+        </div>
+      </button>
+    `).join('');
+
+    box.innerHTML = `${peopleHits.length ? `<div class="radar-suggestion-sub" style="padding:6px 12px 2px;font-weight:700;opacity:.75">People</div>${peopleMarkup}` : ''}${placeHits.length ? `<div class="radar-suggestion-sub" style="padding:8px 12px 2px;font-weight:700;opacity:.75">Places</div>${placeMarkup}` : ''}`;
     box.style.display = 'block';
     box.querySelectorAll('.radar-suggestion-item').forEach(btn => {
-      btn.onclick = () => {
+      let handled = false;
+      const handleSelect = () => {
+        if (handled) return;
+        handled = true;
         const selected = btn.getAttribute('data-v') || '';
         const kind = btn.getAttribute('data-type') || '';
         const uid = btn.getAttribute('data-uid') || '';
-        const locationId = btn.getAttribute('data-location-id') || '';
         if (kind === 'person' && uid) {
           box.style.display = 'none';
           openProfile(uid);
           return;
         }
-        if (kind === 'location' && locationId) {
+        if (kind === 'place') {
+          const lat = Number(btn.getAttribute('data-lat'));
+          const lng = Number(btn.getAttribute('data-lng'));
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const inp = $('#radar-search');
+          if (inp) inp.value = selected;
+          window._radarSearchQuery = selected;
+          _exploreSearchQuery = selected;
           box.style.display = 'none';
-          routeToCampusLocation(locationId);
+          routeToMapPoint(lat, lng, selected || 'Destination');
           return;
         }
         const inp = $('#radar-search');
@@ -7528,6 +7826,14 @@ function renderRadarView() {
         _exploreSearchQuery = selected;
         renderRadarSuggestions(selected);
         applyRadarFilter(selected);
+      };
+      btn.onclick = event => {
+        event.preventDefault();
+        handleSelect();
+      };
+      btn.onpointerdown = event => {
+        event.preventDefault();
+        handleSelect();
       };
     });
   };
@@ -7651,10 +7957,15 @@ async function fetchOsrmRoute(start, end) {
     const route = data?.routes?.[0];
     if (!route?.geometry?.coordinates?.length) throw new Error('route-empty');
     const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+    const distanceKm = (route.distance || 0) / 1000;
+    const rawWalkMinutes = Math.max(1, Math.round((route.duration || 0) / 60));
+    const pacedWalkMinutes = Math.max(1, Math.round((distanceKm / 4.8) * 60));
+    const impliedSpeedKmh = rawWalkMinutes > 0 ? (distanceKm / (rawWalkMinutes / 60)) : 0;
+    const walkMinutes = impliedSpeedKmh > 8 ? pacedWalkMinutes : rawWalkMinutes;
     return {
       points,
-      distanceKm: (route.distance || 0) / 1000,
-      walkMinutes: Math.max(1, Math.round((route.duration || 0) / 60)),
+      distanceKm,
+      walkMinutes,
       direct: false,
       source: 'osrm'
     };
@@ -7676,8 +7987,21 @@ function syncRadarOverlayToUser() {
   const wrap = document.querySelector('.radar-map-wrap');
   if (!overlay || !wrap) return;
   const rect = wrap.getBoundingClientRect();
-  overlay.style.left = `${Math.round(rect.width / 2)}px`;
-  overlay.style.top = `${Math.round(rect.height / 2)}px`;
+  let x = Math.round(rect.width / 2);
+  let y = Math.round(rect.height / 2);
+  const myCoords = getUserCoords(state.profile) || getRadarCenterCoords();
+  if (_mapLibreMap && typeof _mapLibreMap.project === 'function' && Number.isFinite(myCoords?.lat) && Number.isFinite(myCoords?.lng)) {
+    try {
+      const projected = _mapLibreMap.project([myCoords.lng, myCoords.lat]);
+      const canvasRect = _mapLibreMap.getCanvas()?.getBoundingClientRect?.();
+      if (projected && Number.isFinite(projected.x) && Number.isFinite(projected.y) && canvasRect) {
+        x = Math.round(projected.x + (canvasRect.left - rect.left));
+        y = Math.round(projected.y + (canvasRect.top - rect.top));
+      }
+    } catch (_) {}
+  }
+  overlay.style.left = `${x}px`;
+  overlay.style.top = `${y}px`;
 }
 
 function setRadarRouteFilterState(active = false) {
@@ -7699,7 +8023,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
     setRadarRouteFilterState(routeOnlyMode);
 
     if (typeof maplibregl !== 'undefined') {
-      _mapLibreMap = new maplibregl.Map({
+      const mapRef = new maplibregl.Map({
         container: 'radar-map',
         style: 'https://tiles.openfreemap.org/styles/bright',
         center: [center.lng, center.lat],
@@ -7709,15 +8033,25 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         attributionControl: false,
         canvasContextAttributes: { antialias: true }
       });
-      _leafletMap = _mapLibreMap;
-      _mapLibreMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
-      _mapLibreMap.on('load', () => {
+      _mapLibreMap = mapRef;
+      _leafletMap = mapRef;
+      mapRef.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+      mapRef.on('load', () => {
+        if (_mapLibreMap !== mapRef) return;
+        mapRef.on('styleimagemissing', evt => {
+          if (_mapLibreMap !== mapRef) return;
+          const missingId = evt?.id;
+          if (!missingId || mapRef.hasImage(missingId)) return;
+          try {
+            mapRef.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
+          } catch (_) {}
+        });
         try {
-          const layers = _mapLibreMap.getStyle().layers || [];
+          const layers = mapRef.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
-          _mapLibreMap.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
-          if (!_mapLibreMap.getLayer('3d-buildings')) {
-            _mapLibreMap.addLayer({
+          mapRef.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!mapRef.getLayer('3d-buildings')) {
+            mapRef.addLayer({
               id: '3d-buildings',
               source: 'openfreemap-buildings',
               'source-layer': 'building',
@@ -7734,15 +8068,16 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           }
         } catch (_) {}
 
-        mountCampusGeoJsonLayers(_mapLibreMap).catch(() => {});
+        if (_mapLibreMap !== mapRef) return;
+        mountCampusGeoJsonLayers(mapRef).catch(() => {});
         attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
         syncRadarOverlayToUser();
-        _mapLibreMap.on('move', syncRadarOverlayToUser);
-        _mapLibreMap.on('render', syncRadarOverlayToUser);
+        mapRef.on('move', syncRadarOverlayToUser);
+        mapRef.on('render', syncRadarOverlayToUser);
 
         if (!routeOnlyMode && _pendingRadarPinnedPoint && Number.isFinite(_pendingRadarPinnedPoint.lat) && Number.isFinite(_pendingRadarPinnedPoint.lng)) {
           attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
-          _mapLibreMap.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
+          if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
           _pendingRadarPinnedPoint = null;
         }
 
@@ -7992,8 +8327,18 @@ let _campusGeoJsonLoadPromise = null;
 async function loadCampusGeoJson() {
   if (_campusGeoJsonCache) return _campusGeoJsonCache;
   if (_campusGeoJsonLoadPromise) return _campusGeoJsonLoadPromise;
-  _campusGeoJsonLoadPromise = fetch('NWUCAMP.geojson', { cache: 'force-cache' })
-    .then(res => res.ok ? res.json() : null)
+  _campusGeoJsonLoadPromise = (async () => {
+    const candidates = ['NWUCAMP.geojson', './NWUCAMP.geojson', '/NWUCAMP.geojson'];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(path, { cache: 'force-cache' });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && Array.isArray(data.features)) return data;
+      } catch (_) {}
+    }
+    return null;
+  })()
     .then(data => {
       _campusGeoJsonCache = data && Array.isArray(data.features) ? data : null;
       return _campusGeoJsonCache;
@@ -8001,6 +8346,219 @@ async function loadCampusGeoJson() {
     .catch(() => null)
     .finally(() => { _campusGeoJsonLoadPromise = null; });
   return _campusGeoJsonLoadPromise;
+}
+
+function normalizePlaceKey(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scorePlaceQueryMatch(label = '', query = '') {
+  const cleanLabel = normalizePlaceKey(label);
+  const cleanQuery = normalizePlaceKey(query);
+  if (!cleanLabel || !cleanQuery) return 0;
+  if (cleanLabel === cleanQuery) return 120;
+  if (cleanLabel.startsWith(cleanQuery)) return 90;
+  if (cleanLabel.includes(cleanQuery)) return 70;
+  const parts = cleanQuery.split(' ').filter(Boolean);
+  if (!parts.length) return 0;
+  const matched = parts.filter(part => cleanLabel.includes(part)).length;
+  if (!matched) return 0;
+  return 40 + (matched * 12);
+}
+
+async function ensureCampusPlacePoints() {
+  if (_campusPlacePointsCache.length) return _campusPlacePointsCache;
+  const geojson = await loadCampusGeoJson();
+  if (!geojson) {
+    _campusPlacePointsCache = [];
+    return _campusPlacePointsCache;
+  }
+  const labels = labelPointsFromPolygons(geojson)?.features || [];
+  _campusPlacePointsCache = labels
+    .map(feature => {
+      const coords = feature?.geometry?.coordinates || [];
+      const lng = Number(coords[0]);
+      const lat = Number(coords[1]);
+      const label = String(feature?.properties?.name || '').trim();
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !label) return null;
+      return { label, sub: 'Campus building', lat, lng, source: 'geojson' };
+    })
+    .filter(Boolean);
+  return _campusPlacePointsCache;
+}
+
+function dedupePlaceCandidates(candidates = []) {
+  const seen = new Set();
+  const deduped = [];
+  (candidates || []).forEach(item => {
+    const lat = Number(item?.lat);
+    const lng = Number(item?.lng);
+    const label = String(item?.label || '').trim();
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !label) return;
+    const key = `${normalizePlaceKey(label)}|${lat.toFixed(5)}|${lng.toFixed(5)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push({ ...item, lat, lng, label });
+  });
+  return deduped;
+}
+
+function reverseGeocodeSummary(address = {}) {
+  const road = address.road || address.pedestrian || address.footway || address.path || '';
+  const area = address.suburb || address.neighbourhood || address.city_district || address.town || address.city || address.village || '';
+  return [road, area].filter(Boolean).join(', ');
+}
+
+async function reverseGeocodeLabel(lat, lng) {
+  const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+  if (_reverseGeocodeCache.has(key)) return _reverseGeocodeCache.get(key);
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=en`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`reverse-${res.status}`);
+    const data = await res.json();
+    const address = data?.address || {};
+    const primary = String(
+      address.building
+      || address.amenity
+      || address.attraction
+      || address.university
+      || address.college
+      || address.road
+      || address.pedestrian
+      || address.neighbourhood
+      || data?.name
+      || ''
+    ).trim();
+    const sub = reverseGeocodeSummary(address);
+    const out = {
+      label: primary || 'Pinned location',
+      sub: sub || ''
+    };
+    _reverseGeocodeCache.set(key, out);
+    return out;
+  } catch (_) {
+    const fallback = { label: 'Pinned location', sub: '' };
+    _reverseGeocodeCache.set(key, fallback);
+    return fallback;
+  }
+}
+
+async function resolveLocationPinLabel(lat, lng) {
+  const point = { lat: Number(lat), lng: Number(lng) };
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+    return { label: 'Pinned location', sub: '' };
+  }
+
+  const campusNearest = CAMPUS_LOCATIONS
+    .map(loc => ({
+      label: loc.name,
+      sub: 'Campus location',
+      lat: Number(loc.lat),
+      lng: Number(loc.lng),
+      distanceKm: distanceKmBetween(point, { lat: Number(loc.lat), lng: Number(loc.lng) })
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0];
+
+  const buildingNearest = (await ensureCampusPlacePoints())
+    .map(place => ({
+      ...place,
+      distanceKm: distanceKmBetween(point, { lat: place.lat, lng: place.lng })
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0];
+
+  const bestKnown = [buildingNearest, campusNearest]
+    .filter(Boolean)
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
+
+  if (buildingNearest && Number.isFinite(buildingNearest.distanceKm) && buildingNearest.distanceKm <= 0.2) {
+    return {
+      label: buildingNearest.label || 'Pinned location',
+      sub: buildingNearest.sub || 'Campus building'
+    };
+  }
+
+  const reverse = await reverseGeocodeLabel(point.lat, point.lng);
+  const reverseKey = normalizePlaceKey(reverse?.label || '');
+  const reverseGeneric = !reverseKey || reverseKey === 'pinned location' || reverseKey === 'location';
+
+  if (!reverseGeneric && reverse?.label) {
+    return {
+      label: reverse.label,
+      sub: reverse.sub || ''
+    };
+  }
+
+  if (campusNearest && Number.isFinite(campusNearest.distanceKm) && campusNearest.distanceKm <= 0.1) {
+    return {
+      label: campusNearest.label || 'Pinned location',
+      sub: campusNearest.sub || ''
+    };
+  }
+
+  if (bestKnown && Number.isFinite(bestKnown.distanceKm) && bestKnown.distanceKm <= 0.2) {
+    return {
+      label: bestKnown.label || 'Pinned location',
+      sub: bestKnown.sub || ''
+    };
+  }
+
+  return {
+    label: reverse?.label || 'Pinned location',
+    sub: reverse?.sub || ''
+  };
+}
+
+async function searchOpenStreetMapDestinations(queryRaw = '', limit = 4) {
+  const query = normalizePlaceKey(queryRaw);
+  if (!query || query.length < 3) return [];
+  if (_destinationSearchCache.has(query)) return _destinationSearchCache.get(query) || [];
+  if (_destinationSearchInflight.has(query)) return _destinationSearchInflight.get(query);
+
+  const task = (async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&q=${encodeURIComponent(queryRaw)}`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`search-${res.status}`);
+      const rows = await res.json();
+      const mapped = (rows || []).map(row => {
+        const lat = Number(row?.lat);
+        const lng = Number(row?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const address = row?.address || {};
+        const label = String(
+          address.building
+          || address.amenity
+          || address.attraction
+          || address.road
+          || address.neighbourhood
+          || row?.name
+          || (row?.display_name || '').split(',')[0]
+          || ''
+        ).trim();
+        if (!label) return null;
+        const sub = reverseGeocodeSummary(address) || String(row?.display_name || '').split(',').slice(1, 3).join(', ').trim();
+        return { type: 'place', label, sub, lat, lng, source: 'nominatim' };
+      }).filter(Boolean);
+      const deduped = dedupePlaceCandidates(mapped).slice(0, limit);
+      _destinationSearchCache.set(query, deduped);
+      return deduped;
+    } catch (_) {
+      _destinationSearchCache.set(query, []);
+      return [];
+    } finally {
+      _destinationSearchInflight.delete(query);
+    }
+  })();
+
+  _destinationSearchInflight.set(query, task);
+  return task;
 }
 
 function getCampusExtent(geojson) {
@@ -8111,10 +8669,12 @@ async function mountCampusGeoJsonLayers(map) {
     const feature = e.features && e.features[0];
     if (!feature) return;
     const [lng, lat] = feature.geometry.coordinates || [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const name = feature.properties?.name || 'Building';
+    const encodedName = encodeURIComponent(name || 'Building');
     new maplibregl.Popup({ closeButton: false, offset: 18 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPoint(${lat},${lng}, ${JSON.stringify(name)})">Create event here</button></div></div>`)
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event here</button></div></div>`)
       .addTo(map);
   });
   map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -8290,52 +8850,84 @@ function clearMapRoute() {
 }
 
 async function drawPendingMapRouteOnCurrentMap() {
-  if (!_pendingMapRoute || (!_leafletMap && !_mapLibreMap)) {
+  const mapLibreRef = _mapLibreMap;
+  const leafletRef = _leafletMap;
+  if (!_pendingMapRoute || (!leafletRef && !mapLibreRef)) {
     if (!_pendingMapRoute) updateMapRoutePanel(null);
     return;
   }
   clearActiveMapRoute({ clearPending: false });
-  const map = _mapLibreMap || _leafletMap;
   const start = getUserCoords(state.profile) || getRadarCenterCoords();
   const route = await buildBestRoute(start, _pendingMapRoute.target);
+  if (!_pendingMapRoute) return;
+  if ((mapLibreRef && _mapLibreMap !== mapLibreRef) || (leafletRef && _leafletMap !== leafletRef)) {
+    setTimeout(() => ensurePendingRouteVisible(1), 120);
+    return;
+  }
   const coordinates = route.points.map(point => [point.lng, point.lat]);
+  if (!coordinates.length) return;
 
-  if (_mapLibreMap && typeof maplibregl !== 'undefined') {
-    if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line');
-    if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line');
-    _mapLibreMap.addSource('route-line', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
-    });
-    _mapLibreMap.addLayer({
-      id: 'route-line',
-      type: 'line',
-      source: 'route-line',
-      paint: {
-        'line-color': '#6C5CE7',
-        'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
-        'line-opacity': 0.92
-      }
-    });
-    _activeMapRouteLayer = 'route-line';
-    const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
-    const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
-    _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
-    const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
-    if (!bounds.isEmpty()) _mapLibreMap.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
-  } else if (_leafletMap && typeof L !== 'undefined') {
+  if (mapLibreRef && _mapLibreMap === mapLibreRef && typeof maplibregl !== 'undefined') {
+    try {
+      if (mapLibreRef.getLayer('route-line')) mapLibreRef.removeLayer('route-line');
+      if (mapLibreRef.getSource('route-line')) mapLibreRef.removeSource('route-line');
+      mapLibreRef.addSource('route-line', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates } }
+      });
+      mapLibreRef.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route-line',
+        paint: {
+          'line-color': '#6C5CE7',
+          'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
+          'line-opacity': 0.92
+        }
+      });
+      _activeMapRouteLayer = 'route-line';
+      const startMarker = attachMapLibreMarker(start.lng, start.lat, `<div class="route-endpoint route-start">You</div>`);
+      const endMarker = attachMapLibreMarker(_pendingMapRoute.target.lng, _pendingMapRoute.target.lat, `<div class="route-endpoint route-end">${esc(_pendingMapRoute.label || 'Destination')}</div>`);
+      _activeMapRouteMarkers = [startMarker, endMarker].filter(Boolean);
+      const bounds = coordinates.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+      if (!bounds.isEmpty()) mapLibreRef.fitBounds(bounds, { padding: 54, duration: 700, pitch: 56 });
+    } catch (_) {
+      setTimeout(() => ensurePendingRouteVisible(1), 120);
+      return;
+    }
+  } else if (leafletRef && _leafletMap === leafletRef && typeof L !== 'undefined') {
     const latLngs = route.points.map(point => [point.lat, point.lng]);
-    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(_leafletMap);
-    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(_leafletMap);
-    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(_leafletMap);
+    _activeMapRouteLayer = L.polyline(latLngs, { color: '#6C5CE7', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', dashArray: route.direct ? '10 10' : null }).addTo(leafletRef);
+    const startMarker = L.circleMarker([start.lat, start.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#22C55E', fillOpacity: 1 }).addTo(leafletRef);
+    const endMarker = L.circleMarker([_pendingMapRoute.target.lat, _pendingMapRoute.target.lng], { radius: 7, color: '#111827', weight: 2, fillColor: '#8B5CF6', fillOpacity: 1 }).addTo(leafletRef);
     _activeMapRouteMarkers = [startMarker, endMarker];
     const bounds = L.latLngBounds(latLngs);
-    if (bounds.isValid()) _leafletMap.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+    if (bounds.isValid()) leafletRef.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.45 });
+  } else {
+    setTimeout(() => ensurePendingRouteVisible(1), 120);
+    return;
   }
 
   _activeMapRouteSummary = { ...route, label: _pendingMapRoute.label || 'Destination' };
   setRadarRouteFilterState(true);
   updateMapRoutePanel(_activeMapRouteSummary);
+}
+
+function ensurePendingRouteVisible(attempt = 0) {
+  if (!_pendingMapRoute) return;
+  if (attempt > 24) return;
+  if (state.page !== 'explore') {
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+    return;
+  }
+  if (!_mapLibreMap && !_leafletMap) {
+    renderExploreView();
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+    return;
+  }
+  drawPendingMapRouteOnCurrentMap().catch(() => {
+    setTimeout(() => ensurePendingRouteVisible(attempt + 1), 120);
+  });
 }
 
 function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
@@ -8351,17 +8943,33 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
 }
 
 function routeToMapPoint(lat, lng, label = 'Destination') {
+  const safeLat = Number(lat);
+  const safeLng = Number(lng);
+  if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return toast('Could not build route');
   closeModal();
   closeChatPlusMenus();
-  if (!setPendingMapRoute({ lat, lng }, { label, source: 'manual' })) return toast('Could not build route');
+  if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source: 'manual' })) return toast('Could not build route');
   exploreView = 'radar';
-  if (state.page !== 'explore') {
-    navigate('explore');
-    setTimeout(() => { if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap(); else renderExploreView(); }, 160);
-    return;
-  }
-  if (_mapLibreMap || _leafletMap) drawPendingMapRouteOnCurrentMap();
-  else renderExploreView();
+  if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
+  if (state.page !== 'explore') navigate('explore');
+  ensurePendingRouteVisible(0);
+  setTimeout(() => ensurePendingRouteVisible(1), 180);
+}
+
+function routeToMapPointEncoded(lat, lng, encodedLabel = '') {
+  let label = 'Destination';
+  try {
+    label = decodeURIComponent(String(encodedLabel || '')) || 'Destination';
+  } catch (_) {}
+  routeToMapPoint(lat, lng, label);
+}
+
+function openCreateEventAtMapPointEncoded(lat, lng, encodedLabel = '') {
+  let label = 'Pinned location';
+  try {
+    label = decodeURIComponent(String(encodedLabel || '')) || 'Pinned location';
+  } catch (_) {}
+  openCreateEventAtMapPoint(lat, lng, label);
 }
 
 function routeToCampusLocation(locationId = '') {
@@ -8436,7 +9044,14 @@ async function upsertEventChatGroup(eventData = {}) {
 
 async function loadCampusEvents() {
   try {
-    const snap = await db.collection('events').orderBy('date','asc').limit(50).get();
+    let snap;
+    try {
+      snap = await db.collection('events').orderBy('date', 'asc').limit(80).get();
+    } catch (orderedErr) {
+      // Some legacy docs can break ordered queries; fall back so events still render.
+      console.warn('Ordered events query failed, using fallback:', orderedErr?.message || orderedErr);
+      snap = await db.collection('events').limit(80).get();
+    }
     const now = Date.now();
     const expiredDocs = [];
     const upcoming = [];
@@ -9341,18 +9956,32 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
   const voters = poll.votes || {};
   const total = Object.keys(voters).length;
   const myVote = voters[state.user?.uid] || '';
+  const isFeedPoll = scope === 'post';
+  const totalLabel = total ? `${total} total vote${total === 1 ? '' : 's'}` : 'No votes yet';
   return `
-    <div class="poll-card modern-poll" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
+    <div class="poll-card modern-poll ${isFeedPoll ? 'feed-poll' : ''}" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
+      ${isFeedPoll ? `<div class="feed-poll-head"><span class="feed-poll-chip">Campus poll</span><span class="feed-poll-total">${totalLabel}</span></div>` : ''}
       ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
       <div class="poll-options">
         ${options.map(opt => {
           const count = Object.values(voters).filter(v => v === opt).length;
           const pct = total ? Math.round((count / total) * 100) : 0;
-          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPoll('${scope}','${primaryId}','${messageId}','${esc(opt)}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(8, pct)}%"></span></button>`;
+          const encodedOpt = encodeURIComponent(opt || '');
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 12 : 0, pct)}%"></span></button>`;
         }).join('')}
       </div>
-      <div class="poll-footer">${total} total vote${total === 1 ? '' : 's'}</div>
+      <div class="poll-footer">${isFeedPoll ? 'Tap an option to vote' : totalLabel}</div>
     </div>`;
+}
+
+function voteOnPollEncoded(scope = 'post', primaryId = '', messageId = '', encodedOption = '') {
+  let option = '';
+  try {
+    option = decodeURIComponent(String(encodedOption || ''));
+  } catch (_) {
+    option = String(encodedOption || '');
+  }
+  voteOnPoll(scope, primaryId, messageId, option);
 }
 
 async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {
@@ -9425,11 +10054,13 @@ async function sendChatLocationPin(scope = 'dm') {
   navigator.geolocation.getCurrentPosition(async pos => {
     const lat = Number(pos.coords.latitude.toFixed(6));
     const lng = Number(pos.coords.longitude.toFixed(6));
-    const nearestCampus = (typeof CAMPUS_LOCATIONS !== 'undefined' ? CAMPUS_LOCATIONS : []).reduce((best, loc) => {
-      const dist = distanceKmBetween({ lat, lng }, { lat: loc.lat, lng: loc.lng });
-      return !best || dist < best.dist ? { loc, dist } : best;
-    }, null);
-    const locationPin = { lat, lng, label: nearestCampus?.loc?.name || 'Pinned location' };
+    const resolved = await resolveLocationPinLabel(lat, lng).catch(() => ({ label: 'Pinned location', sub: '' }));
+    const locationPin = {
+      lat,
+      lng,
+      label: resolved?.label || 'Pinned location',
+      subLabel: resolved?.sub || ''
+    };
     try {
       if (scope === 'group') {
         const { id, collection } = _activeGroupChat || {};
@@ -9452,14 +10083,18 @@ async function sendChatLocationPin(scope = 'dm') {
 function openLocationPinPreview(encoded = '') {
   try {
     const pin = JSON.parse(decodeURIComponent(encoded || '')) || {};
-    if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return;
+    const lat = Number(pin.lat);
+    const lng = Number(pin.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const encodedLabel = encodeURIComponent(pin.label || 'Pinned location');
     openModal(`
       <div class="modal-header"><h2>📍 ${esc(pin.label || 'Pinned location')}</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
         <div class="location-preview-card">
-          <div class="location-preview-meta">${Number(pin.lat).toFixed(5)}, ${Number(pin.lng).toFixed(5)}</div>
+          ${pin.subLabel ? `<div class="location-preview-meta" style="margin-bottom:4px">${esc(pin.subLabel)}</div>` : ''}
+          <div class="location-preview-meta">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
           <div class="location-preview-actions">
-            <button class="btn-primary" onclick="closeModal();routeToMapPoint(${pin.lat},${pin.lng}, ${JSON.stringify(pin.label || 'Pinned location')})">Route here</button>
+            <button class="btn-primary" onclick="closeModal();routeToMapPointEncoded(${lat},${lng}, '${encodedLabel}')">Route here</button>
           </div>
         </div>
       </div>
@@ -9472,9 +10107,12 @@ function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
 }
 
 function renderLocationPinCard(pin = {}) {
-  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return '';
+  const lat = Number(pin.lat);
+  const lng = Number(pin.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
   const encoded = encodeURIComponent(JSON.stringify(pin));
-  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">Tap to route here</div></div><span class="chat-location-cta">Route</span></button>`;
+  const sub = (pin.subLabel || '').trim();
+  return `<button class="chat-location-card modern" onclick="openLocationPinPreview('${encoded}')"><div class="chat-location-icon">📍</div><div class="chat-location-copy"><div class="chat-location-title">${esc(pin.label || 'Pinned location')}</div><div class="chat-location-sub">${esc(sub || 'Tap to route here')}</div></div><span class="chat-location-cta">Route</span></button>`;
 }
 
 
@@ -9524,7 +10162,7 @@ async function openGroupChat(groupId, collection = 'groups') {
               content = '<span class="msg-deleted">Message deleted</span>';
             }
             if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+            if (m.poll) content += renderInteractivePoll(m.poll, 'group', groupId, m.id);
             if (m.locationPin) content = renderLocationPinCard(m.locationPin);
             if (m.imageURL) {
               const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
@@ -12300,7 +12938,7 @@ function renderProfileAbout(user) {
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
-      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" onclick="sendGatewayNotificationProbe()">Gateway Probe</button><button class="btn-outline btn-sm" onclick="runShadowSyncProbe()">Shadow Probe</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
+      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="sendAppwritePing()">Send Ping</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" onclick="sendGatewayNotificationProbe()">Gateway Probe</button><button class="btn-outline btn-sm" onclick="runShadowSyncProbe()">Shadow Probe</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
@@ -12380,27 +13018,28 @@ function editProfile() {
       </div>
       <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
       <div class="form-group"><label>Anonymous Identity</label>
+        <input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23">
+      </div>
+      <div class="form-group"><label>Quick Persona Theme</label>
         <select id="edit-anon-identity-theme">
+          <option value="__custom">Keep typed identity</option>
           ${ANON_PERSONA_THEMES.map(theme => `<option value="${esc(theme)}">${esc(theme)}</option>`).join('')}
-          <option value="__custom">Custom identity…</option>
         </select>
       </div>
-      <div class="form-group" id="edit-anon-custom-wrap" style="display:none"><label>Custom Anonymous Identity</label><input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23"></div>
+      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">Use the text box above directly, or pick a quick persona to auto-fill it.</p>
       <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user.uid}','${esc(p.displayName)}')" style="margin-bottom:12px">View Friends</button>
       <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
   const themeSelect = $('#edit-anon-identity-theme');
-  const customWrap = $('#edit-anon-custom-wrap');
   const customInput = $('#edit-anon-custom');
   const existingBase = ANON_PERSONA_THEMES.find(theme => currentAnonIdentity.toLowerCase().startsWith(theme.toLowerCase()));
   if (themeSelect) themeSelect.value = existingBase || '__custom';
-  if (customWrap) customWrap.style.display = existingBase ? 'none' : 'block';
   if (themeSelect) {
     themeSelect.onchange = () => {
-      const custom = themeSelect.value === '__custom';
-      if (customWrap) customWrap.style.display = custom ? 'block' : 'none';
-      if (!custom && customInput) customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+      if (themeSelect.value !== '__custom' && customInput) {
+        customInput.value = `${themeSelect.value} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+      }
     };
   }
   let newPhoto = null; let newPhotoFile = null;
@@ -12419,9 +13058,8 @@ function editProfile() {
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
     const selectedTheme = $('#edit-anon-identity-theme')?.value || '__custom';
-    let anonIdentity = '';
-    if (selectedTheme === '__custom') anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
-    else anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
+    let anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
+    if (!anonIdentity && selectedTheme !== '__custom') anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
     const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
@@ -12966,6 +13604,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
+  $('#img-download')?.addEventListener('click', () => { downloadCurrentGalleryMedia(); });
   $('#img-prev')?.addEventListener('click', () => { if (_galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); } });
   $('#img-next')?.addEventListener('click', () => { if (_galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); } });
   // Touch swipe support for gallery
@@ -13065,7 +13704,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
-    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
+    runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
 });

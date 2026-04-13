@@ -95,3 +95,10 @@ Client bridge URLs now derive from `window.UNINO_APPWRITE_BRIDGE_BASE_URL`, for 
 ```js
 window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run';
 ```
+
+## In-App Ping Test
+
+After login, open your profile "About" section and use **Backend Diagnostics** -> **Send Ping**.
+
+- Success means the app can reach the bridge function root (`GET /`).
+- If it fails, verify your function domain and CORS settings.

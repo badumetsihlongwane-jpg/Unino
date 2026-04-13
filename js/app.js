@@ -417,6 +417,31 @@ function appwriteRootUrl(url) {
   }
 }
 
+async function sendAppwritePing() {
+  refreshBackendDebugStatus('Sending Appwrite ping...');
+  const urls = [...new Set([...APPWRITE_PUSH_SYNC_URLS, ...APPWRITE_EVENT_SYNC_URLS])];
+  const probeUrl = urls[0] || '';
+  if (!probeUrl) {
+    refreshBackendDebugStatus('No Appwrite bridge URLs configured.');
+    toast('No Appwrite bridge URL set');
+    return;
+  }
+
+  const rootUrl = appwriteRootUrl(probeUrl);
+  try {
+    const resp = await fetch(rootUrl, { method: 'GET' });
+    const body = await resp.clone().json().catch(() => null);
+    const service = body?.service || 'bridge';
+    const version = body?.version ? ` v${body.version}` : '';
+    const detail = `${rootUrl} -> GET / ${resp.status} (${service}${version})`;
+    refreshBackendDebugStatus(detail);
+    toast(resp.ok ? 'Appwrite ping successful' : `Appwrite ping failed (${resp.status})`);
+  } catch (e) {
+    refreshBackendDebugStatus(`${rootUrl} -> ping failed (${e?.message || 'network/cors'})`);
+    toast('Appwrite ping failed');
+  }
+}
+
 async function runAppwriteBackendDiagnostics() {
   refreshBackendDebugStatus('Running Appwrite diagnostics...');
   const urls = [...new Set([...APPWRITE_PUSH_SYNC_URLS, ...APPWRITE_EVENT_SYNC_URLS])];
@@ -12913,7 +12938,7 @@ function renderProfileAbout(user) {
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
       ${user.joinedAt ? `<div class="about-item"><span class="about-icon">🗓</span><div><div class="about-label">Joined</div><div class="about-value">${timeAgo(user.joinedAt)}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">🚫</span><div><div class="about-label">Blocked Users</div><div id="blocked-users-list">${blockedUsers.length ? '<span class="inline-spinner"></span>' : 'None'}</div></div></div>` : ''}
-      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" onclick="sendGatewayNotificationProbe()">Gateway Probe</button><button class="btn-outline btn-sm" onclick="runShadowSyncProbe()">Shadow Probe</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
+      ${isMe ? `<div class="about-item backend-debug-card"><span class="about-icon">🧪</span><div><div class="about-label">Backend Diagnostics</div><div class="about-value">Appwrite + Notifications</div><div id="backend-debug-status" class="backend-debug-status">Tap a test below to run checks.</div><div class="backend-debug-actions"><button class="btn-outline btn-sm" onclick="runAppwriteBackendDiagnostics()">Test Appwrite</button><button class="btn-outline btn-sm" onclick="sendAppwritePing()">Send Ping</button><button class="btn-outline btn-sm" onclick="runNotificationDiagnostics()">Test Notifications</button><button class="btn-outline btn-sm" onclick="sendDebugLocalNotification()">Send Local Test</button><button class="btn-outline btn-sm" onclick="sendGatewayNotificationProbe()">Gateway Probe</button><button class="btn-outline btn-sm" onclick="runShadowSyncProbe()">Shadow Probe</button><button class="btn-outline btn-sm" id="backend-mirror-toggle-btn" onclick="toggleAppwriteMirror()">${shouldMirrorToAppwrite() ? 'Disable Mirror' : 'Enable Mirror'}</button></div></div></div>` : ''}
     </div>${isMe && blockedUsers.length ? '<script>loadBlockedUsersList()</script>' : ''}`;
 }
 
@@ -13679,7 +13704,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
-    runAppwriteBackendDiagnostics, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
+    runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled
   });
 });

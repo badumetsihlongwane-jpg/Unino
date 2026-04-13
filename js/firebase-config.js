@@ -110,10 +110,11 @@ window.UNINO_APPWRITE_PROJECT_NAME = window.UNINO_APPWRITE_PROJECT_NAME || DEFAU
 
 // Bridge URLs are derived from a single base run URL, for example:
 //   window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run'
+const DEFAULT_APPWRITE_BRIDGE_BASE_URL = 'https://69dd474c000ed9db9d03.fra.appwrite.run';
 const appwriteBridgeBase = String(
   window.UNINO_APPWRITE_BRIDGE_BASE_URL
   || window.UNINO_APPWRITE_BRIDGE_RUN_URL
-  || ''
+  || DEFAULT_APPWRITE_BRIDGE_BASE_URL
 ).trim().replace(/\/+$/, '');
 
 window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || (appwriteBridgeBase ? `${appwriteBridgeBase}/push-sync` : '');
