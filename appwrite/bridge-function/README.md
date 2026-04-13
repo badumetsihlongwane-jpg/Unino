@@ -28,7 +28,7 @@ This function enables a safe hybrid migration:
 
 ## Required Appwrite Function Env Vars
 
-- `APPWRITE_ENDPOINT` = `https://syd.cloud.appwrite.io/v1`
+- `APPWRITE_ENDPOINT` = `https://fra.cloud.appwrite.io/v1`
 - `APPWRITE_PROJECT_ID` = your Appwrite project ID
 - `APPWRITE_API_KEY` = server key (keep secret)
 - `FIREBASE_WEB_API_KEY` = Firebase web API key for token verification
@@ -65,6 +65,23 @@ Response includes mirror status in `result.mirror` for diagnostics.
 4. Verify:
    - `GET /` should return 200.
 
+## Android Platform (unibo)
+
+Add Android platform in Appwrite for package `com.unino.app`.
+
+- Name: `unibo`
+- Package name: `com.unino.app`
+
+If you automate this with API keys, the key needs `platforms.write` (and `platforms.read` for verification). Example request:
+
+```bash
+curl -X POST "https://fra.cloud.appwrite.io/v1/projects/<PROJECT_ID>/platforms" \
+  -H "X-Appwrite-Project: <PROJECT_ID>" \
+  -H "X-Appwrite-Key: <API_KEY_WITH_PLATFORMS_WRITE>" \
+  -H "Content-Type: application/json" \
+  --data '{"type":"android","name":"unibo","packageName":"com.unino.app"}'
+```
+
 ## Client Config Already Wired
 
 In `js/firebase-config.js`:
@@ -72,3 +89,9 @@ In `js/firebase-config.js`:
 - `window.UNINO_APPWRITE_EVENT_SYNC_URL` points to `/event-sync`
 
 These calls are non-blocking and do not break Firebase behavior.
+
+Client bridge URLs now derive from `window.UNINO_APPWRITE_BRIDGE_BASE_URL`, for example:
+
+```js
+window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run';
+```

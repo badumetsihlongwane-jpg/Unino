@@ -99,20 +99,29 @@ window.UNINO_FIREBASE_WEB_API_KEY = window.UNINO_FIREBASE_WEB_API_KEY || firebas
 // IndexedDB multi-tab persistence in this compat setup is noisy and unstable in-browser.
 // Leave Firestore online-only here until the cache API migration is done.
 
-// Optional migration bridge: set this to your Firebase Function URL that forwards
-// push token lifecycle events to Appwrite. Leave empty to keep current behavior only.
-window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || 'https://69b8488c003196debf13.syd.appwrite.run/push-sync';
-window.UNINO_APPWRITE_SYNC_URLS = window.UNINO_APPWRITE_SYNC_URLS || [
-  'https://69b8488c003196debf13.syd.appwrite.run/push-sync'
-];
-
 // Public Appwrite metadata (safe in client). Do NOT put Appwrite API keys here.
-window.UNINO_APPWRITE_ENDPOINT = window.UNINO_APPWRITE_ENDPOINT || 'https://syd.cloud.appwrite.io/v1';
-window.UNINO_APPWRITE_PROJECT_ID = window.UNINO_APPWRITE_PROJECT_ID || '69b4202c00370d4748d6';
+const DEFAULT_APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
+const DEFAULT_APPWRITE_PROJECT_ID = '69dd43b6002414cdfb70';
+const DEFAULT_APPWRITE_PROJECT_NAME = 'unibo';
 
-// Optional event mirror endpoint for likes/comments from appwritePrimary users.
-// Should point to a secure backend endpoint that validates Firebase ID tokens.
-window.UNINO_APPWRITE_EVENT_SYNC_URL = window.UNINO_APPWRITE_EVENT_SYNC_URL || 'https://69b8488c003196debf13.syd.appwrite.run/event-sync';
-window.UNINO_APPWRITE_EVENT_SYNC_URLS = window.UNINO_APPWRITE_EVENT_SYNC_URLS || [
-  'https://69b8488c003196debf13.syd.appwrite.run/event-sync'
-];
+window.UNINO_APPWRITE_ENDPOINT = window.UNINO_APPWRITE_ENDPOINT || DEFAULT_APPWRITE_ENDPOINT;
+window.UNINO_APPWRITE_PROJECT_ID = window.UNINO_APPWRITE_PROJECT_ID || DEFAULT_APPWRITE_PROJECT_ID;
+window.UNINO_APPWRITE_PROJECT_NAME = window.UNINO_APPWRITE_PROJECT_NAME || DEFAULT_APPWRITE_PROJECT_NAME;
+
+// Bridge URLs are derived from a single base run URL, for example:
+//   window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run'
+const appwriteBridgeBase = String(
+  window.UNINO_APPWRITE_BRIDGE_BASE_URL
+  || window.UNINO_APPWRITE_BRIDGE_RUN_URL
+  || ''
+).trim().replace(/\/+$/, '');
+
+window.UNINO_APPWRITE_SYNC_URL = window.UNINO_APPWRITE_SYNC_URL || (appwriteBridgeBase ? `${appwriteBridgeBase}/push-sync` : '');
+window.UNINO_APPWRITE_SYNC_URLS = window.UNINO_APPWRITE_SYNC_URLS || (
+  window.UNINO_APPWRITE_SYNC_URL ? [window.UNINO_APPWRITE_SYNC_URL] : []
+);
+
+window.UNINO_APPWRITE_EVENT_SYNC_URL = window.UNINO_APPWRITE_EVENT_SYNC_URL || (appwriteBridgeBase ? `${appwriteBridgeBase}/event-sync` : '');
+window.UNINO_APPWRITE_EVENT_SYNC_URLS = window.UNINO_APPWRITE_EVENT_SYNC_URLS || (
+  window.UNINO_APPWRITE_EVENT_SYNC_URL ? [window.UNINO_APPWRITE_EVENT_SYNC_URL] : []
+);

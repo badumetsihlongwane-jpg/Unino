@@ -86,9 +86,11 @@ async function sendPushToUser(userId, payload) {
   if (!tokenRows.length) return;
 
   const channelId = payload.channelId || 'unibo-general';
+  const title = payload.title || 'Unibo';
+  const body = payload.body || 'You have a new notification';
   const mergedData = cleanDataMap({
-    title: payload.title || 'Unibo',
-    body: payload.body || 'You have a new notification',
+    title,
+    body,
     channelId,
     imageUrl: payload.imageUrl || '',
     ...(payload.data || {})
@@ -99,16 +101,23 @@ async function sendPushToUser(userId, payload) {
 
   if (androidRows.length) {
     try {
-      // Data-first payload keeps Android delivery reliable even when the app is closed.
+      // Hybrid payload: notification for closed-app visibility + data for deep-link routing.
       const androidResult = await messaging.sendEachForMulticast({
         tokens: androidRows.map(row => row.token),
+        notification: {
+          title,
+          body
+        },
         data: mergedData,
         android: {
           priority: 'high',
           ttl: 60 * 60 * 1000,
           notification: {
+            title,
+            body,
             channelId,
             sound: 'default',
+            imageUrl: payload.imageUrl || undefined,
             clickAction: 'OPEN_UNIBO'
           }
         }
