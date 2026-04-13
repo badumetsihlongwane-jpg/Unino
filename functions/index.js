@@ -247,7 +247,7 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
   if (!notification || !userId || !notifId) return;
 
   const pushMeta = notification.pushMeta && typeof notification.pushMeta === 'object' ? notification.pushMeta : {};
-  const appwriteAlreadySent = pushMeta.appwritePushSent === true || String(pushMeta.appwriteStatus || '') === 'ok';
+  const appwriteAlreadySent = pushMeta.appwritePushSent === true;
   if (appwriteAlreadySent) {
     logger.info('Skipping Firebase push (already delivered via Appwrite)', {
       userId,

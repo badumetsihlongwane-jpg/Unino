@@ -321,9 +321,16 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
         if (resp.ok) {
           const body = await resp.clone().json().catch(() => null);
           const push = body?.result?.push;
-          appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
-          if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
-          else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
+          if (push && push.sent) {
+            appwriteStatus = 'ok';
+          } else if (push) {
+            appwriteStatus = push?.reason || 'push-not-sent';
+            if (push.detail) appwriteDetail = String(push.detail);
+            else if (push.reason) appwriteDetail = String(push.reason);
+          } else {
+            appwriteStatus = 'missing-push-result';
+            appwriteDetail = JSON.stringify(body || {}).slice(0, 220);
+          }
           delivered = !!push;
           if (delivered) break;
         } else {
@@ -1023,7 +1030,7 @@ async function scheduleLocalNotification(notification) {
   if (!isNativeApp()) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
-        const opts = { body: notification.body, icon: notification.largeIcon || '/icons/icon-192.png', tag: String(notification.id) };
+        const opts = { body: notification.body, icon: notification.largeIcon || '/favicon.png', tag: String(notification.id) };
         new Notification(notification.title, opts);
       } catch (_) {}
     }
@@ -1172,7 +1179,13 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
     viewPost(extra.postId);
     return;
   }
-  if (extra.profileId && extra.profileId !== 'anonymous') openProfile(extra.profileId);
+  if (extra.profileId && extra.profileId !== 'anonymous') {
+    db.collection('users').doc(String(extra.profileId)).get()
+      .then(doc => {
+        if (doc.exists) openProfile(extra.profileId);
+      })
+      .catch(() => {});
+  }
 }
 
 function maybeNotifyForUnreadDMs(conversations = []) {
