@@ -297,6 +297,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     body: pushBody,
     kind,
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    imageUrl: String(data.imageUrl || from.photo || ''),
+    icon: String(data.androidIcon || 'ic_notification_small'),
+    color: String(data.androidColor || '#6D28D9'),
+    clickAction: String(data.clickAction || 'OPEN_UNIBO'),
     at: new Date().toISOString(),
     payload: notifPayload,
     from: {
@@ -334,9 +338,20 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     }
   }
 
+  const persistedData = {
+    ...data,
+    pushMeta: {
+      ...(data.pushMeta && typeof data.pushMeta === 'object' ? data.pushMeta : {}),
+      mode,
+      appwriteStatus,
+      appwritePushSent: appwriteStatus === 'ok',
+      appwriteDetail: appwriteDetail ? String(appwriteDetail).slice(0, 220) : ''
+    }
+  };
+
   const col = db.collection('users').doc(targetId).collection('notifications');
-  if (docId) await col.doc(docId).set(data);
-  else await col.add(data);
+  if (docId) await col.doc(docId).set(persistedData);
+  else await col.add(persistedData);
 
   _lastGatewayNotificationStatus = `${mode}/${appwriteStatus}`;
   refreshBackendDebugStatus(appwriteDetail ? `notif detail: ${appwriteDetail.slice(0, 120)}` : '');
@@ -1025,6 +1040,8 @@ async function scheduleLocalNotification(notification) {
       schedule: { at: new Date(Date.now() + 50) },
       channelId: notification.channelId || 'unibo-general',
       actionTypeId: notification.actionTypeId || 'app-preview',
+      smallIcon: notification.smallIcon || 'ic_notification_small',
+      iconColor: notification.iconColor || '#6D28D9',
       extra: notification.extra || {}
     };
     if (notification.largeIcon) notifPayload.largeIcon = notification.largeIcon;
@@ -1063,12 +1080,16 @@ async function initNativePushNotifications() {
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
       const extra = notification?.data || {};
+      const senderImage = String(extra.senderPhoto || extra.imageUrl || '').trim();
       scheduleLocalNotification({
         id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
         title: notification?.title || 'Unibo',
         body: clampText(notification?.body || 'You have a new notification', 110),
+        largeIcon: senderImage || undefined,
         channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
         actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
+        smallIcon: String(extra.icon || 'ic_notification_small').trim() || 'ic_notification_small',
+        iconColor: String(extra.color || '#6D28D9').trim() || '#6D28D9',
         extra
       });
     });
@@ -1156,12 +1177,18 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
 
 function maybeNotifyForUnreadDMs(conversations = []) {
   if (!state.user) return;
-  // Always track and notify — don't skip when FCM is ready since it may fail
+  // Keep unread state in sync, but avoid local duplicates when native push is healthy.
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
     nextUnreadMap[conversation.id] = (conversation.unread || {})[myUid] || 0;
   });
+
+  if (isNativeApp() && _nativePushReady) {
+    _nativeDmNotificationPrimed = true;
+    _nativeDmUnreadMap = nextUnreadMap;
+    return;
+  }
 
   if (!_nativeDmNotificationPrimed) {
     _nativeDmNotificationPrimed = true;
@@ -1216,7 +1243,13 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
-  // Always process notifications regardless of push status — FCM may fail silently
+  // Keep IDs in sync, but suppress local fallback when native push is healthy.
+  if (isNativeApp() && _nativePushReady) {
+    _nativeGeneralNotificationPrimed = true;
+    notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
+    return;
+  }
+
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
     // On first run, mark existing unreads as already seen to avoid flooding

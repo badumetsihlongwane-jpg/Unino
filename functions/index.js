@@ -88,11 +88,19 @@ async function sendPushToUser(userId, payload) {
   const channelId = payload.channelId || 'unibo-general';
   const title = payload.title || 'Unibo';
   const body = payload.body || 'You have a new notification';
+  const rawImageUrl = typeof payload.imageUrl === 'string' ? payload.imageUrl.trim() : '';
+  const imageUrl = /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl : undefined;
+  const androidIcon = String(payload.androidIcon || 'ic_notification_small').trim() || 'ic_notification_small';
+  const androidColor = String(payload.androidColor || '#6D28D9').trim() || '#6D28D9';
+  const clickAction = String(payload.clickAction || 'OPEN_UNIBO').trim() || 'OPEN_UNIBO';
   const mergedData = cleanDataMap({
     title,
     body,
     channelId,
-    imageUrl: payload.imageUrl || '',
+    imageUrl: imageUrl || '',
+    icon: androidIcon,
+    color: androidColor,
+    clickAction,
     ...(payload.data || {})
   });
 
@@ -117,8 +125,10 @@ async function sendPushToUser(userId, payload) {
             body,
             channelId,
             sound: 'default',
-            imageUrl: payload.imageUrl || undefined,
-            clickAction: 'OPEN_UNIBO'
+            imageUrl,
+            clickAction,
+            icon: androidIcon,
+            color: androidColor
           }
         }
       });
@@ -133,8 +143,8 @@ async function sendPushToUser(userId, payload) {
       const result = await messaging.sendEachForMulticast({
         tokens: otherRows.map(row => row.token),
         notification: {
-          title: payload.title,
-          body: payload.body
+          title,
+          body
         },
         data: mergedData,
         android: {
@@ -142,8 +152,10 @@ async function sendPushToUser(userId, payload) {
           notification: {
             channelId,
             sound: 'default',
-            imageUrl: payload.imageUrl || undefined,
-            clickAction: 'OPEN_UNIBO'
+            imageUrl,
+            clickAction,
+            icon: androidIcon,
+            color: androidColor
           }
         },
         apns: {
@@ -233,6 +245,17 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
   const userId = event.params.userId;
   const notifId = event.params.notifId;
   if (!notification || !userId || !notifId) return;
+
+  const pushMeta = notification.pushMeta && typeof notification.pushMeta === 'object' ? notification.pushMeta : {};
+  const appwriteAlreadySent = pushMeta.appwritePushSent === true || String(pushMeta.appwriteStatus || '') === 'ok';
+  if (appwriteAlreadySent) {
+    logger.info('Skipping Firebase push (already delivered via Appwrite)', {
+      userId,
+      notifId,
+      mode: String(pushMeta.mode || 'appwrite-native-fcm')
+    });
+    return;
+  }
 
   const from = notification.from || {};
   const payload = notification.payload || {};
