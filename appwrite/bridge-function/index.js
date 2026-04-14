@@ -280,11 +280,6 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
   const messaging = new Messaging(makeClient());
   const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
   const targetIds = (targetList.targets || []).map(target => target.id).filter(Boolean);
-  const image = String(data?.imageUrl || data?.senderPhoto || '').trim() || undefined;
-  const icon = String(data?.icon || '').trim() || undefined;
-  const color = String(data?.color || '').trim() || undefined;
-  const clickAction = String(data?.clickAction || '').trim() || undefined;
-  const tag = String(data?.kind || '').trim() || undefined;
 
   if (!targetIds.length) {
     return {
@@ -303,12 +298,12 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     [],
     targetIds,
     data,
-    clickAction,
-    image,
-    icon,
-    'default',
-    color,
-    tag,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
     undefined,
     false,
     undefined
@@ -398,10 +393,6 @@ function flattenNotificationData(payload = {}) {
     title: input.title || 'Unino',
     body: input.body || input.text || 'You have a new notification',
     channelId: input.channelId || ((input.kind === 'dm' || input.kind === 'group') ? 'unibo-messages' : 'unibo-general'),
-    imageUrl: input.imageUrl || from.photo || '',
-    icon: input.icon || 'ic_notification_small',
-    color: input.color || '#6D28D9',
-    clickAction: input.clickAction || 'OPEN_UNIBO',
     convoId: nested.convoId || '',
     groupId: nested.groupId || '',
     collection: nested.collection || 'groups',

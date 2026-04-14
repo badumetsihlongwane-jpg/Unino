@@ -88,19 +88,11 @@ async function sendPushToUser(userId, payload) {
   const channelId = payload.channelId || 'unibo-general';
   const title = payload.title || 'Unibo';
   const body = payload.body || 'You have a new notification';
-  const rawImageUrl = typeof payload.imageUrl === 'string' ? payload.imageUrl.trim() : '';
-  const imageUrl = /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl : undefined;
-  const androidIcon = 'ic_notification_small';
-  const androidColor = '#6D28D9';
-  const clickAction = 'OPEN_UNIBO';
   const mergedData = cleanDataMap({
     title,
     body,
     channelId,
-    imageUrl: imageUrl || '',
-    icon: androidIcon,
-    color: androidColor,
-    clickAction,
+    imageUrl: payload.imageUrl || '',
     ...(payload.data || {})
   });
 
@@ -125,10 +117,8 @@ async function sendPushToUser(userId, payload) {
             body,
             channelId,
             sound: 'default',
-            imageUrl,
-            clickAction,
-            icon: androidIcon,
-            color: androidColor
+            imageUrl: payload.imageUrl || undefined,
+            clickAction: 'OPEN_UNIBO'
           }
         }
       });
@@ -143,8 +133,8 @@ async function sendPushToUser(userId, payload) {
       const result = await messaging.sendEachForMulticast({
         tokens: otherRows.map(row => row.token),
         notification: {
-          title,
-          body
+          title: payload.title,
+          body: payload.body
         },
         data: mergedData,
         android: {
@@ -152,10 +142,8 @@ async function sendPushToUser(userId, payload) {
           notification: {
             channelId,
             sound: 'default',
-            imageUrl,
-            clickAction,
-            icon: androidIcon,
-            color: androidColor
+            imageUrl: payload.imageUrl || undefined,
+            clickAction: 'OPEN_UNIBO'
           }
         },
         apns: {
