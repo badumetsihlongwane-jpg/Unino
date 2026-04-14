@@ -297,6 +297,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     body: pushBody,
     kind,
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    imageUrl: String(data.imageUrl || from.photo || ''),
+    icon: String(data.androidIcon || 'ic_notification_small'),
+    color: String(data.androidColor || '#6D28D9'),
+    clickAction: String(data.clickAction || 'OPEN_UNIBO'),
     at: new Date().toISOString(),
     payload: notifPayload,
     from: {
@@ -1008,7 +1012,7 @@ async function scheduleLocalNotification(notification) {
   if (!isNativeApp()) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
-        const opts = { body: notification.body, icon: notification.largeIcon || '/icons/icon-192.png', tag: String(notification.id) };
+        const opts = { body: notification.body, icon: notification.largeIcon || '/unino-icon.png', tag: String(notification.id) };
         new Notification(notification.title, opts);
       } catch (_) {}
     }
@@ -1025,6 +1029,8 @@ async function scheduleLocalNotification(notification) {
       schedule: { at: new Date(Date.now() + 50) },
       channelId: notification.channelId || 'unibo-general',
       actionTypeId: notification.actionTypeId || 'app-preview',
+      smallIcon: notification.smallIcon || 'ic_notification_small',
+      iconColor: notification.iconColor || '#6D28D9',
       extra: notification.extra || {}
     };
     if (notification.largeIcon) notifPayload.largeIcon = notification.largeIcon;
@@ -1063,12 +1069,16 @@ async function initNativePushNotifications() {
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
       const extra = notification?.data || {};
+      const senderImage = String(extra.senderPhoto || extra.imageUrl || '').trim();
       scheduleLocalNotification({
         id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
         title: notification?.title || 'Unibo',
         body: clampText(notification?.body || 'You have a new notification', 110),
+        largeIcon: senderImage || undefined,
         channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
         actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
+        smallIcon: String(extra.icon || 'ic_notification_small').trim() || 'ic_notification_small',
+        iconColor: String(extra.color || '#6D28D9').trim() || '#6D28D9',
         extra
       });
     });
