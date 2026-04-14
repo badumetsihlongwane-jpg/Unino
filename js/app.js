@@ -86,6 +86,8 @@ const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
+let _feedPeopleSuggestLastQuery = '';
+const _reactionNoticeCooldown = new Map();
 let _campusPlacePointsCache = [];
 const _destinationSearchCache = new Map();
 const _destinationSearchInflight = new Map();
@@ -702,6 +704,20 @@ function buildLocalReactionResult(post = {}, emoji = '') {
     likes: Object.entries(reactions).filter(([, value]) => value === '❤️').map(([userId]) => userId),
     nextReaction: reactions[uid] || ''
   };
+}
+
+function summarizeMessageReference(message = {}) {
+  if (!message || message.deleted || message.type === 'deleted') return 'Message deleted';
+  if (message.locationPin?.label) return `📍 ${message.locationPin.label}`;
+  if (message.type === 'poll' && message.poll?.question) return `📊 ${message.poll.question}`;
+  if (message.type === 'share_post') return 'Shared post';
+  if (message.type === 'story_reply') return 'Story reply';
+  if (message.type === 'story_like') return 'Liked a story';
+  if (message.type === 'message_reaction') return 'Reaction update';
+  if (message.audioURL) return '🎤 Voice message';
+  if (message.imageURL) return message.mediaType === 'video' ? '📹 Video' : (message.text ? clampText(message.text, 68) : '📷 Photo');
+  if (message.text) return clampText(message.text, 68);
+  return 'Message';
 }
 
 function renderPostStatsMarkup(post = {}) {
@@ -2068,7 +2084,9 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
     if (result) {
       syncLocalMessageReactionState(scope, messageId, result.reactions, result.likes);
       refreshMessageReactionUI(scope, primaryId, messageId, collection);
+      const priorReaction = normalizeReactionMap(result.before?.reactions, result.before?.likes || [])[state.user?.uid || ''] || '';
       if (result.nextReaction
+        && !priorReaction
         && localMessage.senderId
         && localMessage.senderId !== state.user?.uid
         && !['message_reaction', 'story_like'].includes(localMessage.type || '')) {
@@ -2091,17 +2109,31 @@ async function emitMessageReactionNotice(scope, primaryId, targetMessage = {}, e
   const targetSenderId = targetMessage.senderId || '';
   if (!targetSenderId || targetSenderId === actorUid) return;
 
+  const targetMessageId = targetMessage.id || '';
+  const cooldownKey = `${scope}:${primaryId}:${targetMessageId}:${actorUid}`;
+  const now = Date.now();
+  const lastAt = _reactionNoticeCooldown.get(cooldownKey) || 0;
+  if (now - lastAt < 2200) return;
+  _reactionNoticeCooldown.set(cooldownKey, now);
+  if (_reactionNoticeCooldown.size > 320) {
+    const first = _reactionNoticeCooldown.keys().next().value;
+    if (first) _reactionNoticeCooldown.delete(first);
+  }
+
   const safeEmoji = `${emoji || '❤️'}`.trim() || '❤️';
+  const targetPreview = summarizeMessageReference(targetMessage);
   const payload = {
-    targetMessageId: targetMessage.id || '',
+    targetMessageId,
     targetSenderId,
-    emoji: safeEmoji
+    emoji: safeEmoji,
+    targetPreview,
+    targetMessageType: targetMessage.type || ''
   };
 
   if (scope === 'group') {
     const groupRef = db.collection(collection || 'groups').doc(primaryId);
     await groupRef.collection('messages').add({
-      text: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji}`,
+      text: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji} to: ${targetPreview}`,
       senderId: actorUid,
       senderName: state.profile?.displayName || 'Someone',
       senderPhoto: state.profile?.photoURL || null,
@@ -4258,7 +4290,16 @@ function renderFeedPeopleSuggestions(query) {
     searchBar.appendChild(box);
   }
   const q = String(query || '').trim();
-  if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
+  if (!q || q.startsWith('#')) {
+    _feedPeopleSuggestLastQuery = '';
+    box.dataset.ready = '0';
+    box.style.display = 'none';
+    return;
+  }
+  if (q === _feedPeopleSuggestLastQuery && box.dataset.ready === '1') {
+    box.style.display = 'block';
+    return;
+  }
   getUsersCache().then(users => {
     const hits = users
       .filter(u => u.id !== state.user?.uid)
@@ -4282,6 +4323,8 @@ function renderFeedPeopleSuggestions(query) {
     `;
     }).join('');
     box.style.display = 'block';
+    box.dataset.ready = '1';
+    _feedPeopleSuggestLastQuery = q;
   }).catch(() => {});
 }
 
@@ -4309,6 +4352,7 @@ function filterFeedPosts(posts = [], query = _feedSearchQuery) {
 
 function clearFeedSearch() {
   _feedSearchQuery = '';
+  _feedPeopleSuggestLastQuery = '';
   const input = $('#feed-search-input');
   if (input) input.value = '';
   renderFeedResults(state.posts || []);
@@ -4866,7 +4910,7 @@ function openStoryCreator() {
 
 let storyViewerData = { groups: [], currentGroup: 0, currentStory: 0, timer: null };
 
-async function viewStory(userId) {
+async function viewStory(userId, focusStoryId = '') {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   try {
     const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').get();
@@ -4888,9 +4932,40 @@ async function viewStory(userId) {
     const startIdx = groups.findIndex(g => g.uid === userId);
     if (startIdx === -1) return toast('No stories');
 
-    storyViewerData = { groups, currentGroup: startIdx, currentStory: 0, timer: null };
+    let startStoryIdx = 0;
+    if (focusStoryId) {
+      const maybeIdx = (groups[startIdx]?.stories || []).findIndex(item => item.id === focusStoryId);
+      if (maybeIdx >= 0) startStoryIdx = maybeIdx;
+    }
+
+    storyViewerData = { groups, currentGroup: startIdx, currentStory: startStoryIdx, timer: null };
     showStoryFrame();
   } catch (e) { console.error(e); toast('Could not load stories'); }
+}
+
+async function openStoryFromMessage(storyId = '', storyAuthorId = '') {
+  let targetAuthor = storyAuthorId || '';
+  const targetStory = storyId || '';
+  try {
+    if (targetStory) {
+      const snap = await db.collection('stories').doc(targetStory).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        targetAuthor = data.authorId || targetAuthor;
+      } else if (!targetAuthor) {
+        toast('Story expired');
+        return;
+      }
+    }
+    if (!targetAuthor) {
+      toast('Story unavailable');
+      return;
+    }
+    await viewStory(targetAuthor, targetStory);
+  } catch (e) {
+    console.error(e);
+    toast('Could not open story');
+  }
 }
 
 function showStoryFrame() {
@@ -5031,7 +5106,7 @@ async function openStoryInsights(storyId = '') {
     await ensureUserContextCache(ids, { force: false });
     const renderRows = (arr = [], kind = 'Viewed') => arr.length
       ? arr.map(uid => {
-          const info = resolveUserIdentity(uid, uid, null);
+          const info = getResolvedUserIdentity(uid, 'User', null);
           return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
         }).join('')
       : `<div class="empty-state" style="padding:10px 0"><p>No one yet</p></div>`;
@@ -5050,6 +5125,7 @@ async function sendStoryLikeMessage(story = {}) {
   if (!authorId || authorId === state.user?.uid) return;
   try {
     const convoId = await ensureFriendDMConversation(authorId, story.authorName || 'User', story.authorPhoto || null);
+    const storyPreview = story.type === 'photo' ? story.imageURL : (story.type === 'video' ? story.videoURL : null);
     await db.collection('conversations').doc(convoId).collection('messages').add({
       text: '',
       senderId: state.user.uid,
@@ -5060,7 +5136,10 @@ async function sendStoryLikeMessage(story = {}) {
       payload: {
         storyId: story.id || '',
         storyType: story.type || '',
-        storyCaption: story.caption || story.text || ''
+        storyCaption: story.caption || story.text || '',
+        storyPreview: storyPreview || null,
+        storyAuthorId: story.authorId || '',
+        storyAuthorName: story.authorName || 'User'
       },
       createdAt: FieldVal.serverTimestamp(),
       status: 'sent'
@@ -12326,19 +12405,40 @@ async function openChat(convoId) {
                 ${storyThumb}${captionSnip}
               </div>${esc(m.text)}`;
             } else if (!m.deleted && m.type === 'story_like') {
+              const sp = m.payload || {};
               const otherShort = (name || 'They').split(' ')[0] || 'They';
               const label = isMe ? '❤️ You liked their story' : `❤️ ${esc(otherShort)} liked your story`;
-              content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>`;
+              let storyThumb = '';
+              if (sp.storyPreview && sp.storyType === 'photo') {
+                storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;border-radius:6px;display:block">`;
+              } else if (sp.storyPreview && sp.storyType === 'video') {
+                storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;max-height:96px">
+                  <video src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;display:block" preload="metadata" muted></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </div>
+                </div>`;
+              }
+              const caption = sp.storyCaption ? `<div class="msg-system-reference">${esc(clampText(sp.storyCaption, 72))}</div>` : '';
+              const openAttr = sp.storyId ? ` onclick="event.stopPropagation();openStoryFromMessage('${sp.storyId}','${sp.storyAuthorId || ''}')"` : '';
+              const storyRef = storyThumb || caption || sp.storyId
+                ? `<div class="msg-story-reference"${openAttr}>${storyThumb}${caption || (!storyThumb ? '<div class="msg-system-reference">Open story</div>' : '')}</div>`
+                : '';
+              content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>${storyRef}`;
             } else if (!m.deleted && m.type === 'message_reaction' && m.payload) {
               const otherShort = (name || 'They').split(' ')[0] || 'They';
               const reactionEmoji = esc(m.payload.emoji || '❤️');
               const targetMine = m.payload.targetSenderId === uid;
+              const targetPreviewText = clampText(m.payload.targetPreview || summarizeMessageReference(_dmMsgLookup.get(m.payload.targetMessageId || '') || {}), 72);
+              const reference = m.payload.targetMessageId
+                ? `<div class="msg-reply-snippet msg-system-reference" onclick="jumpToMessage('${m.payload.targetMessageId}','chat-msgs')">↩ ${esc(targetPreviewText)}</div>`
+                : `<div class="msg-reply-snippet msg-system-reference">↩ ${esc(targetPreviewText)}</div>`;
               const label = isMe
                 ? `${reactionEmoji} You reacted to their message`
                 : targetMine
                   ? `${reactionEmoji} ${esc(otherShort)} reacted to your message`
                   : `${reactionEmoji} ${esc(otherShort)} reacted`;
-              content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>`;
+              content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
             } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
             } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
@@ -12683,6 +12783,7 @@ async function editContactNickname(targetUid, fallbackName = 'User') {
     state.profile.contactNicknames = { ...(state.profile.contactNicknames || {}) };
     if (cleaned) state.profile.contactNicknames[targetUid] = cleaned;
     else delete state.profile.contactNicknames[targetUid];
+    _feedPeopleSuggestLastQuery = '';
     if (state.page === 'feed') renderFeedResults(state.posts || []);
     if (state.page === 'chat') refreshCurrentMessageList();
     toast(cleaned ? 'Contact name saved' : 'Contact name removed');
@@ -12891,8 +12992,7 @@ async function openProfile(uid) {
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
-                const contactBtn = `<button class="btn-outline" onclick="editContactNickname('${uid}')">${getContactNickname(uid) ? 'Edit Contact Name' : 'Set Contact Name'}</button>`;
-                return `${msgBtn}\n               ${friendBtn}\n               ${contactBtn}`;
+                return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>
       </div>
@@ -14005,7 +14105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, closeNotifDropdown,
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, openStoryFromMessage, closeNotifDropdown,
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,

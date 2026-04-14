@@ -4299,6 +4299,24 @@ body.image-view-open .modal-bg {
   color: #deefff;
 }
 
+.msg-system-reference {
+  margin-top: 6px;
+  font-style: normal;
+}
+
+.msg-story-reference {
+  margin-top: 6px;
+  border-left: 2px solid rgba(255,255,255,0.3);
+  padding-left: 8px;
+  cursor: pointer;
+}
+
+.msg-story-reference .msg-system-reference {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* Story item states */
 .story-item.has-unseen .story-avatar {
   background: var(--gradient);
