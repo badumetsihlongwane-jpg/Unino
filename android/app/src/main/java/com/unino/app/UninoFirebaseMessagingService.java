@@ -30,10 +30,6 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
 
         RemoteMessage.Notification notification = remoteMessage.getNotification();
         Map<String, String> data = remoteMessage.getData();
-        final boolean hasDataPayload = data != null && !data.isEmpty();
-        final boolean hasNotificationPayload = notification != null
-            && (!TextUtils.isEmpty(notification.getTitle()) || !TextUtils.isEmpty(notification.getBody()));
-        if (!hasDataPayload && !hasNotificationPayload) return;
 
         String title = firstNonBlank(
             valueOrDefault(data.get("title"), ""),

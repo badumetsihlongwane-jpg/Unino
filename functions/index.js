@@ -88,19 +88,11 @@ async function sendPushToUser(userId, payload) {
   const channelId = payload.channelId || 'unibo-general';
   const title = payload.title || 'Unibo';
   const body = payload.body || 'You have a new notification';
-  const rawImageUrl = typeof payload.imageUrl === 'string' ? payload.imageUrl.trim() : '';
-  const imageUrl = /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl : undefined;
-  const androidIcon = String(payload.androidIcon || 'ic_notification_small').trim() || 'ic_notification_small';
-  const androidColor = String(payload.androidColor || '#6D28D9').trim() || '#6D28D9';
-  const clickAction = String(payload.clickAction || 'OPEN_UNIBO').trim() || 'OPEN_UNIBO';
   const mergedData = cleanDataMap({
     title,
     body,
     channelId,
-    imageUrl: imageUrl || '',
-    icon: androidIcon,
-    color: androidColor,
-    clickAction,
+    imageUrl: payload.imageUrl || '',
     ...(payload.data || {})
   });
 
@@ -125,10 +117,8 @@ async function sendPushToUser(userId, payload) {
             body,
             channelId,
             sound: 'default',
-            imageUrl,
-            clickAction,
-            icon: androidIcon,
-            color: androidColor
+            imageUrl: payload.imageUrl || undefined,
+            clickAction: 'OPEN_UNIBO'
           }
         }
       });
@@ -143,8 +133,8 @@ async function sendPushToUser(userId, payload) {
       const result = await messaging.sendEachForMulticast({
         tokens: otherRows.map(row => row.token),
         notification: {
-          title,
-          body
+          title: payload.title,
+          body: payload.body
         },
         data: mergedData,
         android: {
@@ -152,10 +142,8 @@ async function sendPushToUser(userId, payload) {
           notification: {
             channelId,
             sound: 'default',
-            imageUrl,
-            clickAction,
-            icon: androidIcon,
-            color: androidColor
+            imageUrl: payload.imageUrl || undefined,
+            clickAction: 'OPEN_UNIBO'
           }
         },
         apns: {
@@ -246,20 +234,6 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
   const notifId = event.params.notifId;
   if (!notification || !userId || !notifId) return;
 
-  // Reliability-first default: keep Firebase fallback enabled unless explicitly
-  // opted into Appwrite-only dedupe via env.
-  const appwriteSkipEnabled = String(process.env.APPWRITE_SKIP_FIREBASE_WHEN_SENT || '').trim() === '1';
-  const pushMeta = notification.pushMeta && typeof notification.pushMeta === 'object' ? notification.pushMeta : {};
-  const appwriteAlreadySent = pushMeta.appwritePushSent === true;
-  if (appwriteSkipEnabled && appwriteAlreadySent) {
-    logger.info('Skipping Firebase push (already delivered via Appwrite)', {
-      userId,
-      notifId,
-      mode: String(pushMeta.mode || 'appwrite-native-fcm')
-    });
-    return;
-  }
-
   const from = notification.from || {};
   const payload = notification.payload || {};
   const kind = payload.convoId
@@ -276,10 +250,7 @@ exports.onUserNotificationCreated = onDocumentCreated('users/{userId}/notificati
     title: from.name || 'Unibo',
     body: clampText(notification.text || 'You have a new notification', 120),
     channelId: kind === 'dm' || kind === 'group' ? 'unibo-messages' : 'unibo-general',
-    imageUrl: notification.imageUrl || from.photo || undefined,
-    androidIcon: notification.androidIcon || 'ic_notification_small',
-    androidColor: notification.androidColor || '#6D28D9',
-    clickAction: notification.clickAction || 'OPEN_UNIBO',
+    imageUrl: from.photo || undefined,
     data: {
       kind,
       convoId: payload.convoId || '',

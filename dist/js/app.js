@@ -297,10 +297,6 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     body: pushBody,
     kind,
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
-    imageUrl: String(data.imageUrl || from.photo || ''),
-    icon: String(data.androidIcon || 'ic_notification_small'),
-    color: String(data.androidColor || '#6D28D9'),
-    clickAction: String(data.clickAction || 'OPEN_UNIBO'),
     at: new Date().toISOString(),
     payload: notifPayload,
     from: {
@@ -321,16 +317,9 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
         if (resp.ok) {
           const body = await resp.clone().json().catch(() => null);
           const push = body?.result?.push;
-          if (push && push.sent) {
-            appwriteStatus = 'ok';
-          } else if (push) {
-            appwriteStatus = push?.reason || 'push-not-sent';
-            if (push.detail) appwriteDetail = String(push.detail);
-            else if (push.reason) appwriteDetail = String(push.reason);
-          } else {
-            appwriteStatus = 'missing-push-result';
-            appwriteDetail = JSON.stringify(body || {}).slice(0, 220);
-          }
+          appwriteStatus = push?.sent ? 'ok' : (push?.reason || 'ok');
+          if (push && !push.sent && push.detail) appwriteDetail = String(push.detail);
+          else if (push && !push.sent && push.reason) appwriteDetail = String(push.reason);
           delivered = !!push;
           if (delivered) break;
         } else {
@@ -345,20 +334,9 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     }
   }
 
-  const persistedData = {
-    ...data,
-    pushMeta: {
-      ...(data.pushMeta && typeof data.pushMeta === 'object' ? data.pushMeta : {}),
-      mode,
-      appwriteStatus,
-      appwritePushSent: appwriteStatus === 'ok',
-      appwriteDetail: appwriteDetail ? String(appwriteDetail).slice(0, 220) : ''
-    }
-  };
-
   const col = db.collection('users').doc(targetId).collection('notifications');
-  if (docId) await col.doc(docId).set(persistedData);
-  else await col.add(persistedData);
+  if (docId) await col.doc(docId).set(data);
+  else await col.add(data);
 
   _lastGatewayNotificationStatus = `${mode}/${appwriteStatus}`;
   refreshBackendDebugStatus(appwriteDetail ? `notif detail: ${appwriteDetail.slice(0, 120)}` : '');
@@ -540,7 +518,7 @@ async function runNotificationDiagnostics() {
       await requestLocalNotificationPermission();
       refreshPushRegistration(true);
       lines.push('triggered push registration refresh');
-      await sendDebugLocalNotification();
+      sendDebugLocalNotification();
       lines.push('sent local test notification');
     } catch (e) {
       lines.push(`push refresh failed (${e?.message || 'unknown'})`);
@@ -553,7 +531,7 @@ async function runNotificationDiagnostics() {
         if (Notification.permission === 'default') await Notification.requestPermission();
       } catch (_) {}
       lines.push(`browser notification permission=${Notification.permission}`);
-      await sendDebugLocalNotification();
+      sendDebugLocalNotification();
       lines.push('sent browser/local test notification');
     }
   }
@@ -621,24 +599,16 @@ async function runShadowSyncProbe() {
   }
 }
 
-async function sendDebugLocalNotification() {
-  try {
-    if (isNativeApp() && !_nativeLocalNotificationsReady) {
-      await requestLocalNotificationPermission().catch(() => {});
-    }
-    await scheduleLocalNotification({
-      id: hashStringToId(`debug-local-${Date.now()}`),
-      title: 'Unibo Debug Test',
-      body: 'If you see this, local notifications are working.',
-      channelId: 'unibo-general',
-      actionTypeId: 'app-preview',
-      extra: { kind: 'debug' }
-    });
-    toast('Debug notification sent');
-  } catch (e) {
-    console.warn('Debug notification failed:', e);
-    toast('Debug notification failed');
-  }
+function sendDebugLocalNotification() {
+  scheduleLocalNotification({
+    id: hashStringToId(`debug-local-${Date.now()}`),
+    title: 'Unibo Debug Test',
+    body: 'If you see this, local notifications are working.',
+    channelId: 'unibo-general',
+    actionTypeId: 'app-preview',
+    extra: { kind: 'debug' }
+  });
+  toast('Debug notification sent');
 }
 
 function normalizeReactionMap(raw = {}, likes = []) {
@@ -1038,14 +1008,11 @@ async function scheduleLocalNotification(notification) {
   if (!isNativeApp()) {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
-        const opts = { body: notification.body, icon: notification.largeIcon || '/favicon.png', tag: String(notification.id) };
+        const opts = { body: notification.body, icon: notification.largeIcon || '/icons/icon-192.png', tag: String(notification.id) };
         new Notification(notification.title, opts);
       } catch (_) {}
     }
     return;
-  }
-  if (!_nativeLocalNotificationsReady) {
-    await requestLocalNotificationPermission().catch(() => {});
   }
   if (!_nativeLocalNotificationsReady) return;
   const localNotifications = getCapacitorPlugin('LocalNotifications');
@@ -1058,8 +1025,6 @@ async function scheduleLocalNotification(notification) {
       schedule: { at: new Date(Date.now() + 50) },
       channelId: notification.channelId || 'unibo-general',
       actionTypeId: notification.actionTypeId || 'app-preview',
-      smallIcon: notification.smallIcon || 'ic_notification_small',
-      iconColor: notification.iconColor || '#6D28D9',
       extra: notification.extra || {}
     };
     if (notification.largeIcon) notifPayload.largeIcon = notification.largeIcon;
@@ -1098,16 +1063,12 @@ async function initNativePushNotifications() {
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
       const extra = notification?.data || {};
-      const senderImage = String(extra.senderPhoto || extra.imageUrl || '').trim();
       scheduleLocalNotification({
         id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
         title: notification?.title || 'Unibo',
         body: clampText(notification?.body || 'You have a new notification', 110),
-        largeIcon: senderImage || undefined,
         channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
         actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
-        smallIcon: String(extra.icon || 'ic_notification_small').trim() || 'ic_notification_small',
-        iconColor: String(extra.color || '#6D28D9').trim() || '#6D28D9',
         extra
       });
     });
@@ -1190,18 +1151,12 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
     viewPost(extra.postId);
     return;
   }
-  if (extra.profileId && extra.profileId !== 'anonymous') {
-    db.collection('users').doc(String(extra.profileId)).get()
-      .then(doc => {
-        if (doc.exists) openProfile(extra.profileId);
-      })
-      .catch(() => {});
-  }
+  if (extra.profileId && extra.profileId !== 'anonymous') openProfile(extra.profileId);
 }
 
 function maybeNotifyForUnreadDMs(conversations = []) {
   if (!state.user) return;
-  // Always track and notify — do not depend solely on FCM readiness.
+  // Always track and notify — don't skip when FCM is ready since it may fail
   const nextUnreadMap = {};
   const myUid = state.user.uid;
   conversations.forEach(conversation => {
@@ -1261,8 +1216,7 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
-  // Always process notification docs — this is the safety net when push delivery flakes.
-
+  // Always process notifications regardless of push status — FCM may fail silently
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
     // On first run, mark existing unreads as already seen to avoid flooding
@@ -11609,15 +11563,7 @@ async function markAllBellNotifsRead() {
   ));
 }
 
-async function addNotification(targetId, type, text, payload, {
-  anonymous = false,
-  docId = null,
-  fromOverride = null,
-  imageUrl = '',
-  androidIcon = 'ic_notification_small',
-  androidColor = '#6D28D9',
-  clickAction = 'OPEN_UNIBO'
-} = {}) {
+async function addNotification(targetId, type, text, payload, { anonymous = false, docId = null, fromOverride = null } = {}) {
   if (targetId === state.user.uid) return;
   try {
     const from = fromOverride || {
@@ -11625,14 +11571,9 @@ async function addNotification(targetId, type, text, payload, {
       name: anonymous ? 'Anonymous' : state.profile.displayName,
       photo: anonymous ? null : (state.profile.photoURL || null)
     };
-    const resolvedImage = String(imageUrl || from.photo || '').trim();
     const data = {
       type, text, payload, read: false, createdAt: FieldVal.serverTimestamp(),
-      from,
-      imageUrl: resolvedImage,
-      androidIcon: String(androidIcon || 'ic_notification_small').trim() || 'ic_notification_small',
-      androidColor: String(androidColor || '#6D28D9').trim() || '#6D28D9',
-      clickAction: String(clickAction || 'OPEN_UNIBO').trim() || 'OPEN_UNIBO'
+      from
     };
     await dispatchNotificationGateway(targetId, data, { docId });
   } catch (e) { console.error(e); }
