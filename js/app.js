@@ -1687,12 +1687,43 @@ function updateCachedUserRecord(userId, fields = {}) {
   return next;
 }
 
+function getContactNickname(userId = '') {
+  if (!userId || userId === state.user?.uid) return '';
+  const value = (state.profile?.contactNicknames || {})[userId];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function formatConversationLastMessage(raw = '', convo = {}, viewerUid = '', otherName = 'User') {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+
+  if (text.startsWith('story_like::')) {
+    const [, senderId = ''] = text.split('::');
+    return senderId === viewerUid ? 'You liked their story' : `${otherName || 'They'} liked your story`;
+  }
+
+  if (text.startsWith('message_reaction::')) {
+    const parts = text.split('::');
+    const senderId = parts[1] || '';
+    const targetSenderId = parts[2] || '';
+    let emoji = parts[3] || '❤️';
+    try { emoji = decodeURIComponent(emoji); } catch (_) {}
+    if (senderId === viewerUid) return `You reacted ${emoji}`;
+    if (targetSenderId === viewerUid) return `${otherName || 'They'} reacted ${emoji} to your message`;
+    return `${otherName || 'They'} reacted ${emoji}`;
+  }
+
+  return text;
+}
+
 function getResolvedUserIdentity(userId = '', fallbackName = 'User', fallbackPhoto = null) {
   const cached = _userContextCache[userId] || {};
+  const contactAlias = getContactNickname(userId);
   return {
-    name: cached.displayName || cached.firstName || fallbackName || 'User',
+    name: contactAlias || cached.displayName || cached.firstName || fallbackName || 'User',
     photo: cached.photoURL || fallbackPhoto || null,
-    data: cached
+    data: cached,
+    alias: contactAlias
   };
 }
 
@@ -2037,6 +2068,14 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
     if (result) {
       syncLocalMessageReactionState(scope, messageId, result.reactions, result.likes);
       refreshMessageReactionUI(scope, primaryId, messageId, collection);
+      if (result.nextReaction
+        && localMessage.senderId
+        && localMessage.senderId !== state.user?.uid
+        && !['message_reaction', 'story_like'].includes(localMessage.type || '')) {
+        emitMessageReactionNotice(scope, primaryId, localMessage, result.nextReaction, collection).catch(err => {
+          console.warn('reaction notice failed', err);
+        });
+      }
     }
   } catch (e) {
     syncLocalMessageReactionState(scope, messageId, previousState.reactions, previousState.likes);
@@ -2044,6 +2083,65 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
     console.error(e);
     toast('Could not react right now');
   }
+}
+
+async function emitMessageReactionNotice(scope, primaryId, targetMessage = {}, emoji = '❤️', collection = '') {
+  if (!primaryId || !emoji || !state.user?.uid) return;
+  const actorUid = state.user.uid;
+  const targetSenderId = targetMessage.senderId || '';
+  if (!targetSenderId || targetSenderId === actorUid) return;
+
+  const safeEmoji = `${emoji || '❤️'}`.trim() || '❤️';
+  const payload = {
+    targetMessageId: targetMessage.id || '',
+    targetSenderId,
+    emoji: safeEmoji
+  };
+
+  if (scope === 'group') {
+    const groupRef = db.collection(collection || 'groups').doc(primaryId);
+    await groupRef.collection('messages').add({
+      text: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji}`,
+      senderId: actorUid,
+      senderName: state.profile?.displayName || 'Someone',
+      senderPhoto: state.profile?.photoURL || null,
+      senderAnon: false,
+      type: 'message_reaction',
+      payload,
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent'
+    });
+    await syncThreadLastMessage('group', primaryId, collection || 'groups');
+    return;
+  }
+
+  const convoRef = db.collection('conversations').doc(primaryId);
+  await convoRef.collection('messages').add({
+    text: '',
+    senderId: actorUid,
+    senderName: state.profile?.displayName || 'Someone',
+    senderPhoto: state.profile?.photoURL || null,
+    senderAnon: false,
+    type: 'message_reaction',
+    payload,
+    createdAt: FieldVal.serverTimestamp(),
+    status: 'sent'
+  });
+
+  let otherUid = '';
+  try {
+    const convoDoc = await convoRef.get();
+    const participants = convoDoc.exists ? (convoDoc.data()?.participants || []) : [];
+    otherUid = participants.find(uid => uid && uid !== actorUid) || '';
+  } catch (_) {}
+
+  const mergeData = {
+    lastMessage: `message_reaction::${actorUid}::${targetSenderId}::${encodeURIComponent(safeEmoji)}`,
+    updatedAt: FieldVal.serverTimestamp()
+  };
+  if (otherUid) mergeData.unread = { [otherUid]: FieldVal.increment(1), [actorUid]: 0 };
+  await convoRef.set(mergeData, { merge: true });
+  await addNotification(targetSenderId, 'message', `reacted ${safeEmoji} to your message`, { convoId: primaryId });
 }
 
 async function syncThreadLastMessage(scope, primaryId, collection = '') {
@@ -2056,6 +2154,23 @@ async function syncThreadLastMessage(scope, primaryId, collection = '') {
     if (latest) {
       if (latest.locationPin?.label) lastMessage = `📍 ${latest.locationPin.label}`;
       else if (latest.type === 'poll' && latest.poll?.question) lastMessage = `📊 ${latest.poll.question}`;
+      else if (latest.type === 'story_like') {
+        if (scope === 'group') {
+          const who = latest.senderName || latest.senderId || 'Someone';
+          lastMessage = `${who} liked a story`;
+        } else {
+          lastMessage = `story_like::${latest.senderId || ''}`;
+        }
+      }
+      else if (latest.type === 'message_reaction') {
+        const reactionEmoji = latest.payload?.emoji || '❤️';
+        if (scope === 'group') {
+          const who = latest.senderName || latest.senderId || 'Someone';
+          lastMessage = `${who} reacted ${reactionEmoji}`;
+        } else {
+          lastMessage = `message_reaction::${latest.senderId || ''}::${latest.payload?.targetSenderId || ''}::${encodeURIComponent(reactionEmoji)}`;
+        }
+      }
       else if (latest.audioURL) lastMessage = '🎤 Voice';
       else if (latest.imageURL) lastMessage = latest.mediaType === 'video' ? '📹 Video' : (latest.text || '📷 Photo');
       else lastMessage = latest.text || '';
@@ -2704,7 +2819,7 @@ function renderTrendingPostsRail(posts = []) {
           <div class="trending-post-card" onclick="viewPost('${post.id}')">
             ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video class="inline-video-preview" src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
             <div class="trending-post-meta-top">
-              <span>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</span>
+              <span>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</span>
               <span>${getReactionSummary(post.reactions, post.likes || []).total} reacts</span>
             </div>
             ${post.content ? `<div class="trending-post-copy">${formatContent((post.content || '').slice(0, 150) + ((post.content || '').length > 150 ? '...' : ''))}</div>` : ''}
@@ -2733,9 +2848,9 @@ async function openModuleFeed(tag) {
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
           <div class="module-post-top">
-            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name, post.authorPhoto, 'avatar-sm')}
             <div>
-              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</div>
+              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</div>
               <div class="module-post-time">${timeAgo(post.createdAt)}</div>
             </div>
           </div>
@@ -2762,9 +2877,9 @@ async function openTagFeed(tag) {
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
           <div class="module-post-top">
-            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name, post.authorPhoto, 'avatar-sm')}
             <div>
-              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</div>
+              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</div>
               <div class="module-post-time">${timeAgo(post.createdAt)}</div>
             </div>
           </div>
@@ -4123,6 +4238,14 @@ function navigate(page, options = {}) {
 }
 
 // ─── Feed Search: People Suggestions ─────────────
+function formatUserMetaLine(user = {}, maxLen = 56) {
+  const raw = [user.major, user.university, user.address]
+    .map(part => String(part || '').trim())
+    .filter(Boolean)
+    .join(' · ');
+  return clampText(raw || 'Student', maxLen);
+}
+
 function renderFeedPeopleSuggestions(query) {
   let box = document.getElementById('feed-people-suggestions');
   if (!box) {
@@ -4144,15 +4267,20 @@ function renderFeedPeopleSuggestions(query) {
       .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''))
       .slice(0, 5);
     if (!hits.length) { box.style.display = 'none'; return; }
-    box.innerHTML = hits.map(u => `
+    box.innerHTML = hits.map(u => {
+      const resolved = getResolvedUserIdentity(u.id, u.displayName || 'User', u.photoURL || null);
+      const displayName = resolved.name || u.displayName || 'User';
+      const fullMeta = formatUserMetaLine(u, 120);
+      return `
       <button type="button" class="feed-people-item" onmousedown="event.preventDefault();openProfile('${u.id}')">
-        ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+        ${avatar(displayName, u.photoURL, 'avatar-sm')}
         <div class="feed-people-info">
-          <span class="feed-people-name">${esc(u.displayName || 'User')}</span>
-          <span class="feed-people-meta">${esc(u.major || u.university || u.address || 'Student')}</span>
+          <span class="feed-people-name">${esc(displayName)}</span>
+          <span class="feed-people-meta" title="${esc(fullMeta)}">${esc(formatUserMetaLine(u, 50))}</span>
         </div>
       </button>
-    `).join('');
+    `;
+    }).join('');
     box.style.display = 'block';
   }).catch(() => {});
 }
@@ -4165,9 +4293,11 @@ function filterFeedPosts(posts = [], query = _feedSearchQuery) {
   return posts.filter(post => {
     const tags = getPostHashTags(post).map(tag => tag.toLowerCase());
     const modules = normalizeModules(post.moduleTags || []).map(tag => tag.toLowerCase());
+    const contactAlias = getContactNickname(post.authorId || '');
     const haystack = [
       post.content || '',
       post.authorName || '',
+      contactAlias,
       post.authorUni || '',
       ...(post.moduleTags || []),
       ...getPostHashTags(post)
@@ -4609,12 +4739,14 @@ function loadStories() {
       ordered.forEach(group => {
         const s = group.stories[0];
         const isMe = group.uid === uid;
-        const name = isMe ? 'You' : esc(s.authorFirstName || s.authorName?.split(' ')[0] || '?');
+        const identity = getResolvedUserIdentity(group.uid, s.authorName || s.authorFirstName || 'User', s.authorPhoto || null);
+        const shortName = (identity.name || s.authorFirstName || s.authorName || '?').split(' ')[0] || '?';
+        const name = isMe ? 'You' : esc(shortName);
         const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
         row.insertAdjacentHTML('beforeend', `
           <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="event.stopPropagation();viewStory('${group.uid}')">
             <div class="story-avatar"><div class="story-avatar-inner">
-              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(s.authorName)}
+              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(identity.name || s.authorName)}
             </div></div>
             <div class="story-name">${name}</div>
           </div>
@@ -4622,6 +4754,27 @@ function loadStories() {
       });
 
     }).catch(() => {});
+}
+
+function setStoryComposerMode(hasMedia = false) {
+  const textBg = $('#story-text-bg');
+  const textInput = $('#story-text-input');
+  const picker = $('#story-bg-picker');
+  if (textBg) textBg.classList.toggle('story-caption-mode', !!hasMedia);
+  if (textInput) textInput.placeholder = hasMedia ? 'Add a caption...' : 'Type your story...';
+  if (picker) picker.style.display = hasMedia ? 'none' : 'flex';
+}
+
+function clearStoryMediaSelection() {
+  window._storyFile = null;
+  window._storyVideoFile = null;
+  const preview = $('#story-media-preview');
+  const content = $('#story-media-content');
+  const input = $('#story-media-file');
+  if (preview) preview.style.display = 'none';
+  if (content) content.innerHTML = '';
+  if (input) input.value = '';
+  setStoryComposerMode(false);
 }
 
 function openStoryCreator() {
@@ -4636,10 +4789,10 @@ function openStoryCreator() {
         <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
           <textarea id="story-text-input" placeholder="Type your story..." maxlength="200"></textarea>
         </div>
-        <div class="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
+        <div class="story-bg-picker" id="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
         <div id="story-media-preview" style="display:none;margin-top:12px;position:relative;border-radius:var(--radius);overflow:hidden">
           <div id="story-media-content"></div>
-          <button onclick="document.getElementById('story-media-preview').style.display='none';window._storyFile=null;window._storyVideoFile=null;document.getElementById('story-text-bg').style.display='flex'" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
+          <button onclick="clearStoryMediaSelection()" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
           <label class="story-upload-btn">
@@ -4653,6 +4806,7 @@ function openStoryCreator() {
     </div>
   `);
   window._storyBg = bgColor;
+  setStoryComposerMode(false);
   $('#story-media-file').onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -4669,8 +4823,7 @@ function openStoryCreator() {
       content.innerHTML = `<img src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius)">`;
     }
     preview.style.display = 'block';
-    // Hide text bg when media is selected
-    $('#story-text-bg').style.display = 'none';
+    setStoryComposerMode(true);
   };
   $('#story-submit').onclick = async () => {
     const text = $('#story-text-input')?.value.trim();
@@ -4762,10 +4915,11 @@ function showStoryFrame() {
   // Header
   const hdr = $('#story-viewer-user');
   const isMyStory = story.authorId === state.user.uid;
+  const storyAuthorIdentity = getResolvedUserIdentity(story.authorId, story.authorName || 'User', story.authorPhoto || null);
   const viewCount = Math.max(0, (story.viewedBy || []).filter(uid => uid !== state.user.uid).length);
   hdr.innerHTML = `
-    ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
-    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
+    ${avatar(storyAuthorIdentity.name, storyAuthorIdentity.photo, 'avatar-sm')}
+    <div><b>${esc(storyAuthorIdentity.name)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
     ${isMyStory ? `<button class="story-delete-btn" onclick="deleteStory('${story.id}')">Delete</button>` : ''}
   `;
 
@@ -4775,7 +4929,7 @@ function showStoryFrame() {
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
       <video src="${story.videoURL}" class="story-full-video" autoplay muted playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
-      <button class="story-sound-toggle" id="story-sound-toggle" onclick="toggleStoryViewerSound()">Unmute</button>
+      <button class="story-sound-toggle" id="story-sound-toggle" onpointerdown="event.stopPropagation()" onpointerup="event.stopPropagation()" onclick="toggleStoryViewerSound(event)">Unmute</button>
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
@@ -4808,6 +4962,8 @@ function showStoryFrame() {
   const replyBar = $('#story-reply-bar');
   const replyInput = $('#story-reply-input');
   const replySend = $('#story-reply-send');
+  const storyCaption = content.querySelector('.story-caption');
+  if (storyCaption) storyCaption.classList.toggle('with-reply', !isMyStory);
   if (replyBar) {
     if (!isMyStory) {
       replyBar.style.display = 'flex';
@@ -4889,6 +5045,37 @@ async function openStoryInsights(storyId = '') {
   } catch (e) { console.error(e); }
 }
 
+async function sendStoryLikeMessage(story = {}) {
+  const authorId = story.authorId || '';
+  if (!authorId || authorId === state.user?.uid) return;
+  try {
+    const convoId = await ensureFriendDMConversation(authorId, story.authorName || 'User', story.authorPhoto || null);
+    await db.collection('conversations').doc(convoId).collection('messages').add({
+      text: '',
+      senderId: state.user.uid,
+      senderName: state.profile?.displayName || 'Someone',
+      senderPhoto: state.profile?.photoURL || null,
+      senderAnon: false,
+      type: 'story_like',
+      payload: {
+        storyId: story.id || '',
+        storyType: story.type || '',
+        storyCaption: story.caption || story.text || ''
+      },
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent'
+    });
+    await db.collection('conversations').doc(convoId).set({
+      lastMessage: `story_like::${state.user.uid}`,
+      updatedAt: FieldVal.serverTimestamp(),
+      unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
+    }, { merge: true });
+    await addNotification(authorId, 'message', 'liked your story', { convoId, storyId: story.id || '' });
+  } catch (e) {
+    console.error('story like message', e);
+  }
+}
+
 async function toggleStoryLike(story = {}) {
   const storyId = story.id || '';
   if (!storyId || !state.user?.uid) return;
@@ -4899,6 +5086,9 @@ async function toggleStoryLike(story = {}) {
   try {
     await ref.update({ likes: liked ? FieldVal.arrayRemove(myId) : FieldVal.arrayUnion(myId) });
     story.likes = liked ? likes.filter(id => id !== myId) : [...likes, myId];
+    if (!liked) {
+      await sendStoryLikeMessage(story);
+    }
   } catch (e) {
     console.error(e);
   }
@@ -4929,7 +5119,11 @@ function closeStoryViewer() {
   $('#story-viewer').style.display = 'none';
 }
 
-function toggleStoryViewerSound() {
+function toggleStoryViewerSound(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
   const vid = $('#story-viewer-content video');
   const btn = $('#story-sound-toggle');
   if (!vid || !btn) return;
@@ -5046,13 +5240,16 @@ function renderQuoteEmbed(rp, options = {}) {
 
 function renderFeedInlineSuggestionCard(user = {}) {
   if (!user?.id) return '';
+  const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
+  const displayName = resolved.name || user.displayName || 'User';
+  const meta = formatUserMetaLine(user, 48);
   const isFriend = (state.profile?.friends || []).includes(user.id);
   const isPending = (state.profile?.sentRequests || []).includes(user.id);
   const action = isFriend
     ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
     : isPending
       ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
+      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add Friend</button>`;
   return `
     <div class="post-card feed-inline-suggestion" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
@@ -5060,11 +5257,11 @@ function renderFeedInlineSuggestionCard(user = {}) {
       </div>
       <div class="discover-card" style="margin:0 14px 14px">
         <div class="discover-card-avatar">
-          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
+          ${avatar(displayName, user.photoURL, 'avatar-lg')}
           ${user.status === 'online' ? '<span class="online-dot"></span>' : ''}
         </div>
-        <div class="discover-card-name">${esc(user.displayName || 'User')}</div>
-        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+        <div class="discover-card-name">${esc(displayName)}</div>
+        <div class="discover-card-meta" title="${esc(formatUserMetaLine(user, 120))}">${esc(meta)}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
         ${action}
       </div>
     </div>`;
@@ -5149,17 +5346,20 @@ function renderFeedInlineSuggestionRail(users = []) {
         <h3>Suggestions</h3>
       </div>
       <div class="suggested-list">${picks.map(user => {
+        const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
+        const displayName = resolved.name || user.displayName || 'User';
+        const meta = formatUserMetaLine(user, 44);
         const isFriend = (state.profile?.friends || []).includes(user.id);
         const isPending = (state.profile?.sentRequests || []).includes(user.id);
         const action = isFriend
           ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
           : isPending
             ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
+            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add</button>`;
           return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
-          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
-          <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
-          <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+          ${avatar(displayName, user.photoURL, 'avatar-lg')}
+          <div class="suggested-card-name">${esc(displayName)}</div>
+          <div class="suggested-card-meta" title="${esc(formatUserMetaLine(user, 120))}">${esc(meta)}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
           ${action}
         </div>`;
       }).join('')}
@@ -5224,7 +5424,12 @@ function renderPosts(posts) {
     const hasVideo = post.videoURL || (post.mediaType === 'video');
     const hasImage = post.imageURL && !hasVideo && !hasCollage;
     const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
-    const displayAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+    const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+    const authorIdentity = post.isAnonymous
+      ? { name: getAnonymousLabelForPost(post), photo: null }
+      : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
+    const displayAuthorName = authorIdentity.name || post.authorName || 'User';
+    const displayAuthorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
     let videoPlayerData = null;
     if (hasVideo && mediaURL) {
       videoPlayerData = createVideoPlayer(mediaURL);
@@ -5234,14 +5439,14 @@ function renderPosts(posts) {
       <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          <span>Reposted by ${esc(post.authorName)}</span>
+          <span>Reposted by ${esc(displayAuthorName)}</span>
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
             ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
-            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(post.authorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
+            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
@@ -5520,13 +5725,16 @@ function renderClipsContent(body) {
         const myReaction = getUserReaction(p.reactions, p.likes || []);
         const lc = getReactionSummary(p.reactions, p.likes || []).total;
         const cc = p.commentsCount || 0;
+        const reelIdentity = p.isAnonymous
+          ? { name: getAnonymousLabelForPost(p), photo: null }
+          : getResolvedUserIdentity(p.authorId, p.authorName || 'User', p.authorPhoto || null);
         return `
         <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
           <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
           <div class="reel-overlay-bottom">
             <div class="reel-author" ${p.isAnonymous ? '' : `onclick="closeVideoHub();openProfile('${p.authorId}')"`}>
-              ${p.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
-              <span class="reel-author-name">${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(p.authorName || 'User')}</span>
+              ${p.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(reelIdentity.name, reelIdentity.photo, 'avatar-sm')}
+              <span class="reel-author-name">${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(reelIdentity.name)}</span>
             </div>
             ${p.content ? `<p class="reel-caption">${esc(p.content)}</p>` : ''}
           </div>
@@ -11590,6 +11798,12 @@ async function viewPost(pid) {
     const hasVideo = p.videoURL || (p.mediaType === 'video');
     const hasImage = p.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
+    const rawAuthorPhoto = p.isAnonymous ? null : (p.authorPhoto || resolvePostAuthorPhoto(p));
+    const authorIdentity = p.isAnonymous
+      ? { name: getAnonymousLabelForPost(p), photo: null }
+      : getResolvedUserIdentity(p.authorId, p.authorName || 'User', rawAuthorPhoto);
+    const displayAuthorName = authorIdentity.name || p.authorName || 'User';
+    const displayAuthorPhoto = p.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
 
     let videoPlayerData = null;
     if (hasVideo && mediaURL) { videoPlayerData = createVideoPlayer(mediaURL); }
@@ -11600,12 +11814,12 @@ async function viewPost(pid) {
         <div class="post-card" data-post-id="${p.id}" style="box-shadow:none;border:none;margin:0;padding:0">
           ${p.repostOf ? `<div class="repost-badge" style="margin:-0 -0 10px">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <span>Reposted by ${esc(p.authorName || 'User')}</span>
+            <span>Reposted by ${esc(displayAuthorName)}</span>
           </div>` : ''}
           <div class="post-header">
-            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
+            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
             <div class="post-header-info">
-              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(p.authorName || 'User') + verifiedBadge(p.authorId)}</div>
+              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(displayAuthorName) + verifiedBadge(p.authorId)}</div>
               <div class="post-meta">${timeAgo(p.createdAt)}</div>
             </div>
           </div>
@@ -11676,6 +11890,7 @@ function loadDMList() {
         const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
         const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
         const displayPhoto = theirAnon ? null : resolved.photo;
+        const previewText = formatConversationLastMessage(c.lastMessage || '', c, uid, displayName);
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -11687,7 +11902,7 @@ function loadDMList() {
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${esc(previewText || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -11740,6 +11955,7 @@ function loadArchivedDMList() {
         const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
         const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
         const displayPhoto = theirAnon ? null : resolved.photo;
+        const previewText = formatConversationLastMessage(c.lastMessage || '', c, uid, displayName);
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -11749,7 +11965,7 @@ function loadArchivedDMList() {
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${esc(previewText || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -12109,6 +12325,20 @@ async function openChat(convoId) {
                 </div>
                 ${storyThumb}${captionSnip}
               </div>${esc(m.text)}`;
+            } else if (!m.deleted && m.type === 'story_like') {
+              const otherShort = (name || 'They').split(' ')[0] || 'They';
+              const label = isMe ? '❤️ You liked their story' : `❤️ ${esc(otherShort)} liked your story`;
+              content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>`;
+            } else if (!m.deleted && m.type === 'message_reaction' && m.payload) {
+              const otherShort = (name || 'They').split(' ')[0] || 'They';
+              const reactionEmoji = esc(m.payload.emoji || '❤️');
+              const targetMine = m.payload.targetSenderId === uid;
+              const label = isMe
+                ? `${reactionEmoji} You reacted to their message`
+                : targetMine
+                  ? `${reactionEmoji} ${esc(otherShort)} reacted to your message`
+                  : `${reactionEmoji} ${esc(otherShort)} reacted`;
+              content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>`;
             } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
             } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
@@ -12157,9 +12387,10 @@ async function openChat(convoId) {
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+            const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : ''}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -12438,11 +12669,36 @@ async function editAnonNickname(convoId) {
   } catch (e) { console.error(e); toast('Could not save nickname'); }
 }
 
+async function editContactNickname(targetUid, fallbackName = 'User') {
+  if (!targetUid || targetUid === state.user?.uid) return;
+  try {
+    const current = getContactNickname(targetUid);
+    const identity = getResolvedUserIdentity(targetUid, fallbackName || 'User', null);
+    const next = window.prompt('Set a private contact name for this person', current || identity.name || 'User');
+    if (next === null) return;
+    const cleaned = clampText(next.trim(), 42);
+    const updates = {};
+    updates[`contactNicknames.${targetUid}`] = cleaned || FieldVal.delete();
+    await db.collection('users').doc(state.user.uid).update(updates);
+    state.profile.contactNicknames = { ...(state.profile.contactNicknames || {}) };
+    if (cleaned) state.profile.contactNicknames[targetUid] = cleaned;
+    else delete state.profile.contactNicknames[targetUid];
+    if (state.page === 'feed') renderFeedResults(state.posts || []);
+    if (state.page === 'chat') refreshCurrentMessageList();
+    toast(cleaned ? 'Contact name saved' : 'Contact name removed');
+  } catch (e) {
+    console.error(e);
+    toast('Could not save contact name');
+  }
+}
+
 function showConvoActions(convoId, displayName, otherUid) {
+  const hasContactAlias = !!getContactNickname(otherUid);
   openModal(`
     <div class="modal-header"><h2>Chat Actions</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
       <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px">Manage conversation with <strong>${displayName}</strong></p>
+      <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="editContactNickname('${otherUid}')">${hasContactAlias ? '✎ Edit Contact Name' : '✎ Set Contact Name'}</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="archiveConvo('${convoId}')">📦 Archive Chat</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="deleteConvo('${convoId}')">🗑️ Delete Chat</button>
       <button class="btn-danger btn-full" onclick="blockUserFromChat('${otherUid}','${displayName}','${convoId}')">🚫 Block User</button>
@@ -12558,7 +12814,13 @@ async function openProfile(uid) {
       user = { id: doc.id, ...doc.data() };
     }
 
-    $('#prof-top-name').textContent = user.displayName;
+    const isMe = uid === state.user.uid;
+    const profileIdentity = isMe
+      ? { name: user.displayName || 'You', photo: user.photoURL || null }
+      : getResolvedUserIdentity(uid, user.displayName || 'User', user.photoURL || null);
+    const profileDisplayName = profileIdentity.name || user.displayName || 'User';
+
+    $('#prof-top-name').textContent = profileDisplayName;
 
     let posts = [];
     try {
@@ -12576,7 +12838,6 @@ async function openProfile(uid) {
       }
     } catch (e) { console.error('Posts', e); }
 
-    const isMe = uid === state.user.uid;
     const modules = user.modules || [];
     const showFriendCount = user.showFriendsCount !== false && isMe; // only show to self unless they opted in
 
@@ -12585,14 +12846,14 @@ async function openProfile(uid) {
       <div class="profile-cover">
         <div class="profile-avatar-wrap">
           <div class="profile-avatar-large${user.photoURL ? ' clickable' : ''}" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')"` : ''}>
-            ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(user.displayName)}
+            ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(profileDisplayName)}
           </div>
           ${user.status === 'online' ? '<div class="avatar-online-dot"></div>' : ''}
         </div>
       </div>
 
       <div class="profile-info">
-        <div class="profile-name">${esc(user.displayName)}${verifiedBadge(uid)}</div>
+        <div class="profile-name">${esc(profileDisplayName)}${verifiedBadge(uid)}</div>
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
           ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
@@ -12628,9 +12889,10 @@ async function openProfile(uid) {
                 }
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
-                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
+                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
-                return `${msgBtn}\n               ${friendBtn}`;
+                const contactBtn = `<button class="btn-outline" onclick="editContactNickname('${uid}')">${getContactNickname(uid) ? 'Edit Contact Name' : 'Set Contact Name'}</button>`;
+                return `${msgBtn}\n               ${friendBtn}\n               ${contactBtn}`;
               })()}
         </div>
       </div>
@@ -13720,7 +13982,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
-    setCommentAnonChoice, editAnonNickname,
+    setCommentAnonChoice, editAnonNickname, editContactNickname,
     toggleCommentReplies,
     saveCurrentGpsLocation, clearAppCache,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
@@ -13743,7 +14005,7 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, closeNotifDropdown,
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,

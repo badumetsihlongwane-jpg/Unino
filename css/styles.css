@@ -860,9 +860,21 @@ input, select, textarea, button {
   transition: background 0.15s;
 }
 .feed-people-item:hover { background: var(--bg-tertiary); }
-.feed-people-info { display: flex; flex-direction: column; }
-.feed-people-name { font-weight: 600; font-size: 14px; }
-.feed-people-meta { font-size: 12px; color: var(--text-secondary); }
+.feed-people-info { display: flex; flex-direction: column; min-width: 0; }
+.feed-people-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-people-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .feed-search-meta {
   display: flex;
@@ -1274,6 +1286,12 @@ video::-webkit-media-controls-start-playback-button {
   font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 8px;
+  line-clamp: 2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 28px;
 }
 
 .suggested-card .btn-sm {
@@ -3535,6 +3553,12 @@ body.image-view-open .modal-bg {
   font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 6px;
+  line-clamp: 2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 28px;
 }
 .discover-card-tag {
   display: inline-block;
@@ -4179,6 +4203,10 @@ body.image-view-open .modal-bg {
   background: linear-gradient(transparent, rgba(0,0,0,0.6));
 }
 
+.story-caption.with-reply {
+  bottom: 76px;
+}
+
 .story-viewer-nav {
   position: absolute;
   inset: calc(var(--app-safe-top) + 80px) 0 40px;
@@ -4199,11 +4227,13 @@ body.image-view-open .modal-bg {
   font-weight: 700;
   cursor: pointer;
   backdrop-filter: blur(8px);
+  -webkit-tap-highlight-color: transparent;
 }
 .story-nav-prev,
 .story-nav-next {
   flex: 1;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .story-reply-bar {
@@ -4239,6 +4269,34 @@ body.image-view-open .modal-bg {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.story-close-btn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.msg-system-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.msg-system-pill-story {
+  background: rgba(236, 72, 153, 0.16);
+  border: 1px solid rgba(236, 72, 153, 0.26);
+  color: #ffe4f1;
+}
+
+.msg-system-pill-reaction {
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.26);
+  color: #deefff;
 }
 
 /* Story item states */
@@ -4308,6 +4366,13 @@ body.image-view-open .modal-bg {
   justify-content: center;
   padding: 20px;
 }
+
+.story-text-preview.story-caption-mode {
+  min-height: 88px;
+  padding: 12px 14px;
+  align-items: stretch;
+}
+
 .story-text-preview textarea {
   width: 100%;
   height: 120px;
@@ -4319,6 +4384,13 @@ body.image-view-open .modal-bg {
   text-align: center;
   resize: none;
   outline: none;
+}
+
+.story-text-preview.story-caption-mode textarea {
+  height: 64px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
 }
 .story-text-preview textarea::placeholder {
   color: rgba(255,255,255,0.6);
@@ -4538,7 +4610,9 @@ body.image-view-open .modal-bg {
   transition: max-height 0.26s ease, opacity 0.2s ease, padding 0.22s ease, margin 0.22s ease, border-color 0.22s ease;
   max-height: 120px;
   opacity: 1;
-  overflow: hidden;
+  overflow-y: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   will-change: max-height, opacity;
 }
 
