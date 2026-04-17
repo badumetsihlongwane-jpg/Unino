@@ -74,6 +74,12 @@ let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
+let _modalSheetGestureBound = false;
+let _modalSheetDrag = null;
+let _html2canvasLoader = null;
+let _shareCardInFlight = false;
+let _nativeStoragePermissionState = 'unknown';
+let _nativeStoragePermissionCheckedAt = 0;
 let _pendingNativeNotificationOpen = null;
 let _commentReactionPopover = null;
 let _reelCommentReplyTo = null;
@@ -834,6 +840,138 @@ function isNativeApp() {
   if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform();
   const platform = cap.getPlatform?.();
   return platform === 'android' || platform === 'ios';
+}
+
+function resetModalSheetPosition() {
+  const bg = $('#modal-bg');
+  const sheet = bg?.querySelector('.modal-sheet');
+  if (sheet) {
+    sheet.classList.remove('sheet-dragging');
+    sheet.style.transform = '';
+    sheet.style.transition = '';
+  }
+  if (bg) {
+    bg.classList.remove('sheet-dragging');
+    bg.style.opacity = '';
+    bg.style.transition = '';
+  }
+  _modalSheetDrag = null;
+}
+
+function findScrollableParentWithin(node, boundary) {
+  let cur = node;
+  while (cur && cur !== boundary) {
+    if (cur instanceof HTMLElement) {
+      const style = window.getComputedStyle(cur);
+      const overflowY = style?.overflowY || '';
+      if (/(auto|scroll)/.test(overflowY) && cur.scrollHeight > cur.clientHeight + 2) return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function bindModalSheetDragClose() {
+  if (_modalSheetGestureBound) return;
+  const bg = $('#modal-bg');
+  const sheet = bg?.querySelector('.modal-sheet');
+  if (!bg || !sheet) return;
+  _modalSheetGestureBound = true;
+
+  const beginDrag = event => {
+    if ($('#modal-bg')?.style.display !== 'flex') return;
+    const isTouch = event.type.startsWith('touch');
+    if (!isTouch && event.button !== 0) return;
+    const point = isTouch ? event.touches?.[0] : event;
+    if (!point) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const fromHandle = !!target.closest('.modal-bar,.modal-handle,.modal-header');
+    const hitInteractive = !!target.closest('input,textarea,select,button,a,label,[role="button"],[contenteditable="true"]');
+    if (hitInteractive && !fromHandle) return;
+
+    const scroller = findScrollableParentWithin(target, sheet);
+    if (!fromHandle && scroller && scroller.scrollTop > 2) return;
+
+    _modalSheetDrag = {
+      startX: point.clientX,
+      startY: point.clientY,
+      currentY: 0,
+      engaged: false,
+      pointerKind: isTouch ? 'touch' : 'mouse',
+      lastMoveY: point.clientY,
+      lastMoveAt: performance.now(),
+      velocity: 0
+    };
+  };
+
+  const moveDrag = event => {
+    if (!_modalSheetDrag) return;
+    const isTouch = event.type.startsWith('touch');
+    if (_modalSheetDrag.pointerKind === 'touch' && !isTouch) return;
+    if (_modalSheetDrag.pointerKind === 'mouse' && isTouch) return;
+    const point = isTouch ? event.touches?.[0] : event;
+    if (!point) return;
+
+    const dx = point.clientX - _modalSheetDrag.startX;
+    const dy = point.clientY - _modalSheetDrag.startY;
+
+    if (!_modalSheetDrag.engaged) {
+      if (Math.abs(dy) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy) || dy <= 0) {
+        _modalSheetDrag = null;
+        return;
+      }
+      _modalSheetDrag.engaged = true;
+      sheet.classList.add('sheet-dragging');
+      bg.classList.add('sheet-dragging');
+    }
+
+    const dragY = Math.max(0, dy);
+    _modalSheetDrag.currentY = dragY;
+    const now = performance.now();
+    const dt = Math.max(16, now - _modalSheetDrag.lastMoveAt);
+    _modalSheetDrag.velocity = (point.clientY - _modalSheetDrag.lastMoveY) / dt;
+    _modalSheetDrag.lastMoveY = point.clientY;
+    _modalSheetDrag.lastMoveAt = now;
+
+    sheet.style.transform = `translateY(${dragY}px)`;
+    const fade = Math.max(0.2, 1 - (dragY / Math.max(280, sheet.clientHeight * 1.25)));
+    bg.style.opacity = String(fade);
+    if (isTouch && typeof event.preventDefault === 'function') event.preventDefault();
+  };
+
+  const endDrag = () => {
+    if (!_modalSheetDrag) return;
+    const drag = _modalSheetDrag;
+    _modalSheetDrag = null;
+    if (!drag.engaged) return;
+
+    const height = Math.max(240, sheet.clientHeight || 0);
+    const closeThreshold = Math.min(170, height * 0.28);
+    const shouldClose = drag.currentY > closeThreshold || drag.velocity > 0.9;
+
+    if (shouldClose) {
+      sheet.style.transition = 'transform 0.18s ease';
+      bg.style.transition = 'opacity 0.18s ease';
+      sheet.style.transform = `translateY(${Math.max(height, drag.currentY + 80)}px)`;
+      bg.style.opacity = '0';
+      setTimeout(() => closeModal(), 170);
+      return;
+    }
+
+    resetModalSheetPosition();
+  };
+
+  sheet.addEventListener('touchstart', beginDrag, { passive: true });
+  sheet.addEventListener('touchmove', moveDrag, { passive: false });
+  sheet.addEventListener('touchend', endDrag, { passive: true });
+  sheet.addEventListener('touchcancel', endDrag, { passive: true });
+
+  sheet.addEventListener('mousedown', beginDrag);
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endDrag);
 }
 
 function hashStringToId(value = '') {
@@ -7244,7 +7382,17 @@ function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
     const last = clean.split('/').pop() || '';
     if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return last;
   } catch (_) {}
-  return `${fallbackBase}-${Date.now()}.jpg`;
+  const fallback = String(fallbackBase || 'unino-media')
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const extMatch = fallback.match(/^(.*)\.([a-zA-Z0-9]{2,8})$/);
+  if (extMatch) {
+    const base = extMatch[1] || 'unino-media';
+    const ext = extMatch[2].toLowerCase();
+    return `${base}-${Date.now()}.${ext}`;
+  }
+  return `${fallback || 'unino-media'}-${Date.now()}.jpg`;
 }
 
 function isLikelyVideoUrl(url = '', mime = '') {
@@ -7253,9 +7401,126 @@ function isLikelyVideoUrl(url = '', mime = '') {
   return lowerMime.includes('video') || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/.test(lowerUrl);
 }
 
-async function downloadUrlInApp(url = '') {
+async function ensureNativeStoragePermission(forcePrompt = true) {
+  if (!isNativeApp()) return true;
+  const filesystem = getCapacitorPlugin('Filesystem');
+  if (!filesystem) return false;
+
+  const now = Date.now();
+  if (_nativeStoragePermissionState === 'granted' && (now - _nativeStoragePermissionCheckedAt) < 2 * 60 * 1000) {
+    return true;
+  }
+
+  let current = '';
+  try {
+    if (typeof filesystem.checkPermissions === 'function') {
+      const status = await filesystem.checkPermissions();
+      current = String(status?.publicStorage || status?.storage || status?.permission || '').toLowerCase();
+      if (current === 'granted' || current === 'limited') {
+        _nativeStoragePermissionState = 'granted';
+        _nativeStoragePermissionCheckedAt = now;
+        return true;
+      }
+    }
+  } catch (_) {
+    current = '';
+  }
+
+  if (!forcePrompt || typeof filesystem.requestPermissions !== 'function') {
+    _nativeStoragePermissionState = current || 'unknown';
+    _nativeStoragePermissionCheckedAt = now;
+    return current !== 'denied';
+  }
+
+  try {
+    const requested = await filesystem.requestPermissions();
+    const next = String(requested?.publicStorage || requested?.storage || '').toLowerCase();
+    const granted = next === 'granted' || next === 'limited';
+    _nativeStoragePermissionState = granted ? 'granted' : (next || 'denied');
+    _nativeStoragePermissionCheckedAt = Date.now();
+    return granted;
+  } catch (_) {
+    _nativeStoragePermissionState = 'unknown';
+    _nativeStoragePermissionCheckedAt = Date.now();
+    // Some Android versions do not expose an explicit prompt for app-scoped storage.
+    return true;
+  }
+}
+
+async function saveMediaToNativeStorage(url = '', options = {}) {
+  const target = String(url || '').trim();
+  if (!target) throw new Error('missing-url');
+  const filesystem = getCapacitorPlugin('Filesystem');
+  if (!filesystem) throw new Error('filesystem-unavailable');
+
+  const fallbackBase = String(options.fallbackBase || (isLikelyVideoUrl(target) ? 'unino-video.mp4' : 'unino-image.jpg'));
+  const inferred = options.fileName || inferDownloadFilename(target, fallbackBase);
+  const safeName = ensureFileExtension(sanitizeFilename(inferred), isLikelyVideoUrl(target) ? 'mp4' : 'jpg');
+  const relativePath = `Unibo/Downloads/${Date.now()}-${safeName}`;
+
+  const permissionOk = await ensureNativeStoragePermission(true);
+  if (!permissionOk) throw new Error('storage-permission-denied');
+
+  if (typeof filesystem.downloadFile === 'function') {
+    try {
+      const downloaded = await filesystem.downloadFile({
+        url: target,
+        path: relativePath,
+        directory: 'DOCUMENTS',
+        recursive: true
+      });
+      let uri = downloaded?.uri || downloaded?.path || '';
+      if (!uri && typeof filesystem.getUri === 'function') {
+        const resolved = await filesystem.getUri({ path: relativePath, directory: 'DOCUMENTS' }).catch(() => null);
+        uri = resolved?.uri || '';
+      }
+      return { path: relativePath, uri };
+    } catch (err) {
+      console.warn('Filesystem.downloadFile failed, falling back to fetch:', err);
+    }
+  }
+
+  const response = await fetch(target, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`native-download-http-${response.status}`);
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('native-download-empty');
+  const ext = pickExtensionFromMime(blob.type || '', isLikelyVideoUrl(target, blob.type) ? 'mp4' : 'jpg');
+  const fileName = ensureFileExtension(sanitizeFilename(inferred), ext);
+  const path = `Unibo/Downloads/${Date.now()}-${fileName}`;
+  const data = await blobToBase64Data(blob);
+  const writeResult = await filesystem.writeFile({ path, data, directory: 'DOCUMENTS', recursive: true });
+  let uri = writeResult?.uri || '';
+  if (!uri && typeof filesystem.getUri === 'function') {
+    const resolved = await filesystem.getUri({ path, directory: 'DOCUMENTS' }).catch(() => null);
+    uri = resolved?.uri || '';
+  }
+  return { path, uri };
+}
+
+async function downloadUrlInApp(url = '', options = {}) {
   const target = String(url || '').trim();
   if (!target) return;
+
+  const fallbackBase = String(options.fallbackBase || (isLikelyVideoUrl(target) ? 'unino-video.mp4' : 'unino-image.jpg'));
+
+  if (isNativeApp()) {
+    try {
+      await saveMediaToNativeStorage(target, {
+        fallbackBase,
+        fileName: options.fileName || ''
+      });
+      toast('Saved to phone files');
+      return;
+    } catch (e) {
+      const msg = String(e?.message || e || '').toLowerCase();
+      console.warn('Native media save failed:', e);
+      if (msg.includes('permission')) {
+        toast('Storage access denied. Enable Files and Media permission for Unibo.');
+        return;
+      }
+    }
+  }
+
   let started = false;
   try {
     const response = await fetch(target, { mode: 'cors', cache: 'no-cache' });
@@ -7263,7 +7528,6 @@ async function downloadUrlInApp(url = '') {
     const blob = await response.blob();
     if (!blob.size) throw new Error('empty-blob');
     const objectUrl = URL.createObjectURL(blob);
-    const fallbackBase = isLikelyVideoUrl(target, blob.type) ? 'unino-video' : 'unino-image';
     const filename = inferDownloadFilename(target, fallbackBase);
     const link = document.createElement('a');
     link.href = objectUrl;
@@ -7280,7 +7544,7 @@ async function downloadUrlInApp(url = '') {
   }
   if (started) return;
   try {
-    const filename = inferDownloadFilename(target, isLikelyVideoUrl(target) ? 'unino-video' : 'unino-image');
+    const filename = inferDownloadFilename(target, fallbackBase);
     const link = document.createElement('a');
     link.href = target;
     link.download = filename;
@@ -7308,32 +7572,25 @@ function closeGalleryViewer() {
   _galleryUrls = [];
 }
 
-function guessDownloadFilename(url = '', fallback = 'download') {
-  try {
-    const clean = String(url || '').split('#')[0].split('?')[0];
-    const last = clean.split('/').pop() || '';
-    if (last && /\.[a-z0-9]{2,8}$/i.test(last)) return last;
-  } catch (_) {}
-  return fallback;
-}
-
 async function downloadMediaUrl(url = '', fallback = 'download') {
   const target = String(url || '').trim();
   if (!target) return;
+  const isVideo = isLikelyVideoUrl(target);
+  const fallbackBase = String(fallback || '').trim()
+    ? (String(fallback).includes('.') ? String(fallback) : `${fallback}${isVideo ? '.mp4' : '.jpg'}`)
+    : (isVideo ? 'unino-video.mp4' : 'unino-image.jpg');
+  await downloadUrlInApp(target, { fallbackBase });
+}
+
+function downloadMediaUrlEncoded(encodedUrl = '', fallback = 'download') {
+  let decoded = '';
   try {
-    const name = guessDownloadFilename(target, fallback);
-    const a = document.createElement('a');
-    a.href = target;
-    a.download = name;
-    a.rel = 'noopener';
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch (e) {
-    console.error(e);
-    toast('Could not start download');
+    decoded = decodeURIComponent(String(encodedUrl || ''));
+  } catch (_) {
+    decoded = String(encodedUrl || '');
   }
+  if (!decoded) return;
+  downloadMediaUrl(decoded, fallback);
 }
 
 function downloadCurrentGalleryImage() {
@@ -7344,10 +7601,11 @@ function downloadCurrentGalleryImage() {
 function openVideoDownloadPrompt(url = '') {
   const target = String(url || '').trim();
   if (!target) return;
+  const encodedTarget = encodeURIComponent(target);
   openModal(`
     <div class="modal-header"><h2>Video</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px;display:grid;gap:10px">
-      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrl(${JSON.stringify(target)}, 'video')">Download</button>
+      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrlEncoded('${encodedTarget}', 'video')">Download</button>
       <button class="btn-secondary btn-full" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -13581,7 +13839,11 @@ async function doLogout() {
 // ─── Modal System ────────────────────────────────
 function openModal(innerHtml) {
   const bg = $('#modal-bg');
-  $('#modal-inner').innerHTML = innerHtml;
+  const inner = $('#modal-inner');
+  if (!bg || !inner) return;
+  inner.innerHTML = innerHtml;
+  resetModalSheetPosition();
+  bindModalSheetDragClose();
   bg.style.display = 'flex';
   bg.onclick = e => { if (e.target === bg) closeModal(); };
 }
@@ -13592,8 +13854,324 @@ function closeModal() {
     _hostStream.getTracks().forEach(t => t.stop());
     _hostStream = null;
   }
-  $('#modal-bg').style.display = 'none';
-  $('#modal-inner').innerHTML = '';
+  resetModalSheetPosition();
+  const bg = $('#modal-bg');
+  const inner = $('#modal-inner');
+  if (bg) bg.style.display = 'none';
+  if (inner) inner.innerHTML = '';
+}
+
+function sanitizeFilename(name = 'file') {
+  const cleaned = String(name || '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 96);
+  return cleaned || `file-${Date.now()}`;
+}
+
+function pickExtensionFromMime(mime = '', fallbackExt = 'jpg') {
+  const lower = String(mime || '').toLowerCase();
+  if (lower.includes('png')) return 'png';
+  if (lower.includes('webp')) return 'webp';
+  if (lower.includes('gif')) return 'gif';
+  if (lower.includes('jpeg') || lower.includes('jpg')) return 'jpg';
+  if (lower.includes('mp4')) return 'mp4';
+  if (lower.includes('webm')) return 'webm';
+  if (lower.includes('mov') || lower.includes('quicktime')) return 'mov';
+  return fallbackExt;
+}
+
+function ensureFileExtension(fileName = '', fallbackExt = 'jpg') {
+  if (/\.[a-z0-9]{2,8}$/i.test(fileName)) return fileName;
+  return `${fileName}.${fallbackExt}`;
+}
+
+async function blobToBase64Data(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('blob-read-failed'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const commaIdx = result.indexOf(',');
+      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function setActionButtonBusy(button, isBusy, busyLabel = 'Working...') {
+  if (!button) return;
+  if (isBusy) {
+    if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = `<span class="inline-spinner" style="width:14px;height:14px;margin-right:8px"></span>${esc(busyLabel)}`;
+    return;
+  }
+  button.disabled = false;
+  if (button.dataset.originalHtml) {
+    button.innerHTML = button.dataset.originalHtml;
+    delete button.dataset.originalHtml;
+  }
+}
+
+function loadExternalScript(src = '') {
+  return new Promise((resolve, reject) => {
+    const target = String(src || '').trim();
+    if (!target) return reject(new Error('missing-script-src'));
+    const existing = Array.from(document.querySelectorAll('script')).find(s => s.src === target);
+    if (existing) {
+      if (existing.dataset.loaded === '1') return resolve();
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`script-load-failed:${target}`)), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = target;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = '1';
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`script-load-failed:${target}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureHtml2CanvasLoaded() {
+  if (typeof window.html2canvas === 'function') return window.html2canvas;
+  if (_html2canvasLoader) return _html2canvasLoader;
+  const sources = [
+    'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+    'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'
+  ];
+  _html2canvasLoader = (async () => {
+    let lastError = null;
+    for (const src of sources) {
+      try {
+        await loadExternalScript(src);
+        if (typeof window.html2canvas === 'function') return window.html2canvas;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('html2canvas-unavailable');
+  })().catch(err => {
+    _html2canvasLoader = null;
+    throw err;
+  });
+  return _html2canvasLoader;
+}
+
+async function waitForImagesToSettle(root, timeoutMs = 5500) {
+  const images = Array.from(root?.querySelectorAll?.('img') || []).filter(img => !!img.getAttribute('src'));
+  if (!images.length) return;
+  const waits = images.map(img => {
+    if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+    return new Promise(resolve => {
+      img.addEventListener('load', () => resolve(), { once: true });
+      img.addEventListener('error', () => resolve(), { once: true });
+    });
+  });
+  await Promise.race([
+    Promise.all(waits),
+    new Promise(resolve => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+function buildPostShareCardMarkup(post = {}) {
+  const hasVideo = !!(post.videoURL || post.mediaType === 'video');
+  const videoUrl = hasVideo ? (post.videoURL || post.imageURL || '') : '';
+  const imageUrl = hasVideo
+    ? ((post.imageURL && post.imageURL !== videoUrl) ? post.imageURL : '')
+    : (post.imageURL || '');
+
+  const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+  const authorIdentity = post.isAnonymous
+    ? { name: getAnonymousLabelForPost(post), photo: null }
+    : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
+  const authorName = authorIdentity.name || post.authorName || 'User';
+  const authorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
+  const textValue = (post.content || '').trim();
+  const textHtml = textValue
+    ? esc(textValue).replace(/\n/g, '<br>')
+    : '<span class="share-card-text-empty">Campus moment on Unibo</span>';
+
+  const moduleTags = (post.moduleTags || [])
+    .map(tag => `#${String(tag || '').replace(/^#/, '').toUpperCase()}`)
+    .slice(0, 3);
+  const hashTags = getPostHashTags(post).map(tag => `#${String(tag || '').replace(/^#/, '')}`).slice(0, 4);
+  const allTags = Array.from(new Set([...moduleTags, ...hashTags])).slice(0, 6);
+  const tagsMarkup = allTags.length
+    ? `<div class="share-card-tags">${allTags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>`
+    : '';
+
+  let mediaMarkup = '';
+  if (!post.repostOf && imageUrl) {
+    mediaMarkup = `<div class="share-card-media-wrap"><img src="${imageUrl}" alt="Post media" class="share-card-media" crossorigin="anonymous" referrerpolicy="no-referrer"></div>`;
+  } else if (!post.repostOf && hasVideo) {
+    mediaMarkup = imageUrl
+      ? `<div class="share-card-media-wrap is-video"><img src="${imageUrl}" alt="Video preview" class="share-card-media" crossorigin="anonymous" referrerpolicy="no-referrer"><span class="share-card-video-pill">VIDEO</span></div>`
+      : `<div class="share-card-video-placeholder"><span>▶</span><p>Video post</p></div>`;
+  }
+
+  let repostMarkup = '';
+  if (post.repostOf) {
+    const quoteText = (post.repostOf.content || '').trim();
+    const quoteMedia = post.repostOf.mediaType === 'video'
+      ? ''
+      : (post.repostOf.imageURL || '');
+    repostMarkup = `
+      <div class="share-card-quote">
+        <div class="share-card-quote-head">Repost from ${esc(post.repostOf.authorName || 'User')}</div>
+        ${quoteText ? `<div class="share-card-quote-text">${esc(quoteText).replace(/\n/g, '<br>')}</div>` : ''}
+        ${quoteMedia ? `<img src="${quoteMedia}" alt="Repost media" class="share-card-quote-media" crossorigin="anonymous" referrerpolicy="no-referrer">` : ''}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="share-card-capture">
+      <div class="share-card-head">
+        <div class="share-card-author">
+          ${post.isAnonymous ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(authorName, authorPhoto, 'avatar-sm')}
+          <div class="share-card-author-meta">
+            <strong>${esc(post.isAnonymous ? getAnonymousLabelForPost(post) : authorName)}</strong>
+            <span>${esc(timeAgo(post.createdAt))} · ${post.visibility === 'friends' ? 'Friends' : 'Campus'}</span>
+          </div>
+        </div>
+        <div class="share-card-brand">UNIBO</div>
+      </div>
+      <div class="share-card-text">${textHtml}</div>
+      ${tagsMarkup}
+      ${mediaMarkup}
+      ${repostMarkup}
+      <div class="share-card-foot">Shared from the Unibo app</div>
+    </div>
+  `;
+}
+
+async function capturePostShareCardBlob(post = {}) {
+  const html2canvas = await ensureHtml2CanvasLoaded();
+  const stage = document.createElement('div');
+  stage.className = 'share-capture-stage';
+  stage.innerHTML = buildPostShareCardMarkup(post);
+  document.body.appendChild(stage);
+  const card = stage.querySelector('.share-card-capture');
+  if (!card) {
+    stage.remove();
+    throw new Error('share-card-missing');
+  }
+  try {
+    await waitForImagesToSettle(card);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const scale = Math.min(2, Math.max(1.25, window.devicePixelRatio || 1));
+    const canvas = await html2canvas(card, {
+      backgroundColor: null,
+      scale,
+      useCORS: true,
+      allowTaint: false,
+      logging: false
+    });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.96));
+    if (!blob) throw new Error('share-card-blob-failed');
+    return blob;
+  } finally {
+    stage.remove();
+  }
+}
+
+async function shareBlobExternally(blob, fileName, options = {}) {
+  const sharePlugin = getCapacitorPlugin('Share');
+  const filesystem = getCapacitorPlugin('Filesystem');
+  const safeName = ensureFileExtension(sanitizeFilename(fileName), pickExtensionFromMime(blob.type || 'image/png', 'png'));
+
+  if (isNativeApp() && sharePlugin && filesystem) {
+    try {
+      const path = `Unibo/Share/${Date.now()}-${safeName}`;
+      const data = await blobToBase64Data(blob);
+      const writeResult = await filesystem.writeFile({ path, data, directory: 'CACHE', recursive: true });
+      let uri = writeResult?.uri || '';
+      if (!uri && typeof filesystem.getUri === 'function') {
+        const resolved = await filesystem.getUri({ path, directory: 'CACHE' }).catch(() => null);
+        uri = resolved?.uri || '';
+      }
+      if (uri) {
+        await sharePlugin.share({
+          title: options.title || 'Share from Unibo',
+          text: options.text || '',
+          url: uri,
+          files: [uri],
+          dialogTitle: options.dialogTitle || 'Share post'
+        });
+        return true;
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError' || /cancel/i.test(String(e?.message || ''))) return true;
+      console.warn('Native share failed:', e);
+    }
+  }
+
+  if (typeof File !== 'undefined' && navigator.share) {
+    try {
+      const file = new File([blob], safeName, { type: blob.type || 'image/png' });
+      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: options.title || 'Share from Unibo',
+          text: options.text || '',
+          files: [file]
+        });
+        return true;
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError') return true;
+      console.warn('Web share failed:', e);
+    }
+  }
+
+  return false;
+}
+
+async function sharePostAsImageCard(postId, triggerButton = null) {
+  if (!postId || _shareCardInFlight) return;
+  _shareCardInFlight = true;
+  setActionButtonBusy(triggerButton, true, 'Preparing card...');
+  try {
+    const postSnap = await db.collection('posts').doc(postId).get();
+    if (!postSnap.exists) {
+      toast('Post not found');
+      return;
+    }
+    const post = { id: postSnap.id, ...postSnap.data() };
+    const blob = await capturePostShareCardBlob(post);
+    const fallbackName = ensureFileExtension(sanitizeFilename(`unibo-post-${post.id || Date.now()}`), 'png');
+    const shared = await shareBlobExternally(blob, fallbackName, {
+      title: `${post.authorName || 'Unibo'} on Unibo`,
+      text: clampText(post.content || 'Shared from Unibo', 120),
+      dialogTitle: 'Share post card'
+    });
+    if (shared) {
+      toast('Share sheet opened');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fallbackName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    toast('Share card downloaded');
+  } catch (e) {
+    console.error('Share card creation failed:', e);
+    toast('Could not create share card');
+  } finally {
+    setActionButtonBusy(triggerButton, false);
+    _shareCardInFlight = false;
+  }
 }
 
 // ─── Share System ────────────────────────────────
@@ -13602,7 +14180,9 @@ async function openShareModal(postId) {
     <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
        <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Repost</button>
-       <div style="height:1px;background:var(--border);margin:16px 0"></div>
+     <button class="btn-outline btn-full share-external-btn" style="margin-bottom:8px;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="sharePostAsImageCard('${postId}', this)">📸 Share Card to Apps</button>
+     <div style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Creates an image of this post and opens your app share sheet.</div>
+     <div style="height:1px;background:var(--border);margin:14px 0"></div>
        <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
        <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
           <div class="inline-spinner" style="margin:20px auto"></div>
@@ -14092,7 +14672,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
     joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView, switchLiveCamera,
-    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
+    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, sharePostAsImageCard, viewPost, markNotifRead,
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
@@ -14107,7 +14687,7 @@ document.addEventListener('DOMContentLoaded', () => {
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, openStoryFromMessage, closeNotifDropdown,
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
-    downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
+    downloadCurrentGalleryImage, downloadMediaUrl, downloadMediaUrlEncoded, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled

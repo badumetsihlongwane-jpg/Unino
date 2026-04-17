@@ -74,6 +74,12 @@ let _feedSearchQuery = '';
 let _exploreSearchQuery = '';
 let _pendingCommentImageFile = null;
 let _pendingReelCommentImageFile = null;
+let _modalSheetGestureBound = false;
+let _modalSheetDrag = null;
+let _html2canvasLoader = null;
+let _shareCardInFlight = false;
+let _nativeStoragePermissionState = 'unknown';
+let _nativeStoragePermissionCheckedAt = 0;
 let _pendingNativeNotificationOpen = null;
 let _commentReactionPopover = null;
 let _reelCommentReplyTo = null;
@@ -86,6 +92,8 @@ const _userContextCache = {};
 let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
+let _feedPeopleSuggestLastQuery = '';
+const _reactionNoticeCooldown = new Map();
 let _campusPlacePointsCache = [];
 const _destinationSearchCache = new Map();
 const _destinationSearchInflight = new Map();
@@ -704,6 +712,20 @@ function buildLocalReactionResult(post = {}, emoji = '') {
   };
 }
 
+function summarizeMessageReference(message = {}) {
+  if (!message || message.deleted || message.type === 'deleted') return 'Message deleted';
+  if (message.locationPin?.label) return `📍 ${message.locationPin.label}`;
+  if (message.type === 'poll' && message.poll?.question) return `📊 ${message.poll.question}`;
+  if (message.type === 'share_post') return 'Shared post';
+  if (message.type === 'story_reply') return 'Story reply';
+  if (message.type === 'story_like') return 'Liked a story';
+  if (message.type === 'message_reaction') return 'Reaction update';
+  if (message.audioURL) return '🎤 Voice message';
+  if (message.imageURL) return message.mediaType === 'video' ? '📹 Video' : (message.text ? clampText(message.text, 68) : '📷 Photo');
+  if (message.text) return clampText(message.text, 68);
+  return 'Message';
+}
+
 function renderPostStatsMarkup(post = {}) {
   const reactionSummary = renderReactionSummary(post.reactions, post.likes || [], 'compact');
   const commentCount = post.commentsCount || 0;
@@ -818,6 +840,138 @@ function isNativeApp() {
   if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform();
   const platform = cap.getPlatform?.();
   return platform === 'android' || platform === 'ios';
+}
+
+function resetModalSheetPosition() {
+  const bg = $('#modal-bg');
+  const sheet = bg?.querySelector('.modal-sheet');
+  if (sheet) {
+    sheet.classList.remove('sheet-dragging');
+    sheet.style.transform = '';
+    sheet.style.transition = '';
+  }
+  if (bg) {
+    bg.classList.remove('sheet-dragging');
+    bg.style.opacity = '';
+    bg.style.transition = '';
+  }
+  _modalSheetDrag = null;
+}
+
+function findScrollableParentWithin(node, boundary) {
+  let cur = node;
+  while (cur && cur !== boundary) {
+    if (cur instanceof HTMLElement) {
+      const style = window.getComputedStyle(cur);
+      const overflowY = style?.overflowY || '';
+      if (/(auto|scroll)/.test(overflowY) && cur.scrollHeight > cur.clientHeight + 2) return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function bindModalSheetDragClose() {
+  if (_modalSheetGestureBound) return;
+  const bg = $('#modal-bg');
+  const sheet = bg?.querySelector('.modal-sheet');
+  if (!bg || !sheet) return;
+  _modalSheetGestureBound = true;
+
+  const beginDrag = event => {
+    if ($('#modal-bg')?.style.display !== 'flex') return;
+    const isTouch = event.type.startsWith('touch');
+    if (!isTouch && event.button !== 0) return;
+    const point = isTouch ? event.touches?.[0] : event;
+    if (!point) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const fromHandle = !!target.closest('.modal-bar,.modal-handle,.modal-header');
+    const hitInteractive = !!target.closest('input,textarea,select,button,a,label,[role="button"],[contenteditable="true"]');
+    if (hitInteractive && !fromHandle) return;
+
+    const scroller = findScrollableParentWithin(target, sheet);
+    if (!fromHandle && scroller && scroller.scrollTop > 2) return;
+
+    _modalSheetDrag = {
+      startX: point.clientX,
+      startY: point.clientY,
+      currentY: 0,
+      engaged: false,
+      pointerKind: isTouch ? 'touch' : 'mouse',
+      lastMoveY: point.clientY,
+      lastMoveAt: performance.now(),
+      velocity: 0
+    };
+  };
+
+  const moveDrag = event => {
+    if (!_modalSheetDrag) return;
+    const isTouch = event.type.startsWith('touch');
+    if (_modalSheetDrag.pointerKind === 'touch' && !isTouch) return;
+    if (_modalSheetDrag.pointerKind === 'mouse' && isTouch) return;
+    const point = isTouch ? event.touches?.[0] : event;
+    if (!point) return;
+
+    const dx = point.clientX - _modalSheetDrag.startX;
+    const dy = point.clientY - _modalSheetDrag.startY;
+
+    if (!_modalSheetDrag.engaged) {
+      if (Math.abs(dy) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy) || dy <= 0) {
+        _modalSheetDrag = null;
+        return;
+      }
+      _modalSheetDrag.engaged = true;
+      sheet.classList.add('sheet-dragging');
+      bg.classList.add('sheet-dragging');
+    }
+
+    const dragY = Math.max(0, dy);
+    _modalSheetDrag.currentY = dragY;
+    const now = performance.now();
+    const dt = Math.max(16, now - _modalSheetDrag.lastMoveAt);
+    _modalSheetDrag.velocity = (point.clientY - _modalSheetDrag.lastMoveY) / dt;
+    _modalSheetDrag.lastMoveY = point.clientY;
+    _modalSheetDrag.lastMoveAt = now;
+
+    sheet.style.transform = `translateY(${dragY}px)`;
+    const fade = Math.max(0.2, 1 - (dragY / Math.max(280, sheet.clientHeight * 1.25)));
+    bg.style.opacity = String(fade);
+    if (isTouch && typeof event.preventDefault === 'function') event.preventDefault();
+  };
+
+  const endDrag = () => {
+    if (!_modalSheetDrag) return;
+    const drag = _modalSheetDrag;
+    _modalSheetDrag = null;
+    if (!drag.engaged) return;
+
+    const height = Math.max(240, sheet.clientHeight || 0);
+    const closeThreshold = Math.min(170, height * 0.28);
+    const shouldClose = drag.currentY > closeThreshold || drag.velocity > 0.9;
+
+    if (shouldClose) {
+      sheet.style.transition = 'transform 0.18s ease';
+      bg.style.transition = 'opacity 0.18s ease';
+      sheet.style.transform = `translateY(${Math.max(height, drag.currentY + 80)}px)`;
+      bg.style.opacity = '0';
+      setTimeout(() => closeModal(), 170);
+      return;
+    }
+
+    resetModalSheetPosition();
+  };
+
+  sheet.addEventListener('touchstart', beginDrag, { passive: true });
+  sheet.addEventListener('touchmove', moveDrag, { passive: false });
+  sheet.addEventListener('touchend', endDrag, { passive: true });
+  sheet.addEventListener('touchcancel', endDrag, { passive: true });
+
+  sheet.addEventListener('mousedown', beginDrag);
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endDrag);
 }
 
 function hashStringToId(value = '') {
@@ -1687,12 +1841,43 @@ function updateCachedUserRecord(userId, fields = {}) {
   return next;
 }
 
+function getContactNickname(userId = '') {
+  if (!userId || userId === state.user?.uid) return '';
+  const value = (state.profile?.contactNicknames || {})[userId];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function formatConversationLastMessage(raw = '', convo = {}, viewerUid = '', otherName = 'User') {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+
+  if (text.startsWith('story_like::')) {
+    const [, senderId = ''] = text.split('::');
+    return senderId === viewerUid ? 'You liked their story' : `${otherName || 'They'} liked your story`;
+  }
+
+  if (text.startsWith('message_reaction::')) {
+    const parts = text.split('::');
+    const senderId = parts[1] || '';
+    const targetSenderId = parts[2] || '';
+    let emoji = parts[3] || '❤️';
+    try { emoji = decodeURIComponent(emoji); } catch (_) {}
+    if (senderId === viewerUid) return `You reacted ${emoji}`;
+    if (targetSenderId === viewerUid) return `${otherName || 'They'} reacted ${emoji} to your message`;
+    return `${otherName || 'They'} reacted ${emoji}`;
+  }
+
+  return text;
+}
+
 function getResolvedUserIdentity(userId = '', fallbackName = 'User', fallbackPhoto = null) {
   const cached = _userContextCache[userId] || {};
+  const contactAlias = getContactNickname(userId);
   return {
-    name: cached.displayName || cached.firstName || fallbackName || 'User',
+    name: contactAlias || cached.displayName || cached.firstName || fallbackName || 'User',
     photo: cached.photoURL || fallbackPhoto || null,
-    data: cached
+    data: cached,
+    alias: contactAlias
   };
 }
 
@@ -2037,6 +2222,16 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
     if (result) {
       syncLocalMessageReactionState(scope, messageId, result.reactions, result.likes);
       refreshMessageReactionUI(scope, primaryId, messageId, collection);
+      const priorReaction = normalizeReactionMap(result.before?.reactions, result.before?.likes || [])[state.user?.uid || ''] || '';
+      if (result.nextReaction
+        && !priorReaction
+        && localMessage.senderId
+        && localMessage.senderId !== state.user?.uid
+        && !['message_reaction', 'story_like'].includes(localMessage.type || '')) {
+        emitMessageReactionNotice(scope, primaryId, localMessage, result.nextReaction, collection).catch(err => {
+          console.warn('reaction notice failed', err);
+        });
+      }
     }
   } catch (e) {
     syncLocalMessageReactionState(scope, messageId, previousState.reactions, previousState.likes);
@@ -2044,6 +2239,79 @@ async function reactToMessage(scope, primaryId, messageId, emoji, collection = '
     console.error(e);
     toast('Could not react right now');
   }
+}
+
+async function emitMessageReactionNotice(scope, primaryId, targetMessage = {}, emoji = '❤️', collection = '') {
+  if (!primaryId || !emoji || !state.user?.uid) return;
+  const actorUid = state.user.uid;
+  const targetSenderId = targetMessage.senderId || '';
+  if (!targetSenderId || targetSenderId === actorUid) return;
+
+  const targetMessageId = targetMessage.id || '';
+  const cooldownKey = `${scope}:${primaryId}:${targetMessageId}:${actorUid}`;
+  const now = Date.now();
+  const lastAt = _reactionNoticeCooldown.get(cooldownKey) || 0;
+  if (now - lastAt < 2200) return;
+  _reactionNoticeCooldown.set(cooldownKey, now);
+  if (_reactionNoticeCooldown.size > 320) {
+    const first = _reactionNoticeCooldown.keys().next().value;
+    if (first) _reactionNoticeCooldown.delete(first);
+  }
+
+  const safeEmoji = `${emoji || '❤️'}`.trim() || '❤️';
+  const targetPreview = summarizeMessageReference(targetMessage);
+  const payload = {
+    targetMessageId,
+    targetSenderId,
+    emoji: safeEmoji,
+    targetPreview,
+    targetMessageType: targetMessage.type || ''
+  };
+
+  if (scope === 'group') {
+    const groupRef = db.collection(collection || 'groups').doc(primaryId);
+    await groupRef.collection('messages').add({
+      text: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji} to: ${targetPreview}`,
+      senderId: actorUid,
+      senderName: state.profile?.displayName || 'Someone',
+      senderPhoto: state.profile?.photoURL || null,
+      senderAnon: false,
+      type: 'message_reaction',
+      payload,
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent'
+    });
+    await syncThreadLastMessage('group', primaryId, collection || 'groups');
+    return;
+  }
+
+  const convoRef = db.collection('conversations').doc(primaryId);
+  await convoRef.collection('messages').add({
+    text: '',
+    senderId: actorUid,
+    senderName: state.profile?.displayName || 'Someone',
+    senderPhoto: state.profile?.photoURL || null,
+    senderAnon: false,
+    type: 'message_reaction',
+    payload,
+    createdAt: FieldVal.serverTimestamp(),
+    status: 'sent'
+  });
+
+  let otherUid = '';
+  try {
+    const convoDoc = await convoRef.get();
+    const participants = convoDoc.exists ? (convoDoc.data()?.participants || []) : [];
+    otherUid = participants.find(uid => uid && uid !== actorUid) || '';
+  } catch (_) {}
+
+  const mergeData = {
+    lastMessage: `message_reaction::${actorUid}::${targetSenderId}::${encodeURIComponent(safeEmoji)}`,
+    updatedAt: FieldVal.serverTimestamp()
+  };
+  if (otherUid) mergeData.unread = { [otherUid]: FieldVal.increment(1), [actorUid]: 0 };
+  await convoRef.set(mergeData, { merge: true });
+  await addNotification(targetSenderId, 'message', `reacted ${safeEmoji} to your message`, { convoId: primaryId });
 }
 
 async function syncThreadLastMessage(scope, primaryId, collection = '') {
@@ -2056,6 +2324,23 @@ async function syncThreadLastMessage(scope, primaryId, collection = '') {
     if (latest) {
       if (latest.locationPin?.label) lastMessage = `📍 ${latest.locationPin.label}`;
       else if (latest.type === 'poll' && latest.poll?.question) lastMessage = `📊 ${latest.poll.question}`;
+      else if (latest.type === 'story_like') {
+        if (scope === 'group') {
+          const who = latest.senderName || latest.senderId || 'Someone';
+          lastMessage = `${who} liked a story`;
+        } else {
+          lastMessage = `story_like::${latest.senderId || ''}`;
+        }
+      }
+      else if (latest.type === 'message_reaction') {
+        const reactionEmoji = latest.payload?.emoji || '❤️';
+        if (scope === 'group') {
+          const who = latest.senderName || latest.senderId || 'Someone';
+          lastMessage = `${who} reacted ${reactionEmoji}`;
+        } else {
+          lastMessage = `message_reaction::${latest.senderId || ''}::${latest.payload?.targetSenderId || ''}::${encodeURIComponent(reactionEmoji)}`;
+        }
+      }
       else if (latest.audioURL) lastMessage = '🎤 Voice';
       else if (latest.imageURL) lastMessage = latest.mediaType === 'video' ? '📹 Video' : (latest.text || '📷 Photo');
       else lastMessage = latest.text || '';
@@ -2704,7 +2989,7 @@ function renderTrendingPostsRail(posts = []) {
           <div class="trending-post-card" onclick="viewPost('${post.id}')">
             ${post.videoURL || post.mediaType === 'video' ? `<div class="trending-post-media has-video"><video class="inline-video-preview" src="${post.videoURL || post.imageURL}" muted playsinline preload="metadata"></video><div class="trending-post-video-badge">▶</div></div>` : post.imageURL ? `<div class="trending-post-media"><img src="${post.imageURL}" alt=""></div>` : ''}
             <div class="trending-post-meta-top">
-              <span>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</span>
+              <span>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</span>
               <span>${getReactionSummary(post.reactions, post.likes || []).total} reacts</span>
             </div>
             ${post.content ? `<div class="trending-post-copy">${formatContent((post.content || '').slice(0, 150) + ((post.content || '').length > 150 ? '...' : ''))}</div>` : ''}
@@ -2733,9 +3018,9 @@ async function openModuleFeed(tag) {
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
           <div class="module-post-top">
-            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name, post.authorPhoto, 'avatar-sm')}
             <div>
-              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</div>
+              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</div>
               <div class="module-post-time">${timeAgo(post.createdAt)}</div>
             </div>
           </div>
@@ -2762,9 +3047,9 @@ async function openTagFeed(tag) {
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
           <div class="module-post-top">
-            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(post.authorName, post.authorPhoto, 'avatar-sm')}
+            ${post.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name, post.authorPhoto, 'avatar-sm')}
             <div>
-              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName || 'User')}</div>
+              <div class="module-post-author">${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(getResolvedUserIdentity(post.authorId, post.authorName || 'User', post.authorPhoto || null).name)}</div>
               <div class="module-post-time">${timeAgo(post.createdAt)}</div>
             </div>
           </div>
@@ -4123,6 +4408,14 @@ function navigate(page, options = {}) {
 }
 
 // ─── Feed Search: People Suggestions ─────────────
+function formatUserMetaLine(user = {}, maxLen = 56) {
+  const raw = [user.major, user.university, user.address]
+    .map(part => String(part || '').trim())
+    .filter(Boolean)
+    .join(' · ');
+  return clampText(raw || 'Student', maxLen);
+}
+
 function renderFeedPeopleSuggestions(query) {
   let box = document.getElementById('feed-people-suggestions');
   if (!box) {
@@ -4135,7 +4428,16 @@ function renderFeedPeopleSuggestions(query) {
     searchBar.appendChild(box);
   }
   const q = String(query || '').trim();
-  if (!q || q.startsWith('#')) { box.style.display = 'none'; return; }
+  if (!q || q.startsWith('#')) {
+    _feedPeopleSuggestLastQuery = '';
+    box.dataset.ready = '0';
+    box.style.display = 'none';
+    return;
+  }
+  if (q === _feedPeopleSuggestLastQuery && box.dataset.ready === '1') {
+    box.style.display = 'block';
+    return;
+  }
   getUsersCache().then(users => {
     const hits = users
       .filter(u => u.id !== state.user?.uid)
@@ -4144,16 +4446,23 @@ function renderFeedPeopleSuggestions(query) {
       .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''))
       .slice(0, 5);
     if (!hits.length) { box.style.display = 'none'; return; }
-    box.innerHTML = hits.map(u => `
+    box.innerHTML = hits.map(u => {
+      const resolved = getResolvedUserIdentity(u.id, u.displayName || 'User', u.photoURL || null);
+      const displayName = resolved.name || u.displayName || 'User';
+      const fullMeta = formatUserMetaLine(u, 120);
+      return `
       <button type="button" class="feed-people-item" onmousedown="event.preventDefault();openProfile('${u.id}')">
-        ${avatar(u.displayName, u.photoURL, 'avatar-sm')}
+        ${avatar(displayName, u.photoURL, 'avatar-sm')}
         <div class="feed-people-info">
-          <span class="feed-people-name">${esc(u.displayName || 'User')}</span>
-          <span class="feed-people-meta">${esc(u.major || u.university || u.address || 'Student')}</span>
+          <span class="feed-people-name">${esc(displayName)}</span>
+          <span class="feed-people-meta" title="${esc(fullMeta)}">${esc(formatUserMetaLine(u, 50))}</span>
         </div>
       </button>
-    `).join('');
+    `;
+    }).join('');
     box.style.display = 'block';
+    box.dataset.ready = '1';
+    _feedPeopleSuggestLastQuery = q;
   }).catch(() => {});
 }
 
@@ -4165,9 +4474,11 @@ function filterFeedPosts(posts = [], query = _feedSearchQuery) {
   return posts.filter(post => {
     const tags = getPostHashTags(post).map(tag => tag.toLowerCase());
     const modules = normalizeModules(post.moduleTags || []).map(tag => tag.toLowerCase());
+    const contactAlias = getContactNickname(post.authorId || '');
     const haystack = [
       post.content || '',
       post.authorName || '',
+      contactAlias,
       post.authorUni || '',
       ...(post.moduleTags || []),
       ...getPostHashTags(post)
@@ -4179,6 +4490,7 @@ function filterFeedPosts(posts = [], query = _feedSearchQuery) {
 
 function clearFeedSearch() {
   _feedSearchQuery = '';
+  _feedPeopleSuggestLastQuery = '';
   const input = $('#feed-search-input');
   if (input) input.value = '';
   renderFeedResults(state.posts || []);
@@ -4609,12 +4921,14 @@ function loadStories() {
       ordered.forEach(group => {
         const s = group.stories[0];
         const isMe = group.uid === uid;
-        const name = isMe ? 'You' : esc(s.authorFirstName || s.authorName?.split(' ')[0] || '?');
+        const identity = getResolvedUserIdentity(group.uid, s.authorName || s.authorFirstName || 'User', s.authorPhoto || null);
+        const shortName = (identity.name || s.authorFirstName || s.authorName || '?').split(' ')[0] || '?';
+        const name = isMe ? 'You' : esc(shortName);
         const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
         row.insertAdjacentHTML('beforeend', `
           <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="event.stopPropagation();viewStory('${group.uid}')">
             <div class="story-avatar"><div class="story-avatar-inner">
-              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(s.authorName)}
+              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(identity.name || s.authorName)}
             </div></div>
             <div class="story-name">${name}</div>
           </div>
@@ -4622,6 +4936,27 @@ function loadStories() {
       });
 
     }).catch(() => {});
+}
+
+function setStoryComposerMode(hasMedia = false) {
+  const textBg = $('#story-text-bg');
+  const textInput = $('#story-text-input');
+  const picker = $('#story-bg-picker');
+  if (textBg) textBg.classList.toggle('story-caption-mode', !!hasMedia);
+  if (textInput) textInput.placeholder = hasMedia ? 'Add a caption...' : 'Type your story...';
+  if (picker) picker.style.display = hasMedia ? 'none' : 'flex';
+}
+
+function clearStoryMediaSelection() {
+  window._storyFile = null;
+  window._storyVideoFile = null;
+  const preview = $('#story-media-preview');
+  const content = $('#story-media-content');
+  const input = $('#story-media-file');
+  if (preview) preview.style.display = 'none';
+  if (content) content.innerHTML = '';
+  if (input) input.value = '';
+  setStoryComposerMode(false);
 }
 
 function openStoryCreator() {
@@ -4636,10 +4971,10 @@ function openStoryCreator() {
         <div class="story-text-preview" id="story-text-bg" style="background:${bgColor}">
           <textarea id="story-text-input" placeholder="Type your story..." maxlength="200"></textarea>
         </div>
-        <div class="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
+        <div class="story-bg-picker" id="story-bg-picker">${bgOptions.map(c => `<button class="bg-dot" style="background:${c}" onclick="document.getElementById('story-text-bg').style.background='${c}';window._storyBg='${c}'"></button>`).join('')}</div>
         <div id="story-media-preview" style="display:none;margin-top:12px;position:relative;border-radius:var(--radius);overflow:hidden">
           <div id="story-media-content"></div>
-          <button onclick="document.getElementById('story-media-preview').style.display='none';window._storyFile=null;window._storyVideoFile=null;document.getElementById('story-text-bg').style.display='flex'" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
+          <button onclick="clearStoryMediaSelection()" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
           <label class="story-upload-btn">
@@ -4653,6 +4988,7 @@ function openStoryCreator() {
     </div>
   `);
   window._storyBg = bgColor;
+  setStoryComposerMode(false);
   $('#story-media-file').onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -4669,8 +5005,7 @@ function openStoryCreator() {
       content.innerHTML = `<img src="${localPreview(file)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:var(--radius)">`;
     }
     preview.style.display = 'block';
-    // Hide text bg when media is selected
-    $('#story-text-bg').style.display = 'none';
+    setStoryComposerMode(true);
   };
   $('#story-submit').onclick = async () => {
     const text = $('#story-text-input')?.value.trim();
@@ -4713,7 +5048,7 @@ function openStoryCreator() {
 
 let storyViewerData = { groups: [], currentGroup: 0, currentStory: 0, timer: null };
 
-async function viewStory(userId) {
+async function viewStory(userId, focusStoryId = '') {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   try {
     const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').get();
@@ -4735,9 +5070,40 @@ async function viewStory(userId) {
     const startIdx = groups.findIndex(g => g.uid === userId);
     if (startIdx === -1) return toast('No stories');
 
-    storyViewerData = { groups, currentGroup: startIdx, currentStory: 0, timer: null };
+    let startStoryIdx = 0;
+    if (focusStoryId) {
+      const maybeIdx = (groups[startIdx]?.stories || []).findIndex(item => item.id === focusStoryId);
+      if (maybeIdx >= 0) startStoryIdx = maybeIdx;
+    }
+
+    storyViewerData = { groups, currentGroup: startIdx, currentStory: startStoryIdx, timer: null };
     showStoryFrame();
   } catch (e) { console.error(e); toast('Could not load stories'); }
+}
+
+async function openStoryFromMessage(storyId = '', storyAuthorId = '') {
+  let targetAuthor = storyAuthorId || '';
+  const targetStory = storyId || '';
+  try {
+    if (targetStory) {
+      const snap = await db.collection('stories').doc(targetStory).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        targetAuthor = data.authorId || targetAuthor;
+      } else if (!targetAuthor) {
+        toast('Story expired');
+        return;
+      }
+    }
+    if (!targetAuthor) {
+      toast('Story unavailable');
+      return;
+    }
+    await viewStory(targetAuthor, targetStory);
+  } catch (e) {
+    console.error(e);
+    toast('Could not open story');
+  }
 }
 
 function showStoryFrame() {
@@ -4762,10 +5128,11 @@ function showStoryFrame() {
   // Header
   const hdr = $('#story-viewer-user');
   const isMyStory = story.authorId === state.user.uid;
+  const storyAuthorIdentity = getResolvedUserIdentity(story.authorId, story.authorName || 'User', story.authorPhoto || null);
   const viewCount = Math.max(0, (story.viewedBy || []).filter(uid => uid !== state.user.uid).length);
   hdr.innerHTML = `
-    ${avatar(story.authorName, story.authorPhoto, 'avatar-sm')}
-    <div><b>${esc(story.authorName)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
+    ${avatar(storyAuthorIdentity.name, storyAuthorIdentity.photo, 'avatar-sm')}
+    <div><b>${esc(storyAuthorIdentity.name)}</b><br><small>${timeAgo(story.createdAt)}${isMyStory ? ` · <button class="story-insight-link" onclick="event.stopPropagation();openStoryInsights('${story.id}')">${viewCount} view${viewCount === 1 ? '' : 's'}</button>` : ''}</small></div>
     ${isMyStory ? `<button class="story-delete-btn" onclick="deleteStory('${story.id}')">Delete</button>` : ''}
   `;
 
@@ -4775,7 +5142,7 @@ function showStoryFrame() {
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
       <video src="${story.videoURL}" class="story-full-video" autoplay muted playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
-      <button class="story-sound-toggle" id="story-sound-toggle" onclick="toggleStoryViewerSound()">Unmute</button>
+      <button class="story-sound-toggle" id="story-sound-toggle" onpointerdown="event.stopPropagation()" onpointerup="event.stopPropagation()" onclick="toggleStoryViewerSound(event)">Unmute</button>
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
@@ -4808,6 +5175,8 @@ function showStoryFrame() {
   const replyBar = $('#story-reply-bar');
   const replyInput = $('#story-reply-input');
   const replySend = $('#story-reply-send');
+  const storyCaption = content.querySelector('.story-caption');
+  if (storyCaption) storyCaption.classList.toggle('with-reply', !isMyStory);
   if (replyBar) {
     if (!isMyStory) {
       replyBar.style.display = 'flex';
@@ -4875,7 +5244,7 @@ async function openStoryInsights(storyId = '') {
     await ensureUserContextCache(ids, { force: false });
     const renderRows = (arr = [], kind = 'Viewed') => arr.length
       ? arr.map(uid => {
-          const info = resolveUserIdentity(uid, uid, null);
+          const info = getResolvedUserIdentity(uid, 'User', null);
           return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
         }).join('')
       : `<div class="empty-state" style="padding:10px 0"><p>No one yet</p></div>`;
@@ -4889,6 +5258,41 @@ async function openStoryInsights(storyId = '') {
   } catch (e) { console.error(e); }
 }
 
+async function sendStoryLikeMessage(story = {}) {
+  const authorId = story.authorId || '';
+  if (!authorId || authorId === state.user?.uid) return;
+  try {
+    const convoId = await ensureFriendDMConversation(authorId, story.authorName || 'User', story.authorPhoto || null);
+    const storyPreview = story.type === 'photo' ? story.imageURL : (story.type === 'video' ? story.videoURL : null);
+    await db.collection('conversations').doc(convoId).collection('messages').add({
+      text: '',
+      senderId: state.user.uid,
+      senderName: state.profile?.displayName || 'Someone',
+      senderPhoto: state.profile?.photoURL || null,
+      senderAnon: false,
+      type: 'story_like',
+      payload: {
+        storyId: story.id || '',
+        storyType: story.type || '',
+        storyCaption: story.caption || story.text || '',
+        storyPreview: storyPreview || null,
+        storyAuthorId: story.authorId || '',
+        storyAuthorName: story.authorName || 'User'
+      },
+      createdAt: FieldVal.serverTimestamp(),
+      status: 'sent'
+    });
+    await db.collection('conversations').doc(convoId).set({
+      lastMessage: `story_like::${state.user.uid}`,
+      updatedAt: FieldVal.serverTimestamp(),
+      unread: { [authorId]: FieldVal.increment(1), [state.user.uid]: 0 }
+    }, { merge: true });
+    await addNotification(authorId, 'message', 'liked your story', { convoId, storyId: story.id || '' });
+  } catch (e) {
+    console.error('story like message', e);
+  }
+}
+
 async function toggleStoryLike(story = {}) {
   const storyId = story.id || '';
   if (!storyId || !state.user?.uid) return;
@@ -4899,6 +5303,9 @@ async function toggleStoryLike(story = {}) {
   try {
     await ref.update({ likes: liked ? FieldVal.arrayRemove(myId) : FieldVal.arrayUnion(myId) });
     story.likes = liked ? likes.filter(id => id !== myId) : [...likes, myId];
+    if (!liked) {
+      await sendStoryLikeMessage(story);
+    }
   } catch (e) {
     console.error(e);
   }
@@ -4929,7 +5336,11 @@ function closeStoryViewer() {
   $('#story-viewer').style.display = 'none';
 }
 
-function toggleStoryViewerSound() {
+function toggleStoryViewerSound(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
   const vid = $('#story-viewer-content video');
   const btn = $('#story-sound-toggle');
   if (!vid || !btn) return;
@@ -5046,13 +5457,16 @@ function renderQuoteEmbed(rp, options = {}) {
 
 function renderFeedInlineSuggestionCard(user = {}) {
   if (!user?.id) return '';
+  const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
+  const displayName = resolved.name || user.displayName || 'User';
+  const meta = formatUserMetaLine(user, 48);
   const isFriend = (state.profile?.friends || []).includes(user.id);
   const isPending = (state.profile?.sentRequests || []).includes(user.id);
   const action = isFriend
     ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
     : isPending
       ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add Friend</button>`;
+      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add Friend</button>`;
   return `
     <div class="post-card feed-inline-suggestion" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
@@ -5060,11 +5474,11 @@ function renderFeedInlineSuggestionCard(user = {}) {
       </div>
       <div class="discover-card" style="margin:0 14px 14px">
         <div class="discover-card-avatar">
-          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
+          ${avatar(displayName, user.photoURL, 'avatar-lg')}
           ${user.status === 'online' ? '<span class="online-dot"></span>' : ''}
         </div>
-        <div class="discover-card-name">${esc(user.displayName || 'User')}</div>
-        <div class="discover-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+        <div class="discover-card-name">${esc(displayName)}</div>
+        <div class="discover-card-meta" title="${esc(formatUserMetaLine(user, 120))}">${esc(meta)}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
         ${action}
       </div>
     </div>`;
@@ -5149,17 +5563,20 @@ function renderFeedInlineSuggestionRail(users = []) {
         <h3>Suggestions</h3>
       </div>
       <div class="suggested-list">${picks.map(user => {
+        const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
+        const displayName = resolved.name || user.displayName || 'User';
+        const meta = formatUserMetaLine(user, 44);
         const isFriend = (state.profile?.friends || []).includes(user.id);
         const isPending = (state.profile?.sentRequests || []).includes(user.id);
         const action = isFriend
           ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
           : isPending
             ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}', this)">Add</button>`;
+            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add</button>`;
           return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
-          ${avatar(user.displayName, user.photoURL, 'avatar-lg')}
-          <div class="suggested-card-name">${esc(user.displayName || 'User')}</div>
-          <div class="suggested-card-meta">${esc(user.major || user.university || 'Student')}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
+          ${avatar(displayName, user.photoURL, 'avatar-lg')}
+          <div class="suggested-card-name">${esc(displayName)}</div>
+          <div class="suggested-card-meta" title="${esc(formatUserMetaLine(user, 120))}">${esc(meta)}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
           ${action}
         </div>`;
       }).join('')}
@@ -5224,7 +5641,12 @@ function renderPosts(posts) {
     const hasVideo = post.videoURL || (post.mediaType === 'video');
     const hasImage = post.imageURL && !hasVideo && !hasCollage;
     const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
-    const displayAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+    const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+    const authorIdentity = post.isAnonymous
+      ? { name: getAnonymousLabelForPost(post), photo: null }
+      : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
+    const displayAuthorName = authorIdentity.name || post.authorName || 'User';
+    const displayAuthorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
     let videoPlayerData = null;
     if (hasVideo && mediaURL) {
       videoPlayerData = createVideoPlayer(mediaURL);
@@ -5234,14 +5656,14 @@ function renderPosts(posts) {
       <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          <span>Reposted by ${esc(post.authorName)}</span>
+          <span>Reposted by ${esc(displayAuthorName)}</span>
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
             ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
-            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(post.authorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(post.authorName, displayAuthorPhoto, 'avatar-md')}</div>`}
+            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(post.authorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
@@ -5520,13 +5942,16 @@ function renderClipsContent(body) {
         const myReaction = getUserReaction(p.reactions, p.likes || []);
         const lc = getReactionSummary(p.reactions, p.likes || []).total;
         const cc = p.commentsCount || 0;
+        const reelIdentity = p.isAnonymous
+          ? { name: getAnonymousLabelForPost(p), photo: null }
+          : getResolvedUserIdentity(p.authorId, p.authorName || 'User', p.authorPhoto || null);
         return `
         <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
           <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
           <div class="reel-overlay-bottom">
             <div class="reel-author" ${p.isAnonymous ? '' : `onclick="closeVideoHub();openProfile('${p.authorId}')"`}>
-              ${p.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(p.authorName, p.authorPhoto, 'avatar-sm')}
-              <span class="reel-author-name">${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(p.authorName || 'User')}</span>
+              ${p.isAnonymous ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(reelIdentity.name, reelIdentity.photo, 'avatar-sm')}
+              <span class="reel-author-name">${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(reelIdentity.name)}</span>
             </div>
             ${p.content ? `<p class="reel-caption">${esc(p.content)}</p>` : ''}
           </div>
@@ -6957,7 +7382,17 @@ function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
     const last = clean.split('/').pop() || '';
     if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return last;
   } catch (_) {}
-  return `${fallbackBase}-${Date.now()}.jpg`;
+  const fallback = String(fallbackBase || 'unino-media')
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const extMatch = fallback.match(/^(.*)\.([a-zA-Z0-9]{2,8})$/);
+  if (extMatch) {
+    const base = extMatch[1] || 'unino-media';
+    const ext = extMatch[2].toLowerCase();
+    return `${base}-${Date.now()}.${ext}`;
+  }
+  return `${fallback || 'unino-media'}-${Date.now()}.jpg`;
 }
 
 function isLikelyVideoUrl(url = '', mime = '') {
@@ -6966,9 +7401,126 @@ function isLikelyVideoUrl(url = '', mime = '') {
   return lowerMime.includes('video') || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/.test(lowerUrl);
 }
 
-async function downloadUrlInApp(url = '') {
+async function ensureNativeStoragePermission(forcePrompt = true) {
+  if (!isNativeApp()) return true;
+  const filesystem = getCapacitorPlugin('Filesystem');
+  if (!filesystem) return false;
+
+  const now = Date.now();
+  if (_nativeStoragePermissionState === 'granted' && (now - _nativeStoragePermissionCheckedAt) < 2 * 60 * 1000) {
+    return true;
+  }
+
+  let current = '';
+  try {
+    if (typeof filesystem.checkPermissions === 'function') {
+      const status = await filesystem.checkPermissions();
+      current = String(status?.publicStorage || status?.storage || status?.permission || '').toLowerCase();
+      if (current === 'granted' || current === 'limited') {
+        _nativeStoragePermissionState = 'granted';
+        _nativeStoragePermissionCheckedAt = now;
+        return true;
+      }
+    }
+  } catch (_) {
+    current = '';
+  }
+
+  if (!forcePrompt || typeof filesystem.requestPermissions !== 'function') {
+    _nativeStoragePermissionState = current || 'unknown';
+    _nativeStoragePermissionCheckedAt = now;
+    return current !== 'denied';
+  }
+
+  try {
+    const requested = await filesystem.requestPermissions();
+    const next = String(requested?.publicStorage || requested?.storage || '').toLowerCase();
+    const granted = next === 'granted' || next === 'limited';
+    _nativeStoragePermissionState = granted ? 'granted' : (next || 'denied');
+    _nativeStoragePermissionCheckedAt = Date.now();
+    return granted;
+  } catch (_) {
+    _nativeStoragePermissionState = 'unknown';
+    _nativeStoragePermissionCheckedAt = Date.now();
+    // Some Android versions do not expose an explicit prompt for app-scoped storage.
+    return true;
+  }
+}
+
+async function saveMediaToNativeStorage(url = '', options = {}) {
+  const target = String(url || '').trim();
+  if (!target) throw new Error('missing-url');
+  const filesystem = getCapacitorPlugin('Filesystem');
+  if (!filesystem) throw new Error('filesystem-unavailable');
+
+  const fallbackBase = String(options.fallbackBase || (isLikelyVideoUrl(target) ? 'unino-video.mp4' : 'unino-image.jpg'));
+  const inferred = options.fileName || inferDownloadFilename(target, fallbackBase);
+  const safeName = ensureFileExtension(sanitizeFilename(inferred), isLikelyVideoUrl(target) ? 'mp4' : 'jpg');
+  const relativePath = `Unibo/Downloads/${Date.now()}-${safeName}`;
+
+  const permissionOk = await ensureNativeStoragePermission(true);
+  if (!permissionOk) throw new Error('storage-permission-denied');
+
+  if (typeof filesystem.downloadFile === 'function') {
+    try {
+      const downloaded = await filesystem.downloadFile({
+        url: target,
+        path: relativePath,
+        directory: 'DOCUMENTS',
+        recursive: true
+      });
+      let uri = downloaded?.uri || downloaded?.path || '';
+      if (!uri && typeof filesystem.getUri === 'function') {
+        const resolved = await filesystem.getUri({ path: relativePath, directory: 'DOCUMENTS' }).catch(() => null);
+        uri = resolved?.uri || '';
+      }
+      return { path: relativePath, uri };
+    } catch (err) {
+      console.warn('Filesystem.downloadFile failed, falling back to fetch:', err);
+    }
+  }
+
+  const response = await fetch(target, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`native-download-http-${response.status}`);
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('native-download-empty');
+  const ext = pickExtensionFromMime(blob.type || '', isLikelyVideoUrl(target, blob.type) ? 'mp4' : 'jpg');
+  const fileName = ensureFileExtension(sanitizeFilename(inferred), ext);
+  const path = `Unibo/Downloads/${Date.now()}-${fileName}`;
+  const data = await blobToBase64Data(blob);
+  const writeResult = await filesystem.writeFile({ path, data, directory: 'DOCUMENTS', recursive: true });
+  let uri = writeResult?.uri || '';
+  if (!uri && typeof filesystem.getUri === 'function') {
+    const resolved = await filesystem.getUri({ path, directory: 'DOCUMENTS' }).catch(() => null);
+    uri = resolved?.uri || '';
+  }
+  return { path, uri };
+}
+
+async function downloadUrlInApp(url = '', options = {}) {
   const target = String(url || '').trim();
   if (!target) return;
+
+  const fallbackBase = String(options.fallbackBase || (isLikelyVideoUrl(target) ? 'unino-video.mp4' : 'unino-image.jpg'));
+
+  if (isNativeApp()) {
+    try {
+      await saveMediaToNativeStorage(target, {
+        fallbackBase,
+        fileName: options.fileName || ''
+      });
+      toast('Saved to phone files');
+      return;
+    } catch (e) {
+      const msg = String(e?.message || e || '').toLowerCase();
+      console.warn('Native media save failed:', e);
+      if (msg.includes('permission')) {
+        toast('Storage access denied. Enable Files and Media permission for Unibo.');
+        return;
+      }
+    }
+  }
+
   let started = false;
   try {
     const response = await fetch(target, { mode: 'cors', cache: 'no-cache' });
@@ -6976,7 +7528,6 @@ async function downloadUrlInApp(url = '') {
     const blob = await response.blob();
     if (!blob.size) throw new Error('empty-blob');
     const objectUrl = URL.createObjectURL(blob);
-    const fallbackBase = isLikelyVideoUrl(target, blob.type) ? 'unino-video' : 'unino-image';
     const filename = inferDownloadFilename(target, fallbackBase);
     const link = document.createElement('a');
     link.href = objectUrl;
@@ -6993,7 +7544,7 @@ async function downloadUrlInApp(url = '') {
   }
   if (started) return;
   try {
-    const filename = inferDownloadFilename(target, isLikelyVideoUrl(target) ? 'unino-video' : 'unino-image');
+    const filename = inferDownloadFilename(target, fallbackBase);
     const link = document.createElement('a');
     link.href = target;
     link.download = filename;
@@ -7021,32 +7572,25 @@ function closeGalleryViewer() {
   _galleryUrls = [];
 }
 
-function guessDownloadFilename(url = '', fallback = 'download') {
-  try {
-    const clean = String(url || '').split('#')[0].split('?')[0];
-    const last = clean.split('/').pop() || '';
-    if (last && /\.[a-z0-9]{2,8}$/i.test(last)) return last;
-  } catch (_) {}
-  return fallback;
-}
-
 async function downloadMediaUrl(url = '', fallback = 'download') {
   const target = String(url || '').trim();
   if (!target) return;
+  const isVideo = isLikelyVideoUrl(target);
+  const fallbackBase = String(fallback || '').trim()
+    ? (String(fallback).includes('.') ? String(fallback) : `${fallback}${isVideo ? '.mp4' : '.jpg'}`)
+    : (isVideo ? 'unino-video.mp4' : 'unino-image.jpg');
+  await downloadUrlInApp(target, { fallbackBase });
+}
+
+function downloadMediaUrlEncoded(encodedUrl = '', fallback = 'download') {
+  let decoded = '';
   try {
-    const name = guessDownloadFilename(target, fallback);
-    const a = document.createElement('a');
-    a.href = target;
-    a.download = name;
-    a.rel = 'noopener';
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch (e) {
-    console.error(e);
-    toast('Could not start download');
+    decoded = decodeURIComponent(String(encodedUrl || ''));
+  } catch (_) {
+    decoded = String(encodedUrl || '');
   }
+  if (!decoded) return;
+  downloadMediaUrl(decoded, fallback);
 }
 
 function downloadCurrentGalleryImage() {
@@ -7057,10 +7601,11 @@ function downloadCurrentGalleryImage() {
 function openVideoDownloadPrompt(url = '') {
   const target = String(url || '').trim();
   if (!target) return;
+  const encodedTarget = encodeURIComponent(target);
   openModal(`
     <div class="modal-header"><h2>Video</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px;display:grid;gap:10px">
-      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrl(${JSON.stringify(target)}, 'video')">Download</button>
+      <button class="btn-primary btn-full" onclick="closeModal();downloadMediaUrlEncoded('${encodedTarget}', 'video')">Download</button>
       <button class="btn-secondary btn-full" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -11590,6 +12135,12 @@ async function viewPost(pid) {
     const hasVideo = p.videoURL || (p.mediaType === 'video');
     const hasImage = p.imageURL && !hasVideo;
     const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
+    const rawAuthorPhoto = p.isAnonymous ? null : (p.authorPhoto || resolvePostAuthorPhoto(p));
+    const authorIdentity = p.isAnonymous
+      ? { name: getAnonymousLabelForPost(p), photo: null }
+      : getResolvedUserIdentity(p.authorId, p.authorName || 'User', rawAuthorPhoto);
+    const displayAuthorName = authorIdentity.name || p.authorName || 'User';
+    const displayAuthorPhoto = p.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
 
     let videoPlayerData = null;
     if (hasVideo && mediaURL) { videoPlayerData = createVideoPlayer(mediaURL); }
@@ -11600,12 +12151,12 @@ async function viewPost(pid) {
         <div class="post-card" data-post-id="${p.id}" style="box-shadow:none;border:none;margin:0;padding:0">
           ${p.repostOf ? `<div class="repost-badge" style="margin:-0 -0 10px">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <span>Reposted by ${esc(p.authorName || 'User')}</span>
+            <span>Reposted by ${esc(displayAuthorName)}</span>
           </div>` : ''}
           <div class="post-header">
-            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(p.authorName, p.authorPhoto, 'avatar-md')}</div>`}
+            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
             <div class="post-header-info">
-              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(p.authorName || 'User') + verifiedBadge(p.authorId)}</div>
+              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(displayAuthorName) + verifiedBadge(p.authorId)}</div>
               <div class="post-meta">${timeAgo(p.createdAt)}</div>
             </div>
           </div>
@@ -11676,6 +12227,7 @@ function loadDMList() {
         const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
         const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
         const displayPhoto = theirAnon ? null : resolved.photo;
+        const previewText = formatConversationLastMessage(c.lastMessage || '', c, uid, displayName);
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -11687,7 +12239,7 @@ function loadDMList() {
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${esc(previewText || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -11740,6 +12292,7 @@ function loadArchivedDMList() {
         const resolved = getResolvedUserIdentity(otherUid, rawName, rawPhoto);
         const displayName = theirAnon ? getAnonDisplayName(c, uid, otherUid) : resolved.name;
         const displayPhoto = theirAnon ? null : resolved.photo;
+        const previewText = formatConversationLastMessage(c.lastMessage || '', c, uid, displayName);
         const avatarHtml = theirAnon
           ? '<div class="avatar-md anon-avatar">👻</div>'
           : avatar(displayName, displayPhoto, 'avatar-md');
@@ -11749,7 +12302,7 @@ function loadArchivedDMList() {
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
-              <div class="convo-last-msg">${esc(c.lastMessage || 'Start chatting...')}</div>
+              <div class="convo-last-msg">${esc(previewText || 'Start chatting...')}</div>
             </div>
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
@@ -12109,6 +12662,41 @@ async function openChat(convoId) {
                 </div>
                 ${storyThumb}${captionSnip}
               </div>${esc(m.text)}`;
+            } else if (!m.deleted && m.type === 'story_like') {
+              const sp = m.payload || {};
+              const otherShort = (name || 'They').split(' ')[0] || 'They';
+              const label = isMe ? '❤️ You liked their story' : `❤️ ${esc(otherShort)} liked your story`;
+              let storyThumb = '';
+              if (sp.storyPreview && sp.storyType === 'photo') {
+                storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;border-radius:6px;display:block">`;
+              } else if (sp.storyPreview && sp.storyType === 'video') {
+                storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;max-height:96px">
+                  <video src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;display:block" preload="metadata" muted></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </div>
+                </div>`;
+              }
+              const caption = sp.storyCaption ? `<div class="msg-system-reference">${esc(clampText(sp.storyCaption, 72))}</div>` : '';
+              const openAttr = sp.storyId ? ` onclick="event.stopPropagation();openStoryFromMessage('${sp.storyId}','${sp.storyAuthorId || ''}')"` : '';
+              const storyRef = storyThumb || caption || sp.storyId
+                ? `<div class="msg-story-reference"${openAttr}>${storyThumb}${caption || (!storyThumb ? '<div class="msg-system-reference">Open story</div>' : '')}</div>`
+                : '';
+              content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>${storyRef}`;
+            } else if (!m.deleted && m.type === 'message_reaction' && m.payload) {
+              const otherShort = (name || 'They').split(' ')[0] || 'They';
+              const reactionEmoji = esc(m.payload.emoji || '❤️');
+              const targetMine = m.payload.targetSenderId === uid;
+              const targetPreviewText = clampText(m.payload.targetPreview || summarizeMessageReference(_dmMsgLookup.get(m.payload.targetMessageId || '') || {}), 72);
+              const reference = m.payload.targetMessageId
+                ? `<div class="msg-reply-snippet msg-system-reference" onclick="jumpToMessage('${m.payload.targetMessageId}','chat-msgs')">↩ ${esc(targetPreviewText)}</div>`
+                : `<div class="msg-reply-snippet msg-system-reference">↩ ${esc(targetPreviewText)}</div>`;
+              const label = isMe
+                ? `${reactionEmoji} You reacted to their message`
+                : targetMine
+                  ? `${reactionEmoji} ${esc(otherShort)} reacted to your message`
+                  : `${reactionEmoji} ${esc(otherShort)} reacted`;
+              content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
             } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
             } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
@@ -12157,9 +12745,10 @@ async function openChat(convoId) {
               : '';
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+            const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : ''}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -12438,11 +13027,37 @@ async function editAnonNickname(convoId) {
   } catch (e) { console.error(e); toast('Could not save nickname'); }
 }
 
+async function editContactNickname(targetUid, fallbackName = 'User') {
+  if (!targetUid || targetUid === state.user?.uid) return;
+  try {
+    const current = getContactNickname(targetUid);
+    const identity = getResolvedUserIdentity(targetUid, fallbackName || 'User', null);
+    const next = window.prompt('Set a private contact name for this person', current || identity.name || 'User');
+    if (next === null) return;
+    const cleaned = clampText(next.trim(), 42);
+    const updates = {};
+    updates[`contactNicknames.${targetUid}`] = cleaned || FieldVal.delete();
+    await db.collection('users').doc(state.user.uid).update(updates);
+    state.profile.contactNicknames = { ...(state.profile.contactNicknames || {}) };
+    if (cleaned) state.profile.contactNicknames[targetUid] = cleaned;
+    else delete state.profile.contactNicknames[targetUid];
+    _feedPeopleSuggestLastQuery = '';
+    if (state.page === 'feed') renderFeedResults(state.posts || []);
+    if (state.page === 'chat') refreshCurrentMessageList();
+    toast(cleaned ? 'Contact name saved' : 'Contact name removed');
+  } catch (e) {
+    console.error(e);
+    toast('Could not save contact name');
+  }
+}
+
 function showConvoActions(convoId, displayName, otherUid) {
+  const hasContactAlias = !!getContactNickname(otherUid);
   openModal(`
     <div class="modal-header"><h2>Chat Actions</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
       <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px">Manage conversation with <strong>${displayName}</strong></p>
+      <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="editContactNickname('${otherUid}')">${hasContactAlias ? '✎ Edit Contact Name' : '✎ Set Contact Name'}</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="archiveConvo('${convoId}')">📦 Archive Chat</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="deleteConvo('${convoId}')">🗑️ Delete Chat</button>
       <button class="btn-danger btn-full" onclick="blockUserFromChat('${otherUid}','${displayName}','${convoId}')">🚫 Block User</button>
@@ -12558,7 +13173,13 @@ async function openProfile(uid) {
       user = { id: doc.id, ...doc.data() };
     }
 
-    $('#prof-top-name').textContent = user.displayName;
+    const isMe = uid === state.user.uid;
+    const profileIdentity = isMe
+      ? { name: user.displayName || 'You', photo: user.photoURL || null }
+      : getResolvedUserIdentity(uid, user.displayName || 'User', user.photoURL || null);
+    const profileDisplayName = profileIdentity.name || user.displayName || 'User';
+
+    $('#prof-top-name').textContent = profileDisplayName;
 
     let posts = [];
     try {
@@ -12576,7 +13197,6 @@ async function openProfile(uid) {
       }
     } catch (e) { console.error('Posts', e); }
 
-    const isMe = uid === state.user.uid;
     const modules = user.modules || [];
     const showFriendCount = user.showFriendsCount !== false && isMe; // only show to self unless they opted in
 
@@ -12585,14 +13205,14 @@ async function openProfile(uid) {
       <div class="profile-cover">
         <div class="profile-avatar-wrap">
           <div class="profile-avatar-large${user.photoURL ? ' clickable' : ''}" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')"` : ''}>
-            ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(user.displayName)}
+            ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(profileDisplayName)}
           </div>
           ${user.status === 'online' ? '<div class="avatar-online-dot"></div>' : ''}
         </div>
       </div>
 
       <div class="profile-info">
-        <div class="profile-name">${esc(user.displayName)}${verifiedBadge(uid)}</div>
+        <div class="profile-name">${esc(profileDisplayName)}${verifiedBadge(uid)}</div>
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
           ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
@@ -12628,7 +13248,7 @@ async function openProfile(uid) {
                 }
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
-                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
+                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
                 return `${msgBtn}\n               ${friendBtn}`;
               })()}
@@ -13219,7 +13839,11 @@ async function doLogout() {
 // ─── Modal System ────────────────────────────────
 function openModal(innerHtml) {
   const bg = $('#modal-bg');
-  $('#modal-inner').innerHTML = innerHtml;
+  const inner = $('#modal-inner');
+  if (!bg || !inner) return;
+  inner.innerHTML = innerHtml;
+  resetModalSheetPosition();
+  bindModalSheetDragClose();
   bg.style.display = 'flex';
   bg.onclick = e => { if (e.target === bg) closeModal(); };
 }
@@ -13230,8 +13854,324 @@ function closeModal() {
     _hostStream.getTracks().forEach(t => t.stop());
     _hostStream = null;
   }
-  $('#modal-bg').style.display = 'none';
-  $('#modal-inner').innerHTML = '';
+  resetModalSheetPosition();
+  const bg = $('#modal-bg');
+  const inner = $('#modal-inner');
+  if (bg) bg.style.display = 'none';
+  if (inner) inner.innerHTML = '';
+}
+
+function sanitizeFilename(name = 'file') {
+  const cleaned = String(name || '')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 96);
+  return cleaned || `file-${Date.now()}`;
+}
+
+function pickExtensionFromMime(mime = '', fallbackExt = 'jpg') {
+  const lower = String(mime || '').toLowerCase();
+  if (lower.includes('png')) return 'png';
+  if (lower.includes('webp')) return 'webp';
+  if (lower.includes('gif')) return 'gif';
+  if (lower.includes('jpeg') || lower.includes('jpg')) return 'jpg';
+  if (lower.includes('mp4')) return 'mp4';
+  if (lower.includes('webm')) return 'webm';
+  if (lower.includes('mov') || lower.includes('quicktime')) return 'mov';
+  return fallbackExt;
+}
+
+function ensureFileExtension(fileName = '', fallbackExt = 'jpg') {
+  if (/\.[a-z0-9]{2,8}$/i.test(fileName)) return fileName;
+  return `${fileName}.${fallbackExt}`;
+}
+
+async function blobToBase64Data(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('blob-read-failed'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const commaIdx = result.indexOf(',');
+      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function setActionButtonBusy(button, isBusy, busyLabel = 'Working...') {
+  if (!button) return;
+  if (isBusy) {
+    if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = `<span class="inline-spinner" style="width:14px;height:14px;margin-right:8px"></span>${esc(busyLabel)}`;
+    return;
+  }
+  button.disabled = false;
+  if (button.dataset.originalHtml) {
+    button.innerHTML = button.dataset.originalHtml;
+    delete button.dataset.originalHtml;
+  }
+}
+
+function loadExternalScript(src = '') {
+  return new Promise((resolve, reject) => {
+    const target = String(src || '').trim();
+    if (!target) return reject(new Error('missing-script-src'));
+    const existing = Array.from(document.querySelectorAll('script')).find(s => s.src === target);
+    if (existing) {
+      if (existing.dataset.loaded === '1') return resolve();
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`script-load-failed:${target}`)), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = target;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = '1';
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`script-load-failed:${target}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureHtml2CanvasLoaded() {
+  if (typeof window.html2canvas === 'function') return window.html2canvas;
+  if (_html2canvasLoader) return _html2canvasLoader;
+  const sources = [
+    'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+    'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'
+  ];
+  _html2canvasLoader = (async () => {
+    let lastError = null;
+    for (const src of sources) {
+      try {
+        await loadExternalScript(src);
+        if (typeof window.html2canvas === 'function') return window.html2canvas;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('html2canvas-unavailable');
+  })().catch(err => {
+    _html2canvasLoader = null;
+    throw err;
+  });
+  return _html2canvasLoader;
+}
+
+async function waitForImagesToSettle(root, timeoutMs = 5500) {
+  const images = Array.from(root?.querySelectorAll?.('img') || []).filter(img => !!img.getAttribute('src'));
+  if (!images.length) return;
+  const waits = images.map(img => {
+    if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+    return new Promise(resolve => {
+      img.addEventListener('load', () => resolve(), { once: true });
+      img.addEventListener('error', () => resolve(), { once: true });
+    });
+  });
+  await Promise.race([
+    Promise.all(waits),
+    new Promise(resolve => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+function buildPostShareCardMarkup(post = {}) {
+  const hasVideo = !!(post.videoURL || post.mediaType === 'video');
+  const videoUrl = hasVideo ? (post.videoURL || post.imageURL || '') : '';
+  const imageUrl = hasVideo
+    ? ((post.imageURL && post.imageURL !== videoUrl) ? post.imageURL : '')
+    : (post.imageURL || '');
+
+  const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+  const authorIdentity = post.isAnonymous
+    ? { name: getAnonymousLabelForPost(post), photo: null }
+    : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
+  const authorName = authorIdentity.name || post.authorName || 'User';
+  const authorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
+  const textValue = (post.content || '').trim();
+  const textHtml = textValue
+    ? esc(textValue).replace(/\n/g, '<br>')
+    : '<span class="share-card-text-empty">Campus moment on Unibo</span>';
+
+  const moduleTags = (post.moduleTags || [])
+    .map(tag => `#${String(tag || '').replace(/^#/, '').toUpperCase()}`)
+    .slice(0, 3);
+  const hashTags = getPostHashTags(post).map(tag => `#${String(tag || '').replace(/^#/, '')}`).slice(0, 4);
+  const allTags = Array.from(new Set([...moduleTags, ...hashTags])).slice(0, 6);
+  const tagsMarkup = allTags.length
+    ? `<div class="share-card-tags">${allTags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>`
+    : '';
+
+  let mediaMarkup = '';
+  if (!post.repostOf && imageUrl) {
+    mediaMarkup = `<div class="share-card-media-wrap"><img src="${imageUrl}" alt="Post media" class="share-card-media" crossorigin="anonymous" referrerpolicy="no-referrer"></div>`;
+  } else if (!post.repostOf && hasVideo) {
+    mediaMarkup = imageUrl
+      ? `<div class="share-card-media-wrap is-video"><img src="${imageUrl}" alt="Video preview" class="share-card-media" crossorigin="anonymous" referrerpolicy="no-referrer"><span class="share-card-video-pill">VIDEO</span></div>`
+      : `<div class="share-card-video-placeholder"><span>▶</span><p>Video post</p></div>`;
+  }
+
+  let repostMarkup = '';
+  if (post.repostOf) {
+    const quoteText = (post.repostOf.content || '').trim();
+    const quoteMedia = post.repostOf.mediaType === 'video'
+      ? ''
+      : (post.repostOf.imageURL || '');
+    repostMarkup = `
+      <div class="share-card-quote">
+        <div class="share-card-quote-head">Repost from ${esc(post.repostOf.authorName || 'User')}</div>
+        ${quoteText ? `<div class="share-card-quote-text">${esc(quoteText).replace(/\n/g, '<br>')}</div>` : ''}
+        ${quoteMedia ? `<img src="${quoteMedia}" alt="Repost media" class="share-card-quote-media" crossorigin="anonymous" referrerpolicy="no-referrer">` : ''}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="share-card-capture">
+      <div class="share-card-head">
+        <div class="share-card-author">
+          ${post.isAnonymous ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(authorName, authorPhoto, 'avatar-sm')}
+          <div class="share-card-author-meta">
+            <strong>${esc(post.isAnonymous ? getAnonymousLabelForPost(post) : authorName)}</strong>
+            <span>${esc(timeAgo(post.createdAt))} · ${post.visibility === 'friends' ? 'Friends' : 'Campus'}</span>
+          </div>
+        </div>
+        <div class="share-card-brand">UNIBO</div>
+      </div>
+      <div class="share-card-text">${textHtml}</div>
+      ${tagsMarkup}
+      ${mediaMarkup}
+      ${repostMarkup}
+      <div class="share-card-foot">Shared from the Unibo app</div>
+    </div>
+  `;
+}
+
+async function capturePostShareCardBlob(post = {}) {
+  const html2canvas = await ensureHtml2CanvasLoaded();
+  const stage = document.createElement('div');
+  stage.className = 'share-capture-stage';
+  stage.innerHTML = buildPostShareCardMarkup(post);
+  document.body.appendChild(stage);
+  const card = stage.querySelector('.share-card-capture');
+  if (!card) {
+    stage.remove();
+    throw new Error('share-card-missing');
+  }
+  try {
+    await waitForImagesToSettle(card);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const scale = Math.min(2, Math.max(1.25, window.devicePixelRatio || 1));
+    const canvas = await html2canvas(card, {
+      backgroundColor: null,
+      scale,
+      useCORS: true,
+      allowTaint: false,
+      logging: false
+    });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.96));
+    if (!blob) throw new Error('share-card-blob-failed');
+    return blob;
+  } finally {
+    stage.remove();
+  }
+}
+
+async function shareBlobExternally(blob, fileName, options = {}) {
+  const sharePlugin = getCapacitorPlugin('Share');
+  const filesystem = getCapacitorPlugin('Filesystem');
+  const safeName = ensureFileExtension(sanitizeFilename(fileName), pickExtensionFromMime(blob.type || 'image/png', 'png'));
+
+  if (isNativeApp() && sharePlugin && filesystem) {
+    try {
+      const path = `Unibo/Share/${Date.now()}-${safeName}`;
+      const data = await blobToBase64Data(blob);
+      const writeResult = await filesystem.writeFile({ path, data, directory: 'CACHE', recursive: true });
+      let uri = writeResult?.uri || '';
+      if (!uri && typeof filesystem.getUri === 'function') {
+        const resolved = await filesystem.getUri({ path, directory: 'CACHE' }).catch(() => null);
+        uri = resolved?.uri || '';
+      }
+      if (uri) {
+        await sharePlugin.share({
+          title: options.title || 'Share from Unibo',
+          text: options.text || '',
+          url: uri,
+          files: [uri],
+          dialogTitle: options.dialogTitle || 'Share post'
+        });
+        return true;
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError' || /cancel/i.test(String(e?.message || ''))) return true;
+      console.warn('Native share failed:', e);
+    }
+  }
+
+  if (typeof File !== 'undefined' && navigator.share) {
+    try {
+      const file = new File([blob], safeName, { type: blob.type || 'image/png' });
+      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: options.title || 'Share from Unibo',
+          text: options.text || '',
+          files: [file]
+        });
+        return true;
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError') return true;
+      console.warn('Web share failed:', e);
+    }
+  }
+
+  return false;
+}
+
+async function sharePostAsImageCard(postId, triggerButton = null) {
+  if (!postId || _shareCardInFlight) return;
+  _shareCardInFlight = true;
+  setActionButtonBusy(triggerButton, true, 'Preparing card...');
+  try {
+    const postSnap = await db.collection('posts').doc(postId).get();
+    if (!postSnap.exists) {
+      toast('Post not found');
+      return;
+    }
+    const post = { id: postSnap.id, ...postSnap.data() };
+    const blob = await capturePostShareCardBlob(post);
+    const fallbackName = ensureFileExtension(sanitizeFilename(`unibo-post-${post.id || Date.now()}`), 'png');
+    const shared = await shareBlobExternally(blob, fallbackName, {
+      title: `${post.authorName || 'Unibo'} on Unibo`,
+      text: clampText(post.content || 'Shared from Unibo', 120),
+      dialogTitle: 'Share post card'
+    });
+    if (shared) {
+      toast('Share sheet opened');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fallbackName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    toast('Share card downloaded');
+  } catch (e) {
+    console.error('Share card creation failed:', e);
+    toast('Could not create share card');
+  } finally {
+    setActionButtonBusy(triggerButton, false);
+    _shareCardInFlight = false;
+  }
 }
 
 // ─── Share System ────────────────────────────────
@@ -13240,7 +14180,9 @@ async function openShareModal(postId) {
     <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
        <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Repost</button>
-       <div style="height:1px;background:var(--border);margin:16px 0"></div>
+     <button class="btn-outline btn-full share-external-btn" style="margin-bottom:8px;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="sharePostAsImageCard('${postId}', this)">📸 Share Card to Apps</button>
+     <div style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Creates an image of this post and opens your app share sheet.</div>
+     <div style="height:1px;background:var(--border);margin:14px 0"></div>
        <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
        <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
           <div class="inline-spinner" style="margin:20px auto"></div>
@@ -13720,7 +14662,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendFriendRequest, acceptFriendRequest, rejectFriendRequest, unfriend,
     loadNotifications, setCommentReply, clearCommentReply,
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
-    setCommentAnonChoice, editAnonNickname,
+    setCommentAnonChoice, editAnonNickname, editContactNickname,
     toggleCommentReplies,
     saveCurrentGpsLocation, clearAppCache,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
@@ -13730,7 +14672,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
     joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView, switchLiveCamera,
-    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, viewPost, markNotifRead,
+    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, sharePostAsImageCard, viewPost, markNotifRead,
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
@@ -13743,9 +14685,9 @@ document.addEventListener('DOMContentLoaded', () => {
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
-    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, closeNotifDropdown,
+    openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, openStoryFromMessage, closeNotifDropdown,
     clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
-    downloadCurrentGalleryImage, downloadMediaUrl, openVideoDownloadPrompt, openStoryInsights,
+    downloadCurrentGalleryImage, downloadMediaUrl, downloadMediaUrlEncoded, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled

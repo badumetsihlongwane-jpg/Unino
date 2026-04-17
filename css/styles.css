@@ -3025,7 +3025,18 @@ video::-webkit-media-controls-start-playback-button {
   max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
+  touch-action: pan-y;
+  will-change: transform;
+  transition: transform 0.22s ease;
   animation: slideUp 0.3s ease;
+}
+
+.modal-bg.sheet-dragging {
+  transition: none !important;
+}
+
+.modal-sheet.sheet-dragging {
+  transition: none !important;
 }
 
 .modal-handle,
@@ -6654,6 +6665,199 @@ body.image-view-open .modal-bg {
 }
 .share-friend-item:active {
   transform: scale(0.98);
+}
+
+.share-external-btn[disabled] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.share-capture-stage {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 620px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: -1;
+}
+
+.share-card-capture {
+  width: 560px;
+  background: radial-gradient(circle at 12% 0%, #eef4ff 0%, #f8f1ff 34%, #f4f7ff 100%);
+  border-radius: 30px;
+  border: 1px solid rgba(72, 86, 122, 0.12);
+  padding: 20px;
+  color: #1f2937;
+  font-family: 'Inter', sans-serif;
+  box-shadow: 0 20px 45px rgba(21, 27, 43, 0.2);
+}
+
+.share-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.share-card-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.share-card-author-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.share-card-author-meta strong {
+  font-size: 14px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+}
+
+.share-card-author-meta span {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.share-card-brand {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #334155;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 999px;
+  padding: 5px 11px;
+}
+
+.share-card-text {
+  font-size: 19px;
+  line-height: 1.45;
+  font-weight: 560;
+  color: #0f172a;
+  margin-bottom: 12px;
+  word-break: break-word;
+}
+
+.share-card-text-empty {
+  color: #64748b;
+  font-style: italic;
+}
+
+.share-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.share-card-tags span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 84, 154, 0.22);
+  background: rgba(255, 255, 255, 0.75);
+  color: #25416f;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.share-card-media-wrap {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  min-height: 210px;
+  background: #dbe7f8;
+}
+
+.share-card-media {
+  width: 100%;
+  max-height: 520px;
+  display: block;
+  object-fit: cover;
+}
+
+.share-card-video-pill {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+}
+
+.share-card-video-placeholder {
+  min-height: 210px;
+  border-radius: 20px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  background: linear-gradient(135deg, #0f172a 0%, #27364f 100%);
+  color: #e5edff;
+}
+
+.share-card-video-placeholder span {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.share-card-video-placeholder p {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+}
+
+.share-card-quote {
+  border: 1px solid rgba(72, 86, 122, 0.2);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.share-card-quote-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 5px;
+}
+
+.share-card-quote-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.share-card-quote-media {
+  width: 100%;
+  border-radius: 12px;
+  max-height: 230px;
+  object-fit: cover;
+  display: block;
+}
+
+.share-card-foot {
+  font-size: 11px;
+  color: #64748b;
+  letter-spacing: 0.3px;
 }
 
 /* ══════════════════════════════════════════════════
