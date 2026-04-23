@@ -40,6 +40,8 @@
   --header-height: 56px;
   --app-safe-top: env(safe-area-inset-top, 0px);
   --native-status-bar: 0px;
+  --native-safe-bottom: 0px;
+  --app-safe-bottom: var(--native-safe-bottom, env(safe-area-inset-bottom, 0px));
   --transition: 0.2s ease;
 }
 
@@ -679,7 +681,7 @@ input, select, textarea, button {
   height: calc(var(--nav-height) + 8px);
   background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  padding: 8px 10px calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
   flex-shrink: 0;
   width: calc(100% - 24px);
   margin: 0 auto 10px;
@@ -2173,7 +2175,7 @@ video::-webkit-media-controls-start-playback-button {
 #group-chat-view {
   background: var(--bg-primary);
   z-index: 60;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   height: 100%;
   max-height: 100%;
 }
@@ -2932,6 +2934,7 @@ video::-webkit-media-controls-start-playback-button {
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   font-weight: 700;
   font-size: 10px;
   color: #fff;
@@ -2951,6 +2954,7 @@ video::-webkit-media-controls-start-playback-button {
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   font-weight: 700;
   font-size: 13px;
   color: #fff;
@@ -2971,6 +2975,7 @@ video::-webkit-media-controls-start-playback-button {
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   font-weight: 700;
   font-size: 16px;
   color: #fff;
@@ -2991,6 +2996,7 @@ video::-webkit-media-controls-start-playback-button {
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   font-weight: 800;
   font-size: 22px;
   color: #fff;
@@ -4100,7 +4106,7 @@ body.image-view-open .modal-bg {
   align-items: center;
   justify-content: center;
   padding-top: var(--app-safe-top);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
 .story-viewer-overlay[style*="display: flex"],
@@ -6675,8 +6681,10 @@ body.image-view-open .modal-bg {
 .share-capture-stage {
   position: fixed;
   top: 0;
-  left: -10000px;
+  left: 0;
   width: 620px;
+  padding: 20px;
+  transform: translateX(-200vw);
   pointer-events: none;
   opacity: 0;
   z-index: -1;
@@ -6691,6 +6699,7 @@ body.image-view-open .modal-bg {
   color: #1f2937;
   font-family: 'Inter', sans-serif;
   box-shadow: 0 20px 45px rgba(21, 27, 43, 0.2);
+  overflow: hidden;
 }
 
 .share-card-head {
@@ -6705,6 +6714,12 @@ body.image-view-open .modal-bg {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.share-card-author .avatar-sm {
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
 }
 
 .share-card-author-meta {
@@ -6858,6 +6873,54 @@ body.image-view-open .modal-bg {
   font-size: 11px;
   color: #64748b;
   letter-spacing: 0.3px;
+}
+
+[data-theme="dark"] .share-card-capture {
+  background: radial-gradient(circle at 10% 0%, #1c2440 0%, #1a213a 36%, #111829 100%);
+  border-color: rgba(139, 124, 247, 0.26);
+  color: #eef2ff;
+  box-shadow: 0 24px 50px rgba(3, 7, 18, 0.55);
+}
+
+[data-theme="dark"] .share-card-author-meta span,
+[data-theme="dark"] .share-card-foot {
+  color: #9ca7c6;
+}
+
+[data-theme="dark"] .share-card-brand {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+[data-theme="dark"] .share-card-text {
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .share-card-text-empty {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .share-card-tags span {
+  border-color: rgba(165, 180, 252, 0.38);
+  background: rgba(15, 23, 42, 0.45);
+  color: #dbeafe;
+}
+
+[data-theme="dark"] .share-card-media-wrap {
+  background: #1e293b;
+}
+
+[data-theme="dark"] .share-card-quote {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+[data-theme="dark"] .share-card-quote-head {
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .share-card-quote-text {
+  color: #e2e8f0;
 }
 
 /* ══════════════════════════════════════════════════
@@ -7244,7 +7307,7 @@ body.image-view-open .modal-bg {
   bottom: 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
+  padding: 6px 12px calc(8px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 .comment-reply-to {
@@ -7989,7 +8052,7 @@ body.image-view-open .modal-bg {
 .live-bottom-bar {
   position: relative; z-index: 15;
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 12px calc(10px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
   background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
 }
 .live-comment-input-wrap {
@@ -8398,7 +8461,7 @@ body.image-view-open .modal-bg {
 .bottom-nav {
   left: 12px;
   right: 12px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
   width: auto;
   border-radius: 26px;
   padding: 8px 10px;
@@ -8455,3 +8518,14 @@ body.image-view-open .modal-bg {
 .create-post-actions-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:nowrap}.create-post-actions-row .create-post-actions-left{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:auto;scrollbar-width:none}.create-post-actions-row .create-post-actions-left::-webkit-scrollbar{display:none}.create-post-actions-row .btn-primary{flex:0 0 auto}
 [data-theme="light"] .poll-question,[data-theme="light"] .poll-option-text,[data-theme="light"] .poll-footer,[data-theme="light"] .chat-plus-option.modern,[data-theme="light"] .create-anon-toggle,[data-theme="light"] .suggested-card-name,[data-theme="light"] .suggested-card-meta{color:var(--text-primary)}
 [data-theme="light"] .chat-plus-option-icon{color:var(--text-primary)}
+
+.post-card.post-focus-flash {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 14px 30px rgba(17, 24, 39, 0.18);
+  animation: postFocusPulse 1.4s ease;
+}
+
+@keyframes postFocusPulse {
+  0% { transform: translateY(-2px) scale(1.01); }
+  60% { transform: translateY(0) scale(1); }
+  100% { transform: translateY(0) scale(1); }
+}

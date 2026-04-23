@@ -1008,11 +1008,18 @@ async function syncNativeStatusBar() {
   const darkTheme = document.documentElement.getAttribute('data-theme') === 'dark';
   try { await statusBar.setOverlaysWebView({ overlay: false }); } catch (e) {}
   try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) {}
-  try { await statusBar.setStyle({ style: darkTheme ? 'LIGHT' : 'DARK' }); } catch (e) {}
+  const styleEnum = statusBar.Style || {};
+  const targetStyle = darkTheme
+    ? (styleEnum.Light || 'LIGHT')
+    : (styleEnum.Dark || 'DARK');
+  try { await statusBar.setStyle({ style: targetStyle }); } catch (e) {}
   // Use the native-injected status bar height; fall back to a safe Android default
-  const injected = getComputedStyle(document.documentElement).getPropertyValue('--native-status-bar').trim();
+  const rootStyle = getComputedStyle(document.documentElement);
+  const injected = rootStyle.getPropertyValue('--native-status-bar').trim();
   const safePx = (injected && injected !== '0px') ? injected : '28px';
   document.documentElement.style.setProperty('--app-safe-top', safePx);
+  const bottomInset = rootStyle.getPropertyValue('--native-safe-bottom').trim();
+  if (bottomInset) document.documentElement.style.setProperty('--app-safe-bottom', bottomInset);
 }
 
 async function savePushTokenForCurrentUser(token) {
@@ -1987,6 +1994,121 @@ function getCampusLocationById(locationId) {
   return CAMPUS_LOCATIONS.find(l => l.id === locationId) || null;
 }
 
+function findCampusLocationByInput(raw = '') {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return null;
+  return (CAMPUS_LOCATIONS || []).find(loc => {
+    const byId = String(loc.id || '').trim().toLowerCase() === value;
+    const byName = String(loc.name || '').trim().toLowerCase() === value;
+    return byId || byName;
+  }) || null;
+}
+
+function getEventLocationMeta(eventDoc = {}) {
+  const locationRaw = String(eventDoc.location || '').trim();
+  const locationLabelRaw = String(eventDoc.locationLabel || '').trim();
+  const campusLoc = getCampusLocationById(locationRaw)
+    || findCampusLocationByInput(locationLabelRaw || locationRaw);
+
+  let lat = Number(eventDoc.geoLat);
+  let lng = Number(eventDoc.geoLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    lat = campusLoc ? Number(campusLoc.lat) : NaN;
+    lng = campusLoc ? Number(campusLoc.lng) : NaN;
+  }
+
+  const label = locationLabelRaw
+    || (campusLoc ? campusLoc.name : locationRaw)
+    || '';
+
+  return {
+    label,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    campusLoc
+  };
+}
+
+function resolveEventLocationInput(rawLocation = '') {
+  const typed = String(rawLocation || '').trim();
+  const pendingPoint = window._pendingRadarPinnedPoint || null;
+
+  if (pendingPoint && (!typed || typed.toLowerCase() === String(pendingPoint.label || '').trim().toLowerCase())) {
+    return {
+      location: String(pendingPoint.label || typed || 'Pinned location').trim(),
+      locationLabel: String(pendingPoint.label || typed || 'Pinned location').trim(),
+      geoLat: Number(pendingPoint.lat),
+      geoLng: Number(pendingPoint.lng),
+      source: 'pinned'
+    };
+  }
+
+  const campusLoc = findCampusLocationByInput(typed);
+  if (campusLoc) {
+    return {
+      location: campusLoc.id,
+      locationLabel: campusLoc.name,
+      geoLat: Number(campusLoc.lat),
+      geoLng: Number(campusLoc.lng),
+      source: 'campus'
+    };
+  }
+
+  return {
+    location: typed,
+    locationLabel: typed,
+    geoLat: null,
+    geoLng: null,
+    source: typed ? 'manual' : 'none'
+  };
+}
+
+async function routeToEventLocation(eventDoc = {}) {
+  const locationMeta = getEventLocationMeta(eventDoc);
+  if (Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng)) {
+    routeToMapPoint(locationMeta.lat, locationMeta.lng, locationMeta.label || 'Event location');
+    return true;
+  }
+  if (locationMeta.campusLoc?.id) {
+    routeToCampusLocation(locationMeta.campusLoc.id);
+    return true;
+  }
+
+  const fallbackQuery = String(locationMeta.label || '').trim();
+  if (!fallbackQuery) return false;
+
+  try {
+    toast('Locating event...');
+    const hits = await searchOpenStreetMapDestinations(fallbackQuery, 1);
+    const hit = hits[0] || null;
+    const lat = Number(hit?.lat);
+    const lng = Number(hit?.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      routeToMapPoint(lat, lng, locationMeta.label || fallbackQuery);
+      return true;
+    }
+  } catch (_) {}
+
+  return false;
+}
+
+async function routeToEventLocationById(eventId = '') {
+  if (!eventId) return;
+  let eventDoc = (allCampusEvents || []).find(ev => ev.id === eventId) || null;
+  if (!eventDoc) {
+    try {
+      const doc = await db.collection('events').doc(eventId).get();
+      if (doc.exists) eventDoc = { id: doc.id, ...doc.data() };
+    } catch (_) {}
+  }
+  if (!eventDoc) {
+    toast('Event not found');
+    return;
+  }
+  const routed = await routeToEventLocation(eventDoc);
+  if (!routed) toast('Event location is not available yet');
+}
+
 function getLocationDistanceBoost(coords) {
   const myCoords = getUserCoords(state.profile);
   if (!myCoords || !coords) return 0;
@@ -2259,57 +2381,24 @@ async function emitMessageReactionNotice(scope, primaryId, targetMessage = {}, e
   }
 
   const safeEmoji = `${emoji || '❤️'}`.trim() || '❤️';
-  const targetPreview = summarizeMessageReference(targetMessage);
-  const payload = {
-    targetMessageId,
-    targetSenderId,
-    emoji: safeEmoji,
-    targetPreview,
-    targetMessageType: targetMessage.type || ''
-  };
 
   if (scope === 'group') {
     const groupRef = db.collection(collection || 'groups').doc(primaryId);
-    await groupRef.collection('messages').add({
-      text: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji} to: ${targetPreview}`,
-      senderId: actorUid,
-      senderName: state.profile?.displayName || 'Someone',
-      senderPhoto: state.profile?.photoURL || null,
-      senderAnon: false,
-      type: 'message_reaction',
-      payload,
-      createdAt: FieldVal.serverTimestamp(),
-      status: 'sent'
-    });
-    await syncThreadLastMessage('group', primaryId, collection || 'groups');
+    await groupRef.set({
+      lastMessage: `${state.profile?.displayName || 'Someone'} reacted ${safeEmoji}`,
+      updatedAt: FieldVal.serverTimestamp()
+    }, { merge: true });
     return;
   }
 
   const convoRef = db.collection('conversations').doc(primaryId);
-  await convoRef.collection('messages').add({
-    text: '',
-    senderId: actorUid,
-    senderName: state.profile?.displayName || 'Someone',
-    senderPhoto: state.profile?.photoURL || null,
-    senderAnon: false,
-    type: 'message_reaction',
-    payload,
-    createdAt: FieldVal.serverTimestamp(),
-    status: 'sent'
-  });
-
-  let otherUid = '';
-  try {
-    const convoDoc = await convoRef.get();
-    const participants = convoDoc.exists ? (convoDoc.data()?.participants || []) : [];
-    otherUid = participants.find(uid => uid && uid !== actorUid) || '';
-  } catch (_) {}
-
   const mergeData = {
     lastMessage: `message_reaction::${actorUid}::${targetSenderId}::${encodeURIComponent(safeEmoji)}`,
     updatedAt: FieldVal.serverTimestamp()
   };
-  if (otherUid) mergeData.unread = { [otherUid]: FieldVal.increment(1), [actorUid]: 0 };
+  if (targetSenderId && targetSenderId !== actorUid) {
+    mergeData.unread = { [targetSenderId]: FieldVal.increment(1), [actorUid]: 0 };
+  }
   await convoRef.set(mergeData, { merge: true });
   await addNotification(targetSenderId, 'message', `reacted ${safeEmoji} to your message`, { convoId: primaryId });
 }
@@ -2634,6 +2723,33 @@ function getUserAnonIdentity(user = {}) {
   return buildDefaultAnonIdentity(user?.id || user?.uid || state.user?.uid || '', user?.firstName || '');
 }
 
+async function syncAnonIdentityInConversations(nextIdentity = '') {
+  const uid = state.user?.uid || '';
+  const identity = String(nextIdentity || '').trim();
+  if (!uid || !identity) return;
+  try {
+    const snap = await db.collection('conversations').where('participants', 'array-contains', uid).get();
+    const updates = snap.docs.map(doc => {
+      const data = doc.data() || {};
+      if (!data.isAnonymous) return null;
+      if (!((data.anonymous || {})[uid])) return null;
+      const participants = data.participants || [];
+      const idx = participants.indexOf(uid);
+      if (idx < 0) return null;
+      const names = Array.isArray(data.participantNames) ? [...data.participantNames] : [];
+      if (names[idx] === identity) return null;
+      names[idx] = identity;
+      return doc.ref.set({
+        participantNames: names,
+        updatedAt: FieldVal.serverTimestamp()
+      }, { merge: true });
+    }).filter(Boolean);
+    if (updates.length) await Promise.all(updates);
+  } catch (e) {
+    console.warn('syncAnonIdentityInConversations failed', e);
+  }
+}
+
 function getAnonymousLabelForPost(post = {}) {
   if (!post?.isAnonymous) return post?.authorName || 'User';
   const raw = (post.authorName || '').trim();
@@ -2794,6 +2910,15 @@ function sessionSeed(postId) {
   return _sessionPostSeeds[postId];
 }
 function resetFeedSeeds() { _sessionPostSeeds = {}; }
+
+function shuffleList(items = []) {
+  const arr = [...(items || [])];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 function getSeenPosts() {
   try { return JSON.parse(localStorage.getItem('unino_seen_posts') || '{}'); }
@@ -4774,43 +4899,60 @@ function loadDiscoverPeople() {
   const sentRequests = new Set(state.profile.sentRequests || []);
 
   getUsersCache().then(allUsers => {
-    let users = allUsers
+    const baseUsers = allUsers
       .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
       .filter(u => !myFriends.has(u.id) && !sentRequests.has(u.id));
 
-    // Blend relevance with session randomness so suggestions rotate between feed visits.
-    users = users.map(u => {
+    const scoredUsers = baseUsers.map(u => {
       let score = 0;
       const theirModules = normalizeModules(u.modules || []);
       const shared = myModules.filter(m => theirModules.includes(m));
       const nearby = getNearbySignal(state.profile, u);
       const nearbyScore = nearby.score;
       const isFriend = myFriends.has(u.id);
+      const majorMatch = !!myMajor && u.major === myMajor;
       if (shared.length) score += 36 + shared.length * 14;
-      if (u.major === myMajor) score += 22;
+      if (majorMatch) score += 22;
       if (u.year && myYear && u.year === myYear) score += 8;
       if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
       score += genderAffinityScore(state.profile, u);
       if (isFriend) score -= 18;
-      if (!shared.length && u.major !== myMajor && nearbyScore === 0) score -= 12;
-      score += sessionSeed(`discover-rank:${u.id}`) * 8;
-      return { ...u, isFriend, score, sharedModules: shared, nearbyScore, distanceKm: nearby.distanceKm, nearbySource: nearby.source };
+      if (!shared.length && !majorMatch && nearbyScore === 0) score -= 12;
+      return {
+        ...u,
+        isFriend,
+        score,
+        sharedModules: shared,
+        nearbyScore,
+        distanceKm: nearby.distanceKm,
+        nearbySource: nearby.source,
+        _majorMatch: majorMatch
+      };
     });
 
-    const relevant = users
-      .filter(u => u.sharedModules.length || u.nearbyScore > 0 || u.major === myMajor || u.score >= 18)
-      .sort((a, b) => b.score - a.score || (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+    const sharedPool = shuffleList(scoredUsers
+      .filter(u => u.sharedModules.length)
+      .sort((a, b) => b.score - a.score));
+    const nearbyPool = shuffleList(scoredUsers
+      .filter(u => !u.sharedModules.length && u.nearbyScore > 0)
+      .sort((a, b) => b.score - a.score));
+    const majorPool = shuffleList(scoredUsers
+      .filter(u => !u.sharedModules.length && u.nearbyScore === 0 && u._majorMatch)
+      .sort((a, b) => b.score - a.score));
+    const highAffinityPool = shuffleList(scoredUsers
+      .filter(u => !u.sharedModules.length && u.nearbyScore === 0 && !u._majorMatch && u.score >= 18)
+      .sort((a, b) => b.score - a.score));
 
-    const relevantIds = new Set(relevant.map(u => u.id));
-    const randomFallback = users
-      .filter(u => !relevantIds.has(u.id))
-      .sort((a, b) => sessionSeed(`discover-fallback:${a.id}`) - sessionSeed(`discover-fallback:${b.id}`));
+    const used = new Set([...sharedPool, ...nearbyPool, ...majorPool, ...highAffinityPool].map(u => u.id));
+    const randomFallback = shuffleList(scoredUsers.filter(u => !used.has(u.id)));
 
-    const relevantTake = Math.min(7, relevant.length);
-    users = [...relevant.slice(0, relevantTake), ...randomFallback.slice(0, 10 - relevantTake)];
-    if (users.length < 10) users.push(...relevant.slice(relevantTake, relevantTake + (10 - users.length)));
-    users = users.slice(0, 10);
+    let ordered = [...sharedPool, ...nearbyPool, ...majorPool, ...highAffinityPool, ...randomFallback];
+    if (!sharedPool.length && !nearbyPool.length) {
+      ordered = shuffleList(scoredUsers);
+    }
+
+    const users = ordered.slice(0, 10);
 
     if (!users.length) {
       el.innerHTML = `<div class="discover-empty"><span>👥</span><p>No students found yet. Invite friends!</p></div>`;
@@ -4857,16 +4999,21 @@ function loadDiscoverEvents() {
     }
     const interestProfile = buildInterestProfile();
     const rankedEvents = [...events].map(ev => {
-      const loc = getCampusLocationById(ev.location);
-      const locationBoost = loc ? getLocationDistanceBoost({ lat: loc.lat, lng: loc.lng }) : 0;
+      const locationMeta = getEventLocationMeta(ev);
+      const locationBoost = Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng)
+        ? getLocationDistanceBoost({ lat: locationMeta.lat, lng: locationMeta.lng })
+        : 0;
       const goingBoost = Math.min(10, (ev.going || []).length * 1.5);
-      const interestBoost = textInterestScore(`${ev.title || ''} ${ev.description || ''} ${ev.location || ''}`, interestProfile);
+      const interestBoost = textInterestScore(`${ev.title || ''} ${ev.description || ''} ${locationMeta.label || ev.location || ''}`, interestProfile);
       return { ...ev, _discoverScore: locationBoost + goingBoost + interestBoost };
     }).sort((a, b) => b._discoverScore - a._discoverScore || (a.date || '').localeCompare(b.date || ''));
     el.innerHTML = `<div class="discover-scroll">${rankedEvents.slice(0, 8).map(ev => {
-      const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-      const locName = loc ? loc.name : esc(ev.location || '?');
-      const nearLabel = loc && getLocationDistanceBoost({ lat: loc.lat, lng: loc.lng }) > 0 ? ' · Near you' : '';
+      const locationMeta = getEventLocationMeta(ev);
+      const locName = locationMeta.label || ev.location || '?';
+      const nearLabel = Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng)
+        && getLocationDistanceBoost({ lat: locationMeta.lat, lng: locationMeta.lng }) > 0
+          ? ' · Near you'
+          : '';
       const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
       const goingCount = (ev.going || []).length;
       const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
@@ -4875,7 +5022,7 @@ function loadDiscoverEvents() {
           ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div style="background:${grad};width:100%;height:120px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>`}
           <div class="discover-card-name">${esc(ev.title)}</div>
           <div class="discover-card-meta">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
-          <div class="discover-card-tag">📍 ${locName}${nearLabel}</div>
+          <div class="discover-card-tag">📍 ${esc(locName)}${nearLabel}</div>
           ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">👥 ${goingCount} going</div>` : ''}
         </div>`;
     }).join('')}</div>`;
@@ -5488,15 +5635,16 @@ function pickFeedSuggestedEvent() {
   if (!Array.isArray(allCampusEvents) || !allCampusEvents.length) return null;
   const now = Date.now();
   const upcoming = allCampusEvents.filter(ev => eventStartTimeMs(ev) >= now - (30 * 60 * 1000));
-  return (upcoming[0] || allCampusEvents[0] || null);
+  const pool = upcoming.length ? upcoming : allCampusEvents;
+  return shuffleList(pool)[0] || null;
 }
 
 function renderFeedInlineEventCard(eventDoc = {}) {
   if (!eventDoc?.id) return '';
   const thumb = (eventDoc.imageURLs && eventDoc.imageURLs.length) ? eventDoc.imageURLs[0] : '';
   const gradient = eventDoc.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-  const loc = getCampusLocationById(eventDoc.location);
-  const locationLabel = loc ? loc.name : (eventDoc.location || 'Campus');
+  const locationMeta = getEventLocationMeta(eventDoc);
+  const locationLabel = locationMeta.label || (eventDoc.location || 'Campus');
   const goingCount = Array.isArray(eventDoc.going) ? eventDoc.going.length : 0;
   return `<div class="suggested-card suggested-event-card" onclick="openEventDetail('${eventDoc.id}')">
     <div class="suggested-event-thumb">${thumb
@@ -5525,37 +5673,58 @@ function buildFeedSuggestedPeople(users = [], limit = 15) {
     return true;
   }).map(u => {
     const overlap = normalizeModules(u.modules || []).filter(tag => myModules.includes(tag)).length;
-    const majorBoost = (u.major || '').toLowerCase() === myMajor ? 3 : 0;
+    const majorMatch = (u.major || '').toLowerCase() === myMajor;
+    const majorBoost = majorMatch ? 3 : 0;
     const nearby = getNearbySignal(state.profile || {}, u || {});
-    const nearbyBoost = nearby.score > 0 ? (2 + nearby.score * 1.5) : 0;
+    const nearbyScore = nearby.score || 0;
+    const nearbyBoost = nearbyScore > 0 ? (2 + nearbyScore * 1.5) : 0;
     const genderBoost = genderAffinityScore(state.profile || {}, u || {}) * 0.3;
     const onlineBoost = u.status === 'online' ? 1.2 : 0;
     const relevance = overlap * 4.2 + majorBoost + nearbyBoost + genderBoost + onlineBoost;
-    return { ...u, _relevance: relevance, _overlap: overlap };
+    return { ...u, _relevance: relevance, _overlap: overlap, _nearbyScore: nearbyScore, _majorMatch: majorMatch };
   });
 
   if (!candidates.length) return [];
-  const relevant = candidates
-    .filter(u => u._overlap > 0 || u._relevance >= 6)
-    .sort((a, b) => (b._relevance + sessionSeed(`feed-sugg-rel:${b.id}`) * 4) - (a._relevance + sessionSeed(`feed-sugg-rel:${a.id}`) * 4));
-  const relevantIds = new Set(relevant.map(u => u.id));
-  const randomPool = candidates
-    .filter(u => !relevantIds.has(u.id))
-    .sort((a, b) => sessionSeed(`feed-sugg-rand:${a.id}`) - sessionSeed(`feed-sugg-rand:${b.id}`));
 
-  const takeRelevant = Math.min(relevant.length, Math.max(4, Math.floor(limit * 0.6)));
-  const picks = [...relevant.slice(0, takeRelevant)];
-  if (picks.length < limit) picks.push(...randomPool.slice(0, limit - picks.length));
-  if (picks.length < limit) picks.push(...relevant.slice(takeRelevant, takeRelevant + (limit - picks.length)));
+  const sharedPool = shuffleList(candidates
+    .filter(u => u._overlap > 0)
+    .sort((a, b) => b._relevance - a._relevance));
+  const nearbyPool = shuffleList(candidates
+    .filter(u => u._overlap === 0 && u._nearbyScore > 0)
+    .sort((a, b) => b._relevance - a._relevance));
+  const majorPool = shuffleList(candidates
+    .filter(u => u._overlap === 0 && u._nearbyScore === 0 && u._majorMatch)
+    .sort((a, b) => b._relevance - a._relevance));
+  const affinityPool = shuffleList(candidates
+    .filter(u => u._overlap === 0 && u._nearbyScore === 0 && !u._majorMatch && u._relevance >= 6)
+    .sort((a, b) => b._relevance - a._relevance));
 
-  return picks
-    .slice(0, limit)
-    .sort((a, b) => sessionSeed(`feed-sugg-order:${a.id}`) - sessionSeed(`feed-sugg-order:${b.id}`));
+  if (!sharedPool.length && !nearbyPool.length) {
+    return shuffleList(candidates).slice(0, limit);
+  }
+
+  const ordered = [];
+  const used = new Set();
+  const pushUnique = (group = []) => {
+    group.forEach(item => {
+      if (ordered.length >= limit || used.has(item.id)) return;
+      used.add(item.id);
+      ordered.push(item);
+    });
+  };
+
+  pushUnique(sharedPool);
+  pushUnique(nearbyPool);
+  pushUnique(majorPool);
+  pushUnique(affinityPool);
+  pushUnique(shuffleList(candidates));
+
+  return ordered.slice(0, limit);
 }
 
 function renderFeedInlineSuggestionRail(users = []) {
   const picks = (users || []).slice(0, 10);
-  const eventPicks = [...(allCampusEvents || [])].slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
+  const eventPicks = shuffleList(allCampusEvents || []).slice(0, Math.min(2, Math.max(0, 6 - picks.length)));
   if (!picks.length && !eventPicks.length) return '';
   return `
     <div class="post-card feed-inline-suggestion feed-inline-suggestion-rail">
@@ -5581,12 +5750,12 @@ function renderFeedInlineSuggestionRail(users = []) {
         </div>`;
       }).join('')}
       ${eventPicks.map(ev => {
-        const loc = getCampusLocationById(ev.location);
+        const locationMeta = getEventLocationMeta(ev);
         const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
         return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
           ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : `<div class="suggested-event-emoji">${esc(ev.emoji || '📅')}</div>`}
           <div class="suggested-card-name">${esc(ev.title || 'Campus event')}</div>
-          <div class="suggested-card-meta">${esc(loc ? loc.name : (ev.location || 'Event'))}</div>
+          <div class="suggested-card-meta">${esc(locationMeta.label || ev.location || 'Event')}</div>
           <button class="btn-sm btn-outline" onclick="event.preventDefault();event.stopPropagation();openEventDetail('${ev.id || ''}')">Open</button>
         </div>`;
       }).join('')}</div>
@@ -5704,7 +5873,9 @@ function renderPosts(posts) {
     const shouldInject = !!featuredEventForFeed || (posts.length >= 10 && scoreSeed(seedBase) > 0.42);
     const desired = shouldInject ? Math.min(1, maxSuggestionsLeft) : 0;
     for (let i = 0; i < desired; i++) {
-      const picks = pool.slice(0, 15);
+      const picks = shuffleList(pool)
+        .filter(person => !_feedInlineSuggestedUserIds.has(person.id))
+        .slice(0, 15);
       if (!picks.length && !featuredEventForFeed) break;
       const spread = Math.max(4, Math.min(9, posts.length - 2));
       const offset = Math.max(3, Math.round(scoreSeed(`${seedBase}:slot:${i}`) * spread));
@@ -8044,6 +8215,12 @@ No</textarea></div>
   };
 
   const wireEventTab = () => {
+    const pendingPoint = window._pendingRadarPinnedPoint || null;
+    const locationInput = $('#ev-location-text');
+    if (pendingPoint && locationInput && !String(locationInput.value || '').trim()) {
+      locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
+    }
+
     if ($('#ev-file')) $('#ev-file').onchange = e => {
       const files = Array.from(e.target.files).slice(0, 4);
       window._eventFiles = files;
@@ -8055,6 +8232,7 @@ No</textarea></div>
     if ($('#ev-create-btn')) $('#ev-create-btn').onclick = async () => {
       const title = $('#ev-title')?.value.trim();
       const locationText = $('#ev-location-text')?.value.trim() || '';
+      const locationMeta = resolveEventLocationInput(locationText);
       const date = $('#ev-date')?.value;
       const time = $('#ev-time')?.value || '';
       const desc = $('#ev-desc')?.value.trim() || '';
@@ -8070,7 +8248,15 @@ No</textarea></div>
           if (url) imageURLs.push(url);
         }
         const eventPayload = {
-          title, location: locationText, date, time, description: desc,
+          title,
+          location: locationMeta.location || locationText,
+          locationLabel: locationMeta.locationLabel || locationText,
+          geoLat: Number.isFinite(locationMeta.geoLat) ? Number(locationMeta.geoLat) : null,
+          geoLng: Number.isFinite(locationMeta.geoLng) ? Number(locationMeta.geoLng) : null,
+          locationSource: locationMeta.source || 'none',
+          date,
+          time,
+          description: desc,
           imageURLs,
           gradient: gradients[Math.floor(Math.random() * gradients.length)],
           createdBy: state.user.uid,
@@ -8080,6 +8266,7 @@ No</textarea></div>
         };
         const evRef = await db.collection('events').add(eventPayload);
         await upsertEventChatGroup({ id: evRef.id, ...eventPayload });
+        window._pendingRadarPinnedPoint = null;
         toast('Event created!');
         await loadCampusEvents();
         if (exploreView === 'radar') renderRadarView();
@@ -9520,14 +9707,26 @@ function ensurePendingRouteVisible(attempt = 0) {
 
 function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
   const name = (label || 'Pinned location').trim();
+  const safeLat = Number(lat);
+  const safeLng = Number(lng);
+  if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) {
+    toast('Could not use pinned point');
+    return;
+  }
+  window._pendingRadarPinnedPoint = { lat: safeLat, lng: safeLng, label: name };
   navigate('create');
   setTimeout(() => {
-    const title = document.getElementById('create-event-title') || document.getElementById('event-title') || document.querySelector('input[placeholder*="event" i]');
-    const loc = document.getElementById('create-event-location') || document.getElementById('event-location') || document.querySelector('input[placeholder*="location" i]');
+    const title = document.getElementById('ev-title')
+      || document.getElementById('create-event-title')
+      || document.getElementById('event-title')
+      || document.querySelector('input[placeholder*="event" i]');
+    const loc = document.getElementById('ev-location-text')
+      || document.getElementById('create-event-location')
+      || document.getElementById('event-location')
+      || document.querySelector('input[placeholder*="location" i]');
     if (loc && !loc.value) loc.value = name;
     if (title && !title.value) title.value = `${name} meetup`;
-    window._pendingRadarPinnedPoint = { lat, lng, label: name };
-  }, 80);
+  }, 120);
 }
 
 function routeToMapPoint(lat, lng, label = 'Destination') {
@@ -9686,7 +9885,7 @@ function renderCampusMapView() {
           <span style="font-size:12px;color:var(--text-tertiary)">${allCampusEvents.length} events</span>
         </div>
         ${allCampusEvents.length ? allCampusEvents.map(ev => {
-          const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+          const locationMeta = getEventLocationMeta(ev);
           const goingCount = (ev.going || []).length;
           const amGoing = (ev.going || []).includes(state.user.uid);
           const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
@@ -9696,7 +9895,7 @@ function renderCampusMapView() {
               <div class="campus-event-info">
                 <div class="campus-event-title">${esc(ev.title)}</div>
                 <div class="campus-event-meta">
-                  📍 ${loc ? loc.name : esc(ev.location || '?')} · 🕐 ${esc(ev.date || '')} ${esc(ev.time || '')}
+                  📍 ${esc(locationMeta.label || ev.location || '?')} · 🕐 ${esc(ev.date || '')} ${esc(ev.time || '')}
                 </div>
                 <div class="campus-event-going">
                   ${amGoing ? '<span style="color:var(--green);font-weight:700">✓ Going</span>' : ''}
@@ -9809,6 +10008,16 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
+  if (presetLoc) {
+    const campusLoc = getCampusLocationById(presetLoc) || findCampusLocationByInput(presetLoc);
+    if (campusLoc) {
+      window._pendingRadarPinnedPoint = {
+        lat: Number(campusLoc.lat),
+        lng: Number(campusLoc.lng),
+        label: campusLoc.name || 'Pinned location'
+      };
+    }
+  }
   // Open the create modal and switch to event tab
   openCreateModal();
   // Auto-switch to event tab after a tick (modal needs to render first)
@@ -9839,8 +10048,12 @@ async function openEventDetail(eventId) {
     const doc = await db.collection('events').doc(eventId).get();
     if (!doc.exists) return toast('Event not found');
     const ev = { id: doc.id, ...doc.data() };
-    const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-    const locName = loc ? loc.name : esc(ev.location || 'TBA');
+    const locationMeta = getEventLocationMeta(ev);
+    const routeLabel = String(locationMeta.label || ev.location || '').trim();
+    const locName = routeLabel || 'TBA';
+    const hasLocationData = (Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng))
+      || !!locationMeta.campusLoc
+      || !!routeLabel;
     const amGoing = (ev.going || []).includes(state.user.uid);
     const goingCount = (ev.going || []).length;
     const isCreator = ev.createdBy === state.user.uid;
@@ -9850,7 +10063,7 @@ async function openEventDetail(eventId) {
         ${(ev.imageURLs && ev.imageURLs.length) ? `<div class="ev-detail-images ${ev.imageURLs.length === 1 ? 'single' : 'grid'}">${ev.imageURLs.map(url => `<img src="${url}" onclick="viewImage('${url}')" style="cursor:pointer">`).join('')}</div>` : ''}
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-          <span>📍 ${locName}</span>
+          <span>📍 ${esc(locName)}</span>
           <span>📅 ${esc(ev.date)}</span>
           ${ev.time ? `<span>🕐 ${esc(ev.time)}</span>` : ''}
           <span>👥 ${goingCount} going</span>
@@ -9866,7 +10079,9 @@ async function openEventDetail(eventId) {
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
-        ${loc ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToCampusLocation('${loc.id}')">🧭 Route Here</button>` : ''}
+        ${hasLocationData
+          ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToEventLocationById('${ev.id}')">🧭 Route Here</button>`
+          : ''}
         ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
         ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
@@ -10744,6 +10959,7 @@ async function openGroupChat(groupId, collection = 'groups') {
           msgs.innerHTML = `${bannerHtml}<div style="text-align:center;padding:32px;opacity:0.5">Start the conversation! 💬</div>`;
         } else {
           msgs.innerHTML = bannerHtml + messages.map((m, idx) => {
+            if (!m.deleted && m.type === 'message_reaction') return '';
             const isMe = m.senderId === uid;
             let content = '';
             if (m.deleted || m.type === 'deleted') {
@@ -12125,63 +12341,43 @@ async function addNotification(targetId, type, text, payload, { anonymous = fals
 }
 
 async function viewPost(pid) {
-  // Show the post in a modal so tapping a like notification opens the actual post
+  const postId = String(pid || '').trim();
+  if (!postId) return;
+
+  const focusPostCard = (attempt = 0) => {
+    const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: attempt ? 'smooth' : 'auto', block: 'center' });
+      card.classList.add('post-focus-flash');
+      setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
+      return true;
+    }
+    if (attempt >= 12) return false;
+    setTimeout(() => focusPostCard(attempt + 1), 110);
+    return false;
+  };
+
   try {
-    const doc = await db.collection('posts').doc(pid).get();
-    if (!doc.exists) return toast('Post not found');
-    const p = { id: doc.id, ...doc.data() };
-    const liked = (p.likes || []).includes(state.user.uid);
-    const lc = (p.likes || []).length, cc = p.commentsCount || 0;
-    const hasVideo = p.videoURL || (p.mediaType === 'video');
-    const hasImage = p.imageURL && !hasVideo;
-    const mediaURL = hasVideo ? (p.videoURL || p.imageURL) : p.imageURL;
-    const rawAuthorPhoto = p.isAnonymous ? null : (p.authorPhoto || resolvePostAuthorPhoto(p));
-    const authorIdentity = p.isAnonymous
-      ? { name: getAnonymousLabelForPost(p), photo: null }
-      : getResolvedUserIdentity(p.authorId, p.authorName || 'User', rawAuthorPhoto);
-    const displayAuthorName = authorIdentity.name || p.authorName || 'User';
-    const displayAuthorPhoto = p.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
+    closeModal();
 
-    let videoPlayerData = null;
-    if (hasVideo && mediaURL) { videoPlayerData = createVideoPlayer(mediaURL); }
+    let post = (state.posts || []).find(item => item.id === postId) || null;
+    if (!post) {
+      const doc = await db.collection('posts').doc(postId).get();
+      if (!doc.exists) return toast('Post not found');
+      post = { id: doc.id, ...doc.data() };
+      state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+    }
 
-    openModal(`
-      <div class="modal-header"><h2>Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-      <div class="modal-body" style="padding:16px">
-        <div class="post-card" data-post-id="${p.id}" style="box-shadow:none;border:none;margin:0;padding:0">
-          ${p.repostOf ? `<div class="repost-badge" style="margin:-0 -0 10px">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <span>Reposted by ${esc(displayAuthorName)}</span>
-          </div>` : ''}
-          <div class="post-header">
-            ${p.isAnonymous ? `<div class="avatar-md anon-avatar" onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer">👻</div>` : `<div onclick="closeModal();openProfile('${p.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
-            <div class="post-header-info">
-              <div class="post-author-name" ${p.isAnonymous ? `onclick="closeModal();openAnonPostActions('${p.authorId}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${p.authorId}')"`}>${p.isAnonymous ? esc(getAnonymousLabelForPost(p)) : esc(displayAuthorName) + verifiedBadge(p.authorId)}</div>
-              <div class="post-meta">${timeAgo(p.createdAt)}</div>
-            </div>
-          </div>
-          ${p.content ? renderExpandablePostContent(p.content, `modal-${p.id}`, 180) : ''}
-          ${renderPostModuleTags(p.moduleTags || [])}
-          ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
-          ${hasImage && mediaURL ? `<div class="post-media-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')" style="max-height:300px"></div>` : ''}
-          ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
-          ${p.repostOf ? renderQuoteEmbed(p.repostOf, { repostStyle: true }) : ''}
-          <div class="post-actions" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-            ${p.isAnonymous && p.authorId !== state.user.uid ? `<button class="post-action anon-inline-action" onclick="closeModal();openAnonPostActions('${p.authorId}')">👻 Message</button>` : ''}
-            <button class="post-action post-like-action modal-like-action ${liked ? 'liked' : ''}" data-post-id="${p.id}" onclick="toggleLike('${p.id}')">❤ ${lc || 'Like'}</button>
-            <button class="post-action" onclick="closeModal();openComments('${p.id}')">💬 ${cc || 'Comment'}</button>
-            <button class="post-action" onclick="closeModal();openShareModal('${p.id}')">↗ Share</button>
-          </div>
-        </div>
-      </div>
-    `);
-
-    requestAnimationFrame(() => {
-      if (videoPlayerData) initPlayer(videoPlayerData.id);
-      _pendingQuotePlayers.forEach(p => initPlayer(p.id));
-      _pendingQuotePlayers.length = 0;
-    });
-  } catch (e) { console.error(e); toast('Could not load post'); }
+    navigate('feed');
+    setTimeout(() => {
+      if (state.page !== 'feed') return;
+      if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
+      if (!focusPostCard(0)) toast('Post opened in feed');
+    }, 100);
+  } catch (e) {
+    console.error(e);
+    toast('Could not open post');
+  }
 }
 
 // ─── DM List ─────────────────────────────────────
@@ -12603,6 +12799,7 @@ async function openChat(convoId) {
         } else {
           let lastDateLabel = '';
           msgs.innerHTML = messages.map((m, idx) => {
+            if (!m.deleted && m.type === 'message_reaction') return '';
             const isMe = m.senderId === uid;
             let content = '';
             if (m.deleted || m.type === 'deleted') {
@@ -13725,6 +13922,7 @@ function editProfile() {
     if (!anonIdentity && selectedTheme !== '__custom') anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
+    const identityChanged = normalizeIdentityValue(anonIdentity) !== normalizeIdentityValue(currentAnonIdentity);
     const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
     if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
     try {
@@ -13732,6 +13930,7 @@ function editProfile() {
       Object.assign(state.profile, updates);
       updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
+      if (identityChanged) syncAnonIdentityInConversations(anonIdentity).catch(() => {});
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
       setupHeader();
       if (state.page === 'chat') { loadDMList().catch(() => {}); }
@@ -14686,7 +14885,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, openStoryFromMessage, closeNotifDropdown,
-    clearMapRoute, routeToCampusLocation, routeToMapPoint, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
+    clearMapRoute, routeToCampusLocation, routeToMapPoint, routeToEventLocationById, openCampusMapView, openLocationPinPreview, openCreateEventAtMapPoint,
     downloadCurrentGalleryImage, downloadMediaUrl, downloadMediaUrlEncoded, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
