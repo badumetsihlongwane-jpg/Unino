@@ -106,7 +106,7 @@ public class MainActivity extends BridgeActivity {
 	}
 
 	@Override
-	protected void onResume() {
+	public void onResume() {
 		super.onResume();
 		View content = findViewById(android.R.id.content);
 		if (content != null) ViewCompat.requestApplyInsets(content);
