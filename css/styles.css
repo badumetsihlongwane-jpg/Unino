@@ -119,8 +119,10 @@ input, select, textarea, button {
   z-index: 1;
   flex-direction: column;
   padding-top: var(--app-safe-top);
+  padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
   overflow: hidden;
+  background: var(--bg-primary);
 }
 
 .screen.active {
@@ -684,7 +686,7 @@ input, select, textarea, button {
   padding: 8px 10px calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
   flex-shrink: 0;
   width: calc(100% - 24px);
-  margin: 0 auto 10px;
+  margin: 0 auto calc(10px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
   border-radius: 28px;
   box-shadow: 0 16px 40px rgba(17,24,39,.12);
   backdrop-filter: blur(14px);
@@ -783,6 +785,8 @@ input, select, textarea, button {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 16px);
 }
 
 /* ── Feed Page ─────────────────────────────────────────── */
@@ -3236,6 +3240,38 @@ body.image-view-open .modal-bg {
   margin-bottom: 6px;
 }
 
+.form-group input[type="file"] {
+  width: 100%;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--bg-secondary)), var(--bg-tertiary));
+  border: 1px dashed color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 18px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.form-group input[type="file"]::file-selector-button {
+  border: 0;
+  border-radius: 999px;
+  margin-right: 12px;
+  padding: 10px 14px;
+  background: var(--gradient);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.form-group input[type="file"]::-webkit-file-upload-button {
+  border: 0;
+  border-radius: 999px;
+  margin-right: 12px;
+  padding: 10px 14px;
+  background: var(--gradient);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .form-group input,
 .form-group select,
 .form-group textarea {
@@ -3267,6 +3303,7 @@ body.image-view-open .modal-bg {
   border-radius: 18px;
   overflow: hidden;
   margin-top: 12px;
+  background: var(--bg-secondary);
 }
 
 .image-preview img {
@@ -4121,7 +4158,7 @@ body.image-view-open .modal-bg {
   right: 0;
   display: flex;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   z-index: 310;
 }
 .story-progress-seg {
@@ -4149,7 +4186,7 @@ body.image-view-open .modal-bg {
 
 .story-viewer-header {
   position: absolute;
-  top: calc(var(--app-safe-top) + 16px);
+  top: calc(var(--app-safe-top) + 8px);
   left: 0;
   right: 0;
   display: flex;
@@ -4157,6 +4194,47 @@ body.image-view-open .modal-bg {
   justify-content: space-between;
   padding: 0 16px;
   z-index: 310;
+}
+
+.pull-refresh-indicator {
+  position: fixed;
+  top: calc(var(--app-safe-top) + 10px);
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 260;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  color: var(--text-primary);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+  transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+}
+
+.pull-refresh-indicator.ready {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
+}
+
+.pull-refresh-indicator.refreshing {
+  opacity: 1;
+}
+
+.pull-refresh-indicator .inline-spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  margin: 0;
+}
+
+.pull-refresh-indicator span:last-child {
+  font-size: 12px;
+  font-weight: 700;
 }
 .story-viewer-user {
   display: flex;
