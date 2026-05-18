@@ -118,6 +118,7 @@ input, select, textarea, button {
   inset: 0;
   z-index: 1;
   flex-direction: column;
+  padding-top: var(--app-safe-top);
   padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
   overflow: hidden;
@@ -4141,6 +4142,7 @@ body.image-view-open .modal-bg {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding-top: var(--app-safe-top);
   padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
@@ -4151,7 +4153,7 @@ body.image-view-open .modal-bg {
 
 .story-progress-bar {
   position: absolute;
-  top: 0;
+  top: var(--app-safe-top);
   left: 0;
   right: 0;
   display: flex;
@@ -4184,7 +4186,7 @@ body.image-view-open .modal-bg {
 
 .story-viewer-header {
   position: absolute;
-  top: 8px;
+  top: calc(var(--app-safe-top) + 8px);
   left: 0;
   right: 0;
   display: flex;
@@ -4302,7 +4304,7 @@ body.image-view-open .modal-bg {
 
 .story-viewer-nav {
   position: absolute;
-  inset: 80px 0 40px;
+  inset: calc(var(--app-safe-top) + 80px) 0 40px;
   display: flex;
   z-index: 305;
 }
