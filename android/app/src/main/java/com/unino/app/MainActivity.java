@@ -3,9 +3,11 @@ package com.unino.app;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -79,12 +81,22 @@ public class MainActivity extends BridgeActivity {
 			controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
 		}
 
+		View contentView = findViewById(android.R.id.content);
+		if (contentView != null) {
+			ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, insets) -> {
+				applySystemInsetCssVars(insets);
+				return insets;
+			});
+			ViewCompat.requestApplyInsets(contentView);
+		}
+
 		dispatchNotificationIntent(getIntent());
 	}
 
 	@Override
 	public void onResume() {
 		super.onResume();
+		applyCurrentSystemInsets();
 	}
 	@Override
 	protected void onNewIntent(Intent intent) {
@@ -112,6 +124,28 @@ public class MainActivity extends BridgeActivity {
 		if (token == null || token.trim().isEmpty() || getBridge() == null) return;
 		String safeToken = token.replace("\\", "\\\\").replace("'", "\\'");
 		String script = "window.__UNINO_NATIVE_FCM_TOKEN='" + safeToken + "';window.dispatchEvent(new CustomEvent('unino:native-fcm-token',{detail:{token:'" + safeToken + "'}}));";
+		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
+	}
+
+	private void applyCurrentSystemInsets() {
+		View contentView = findViewById(android.R.id.content);
+		if (contentView == null) return;
+		WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(contentView);
+		if (insets != null) applySystemInsetCssVars(insets);
+		ViewCompat.requestApplyInsets(contentView);
+	}
+
+	private void applySystemInsetCssVars(WindowInsetsCompat insets) {
+		if (insets == null) return;
+		int statusInset = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.statusBars()).top);
+		int navInset = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
+		injectNativeInsetCssVars(statusInset, navInset);
+	}
+
+	private void injectNativeInsetCssVars(int topInsetPx, int bottomInsetPx) {
+		if (getBridge() == null || getBridge().getWebView() == null) return;
+		String script = "document.documentElement.style.setProperty('--native-status-bar','" + topInsetPx + "px');"
+			+ "document.documentElement.style.setProperty('--native-safe-bottom','" + bottomInsetPx + "px');";
 		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
 	}
 
