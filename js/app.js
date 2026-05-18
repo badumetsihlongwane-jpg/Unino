@@ -1015,13 +1015,6 @@ async function syncNativeStatusBar() {
     ? (styleEnum.Light || 'LIGHT')
     : (styleEnum.Dark || 'DARK');
   try { await statusBar.setStyle({ style: targetStyle }); } catch (e) {}
-  // Use the native-injected status bar height; fall back to a safe Android default
-  const rootStyle = getComputedStyle(document.documentElement);
-  const injected = rootStyle.getPropertyValue('--native-status-bar').trim();
-  const safePx = (injected && injected !== '0px') ? injected : '28px';
-  document.documentElement.style.setProperty('--app-safe-top', safePx);
-  const bottomInset = rootStyle.getPropertyValue('--native-safe-bottom').trim();
-  if (bottomInset) document.documentElement.style.setProperty('--app-safe-bottom', bottomInset);
 }
 
 async function savePushTokenForCurrentUser(token) {

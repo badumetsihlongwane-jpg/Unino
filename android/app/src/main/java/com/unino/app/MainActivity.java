@@ -3,12 +3,9 @@ package com.unino.app;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -69,8 +66,8 @@ public class MainActivity extends BridgeActivity {
 		window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
 		window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
 
-		// Draw edge-to-edge and let web UI apply exact insets from native values.
-		WindowCompat.setDecorFitsSystemWindows(window, false);
+		// Let Android reserve the system bar areas; the web UI should render inside the content frame.
+		WindowCompat.setDecorFitsSystemWindows(window, true);
 		window.setStatusBarColor(Color.parseColor("#FFFFFF"));
 		window.setNavigationBarColor(Color.parseColor("#FFFFFF"));
 
@@ -82,34 +79,12 @@ public class MainActivity extends BridgeActivity {
 			controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
 		}
 
-		// Apply native insets through CSS vars used by the web UI.
-		View content = findViewById(android.R.id.content);
-		final float density = getResources().getDisplayMetrics().density;
-		int fallbackStatusBar = 0;
-		int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-		if (resId > 0) fallbackStatusBar = getResources().getDimensionPixelSize(resId);
-		injectNativeInsetsToWebView(Math.max(0, Math.round(fallbackStatusBar / density)), 0);
-		if (content != null) {
-			content.setFitsSystemWindows(false);
-			ViewCompat.setOnApplyWindowInsetsListener(content, (view, insets) -> {
-				Insets statusInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars());
-				Insets navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-				int statusPx = Math.max(0, Math.round(statusInsets.top / density));
-				int navPx = Math.max(0, Math.round(navInsets.bottom / density));
-				injectNativeInsetsToWebView(statusPx, navPx);
-				return insets;
-			});
-			ViewCompat.requestApplyInsets(content);
-		}
-
 		dispatchNotificationIntent(getIntent());
 	}
 
 	@Override
 	public void onResume() {
 		super.onResume();
-		View content = findViewById(android.R.id.content);
-		if (content != null) ViewCompat.requestApplyInsets(content);
 	}
 	@Override
 	protected void onNewIntent(Intent intent) {
@@ -137,21 +112,6 @@ public class MainActivity extends BridgeActivity {
 		if (token == null || token.trim().isEmpty() || getBridge() == null) return;
 		String safeToken = token.replace("\\", "\\\\").replace("'", "\\'");
 		String script = "window.__UNINO_NATIVE_FCM_TOKEN='" + safeToken + "';window.dispatchEvent(new CustomEvent('unino:native-fcm-token',{detail:{token:'" + safeToken + "'}}));";
-		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
-	}
-
-	private void injectNativeInsetsToWebView(int statusBarPx, int navBarPx) {
-		if (getBridge() == null || getBridge().getWebView() == null) return;
-		final int safeStatus = Math.max(0, statusBarPx);
-		final int safeNav = Math.max(0, navBarPx);
-		String script = "(() => {"
-			+ "const root=document.documentElement;"
-			+ "if(!root) return;"
-			+ "root.style.setProperty('--native-status-bar','" + safeStatus + "px');"
-			+ "root.style.setProperty('--native-safe-bottom','" + safeNav + "px');"
-			+ "root.style.setProperty('--app-safe-top','" + safeStatus + "px');"
-			+ "root.style.setProperty('--app-safe-bottom','" + safeNav + "px');"
-			+ "})();";
 		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
 	}
 
