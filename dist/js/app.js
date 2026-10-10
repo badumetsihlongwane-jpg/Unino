@@ -57,8 +57,12 @@ let _activeChatConvoId = '';
 let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
 let _pendingFeedScrollRestore = null;
+let _pendingFeedFocusPostId = '';
+let _feedFocusedPostId = '';
+let _feedFocusLockUntil = 0;
 let _notifDropdownCloseHandler = null;
 let _contentScrollGestureAt = 0;
+let _pullRefreshState = null;
 let _pendingMapRoute = null;
 let _activeMapRouteLayer = null;
 let _activeMapRouteMarkers = [];
@@ -1013,13 +1017,6 @@ async function syncNativeStatusBar() {
     ? (styleEnum.Light || 'LIGHT')
     : (styleEnum.Dark || 'DARK');
   try { await statusBar.setStyle({ style: targetStyle }); } catch (e) {}
-  // Use the native-injected status bar height; fall back to a safe Android default
-  const rootStyle = getComputedStyle(document.documentElement);
-  const injected = rootStyle.getPropertyValue('--native-status-bar').trim();
-  const safePx = (injected && injected !== '0px') ? injected : '28px';
-  document.documentElement.style.setProperty('--app-safe-top', safePx);
-  const bottomInset = rootStyle.getPropertyValue('--native-safe-bottom').trim();
-  if (bottomInset) document.documentElement.style.setProperty('--app-safe-bottom', bottomInset);
 }
 
 async function savePushTokenForCurrentUser(token) {
@@ -2564,10 +2561,9 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
     const authorId = item.getAttribute('data-author-id') || '';
     const commentId = item.getAttribute('data-comment-id') || '';
     const isCommentOwner = authorId === state.user?.uid;
-    const isPostOwner = !!postAuthorId && postAuthorId === state.user?.uid;
-    const canModerate = !!state.user?.uid && (_isAdmin || isCommentOwner || isPostOwner);
+    const canModerate = !!state.user?.uid && (_isAdmin || isCommentOwner);
     if (!commentId || !canModerate) return;
-    const mode = _isAdmin ? 'admin' : (isCommentOwner ? 'owner' : 'post-owner');
+    const mode = _isAdmin ? 'admin' : 'owner';
     let timer = null;
     let didOpen = false;
     const start = () => {
@@ -2642,14 +2638,12 @@ async function deleteCommentThread(postId, commentId, source = 'feed') {
     const commentsRef = db.collection('posts').doc(postId).collection('comments');
     const uid = state.user?.uid || '';
     if (!uid) return;
-    const postSnap = await db.collection('posts').doc(postId).get();
-    const postAuthorId = postSnap.exists ? (postSnap.data()?.authorId || '') : '';
     const snap = await commentsRef.limit(200).get();
     const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const targetComment = comments.find(comment => comment.id === commentId) || null;
-    const canDelete = !!targetComment && (_isAdmin || targetComment.authorId === uid || postAuthorId === uid);
+    const canDelete = !!targetComment && (_isAdmin || targetComment.authorId === uid);
     if (!canDelete) {
-      toast('Only the post owner or comment owner can delete this');
+      toast('Only the comment owner can delete this');
       return;
     }
     const toDelete = new Set([commentId]);
@@ -4365,6 +4359,9 @@ function setupHeader() {
 }
 
 function setupNav() {
+  const navPages = ['feed', 'explore', 'hustle', 'chat'];
+  const nav = document.getElementById('nav');
+  let swipeStart = null;
   $$('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const p = btn.dataset.p;
@@ -4386,6 +4383,29 @@ function setupNav() {
       navigate(p, { restoreFeed: p === 'feed' });
     });
   });
+  if (nav && !nav.dataset.swipeReady) {
+    nav.dataset.swipeReady = '1';
+    nav.addEventListener('touchstart', event => {
+      const touch = event.touches?.[0];
+      if (!touch || event.target.closest('.nav-plus')) {
+        swipeStart = null;
+        return;
+      }
+      swipeStart = { x: touch.clientX, y: touch.clientY };
+    }, { passive: true });
+    nav.addEventListener('touchend', event => {
+      if (!swipeStart) return;
+      const touch = event.changedTouches?.[0];
+      const deltaX = Number(touch?.clientX) - swipeStart.x;
+      const deltaY = Number(touch?.clientY) - swipeStart.y;
+      swipeStart = null;
+      if (Math.abs(deltaX) < 42 || Math.abs(deltaY) > 30 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+      const currentIndex = navPages.indexOf(state.page);
+      if (currentIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(navPages.length - 1, currentIndex + (deltaX < 0 ? 1 : -1)));
+      if (nextIndex !== currentIndex) navigate(navPages[nextIndex], { restoreFeed: navPages[nextIndex] === 'feed' });
+    }, { passive: true });
+  }
 }
 
 function setupStatusPill() {
@@ -4520,6 +4540,7 @@ function navigate(page, options = {}) {
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
   }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
+  document.querySelector(`.nav-btn[data-p="${page}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   switch (page) {
     case 'feed': renderFeed(); break;
     case 'explore': renderExplore(); break;
@@ -4619,6 +4640,25 @@ function clearFeedSearch() {
   const input = $('#feed-search-input');
   if (input) input.value = '';
   renderFeedResults(state.posts || []);
+}
+
+function focusFeedPostCard(postId, behavior = 'smooth') {
+  const targetId = String(postId || '').trim();
+  if (!targetId) return false;
+  const card = document.querySelector(`.post-card[data-post-id="${targetId}"]`);
+  if (!card) return false;
+  const contentEl = document.getElementById('content');
+  if (contentEl) {
+    const contentRect = contentEl.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const nextTop = Math.max(0, contentEl.scrollTop + cardRect.top - contentRect.top - 96);
+    contentEl.scrollTo({ top: nextTop, behavior });
+  } else {
+    card.scrollIntoView({ behavior, block: 'center' });
+  }
+  card.classList.add('post-focus-flash');
+  setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
+  return true;
 }
 
 function renderFeedResults(posts = []) {
@@ -4852,14 +4892,17 @@ function renderFeed() {
       }
 
       const contentEl = document.getElementById('content');
-      const restoreScroll = _pendingFeedScrollRestore !== null
-        ? _pendingFeedScrollRestore
-        : (contentEl ? contentEl.scrollTop : _feedScrollTop);
+      const hasPendingFeedFocus = !!_pendingFeedFocusPostId || Date.now() < _feedFocusLockUntil;
+      const restoreScroll = hasPendingFeedFocus
+        ? null
+        : (_pendingFeedScrollRestore !== null
+          ? _pendingFeedScrollRestore
+          : (contentEl ? contentEl.scrollTop : _feedScrollTop));
 
       renderFeedResults(scored);
       if (contentEl) {
         requestAnimationFrame(() => {
-          contentEl.scrollTop = restoreScroll;
+          if (!hasPendingFeedFocus && restoreScroll !== null) contentEl.scrollTop = restoreScroll;
           c.style.opacity = '';
           _feedRestorePendingPaint = false;
           ensureDiscoverLoaded();
@@ -5890,6 +5933,13 @@ function renderPosts(posts) {
   primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => {});
   el.classList.remove('feed-ready');
   requestAnimationFrame(() => el.classList.add('feed-ready'));
+  const activeFocusId = _pendingFeedFocusPostId || (Date.now() < _feedFocusLockUntil ? _feedFocusedPostId : '');
+  if (activeFocusId) {
+    const focusId = activeFocusId;
+    requestAnimationFrame(() => {
+      if (focusFeedPostCard(focusId, 'auto')) _pendingFeedFocusPostId = '';
+    });
+  }
   hydratePostCommentPreviews(posts).then(() => {
     posts.forEach(post => {
       const card = document.querySelector(`.post-card[data-post-id="${post.id}"] .post-comment-preview`);
@@ -8382,6 +8432,117 @@ function renderExploreView() {
   else renderRadarView();
 }
 
+function refreshVisiblePage() {
+  if (state.page === 'feed') {
+    _pendingFeedFocusPostId = '';
+    _feedFocusedPostId = '';
+    _feedFocusLockUntil = 0;
+    navigate('feed', { refresh: true, restoreFeed: false });
+    return;
+  }
+  if (state.page === 'explore') {
+    loadExploreUsers();
+    return;
+  }
+  if (state.page === 'chat') {
+    if (state.lastMsgTab === 'groups') loadGroups();
+    else loadDMList();
+  }
+}
+
+function ensurePullRefreshIndicator() {
+  let indicator = document.getElementById('pull-refresh-indicator');
+  if (indicator) return indicator;
+  indicator = document.createElement('div');
+  indicator.id = 'pull-refresh-indicator';
+  indicator.className = 'pull-refresh-indicator';
+  indicator.innerHTML = '<span class="inline-spinner"></span><span>Pull to refresh</span>';
+  document.body.appendChild(indicator);
+  return indicator;
+}
+
+function updatePullRefreshIndicator(indicator, pullDistance, ready, refreshing) {
+  if (!indicator) return;
+  const progress = Math.max(0, Math.min(1, pullDistance / 72));
+  indicator.classList.toggle('ready', ready);
+  indicator.classList.toggle('refreshing', refreshing);
+  indicator.style.setProperty('--pull-progress', progress.toString());
+  indicator.style.opacity = refreshing || pullDistance > 0 ? '1' : '0';
+  indicator.style.transform = `translate(-50%, ${Math.min(pullDistance, 74)}px)`;
+  const label = indicator.querySelector('span:last-child');
+  if (label) label.textContent = refreshing ? 'Refreshing…' : (ready ? 'Release to refresh' : 'Pull to refresh');
+}
+
+function setupPullToRefresh() {
+  const content = document.getElementById('content');
+  if (!content || _pullRefreshState) return;
+  const indicator = ensurePullRefreshIndicator();
+  const gesture = {
+    startY: 0,
+    active: false,
+    pullDistance: 0,
+    refreshing: false
+  };
+  const reset = () => {
+    gesture.startY = 0;
+    gesture.active = false;
+    gesture.pullDistance = 0;
+    if (!gesture.refreshing) {
+      indicator.classList.remove('ready');
+      indicator.classList.remove('refreshing');
+      indicator.style.opacity = '0';
+      indicator.style.transform = 'translate(-50%, 0)';
+      const label = indicator.querySelector('span:last-child');
+      if (label) label.textContent = 'Pull to refresh';
+    }
+  };
+  const refreshNow = async () => {
+    gesture.refreshing = true;
+    updatePullRefreshIndicator(indicator, 72, true, true);
+    try {
+      refreshVisiblePage();
+      await new Promise(resolve => setTimeout(resolve, 120));
+    } finally {
+      gesture.refreshing = false;
+      reset();
+    }
+  };
+  const onStart = event => {
+    if (!['feed', 'explore'].includes(state.page)) return;
+    if (content.scrollTop > 4) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    gesture.startY = touch.clientY;
+    gesture.active = true;
+    gesture.pullDistance = 0;
+    updatePullRefreshIndicator(indicator, 0, false, false);
+  };
+  const onMove = event => {
+    if (!gesture.active || gesture.refreshing) return;
+    if (content.scrollTop > 6) return reset();
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    const pullDistance = Math.max(0, touch.clientY - gesture.startY);
+    if (pullDistance <= 0) return;
+    event.preventDefault();
+    gesture.pullDistance = pullDistance;
+    updatePullRefreshIndicator(indicator, pullDistance, pullDistance >= 72, false);
+  };
+  const onEnd = async () => {
+    if (!gesture.active || gesture.refreshing) return reset();
+    if (gesture.pullDistance >= 72) {
+      await refreshNow();
+      return;
+    }
+    reset();
+  };
+  content.addEventListener('touchstart', onStart, { passive: true });
+  content.addEventListener('touchmove', onMove, { passive: false });
+  content.addEventListener('touchend', onEnd);
+  content.addEventListener('touchcancel', onEnd);
+  _pullRefreshState = { reset };
+}
+
 function switchToExploreList(filter = 'all', queryRaw = '') {
   exploreView = 'list';
   const query = (queryRaw || '').trim();
@@ -8521,6 +8682,7 @@ function renderRadarView() {
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0);
 
     const geojsonPlaces = (await ensureCampusPlacePoints())
+      .filter(place => isNearActiveCampus(place))
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0)
       .map(place => ({ type: 'place', ...place }));
 
@@ -8824,11 +8986,13 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         try {
           const layers = mapRef.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
-          mapRef.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!mapRef.getSource('openfreemap')) {
+            mapRef.addSource('openfreemap', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          }
           if (!mapRef.getLayer('3d-buildings')) {
             mapRef.addLayer({
               id: '3d-buildings',
-              source: 'openfreemap-buildings',
+              source: 'openfreemap',
               'source-layer': 'building',
               type: 'fill-extrusion',
               minzoom: 15,
@@ -9168,6 +9332,13 @@ async function ensureCampusPlacePoints() {
   return _campusPlacePointsCache;
 }
 
+function isNearActiveCampus(point = {}, maxDistanceKm = 8) {
+  const lat = Number(point?.lat);
+  const lng = Number(point?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return distanceKmBetween(getRadarCenterCoords(), { lat, lng }) <= maxDistanceKm;
+}
+
 function dedupePlaceCandidates(candidates = []) {
   const seen = new Set();
   const deduped = [];
@@ -9298,7 +9469,8 @@ async function searchOpenStreetMapDestinations(queryRaw = '', limit = 4) {
 
   const task = (async () => {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&q=${encodeURIComponent(queryRaw)}`;
+      const campusViewbox = '27.07,-26.66,27.12,-26.70';
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&viewbox=${campusViewbox}&bounded=0&q=${encodeURIComponent(queryRaw)}`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`search-${res.status}`);
       const rows = await res.json();
@@ -9402,6 +9574,8 @@ async function mountCampusGeoJsonLayers(map) {
   if (!map || typeof map.getStyle !== 'function') return;
   const geojson = await loadCampusGeoJson();
   if (!geojson || map.getSource('campus-geojson')) return;
+  const extent = getCampusExtent(geojson);
+  if (extent && !isNearActiveCampus({ lat: extent.center[1], lng: extent.center[0] })) return;
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
   map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
@@ -12344,19 +12518,6 @@ async function viewPost(pid) {
   const postId = String(pid || '').trim();
   if (!postId) return;
 
-  const focusPostCard = (attempt = 0) => {
-    const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-    if (card) {
-      card.scrollIntoView({ behavior: attempt ? 'smooth' : 'auto', block: 'center' });
-      card.classList.add('post-focus-flash');
-      setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
-      return true;
-    }
-    if (attempt >= 12) return false;
-    setTimeout(() => focusPostCard(attempt + 1), 110);
-    return false;
-  };
-
   try {
     closeModal();
 
@@ -12368,11 +12529,14 @@ async function viewPost(pid) {
       state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
     }
 
+    _pendingFeedFocusPostId = postId;
+    _feedFocusedPostId = postId;
+    _feedFocusLockUntil = Date.now() + 2200;
     navigate('feed');
     setTimeout(() => {
       if (state.page !== 'feed') return;
       if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
-      if (!focusPostCard(0)) toast('Post opened in feed');
+      if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
     }, 100);
   } catch (e) {
     console.error(e);
@@ -14776,6 +14940,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initAuth();
   initNativeShell().catch(() => {});
+  setupPullToRefresh();
 
   showBootStatus('Starting Unibo…');
   ensureBootFallback();

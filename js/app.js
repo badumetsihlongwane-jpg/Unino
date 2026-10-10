@@ -58,6 +58,8 @@ let _activeGroupChat = { id: '', collection: '' };
 let _feedScrollTop = 0;
 let _pendingFeedScrollRestore = null;
 let _pendingFeedFocusPostId = '';
+let _feedFocusedPostId = '';
+let _feedFocusLockUntil = 0;
 let _notifDropdownCloseHandler = null;
 let _contentScrollGestureAt = 0;
 let _pullRefreshState = null;
@@ -4357,6 +4359,9 @@ function setupHeader() {
 }
 
 function setupNav() {
+  const navPages = ['feed', 'explore', 'hustle', 'chat'];
+  const nav = document.getElementById('nav');
+  let swipeStart = null;
   $$('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const p = btn.dataset.p;
@@ -4378,6 +4383,29 @@ function setupNav() {
       navigate(p, { restoreFeed: p === 'feed' });
     });
   });
+  if (nav && !nav.dataset.swipeReady) {
+    nav.dataset.swipeReady = '1';
+    nav.addEventListener('touchstart', event => {
+      const touch = event.touches?.[0];
+      if (!touch || event.target.closest('.nav-plus')) {
+        swipeStart = null;
+        return;
+      }
+      swipeStart = { x: touch.clientX, y: touch.clientY };
+    }, { passive: true });
+    nav.addEventListener('touchend', event => {
+      if (!swipeStart) return;
+      const touch = event.changedTouches?.[0];
+      const deltaX = Number(touch?.clientX) - swipeStart.x;
+      const deltaY = Number(touch?.clientY) - swipeStart.y;
+      swipeStart = null;
+      if (Math.abs(deltaX) < 42 || Math.abs(deltaY) > 30 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+      const currentIndex = navPages.indexOf(state.page);
+      if (currentIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(navPages.length - 1, currentIndex + (deltaX < 0 ? 1 : -1)));
+      if (nextIndex !== currentIndex) navigate(navPages[nextIndex], { restoreFeed: navPages[nextIndex] === 'feed' });
+    }, { passive: true });
+  }
 }
 
 function setupStatusPill() {
@@ -4512,6 +4540,7 @@ function navigate(page, options = {}) {
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
   }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
+  document.querySelector(`.nav-btn[data-p="${page}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   switch (page) {
     case 'feed': renderFeed(); break;
     case 'explore': renderExplore(); break;
@@ -4863,7 +4892,7 @@ function renderFeed() {
       }
 
       const contentEl = document.getElementById('content');
-      const hasPendingFeedFocus = !!_pendingFeedFocusPostId;
+      const hasPendingFeedFocus = !!_pendingFeedFocusPostId || Date.now() < _feedFocusLockUntil;
       const restoreScroll = hasPendingFeedFocus
         ? null
         : (_pendingFeedScrollRestore !== null
@@ -5904,8 +5933,9 @@ function renderPosts(posts) {
   primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => {});
   el.classList.remove('feed-ready');
   requestAnimationFrame(() => el.classList.add('feed-ready'));
-  if (_pendingFeedFocusPostId) {
-    const focusId = _pendingFeedFocusPostId;
+  const activeFocusId = _pendingFeedFocusPostId || (Date.now() < _feedFocusLockUntil ? _feedFocusedPostId : '');
+  if (activeFocusId) {
+    const focusId = activeFocusId;
     requestAnimationFrame(() => {
       if (focusFeedPostCard(focusId, 'auto')) _pendingFeedFocusPostId = '';
     });
@@ -8405,6 +8435,8 @@ function renderExploreView() {
 function refreshVisiblePage() {
   if (state.page === 'feed') {
     _pendingFeedFocusPostId = '';
+    _feedFocusedPostId = '';
+    _feedFocusLockUntil = 0;
     navigate('feed', { refresh: true, restoreFeed: false });
     return;
   }
@@ -8650,6 +8682,7 @@ function renderRadarView() {
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0);
 
     const geojsonPlaces = (await ensureCampusPlacePoints())
+      .filter(place => isNearActiveCampus(place))
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0)
       .map(place => ({ type: 'place', ...place }));
 
@@ -8953,11 +8986,13 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         try {
           const layers = mapRef.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;
-          mapRef.addSource('openfreemap-buildings', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          if (!mapRef.getSource('openfreemap')) {
+            mapRef.addSource('openfreemap', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          }
           if (!mapRef.getLayer('3d-buildings')) {
             mapRef.addLayer({
               id: '3d-buildings',
-              source: 'openfreemap-buildings',
+              source: 'openfreemap',
               'source-layer': 'building',
               type: 'fill-extrusion',
               minzoom: 15,
@@ -9297,6 +9332,13 @@ async function ensureCampusPlacePoints() {
   return _campusPlacePointsCache;
 }
 
+function isNearActiveCampus(point = {}, maxDistanceKm = 8) {
+  const lat = Number(point?.lat);
+  const lng = Number(point?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return distanceKmBetween(getRadarCenterCoords(), { lat, lng }) <= maxDistanceKm;
+}
+
 function dedupePlaceCandidates(candidates = []) {
   const seen = new Set();
   const deduped = [];
@@ -9427,7 +9469,8 @@ async function searchOpenStreetMapDestinations(queryRaw = '', limit = 4) {
 
   const task = (async () => {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&q=${encodeURIComponent(queryRaw)}`;
+      const campusViewbox = '27.07,-26.66,27.12,-26.70';
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${Math.max(1, Math.min(8, limit))}&countrycodes=za&viewbox=${campusViewbox}&bounded=0&q=${encodeURIComponent(queryRaw)}`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`search-${res.status}`);
       const rows = await res.json();
@@ -9531,6 +9574,8 @@ async function mountCampusGeoJsonLayers(map) {
   if (!map || typeof map.getStyle !== 'function') return;
   const geojson = await loadCampusGeoJson();
   if (!geojson || map.getSource('campus-geojson')) return;
+  const extent = getCampusExtent(geojson);
+  if (extent && !isNearActiveCampus({ lat: extent.center[1], lng: extent.center[0] })) return;
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
   map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
@@ -12485,6 +12530,8 @@ async function viewPost(pid) {
     }
 
     _pendingFeedFocusPostId = postId;
+    _feedFocusedPostId = postId;
+    _feedFocusLockUntil = Date.now() + 2200;
     navigate('feed');
     setTimeout(() => {
       if (state.page !== 'feed') return;

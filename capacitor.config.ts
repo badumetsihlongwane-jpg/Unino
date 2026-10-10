@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.unino.app',
-  appName: 'Unibo',
+  appName: 'Unino',
   webDir: 'dist',
   server: {
     androidScheme: 'https'
@@ -17,7 +17,7 @@ const config: CapacitorConfig = {
     },
     LocalNotifications: {
       smallIcon: 'ic_launcher',
-      iconColor: '#6C5CE7'
+      iconColor: '#0F766E'
     }
   }
 };

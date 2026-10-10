@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <title>Unibo — NWU Campus, Connected</title>
+  <title>Unino — NWU Campus, Connected</title>
   <meta name="description" content="NWU campus social app: feed, stories, study groups, marketplace, messaging & more.">
   <meta name="theme-color" content="#FFFFFF" id="theme-color-meta">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -11,10 +11,10 @@
   <meta http-equiv="Expires" content="0">
   <link rel="stylesheet" href="css/styles.css?v=47">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="unino-icon-light.png?v=47" id="theme-favicon">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+  <link href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css" rel="stylesheet" />
 </head>
 <body>
 
@@ -22,8 +22,8 @@
 <div id="splash" class="screen active">
   <div class="splash-inner">
     <div class="splash-logo brand-logo-shell"><img src="unino-icon-light.png?v=47" alt="Unino" class="brand-logo-img brand-logo-xl" data-theme-logo></div>
-    <h1 class="splash-title">Unibo</h1>
-    <div class="spinner"></div><div class="splash-status">Starting Unibo…</div>
+    <h1 class="splash-title">Unino</h1>
+    <div class="spinner"></div><div class="splash-status">Starting Unino…</div>
   </div>
 </div>
 
@@ -32,7 +32,7 @@
   <div class="auth-wrap">
     <div class="auth-hero">
       <div class="auth-emoji brand-logo-shell"><img src="unino-icon-light.png?v=47" alt="Unino" class="brand-logo-img brand-logo-lg" data-theme-logo></div>
-      <h1>Unibo</h1>
+      <h1>Unino</h1>
       <p>NWU Campus, Connected</p>
     </div>
     <form id="login-form" class="auth-form active" autocomplete="off">
@@ -256,13 +256,18 @@
 <!-- ══ SCRIPTS ══ -->
 <!-- Firebase remains primary runtime until Appwrite migration cutover is complete -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 <!-- Appwrite SDK is optional for gradual migration features -->
 <script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="js/firebase-config.js"></script>
-<script src="js/app.js?v=46"></script>
+<script type="module">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
+  window.maplibregl = maplibregl;
+  const appScript = document.createElement('script');
+  appScript.src = 'js/app.js?v=47';
+  document.body.appendChild(appScript);
+</script>
 </body>
 </html>
