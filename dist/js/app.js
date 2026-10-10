@@ -64,6 +64,7 @@ let _notifDropdownCloseHandler = null;
 let _contentScrollGestureAt = 0;
 let _pullRefreshState = null;
 let _pendingMapRoute = null;
+let _pendingMapDestination = null;
 let _activeMapRouteLayer = null;
 let _activeMapRouteMarkers = [];
 let _mapLibreMap = null;
@@ -7899,14 +7900,14 @@ function openCreateModal() {
     const mi = $('#modal-inner');
     if (!mi) return;
     mi.innerHTML = `
-    <div class="modal-header"><h2>Create</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header create-modal-header"><div><h2>New post</h2><p class="create-modal-subtitle">Share something useful with campus</p></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
     <div class="create-tabs">
       <button class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
       <button class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">📅 Event</button>
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
-      <div class="create-author-row">
+      <div class="create-author-row create-composer-author">
         <div class="create-author-main">
           <div id="create-author-avatar">${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}</div>
           <div>
@@ -7918,24 +7919,24 @@ function openCreateModal() {
           <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
         </div>
       </div>
-      <textarea id="create-text" placeholder="What's on your mind?" style="width:100%;min-height:100px;border:none;background:transparent;color:var(--text-primary);font-size:16px;resize:none;outline:none"></textarea>
-      <div class="create-post-hint">Use #MATH301-style tags inside your post so students in that module can discover it. Choose Anonymous if you want the post hidden from your identity.</div>
+      <textarea id="create-text" class="create-composer-text" placeholder="What is happening on campus?" aria-label="Post text"></textarea>
+      <div class="create-post-hint create-composer-helper">Add a module tag like #MATH301 to reach the right students.</div>
       <div id="create-mention-suggestions" class="create-mention-suggestions" style="display:none"></div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
         <button class="image-preview-remove" onclick="document.getElementById('create-preview').style.display='none';window._createPendingFiles=[]">&times;</button>
       </div>
-      <div class="create-post-actions-row">
+      <div class="create-post-actions-row create-composer-toolbar">
         <div class="create-post-actions-left">
-          <label class="add-photo-btn" title="Media"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
-          <button type="button" class="btn-outline" id="create-pin-location" style="padding:7px 10px;font-size:12px">📍 Pin</button>
-          <button type="button" class="btn-outline" id="create-poll-btn" style="padding:7px 10px;font-size:12px">📊 Poll</button>
-          <select id="create-visibility" style="padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:12px;font-weight:600">
+          <label class="add-photo-btn composer-tool-btn" title="Add media" aria-label="Add media"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-pin-location" title="Add location">⌖ <span>Location</span></button>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-poll-btn" title="Add poll">☷ <span>Poll</span></button>
+          <select id="create-visibility" class="composer-visibility" aria-label="Post visibility">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
           </select>
         </div>
-        <button class="btn-primary" id="create-submit" style="padding:10px 28px">Post</button>
+        <button class="btn-primary composer-submit" id="create-submit">Share post</button>
       </div>
       <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       <div id="create-poll-pill" class="create-poll-pill" style="display:none;margin-top:8px"></div>
@@ -8508,7 +8509,7 @@ function setupPullToRefresh() {
     }
   };
   const onStart = event => {
-    if (!['feed', 'explore'].includes(state.page)) return;
+    if (state.page !== 'feed') return;
     if (content.scrollTop > 4) return;
     const touch = event.touches?.[0];
     if (!touch) return;
@@ -8754,7 +8755,7 @@ function renderRadarView() {
           window._radarSearchQuery = selected;
           _exploreSearchQuery = selected;
           box.style.display = 'none';
-          routeToMapPoint(lat, lng, selected || 'Destination');
+          previewMapPoint(lat, lng, selected || 'Destination', btn.querySelector('.radar-suggestion-sub')?.textContent || 'Searched place');
           return;
         }
         const inp = $('#radar-search');
@@ -9018,6 +9019,12 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           attachMapLibreMarker(_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat, createMapLibreMarkerHTML('pin', { emoji: '📌', hasEvents: true, floating: true, label: _pendingRadarPinnedPoint.label || 'Pinned' }), () => routeToMapPoint(_pendingRadarPinnedPoint.lat, _pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.label || 'Pinned'));
           if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingRadarPinnedPoint.lng, _pendingRadarPinnedPoint.lat], zoom: 17.9, speed: 0.8 });
           _pendingRadarPinnedPoint = null;
+        }
+
+        if (!routeOnlyMode && _pendingMapDestination && Number.isFinite(_pendingMapDestination.lat) && Number.isFinite(_pendingMapDestination.lng)) {
+          attachMapLibreMarker(_pendingMapDestination.lng, _pendingMapDestination.lat, createMapLibreMarkerHTML('pin', { emoji: '⌖', hasEvents: true, floating: true, label: _pendingMapDestination.label || 'Selected place' }));
+          if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingMapDestination.lng, _pendingMapDestination.lat], zoom: 18.2, speed: 0.8 });
+          updateMapDestinationPanel(_pendingMapDestination);
         }
 
         if (!routeOnlyMode) {
@@ -9796,6 +9803,7 @@ function clearActiveMapRoute(options = {}) {
 
 function clearMapRoute() {
   clearActiveMapRoute({ clearPending: true });
+  _pendingMapDestination = null;
 }
 
 async function drawPendingMapRouteOnCurrentMap() {
@@ -9806,7 +9814,9 @@ async function drawPendingMapRouteOnCurrentMap() {
     return;
   }
   clearActiveMapRoute({ clearPending: false });
-  const start = getUserCoords(state.profile) || getRadarCenterCoords();
+  const start = _pendingMapRoute.source === 'campus'
+    ? getRadarCenterCoords()
+    : (getUserCoords(state.profile) || getRadarCenterCoords());
   const route = await buildBestRoute(start, _pendingMapRoute.target);
   if (!_pendingMapRoute) return;
   if ((mapLibreRef && _mapLibreMap !== mapLibreRef) || (leafletRef && _leafletMap !== leafletRef)) {
@@ -9903,13 +9913,62 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
   }, 120);
 }
 
-function routeToMapPoint(lat, lng, label = 'Destination') {
+function updateMapDestinationPanel(destination = null) {
+  const host = document.getElementById('map-route-panel');
+  if (!host || !destination) return;
+  const hasGps = !!getUserCoords(state.profile);
+  host.innerHTML = `
+    <div class="map-destination-card">
+      <div class="map-destination-icon">⌖</div>
+      <div class="map-destination-copy">
+        <div class="map-destination-kicker">Selected place</div>
+        <div class="map-destination-title">${esc(destination.label || 'Destination')}</div>
+        <div class="map-destination-sub">${esc(destination.sub || 'Ready to view on the map')}</div>
+      </div>
+      <button class="icon-btn map-destination-close" onclick="clearMapDestination()" aria-label="Clear selected place">&times;</button>
+      <div class="map-destination-actions">
+        <button class="btn-primary btn-sm" onclick="routeFromMapDestination('current')">${hasGps ? 'Route from my location' : 'Route from current'} </button>
+        <button class="btn-outline btn-sm" onclick="routeFromMapDestination('campus')">Route from campus/home</button>
+      </div>
+    </div>
+  `;
+  host.style.display = 'block';
+}
+
+function clearMapDestination() {
+  _pendingMapDestination = null;
+  updateMapRoutePanel(null);
+  renderExploreView();
+}
+
+function previewMapPoint(lat, lng, label = 'Destination', sub = 'Searched place') {
+  const safeLat = Number(lat);
+  const safeLng = Number(lng);
+  if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return toast('Could not show this place');
+  closeModal();
+  closeChatPlusMenus();
+  clearActiveMapRoute({ clearPending: true });
+  _pendingMapDestination = { lat: safeLat, lng: safeLng, label, sub };
+  exploreView = 'radar';
+  if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
+  if (state.page !== 'explore') navigate('explore');
+  else renderExploreView();
+}
+
+function routeFromMapDestination(source = 'current') {
+  if (!_pendingMapDestination) return toast('Choose a place first');
+  const destination = { ..._pendingMapDestination };
+  _pendingMapDestination = null;
+  routeToMapPoint(destination.lat, destination.lng, destination.label, source);
+}
+
+function routeToMapPoint(lat, lng, label = 'Destination', source = 'current') {
   const safeLat = Number(lat);
   const safeLng = Number(lng);
   if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return toast('Could not build route');
   closeModal();
   closeChatPlusMenus();
-  if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source: 'manual' })) return toast('Could not build route');
+  if (!setPendingMapRoute({ lat: safeLat, lng: safeLng }, { label, source })) return toast('Could not build route');
   exploreView = 'radar';
   if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
   if (state.page !== 'explore') navigate('explore');
