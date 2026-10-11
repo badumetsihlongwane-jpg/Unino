@@ -7,6 +7,7 @@
 
 // ─── State ───────────────────────────────────────
 const state = { user: null, profile: null, page: 'feed', status: 'online', manualStatus: 'online', unsubs: [], lastMsgTab: 'dm' };
+const _pageViewCache = new Map();
 
 // ─── Shortcuts ───────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -98,6 +99,7 @@ let _feedInlineSuggestionSlotsUsed = 0;
 let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
 let _feedPeopleSuggestLastQuery = '';
+let _headerProfileMenuClose = null;
 const _reactionNoticeCooldown = new Map();
 let _campusPlacePointsCache = [];
 const _destinationSearchCache = new Map();
@@ -3888,6 +3890,23 @@ function showScreen(id) {
 
 function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
 
+function cacheCurrentPageView(page) {
+  const content = document.getElementById('content');
+  const node = content?.firstElementChild;
+  if (!content || !node || !['feed', 'explore', 'hustle', 'chat'].includes(page)) return;
+  _pageViewCache.set(page, { node, scrollTop: content.scrollTop || 0 });
+  content.replaceChildren();
+}
+
+function restoreCachedPageView(page) {
+  const cached = _pageViewCache.get(page);
+  const content = document.getElementById('content');
+  if (!cached || !content) return false;
+  content.replaceChildren(cached.node);
+  requestAnimationFrame(() => { content.scrollTop = cached.scrollTop || 0; });
+  return true;
+}
+
 // ══════════════════════════════════════════════════
 //  THEME
 // ══════════════════════════════════════════════════
@@ -4201,7 +4220,7 @@ function enterApp() {
   showScreen('app');
   const content = $('#content');
   if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
-  setupHeader(); setupNav(); setupStatusPill(); 
+  setupHeader(); setupNav();
   initNativeShell().catch(() => {});
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
@@ -4345,9 +4364,14 @@ function setupHeader() {
   const el = $('#hdr-avatar');
   if (!el || !state.profile) return;
   const p = state.profile;
-  if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt="">`; el.style.background = 'transparent'; }
-  else { el.textContent = initials(p.displayName); el.style.background = colorFor(p.displayName); }
-  el.onclick = () => openProfile(state.user.uid);
+  if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot"></span>`; el.style.background = 'transparent'; }
+  else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot"></span>`; el.style.background = colorFor(p.displayName); }
+  el.classList.add('has-presence');
+  el.onclick = event => {
+    event.stopPropagation();
+    if (document.getElementById('header-profile-menu')) closeHeaderProfileMenu();
+    else openHeaderProfileMenu();
+  };
   // Admin panel button
   const existingAdmin = document.getElementById('admin-btn');
   if (_isAdmin && !existingAdmin) {
@@ -4357,6 +4381,41 @@ function setupHeader() {
     btn.onclick = () => openAdminPanel();
     document.querySelector('.hdr-r')?.insertBefore(btn, el);
   }
+}
+
+function closeHeaderProfileMenu() {
+  document.getElementById('header-profile-menu')?.remove();
+  if (_headerProfileMenuClose) {
+    document.removeEventListener('pointerdown', _headerProfileMenuClose, true);
+    _headerProfileMenuClose = null;
+  }
+}
+
+function openHeaderProfileMenu() {
+  const host = document.querySelector('.hdr-r');
+  if (!host || !state.profile) return;
+  closeHeaderProfileMenu();
+  const menu = document.createElement('div');
+  menu.id = 'header-profile-menu';
+  menu.className = 'header-profile-menu';
+  const isOnline = state.status === 'online';
+  menu.innerHTML = `
+    <div class="header-profile-summary">
+      <div class="header-profile-menu-avatar">${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
+      <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
+    </div>
+    <button type="button" data-action="profile"><span>◎</span> View profile</button>
+    <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
+    <button type="button" data-action="signout" class="profile-menu-danger"><span>↪</span> Sign out</button>
+  `;
+  host.appendChild(menu);
+  menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
+  menu.querySelector('[data-action="theme"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); $('#theme-btn')?.click(); });
+  menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); auth.signOut().then(() => window.location.reload()); });
+  _headerProfileMenuClose = event => {
+    if (!menu.contains(event.target) && event.target !== $('#hdr-avatar')) closeHeaderProfileMenu();
+  };
+  document.addEventListener('pointerdown', _headerProfileMenuClose, true);
 }
 
 function setupNav() {
@@ -4381,7 +4440,7 @@ function setupNav() {
         return;
       }
       if (p === 'chat') state.lastMsgTab = 'dm';
-      navigate(p, { restoreFeed: p === 'feed' });
+      navigate(p, { refresh: false, restoreFeed: p === 'feed' });
     });
   });
   if (nav && !nav.dataset.swipeReady) {
@@ -4404,7 +4463,7 @@ function setupNav() {
       const currentIndex = navPages.indexOf(state.page);
       if (currentIndex < 0) return;
       const nextIndex = Math.max(0, Math.min(navPages.length - 1, currentIndex + (deltaX < 0 ? 1 : -1)));
-      if (nextIndex !== currentIndex) navigate(navPages[nextIndex], { restoreFeed: navPages[nextIndex] === 'feed' });
+      if (nextIndex !== currentIndex) navigate(navPages[nextIndex], { refresh: false, restoreFeed: navPages[nextIndex] === 'feed' });
     }, { passive: true });
   }
 }
@@ -4422,11 +4481,13 @@ function setupStatusPill() {
 
 function updateStatusUI() {
   const dot = $('#status-dot'), txt = $('#status-text'), pill = $('#status-pill');
-  if (!dot || !txt) return;
-  pill.className = 'status-pill'; dot.className = 'dot';
-  if (state.status === 'online') { pill.classList.add('online'); dot.classList.add('green'); txt.textContent = 'Online'; }
-  else if (state.status === 'study') { pill.classList.add('away'); dot.classList.add('orange'); txt.textContent = 'Studying'; }
-  else { pill.classList.add('offline'); dot.classList.add('gray'); txt.textContent = 'Offline'; }
+  if (dot && txt && pill) {
+    pill.className = 'status-pill'; dot.className = 'dot';
+    if (state.status === 'online') { pill.classList.add('online'); dot.classList.add('green'); txt.textContent = 'Online'; }
+    else if (state.status === 'study') { pill.classList.add('away'); dot.classList.add('orange'); txt.textContent = 'Studying'; }
+    else { pill.classList.add('offline'); dot.classList.add('gray'); txt.textContent = 'Offline'; }
+  }
+  document.querySelector('#hdr-avatar .header-presence-dot')?.classList.toggle('is-online', state.status === 'online');
 }
 
 let _lastActivityAt = Date.now();
@@ -4499,13 +4560,19 @@ function navigate(page, options = {}) {
   const { pushHistory = true, refresh = true, restoreFeed = false } = options;
   const previousPage = state.page;
   if (previousPage === page && !refresh) return;
+  const restoreCached = previousPage !== page && !refresh && _pageViewCache.has(page);
   closeNotifDropdown();
   if (previousPage === 'feed') {
     const contentEl = document.getElementById('content');
     if (contentEl) _feedScrollTop = contentEl.scrollTop || 0;
   }
 
-  state.page = page; unsub();
+  if (previousPage !== page) cacheCurrentPageView(previousPage);
+  if (previousPage === page && refresh) {
+    _pageViewCache.delete(page);
+    unsub();
+  }
+  state.page = page;
   stopAllVideos();
 
   // Destroy leaked video players and observers
@@ -4542,11 +4609,15 @@ function navigate(page, options = {}) {
   }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   document.querySelector(`.nav-btn[data-p="${page}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-  switch (page) {
-    case 'feed': renderFeed(); break;
-    case 'explore': renderExplore(); break;
-    case 'hustle': renderHustle(); break;
-    case 'chat': renderMessages(); break;
+  if (restoreCached && restoreCachedPageView(page)) {
+    if (page === 'explore') setTimeout(() => { if (state.page === 'explore') renderExploreView(); }, 0);
+  } else {
+    switch (page) {
+      case 'feed': renderFeed(); break;
+      case 'explore': renderExplore(); break;
+      case 'hustle': renderHustle(); break;
+      case 'chat': renderMessages(); break;
+    }
   }
   // Push state for navigation
   if (_inAppBackInit && state.user && pushHistory) {
@@ -4708,8 +4779,7 @@ function renderFeed() {
   c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
-      <div class="feed-toolbar">
-        <div class="feed-live-chip"><span class="dot green"></span> <span id="feed-online">0</span> online</div>
+      <div class="feed-toolbar home-toolbar">
         <div class="search-bar feed-search-bar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" id="feed-search-input" placeholder="Search posts or #hashtags" value="${esc(_feedSearchQuery)}">
