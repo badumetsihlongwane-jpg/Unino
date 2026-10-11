@@ -5146,7 +5146,7 @@ function loadDiscoverEvents() {
       const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
       return `
         <div class="discover-card event-card" onclick="${ev.id ? `openEventDetail('${ev.id}')` : `toast('View on Campus map!')`}">
-          ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div style="background:${grad};width:100%;height:120px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:8px">${ev.emoji || '📅'}</div>`}
+          ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div class="event-card-placeholder" style="background:${grad};width:100%;height:120px;border-radius:var(--radius);margin-bottom:8px"></div>`}
           <div class="discover-card-name">${esc(ev.title)}</div>
           <div class="discover-card-meta">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
           <div class="discover-card-tag">📍 ${esc(locName)}${nearLabel}</div>
@@ -5776,7 +5776,7 @@ function renderFeedInlineEventCard(eventDoc = {}) {
   return `<div class="suggested-card suggested-event-card" onclick="openEventDetail('${eventDoc.id}')">
     <div class="suggested-event-thumb">${thumb
       ? `<img src="${thumb}" loading="lazy" decoding="async" alt="${esc(eventDoc.title || 'Event')}">`
-      : `<div class="suggested-event-gradient" style="background:${gradient}">${eventDoc.emoji || '📅'}</div>`}</div>
+      : `<div class="suggested-event-gradient" style="background:${gradient}"></div>`}</div>
     <div class="suggested-card-name">${esc(eventDoc.title || 'Campus Event')}</div>
     <div class="suggested-card-meta">📍 ${esc(locationLabel)}</div>
     <div class="suggested-card-meta">📅 ${esc(eventDoc.date || 'TBA')} ${eventDoc.time ? esc(eventDoc.time) : ''}</div>
@@ -5880,7 +5880,7 @@ function renderFeedInlineSuggestionRail(users = []) {
         const locationMeta = getEventLocationMeta(ev);
         const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
         return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
-          ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : `<div class="suggested-event-emoji">${esc(ev.emoji || '📅')}</div>`}
+          ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : '<div class="suggested-event-emoji" aria-hidden="true"></div>'}
           <div class="suggested-card-name">${esc(ev.title || 'Campus event')}</div>
           <div class="suggested-card-meta">${esc(locationMeta.label || ev.location || 'Event')}</div>
           <button class="btn-sm btn-outline" onclick="event.preventDefault();event.stopPropagation();openEventDetail('${ev.id || ''}')">Open</button>
@@ -8032,16 +8032,20 @@ No</textarea></div>
         </div>
       </div>
       ` : `
-      <div class="form-group"><label>Event Title</label><input type="text" id="ev-title" placeholder="e.g. Study Session, Party, Workshop"></div>
-      <div class="form-group"><label>Location</label><input type="text" id="ev-location-text" placeholder="e.g. Library 2nd Floor, Res Common Room, Mooi River Mall"></div>
-      <div style="display:flex;gap:8px">
-        <div class="form-group" style="flex:1"><label>Date</label><input type="date" id="ev-date"></div>
-        <div class="form-group" style="flex:1"><label>Time</label><input type="time" id="ev-time"></div>
-      </div>
-      <div class="form-group"><label>Description (optional)</label><textarea id="ev-desc" placeholder="What's happening?" style="resize:none;height:60px"></textarea></div>
-      <div class="form-group"><label>Event Photos (up to 4)</label><input type="file" accept="image/*" id="ev-file" multiple></div>
+      <div class="event-create-intro"><span class="event-create-kicker">Campus event</span><h3>Give people a reason to show up.</h3><p>Add a cover, pin the place, then fill in the details.</p></div>
+      <label class="event-cover-picker" for="ev-file"><span class="event-cover-icon">+</span><span><strong>Add cover images</strong><small>Up to 4 photos · first image is the cover</small></span><input type="file" accept="image/*" id="ev-file" multiple></label>
       <div id="ev-img-preview" class="ev-img-preview-grid"></div>
-      <button class="btn-primary btn-full" id="ev-create-btn">Create Event</button>
+      <div class="event-form-section">
+        <div class="event-section-label">What is happening?</div>
+        <div class="form-group"><input type="text" id="ev-title" placeholder="Event title"></div>
+        <div class="form-group"><textarea id="ev-desc" placeholder="Add a short description" style="resize:none;height:76px"></textarea></div>
+      </div>
+      <div class="event-form-section">
+        <div class="event-section-label">Where and when?</div>
+        <div class="event-location-row"><button type="button" class="btn-outline" id="ev-use-location">⌖ Use my location</button><input type="text" id="ev-location-text" placeholder="Search or enter a place"></div>
+        <div style="display:flex;gap:8px"><div class="form-group" style="flex:1"><input type="date" id="ev-date" aria-label="Event date"></div><div class="form-group" style="flex:1"><input type="time" id="ev-time" aria-label="Event time"></div></div>
+      </div>
+      <button class="btn-primary btn-full" id="ev-create-btn">Publish event</button>
       `}
     </div>`;
 
@@ -8353,6 +8357,22 @@ No</textarea></div>
     if (pendingPoint && locationInput && !String(locationInput.value || '').trim()) {
       locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
     }
+
+    if ($('#ev-use-location')) $('#ev-use-location').onclick = () => {
+      if (!navigator.geolocation) return toast('Location is not available on this device');
+      toast('Finding your location...');
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const nearestCampus = CAMPUS_LOCATIONS.reduce((best, loc) => {
+          const distanceKm = distanceKmBetween({ lat, lng }, loc);
+          return !best || distanceKm < best.distanceKm ? { loc, distanceKm } : best;
+        }, null);
+        window._pendingRadarPinnedPoint = { lat, lng, label: nearestCampus?.loc?.name || 'Current location' };
+        if (locationInput) locationInput.value = window._pendingRadarPinnedPoint.label;
+        toast('Location added');
+      }, () => toast('Could not get your location'), { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+    };
 
     if ($('#ev-file')) $('#ev-file').onchange = e => {
       const files = Array.from(e.target.files).slice(0, 4);
@@ -8679,6 +8699,7 @@ function renderRadarView() {
           <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
           <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
           <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
+          <span class="radar-precision-note">Solid pin = saved GPS · dashed pin = proximity estimate</span>
         </div>
 
         ${moduleUsers.length ? `
@@ -8714,7 +8735,7 @@ function renderRadarView() {
             const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
             const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
             return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
-              ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}">${ev.emoji || '📅'}</div>`}
+              ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
               <div class="event-scroll-title">${esc(ev.title)}</div>
               <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
             </div>`;
@@ -8735,7 +8756,6 @@ function renderRadarView() {
   const renderRadarSuggestions = async (queryRaw = '') => {
     const box = $('#radar-suggestions');
     if (!box) return;
-    box.onmousedown = e => e.preventDefault();
     const rawQuery = (queryRaw || '').trim();
     const q = normalizePlaceKey(rawQuery);
     if (!q) {
@@ -8851,10 +8871,6 @@ function renderRadarView() {
         event.preventDefault();
         handleSelect();
       };
-      btn.onpointerdown = event => {
-        event.preventDefault();
-        handleSelect();
-      };
     });
   };
 
@@ -8891,7 +8907,7 @@ function renderRadarView() {
     radarSearchInput.addEventListener('blur', () => setTimeout(() => {
       const box = $('#radar-suggestions');
       if (box) box.style.display = 'none';
-    }, 120));
+    }, 350));
   }
 
 }
@@ -9091,6 +9107,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         } catch (_) {}
 
         if (_mapLibreMap !== mapRef) return;
+        try { mountCampusLocationLabels(mapRef); } catch (_) {}
         mountCampusGeoJsonLayers(mapRef).catch(() => {});
         attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
         syncRadarOverlayToUser();
@@ -9127,7 +9144,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           plottedIds.add(u.id);
           const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
           const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls: `${cls} pin-exact` }), () => showUserPreview(u.id));
         });
         usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
           const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
@@ -9135,7 +9152,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           const rawPoint = { lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8), lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8) };
           const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
           const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls }), () => showUserPreview(u.id));
+          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls: `${cls} pin-approx` }), () => showUserPreview(u.id));
         });
 
         if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
@@ -9657,6 +9674,37 @@ function labelPointsFromPolygons(geojson) {
       };
     })
   };
+}
+
+function mountCampusLocationLabels(map) {
+  if (!map || map.getSource('campus-location-label-points')) return;
+  const data = {
+    type: 'FeatureCollection',
+    features: CAMPUS_LOCATIONS.map(location => ({
+      type: 'Feature',
+      properties: { name: location.name },
+      geometry: { type: 'Point', coordinates: [Number(location.lng), Number(location.lat)] }
+    }))
+  };
+  map.addSource('campus-location-label-points', { type: 'geojson', data });
+  map.addLayer({
+    id: 'campus-location-labels',
+    type: 'symbol',
+    source: 'campus-location-label-points',
+    minzoom: 15,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 15, 10, 18, 14],
+      'text-anchor': 'center',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true
+    },
+    paint: {
+      'text-color': '#171717',
+      'text-halo-color': 'rgba(255,255,255,0.96)',
+      'text-halo-width': 2.4
+    }
+  });
 }
 
 async function mountCampusGeoJsonLayers(map) {
@@ -10206,7 +10254,7 @@ function renderCampusMapView() {
           const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
           return `
             <div class="campus-event-card" onclick="openEventDetail('${ev.id || ''}')">
-              <div class="campus-event-icon" style="background:${grad}">${ev.emoji || '📅'}</div>
+              <div class="campus-event-icon" style="background:${grad}" aria-hidden="true"></div>
               <div class="campus-event-info">
                 <div class="campus-event-title">${esc(ev.title)}</div>
                 <div class="campus-event-meta">
@@ -10309,7 +10357,7 @@ function openLocationDetail(locationId) {
           const amGoing = (ev.going || []).includes(state.user.uid);
           return `
           <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px">
-            <div style="font-weight:700;font-size:15px">${ev.emoji || '📅'} ${esc(ev.title)}</div>
+            <div style="font-weight:700;font-size:15px">${esc(ev.title)}</div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">🕐 ${esc(ev.date || '')} at ${esc(ev.time || '')}</div>
             <div style="font-size:12px;margin-top:4px">${(ev.going||[]).length} going ${amGoing ? '(including you ✓)' : ''}</div>
             ${ev.id ? `<button class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" style="margin-top:8px" onclick="toggleEventGoing('${ev.id}');closeModal()">${amGoing ? 'Cancel RSVP' : 'I\'m Going!'}</button>` : ''}
@@ -10373,7 +10421,7 @@ async function openEventDetail(eventId) {
     const goingCount = (ev.going || []).length;
     const isCreator = ev.createdBy === state.user.uid;
     openModal(`
-      <div class="modal-header"><h2>${ev.emoji || '📅'} Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-header"><h2>Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
         ${(ev.imageURLs && ev.imageURLs.length) ? `<div class="ev-detail-images ${ev.imageURLs.length === 1 ? 'single' : 'grid'}">${ev.imageURLs.map(url => `<img src="${url}" onclick="viewImage('${url}')" style="cursor:pointer">`).join('')}</div>` : ''}
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
