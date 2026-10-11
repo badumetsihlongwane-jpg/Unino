@@ -11595,9 +11595,7 @@ function bindMessagesScrollEffects() {
       lastTop = st;
       return;
     }
-    const delta = st - lastTop;
-    if (!collapsed && st > 44 && delta > 3) collapsed = true;
-    if (collapsed && (delta < -2 || st < 12)) collapsed = false;
+    collapsed = st > 80;
     page.classList.toggle('stories-collapsed', collapsed);
     lastTop = st;
   };
@@ -13049,7 +13047,10 @@ async function openChat(convoId) {
   const cachedChat = _dmChatViewCache.get(convoId);
   if (msgs) {
     msgs.innerHTML = cachedChat?.html || '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
-    if (cachedChat) requestAnimationFrame(() => { msgs.scrollTop = cachedChat.scrollTop || 0; });
+    if (cachedChat) requestAnimationFrame(() => {
+      if (cachedChat.atBottom) scrollToLatest(msgs);
+      else msgs.scrollTop = cachedChat.scrollTop || 0;
+    });
   }
   try {
     const convoDoc = await db.collection('conversations').doc(convoId).get();
@@ -13103,7 +13104,8 @@ async function openChat(convoId) {
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         const previousScrollTop = msgs.scrollTop;
-        const wasNearBottom = msgs.scrollHeight - (previousScrollTop + msgs.clientHeight) < 140;
+        const wasNearBottom = _dmChatViewCache.get(convoId)?.atBottom
+          || msgs.scrollHeight - (previousScrollTop + msgs.clientHeight) < 140;
         _dmMsgLookup = new Map(messages.map(m => [m.id, m]));
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Say hi! 👋</div>';
@@ -13261,7 +13263,7 @@ async function openChat(convoId) {
           }).join('');
           primeInlineVideoPreviews(msgs);
           bindMessageLongPress(msgs, 'dm', convoId);
-          _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: wasNearBottom ? Number.POSITIVE_INFINITY : previousScrollTop });
+          _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: wasNearBottom ? 0 : previousScrollTop, atBottom: wasNearBottom });
           if (wasNearBottom) scrollToLatest(msgs);
           else msgs.scrollTop = previousScrollTop;
         }
