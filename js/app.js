@@ -8,6 +8,7 @@
 // ─── State ───────────────────────────────────────
 const state = { user: null, profile: null, page: 'feed', status: 'online', manualStatus: 'online', unsubs: [], lastMsgTab: 'dm' };
 const _pageViewCache = new Map();
+const _dmChatViewCache = new Map();
 
 // ─── Shortcuts ───────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -4405,11 +4406,19 @@ function openHeaderProfileMenu() {
       <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
+    <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
     <button type="button" data-action="signout" class="profile-menu-danger"><span>↪</span> Sign out</button>
   `;
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
+  menu.querySelector('[data-action="presence"]')?.addEventListener('click', () => {
+    state.manualStatus = state.manualStatus === 'offline' ? 'online' : 'offline';
+    _lastActivityAt = Date.now();
+    refreshPresence(true).catch(() => {});
+    closeHeaderProfileMenu();
+    toast(state.manualStatus === 'offline' ? 'You are offline' : 'You are online');
+  });
   menu.querySelector('[data-action="theme"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); $('#theme-btn')?.click(); });
   menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); auth.signOut().then(() => window.location.reload()); });
   _headerProfileMenuClose = event => {
@@ -4568,6 +4577,7 @@ function navigate(page, options = {}) {
   }
 
   if (previousPage !== page) cacheCurrentPageView(previousPage);
+  const preservingCachedView = previousPage !== page && !refresh;
   if (previousPage === page && refresh) {
     _pageViewCache.delete(page);
     unsub();
@@ -4575,10 +4585,12 @@ function navigate(page, options = {}) {
   state.page = page;
   stopAllVideos();
 
-  // Destroy leaked video players and observers
-  _activePlayerDestroys.forEach(fn => fn());
-  _activePlayerDestroys = [];
-  if (_feedAutoplayObserver) { _feedAutoplayObserver.disconnect(); _feedAutoplayObserver = null; }
+  // Keep cached feed players alive between tabs; refreshes still clean them up.
+  if (!preservingCachedView) {
+    _activePlayerDestroys.forEach(fn => fn());
+    _activePlayerDestroys = [];
+    if (_feedAutoplayObserver) { _feedAutoplayObserver.disconnect(); _feedAutoplayObserver = null; }
+  }
 
   // Clean up chat listeners if navigating away from chat view
   if (chatUnsub) { chatUnsub(); chatUnsub = null; }
@@ -4610,6 +4622,7 @@ function navigate(page, options = {}) {
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   document.querySelector(`.nav-btn[data-p="${page}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   if (restoreCached && restoreCachedPageView(page)) {
+    if (page === 'feed') requestAnimationFrame(() => setupFeedVideoAutoplay());
     if (page === 'explore') setTimeout(() => { if (state.page === 'explore') renderExploreView(); }, 0);
   } else {
     switch (page) {
@@ -7297,12 +7310,11 @@ function setupFeedVideoAutoplay() {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-        vid.muted = false;
-        vid.play().catch(() => {
-          // Browser policy fallback if autoplay with sound is blocked.
-          vid.muted = true;
-          vid.play().catch(() => {});
+        document.querySelectorAll('#feed-posts video').forEach(other => {
+          if (other !== vid) other.pause();
         });
+        vid.muted = true;
+        vid.play().catch(() => {});
       } else {
         vid.pause();
       }
@@ -9093,7 +9105,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
 
         if (!routeOnlyMode && _pendingMapDestination && Number.isFinite(_pendingMapDestination.lat) && Number.isFinite(_pendingMapDestination.lng)) {
           attachMapLibreMarker(_pendingMapDestination.lng, _pendingMapDestination.lat, createMapLibreMarkerHTML('pin', { emoji: '⌖', hasEvents: true, floating: true, label: _pendingMapDestination.label || 'Selected place' }));
-          if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingMapDestination.lng, _pendingMapDestination.lat], zoom: 18.2, speed: 0.8 });
+          if (_mapLibreMap === mapRef) mapRef.flyTo({ center: [_pendingMapDestination.lng, _pendingMapDestination.lat], zoom: 16.9, speed: 0.8 });
           updateMapDestinationPanel(_pendingMapDestination);
         }
 
@@ -13034,7 +13046,11 @@ async function openChat(convoId) {
   _activeChatConvoId = convoId;
   _activeGroupChat = { id: '', collection: '' };
   const msgs = $('#chat-msgs');
-  if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
+  const cachedChat = _dmChatViewCache.get(convoId);
+  if (msgs) {
+    msgs.innerHTML = cachedChat?.html || '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
+    if (cachedChat) requestAnimationFrame(() => { msgs.scrollTop = cachedChat.scrollTop || 0; });
+  }
   try {
     const convoDoc = await db.collection('conversations').doc(convoId).get();
     if (!convoDoc.exists) return toast('Chat not found');
@@ -13086,6 +13102,8 @@ async function openChat(convoId) {
       .collection('messages').orderBy('createdAt', 'asc').limit(100)
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const previousScrollTop = msgs.scrollTop;
+        const wasNearBottom = msgs.scrollHeight - (previousScrollTop + msgs.clientHeight) < 140;
         _dmMsgLookup = new Map(messages.map(m => [m.id, m]));
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Say hi! 👋</div>';
@@ -13243,7 +13261,9 @@ async function openChat(convoId) {
           }).join('');
           primeInlineVideoPreviews(msgs);
           bindMessageLongPress(msgs, 'dm', convoId);
-          scrollToLatest(msgs);
+          _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: wasNearBottom ? Number.POSITIVE_INFINITY : previousScrollTop });
+          if (wasNearBottom) scrollToLatest(msgs);
+          else msgs.scrollTop = previousScrollTop;
         }
 
         // Mark incoming as read
