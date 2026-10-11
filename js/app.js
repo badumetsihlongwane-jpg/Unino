@@ -4748,6 +4748,8 @@ function focusFeedPostCard(postId, behavior = 'smooth') {
 
 function renderFeedResults(posts = []) {
   const filtered = filterFeedPosts(posts, _feedSearchQuery);
+  const postsHost = $('#feed-posts');
+  if (postsHost) postsHost.classList.toggle('feed-search-active', !!_feedSearchQuery);
   const meta = $('#feed-search-meta');
   if (meta) {
     if (_feedSearchQuery) {
@@ -4803,7 +4805,7 @@ function renderFeed() {
       <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
         <div class="discover-tabs">
           <button class="discover-tab active" data-dt="people">👥 People</button>
-          <button class="discover-tab" data-dt="events">📅 Events</button>
+          <button class="discover-tab" data-dt="events">Events</button>
         </div>
         <div class="discover-content" id="discover-content">
           ${shouldDelayDiscover
@@ -5121,7 +5123,7 @@ function loadDiscoverEvents() {
   // Use allCampusEvents if loaded, otherwise fetch
   const renderEvts = (events) => {
     if (!events.length) {
-      el.innerHTML = `<div class="discover-empty"><span>📅</span><p>No events yet. Check the Campus map!</p></div>`;
+      el.innerHTML = `<div class="discover-empty"><span>Events</span><p>No events yet. Check the Campus map!</p></div>`;
       return;
     }
     const interestProfile = buildInterestProfile();
@@ -5779,7 +5781,7 @@ function renderFeedInlineEventCard(eventDoc = {}) {
       : `<div class="suggested-event-gradient" style="background:${gradient}"></div>`}</div>
     <div class="suggested-card-name">${esc(eventDoc.title || 'Campus Event')}</div>
     <div class="suggested-card-meta">📍 ${esc(locationLabel)}</div>
-    <div class="suggested-card-meta">📅 ${esc(eventDoc.date || 'TBA')} ${eventDoc.time ? esc(eventDoc.time) : ''}</div>
+    <div class="suggested-card-meta">${esc(eventDoc.date || 'TBA')} ${eventDoc.time ? esc(eventDoc.time) : ''}</div>
     <button class="btn-sm btn-outline" style="pointer-events:none">${goingCount ? `${goingCount} going` : 'View event'}</button>
   </div>`;
 }
@@ -7985,7 +7987,7 @@ function openCreateModal() {
     <div class="modal-header create-modal-header"><div><h2>New post</h2><p class="create-modal-subtitle">Share something useful with campus</p></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
     <div class="create-tabs">
       <button class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
-      <button class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">📅 Event</button>
+      <button class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">Event</button>
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
@@ -8729,7 +8731,7 @@ function renderRadarView() {
         </div>` : ''}
 
         <div class="proximity-section">
-          <div class="proximity-header"><h3>📅 Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
+          <div class="proximity-header"><h3>Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
           ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
             const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
             const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
@@ -8785,7 +8787,6 @@ function renderRadarView() {
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0);
 
     const geojsonPlaces = (await ensureCampusPlacePoints())
-      .filter(place => isNearActiveCampus(place))
       .filter(place => scorePlaceQueryMatch(place.label, rawQuery) > 0)
       .map(place => ({ type: 'place', ...place }));
 
@@ -9712,7 +9713,9 @@ async function mountCampusGeoJsonLayers(map) {
   const geojson = await loadCampusGeoJson();
   if (!geojson || map.getSource('campus-geojson')) return;
   const extent = getCampusExtent(geojson);
-  if (extent && !isNearActiveCampus({ lat: extent.center[1], lng: extent.center[0] })) return;
+  if (extent && !getUserCoords(state.profile)) {
+    map.fitBounds(extent.bounds, { padding: 48, maxZoom: 17.2, duration: 500 });
+  }
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
   map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
@@ -10244,7 +10247,7 @@ function renderCampusMapView() {
 
       <div class="campus-events-section">
         <div class="campus-events-header">
-          <h3>📅 Upcoming Events</h3>
+          <h3>Upcoming Events</h3>
           <span style="font-size:12px;color:var(--text-tertiary)">${allCampusEvents.length} events</span>
         </div>
         ${allCampusEvents.length ? allCampusEvents.map(ev => {
@@ -10427,7 +10430,7 @@ async function openEventDetail(eventId) {
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
           <span>📍 ${esc(locName)}</span>
-          <span>📅 ${esc(ev.date)}</span>
+          <span>${esc(ev.date)}</span>
           ${ev.time ? `<span>🕐 ${esc(ev.time)}</span>` : ''}
           <span>👥 ${goingCount} going</span>
         </div>
@@ -10810,7 +10813,7 @@ function openProductDetail(itemId) {
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary)">
         <span>📁 ${esc(item.category || 'Other')}</span>
         <span>·</span>
-        <span>📅 ${timeAgo(item.createdAt)}</span>
+        <span>${timeAgo(item.createdAt)}</span>
         <span id="product-distance-meta">${distanceText ? `· 📍 ${esc(distanceText)}` : ''}</span>
       </div>
       <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-tertiary)">
@@ -11054,11 +11057,11 @@ function renderEventGroupChatBanner(group = {}) {
   return `
     <div class="event-chat-banner clickable" onclick="${group.eventId ? `openEventDetail('${group.eventId}')` : `openGroupDetail('${group.id}')`}">
       <div class="event-chat-banner-media">
-        ${group.eventImage ? `<img src="${group.eventImage}" alt="">` : '<div class="event-chat-banner-fallback">📅</div>'}
+        ${group.eventImage ? `<img src="${group.eventImage}" alt="">` : '<div class="event-chat-banner-fallback"></div>'}
       </div>
       <div class="event-chat-banner-copy">
         <div class="event-chat-banner-title">${esc(group.name || 'Event Chat')}</div>
-        <div class="event-chat-banner-meta">${group.eventDate ? `📅 ${esc(group.eventDate)}` : ''}${group.eventTime ? ` · 🕐 ${esc(group.eventTime)}` : ''}</div>
+        <div class="event-chat-banner-meta">${group.eventDate ? esc(group.eventDate) : ''}${group.eventTime ? ` · ${esc(group.eventTime)}` : ''}</div>
         <div class="event-chat-banner-members">
           <div class="event-chat-attendees">${attendeePreview}</div>
           <span>${members.length} going</span>
@@ -11742,7 +11745,7 @@ async function loadEventChatGroups() {
       <div style="padding:6px 4px 8px;font-size:12px;font-weight:700;color:var(--text-secondary)">EVENT GROUPS</div>
       ${groups.map(g => `
         <div class="convo-item" style="margin-bottom:8px" onclick="openGroupChat('${g.id}','groups')">
-          <div class="convo-avatar">${g.eventImage ? `<img class="avatar-md group-avatar-photo" src="${g.eventImage}" alt="">` : '<div class="avatar-md group-avatar-icon">📅</div>'}</div>
+          <div class="convo-avatar">${g.eventImage ? `<img class="avatar-md group-avatar-photo" src="${g.eventImage}" alt="">` : '<div class="avatar-md group-avatar-icon"></div>'}</div>
           <div class="convo-info">
             <div class="convo-name">${esc(g.name || 'Event Group')}</div>
             <div class="convo-last-msg">${esc(g.lastMessage || 'Event chat')}</div>
@@ -14155,7 +14158,7 @@ function renderProfileAbout(user) {
       <div class="about-item"><span class="about-icon">🎓</span><div><div class="about-label">University</div><div class="about-value">${esc(user.university || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">📚</span><div><div class="about-label">Major</div><div class="about-value">${esc(user.major || 'Not set')}</div></div></div>
       <div class="about-item"><span class="about-icon">🧬</span><div><div class="about-label">Gender</div><div class="about-value">${esc(user.gender || 'Not set')}</div></div></div>
-      <div class="about-item"><span class="about-icon">📅</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
+      <div class="about-item"><span class="about-icon">Year</span><div><div class="about-label">Year</div><div class="about-value">${esc(user.year || 'Not set')}</div></div></div>
       ${isMe && user.address ? `<div class="about-item"><span class="about-icon">📍</span><div><div class="about-label">Location</div><div class="about-value">${esc(user.address)}</div></div></div>` : ''}
       ${modules.length ? `<div class="about-item"><span class="about-icon">🧩</span><div><div class="about-label">Modules</div><div class="about-modules">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div></div></div>` : ''}
       ${isMe ? `<div class="about-item"><span class="about-icon">👻</span><div><div class="about-label">Anonymous Messages</div><div class="about-value">${allowAnonymousDMsFor(user) ? 'Allowed from non-friends' : 'Friends only'}</div></div></div>` : ''}
