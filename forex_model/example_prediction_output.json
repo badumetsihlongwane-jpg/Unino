@@ -1,0 +1,68 @@
+{
+  "pair": "EUR/USD",
+  "timestamp": "2024-01-15T14:30:00Z",
+  "prediction": {
+    "direction": "NEUTRAL",
+    "probability_distribution": {
+      "LONG": 0.13633979856967926,
+      "NEUTRAL": 0.7271741628646851,
+      "SHORT": 0.1364859938621521
+    },
+    "confidence": 0.7173442244529724,
+    "expected_move": {
+      "mean": 0.011191765808854308,
+      "std": 0.0031,
+      "percentiles": {
+        "5": -0.0042,
+        "50": 0.0035,
+        "95": 0.0115
+      }
+    },
+    "horizon": "4H"
+  },
+  "risk_assessment": {
+    "volatility_regime": "MEDIUM",
+    "tail_risk_score": 0.4594064950942993,
+    "liquidity_warning": false,
+    "optimal_position_size": 0.38779163360595703
+  },
+  "regime_state": {
+    "risk_sentiment": {
+      "label": "RISK_ON",
+      "probability": 0.5223419666290283
+    },
+    "volatility": {
+      "label": "MEDIUM",
+      "probability": 0.9683852195739746
+    },
+    "trend": {
+      "label": "STRONG",
+      "probability": 0.2660565972328186
+    },
+    "policy": {
+      "label": "EASING",
+      "probability": 0.3574681580066681
+    },
+    "stress": {
+      "label": "ORDERLY",
+      "probability": 0.3844955265522003
+    }
+  },
+  "explainability": {
+    "factor_attribution": {
+      "interest_rate_differential": 0.16882683336734772,
+      "yield_curve_dynamics": 0.16565418243408203,
+      "commodity_correlation": 0.16778318583965302,
+      "price_momentum": 0.16532227396965027,
+      "economic_events": 0.16548201441764832,
+      "sentiment": 0.16693153977394104
+    },
+    "key_drivers": [
+      {
+        "factor": "interest_rate_differential",
+        "impact": 0.16882683336734772,
+        "description": "Interest rate dynamics driving currency valuation"
+      }
+    ]
+  }
+}
