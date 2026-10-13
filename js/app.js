@@ -1261,15 +1261,9 @@ async function initNativePushNotifications() {
     });
 
     pushNotifications.addListener('pushNotificationReceived', notification => {
-      const extra = notification?.data || {};
-      scheduleLocalNotification({
-        id: hashStringToId(`push-${notification?.id || notification?.title || Date.now()}`),
-        title: notification?.title || 'Unibo',
-        body: clampText(notification?.body || 'You have a new notification', 110),
-        channelId: (extra.kind === 'dm' || extra.kind === 'group') ? 'unibo-messages' : 'unibo-general',
-        actionTypeId: extra.kind === 'dm' ? 'dm-preview' : 'app-preview',
-        extra
-      });
+      // System tray delivery is handled exclusively by Appwrite FCM and UninoFirebaseMessagingService.
+      // Avoid scheduling a duplicate local notification here.
+      console.log('Push notification received:', notification?.title || 'Unino');
     });
 
     pushNotifications.addListener('pushNotificationActionPerformed', event => {
@@ -1364,26 +1358,13 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
   if (!_nativeDmNotificationPrimed) {
     _nativeDmNotificationPrimed = true;
-    // On first load, notify for any already-unread conversations (messages while app was closed)
-    conversations.forEach(conversation => {
-      const unread = nextUnreadMap[conversation.id] || 0;
-      if (unread <= 0) return;
-      if (_activeChatConvoId === conversation.id) return;
-      const index = conversation.participants.indexOf(myUid) === 0 ? 1 : 0;
-      const otherUid = conversation.participants[index];
-      const anonymousPeer = !!((conversation.anonymous || {})[otherUid]);
-      const senderName = anonymousPeer ? getAnonDisplayName(conversation, myUid, otherUid) : ((conversation.participantNames || [])[index] || 'New message');
-      const senderPhoto = anonymousPeer ? null : ((conversation.participantPhotos || [])[index] || null);
-      scheduleLocalNotification({
-        id: hashStringToId(`dm-${conversation.id}-${unread}`),
-        title: senderName,
-        body: clampText(conversation.lastMessage || 'Sent you a message', 110),
-        largeIcon: senderPhoto || undefined,
-        channelId: 'unibo-messages',
-        actionTypeId: 'dm-preview',
-        extra: { kind: 'dm', convoId: conversation.id }
-      });
-    });
+    _nativeDmUnreadMap = nextUnreadMap;
+    return;
+  }
+
+  // When native FCM push notifications are ready, Appwrite delivers system tray notifications.
+  // Avoid scheduling redundant local notifications.
+  if (_nativePushReady) {
     _nativeDmUnreadMap = nextUnreadMap;
     return;
   }
@@ -1415,10 +1396,15 @@ function maybeNotifyForUnreadDMs(conversations = []) {
 
 function maybeNotifyForGeneralNotifications(notifications = []) {
   if (!state.user) return;
-  // Always process notifications regardless of push status — FCM may fail silently
   if (!_nativeGeneralNotificationPrimed) {
     _nativeGeneralNotificationPrimed = true;
     // On first run, mark existing unreads as already seen to avoid flooding
+    notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
+    return;
+  }
+
+  // When native FCM push notifications are active, skip local notification duplication.
+  if (_nativePushReady) {
     notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
     return;
   }

@@ -85,83 +85,13 @@ async function pruneInvalidTokens(userId, tokens = [], responses = []) {
 }
 
 async function sendPushToUser(userId, payload) {
-  const tokenRows = await getUserTokens(userId);
-  if (!tokenRows.length) return;
-
-  const channelId = payload.channelId || 'unibo-general';
-  const title = payload.title || 'Unibo';
-  const body = payload.body || 'You have a new notification';
-  const mergedData = cleanDataMap({
-    title,
-    body,
-    channelId,
-    imageUrl: payload.imageUrl || '',
-    ...(payload.data || {})
+  // Push notifications are handled exclusively by the Appwrite FCM messaging bridge
+  // to avoid duplicate notifications and ensure custom branding (ic_notification_small + #6D28D9).
+  logger.info('Push notification delegated to Appwrite bridge', {
+    userId,
+    title: payload?.title || '',
+    channelId: payload?.channelId || ''
   });
-
-  const androidRows = tokenRows.filter(row => String(row.platform || 'android').toLowerCase() === 'android');
-  const otherRows = tokenRows.filter(row => String(row.platform || '').toLowerCase() !== 'android');
-
-  if (androidRows.length) {
-    try {
-      // Hybrid payload: notification for closed-app visibility + data for deep-link routing.
-      const androidResult = await messaging.sendEachForMulticast({
-        tokens: androidRows.map(row => row.token),
-        notification: {
-          title,
-          body
-        },
-        data: mergedData,
-        android: {
-          priority: 'high',
-          ttl: 60 * 60 * 1000,
-          notification: {
-            title,
-            body,
-            channelId,
-            sound: 'default',
-            imageUrl: payload.imageUrl || undefined,
-            clickAction: 'OPEN_UNIBO'
-          }
-        }
-      });
-      await pruneInvalidTokens(userId, androidRows, androidResult.responses || []);
-    } catch (error) {
-      logger.error('FCM android send failed', { userId, error });
-    }
-  }
-
-  if (otherRows.length) {
-    try {
-      const result = await messaging.sendEachForMulticast({
-        tokens: otherRows.map(row => row.token),
-        notification: {
-          title: payload.title,
-          body: payload.body
-        },
-        data: mergedData,
-        android: {
-          priority: 'high',
-          notification: {
-            channelId,
-            sound: 'default',
-            imageUrl: payload.imageUrl || undefined,
-            clickAction: 'OPEN_UNIBO'
-          }
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default'
-            }
-          }
-        }
-      });
-      await pruneInvalidTokens(userId, otherRows, result.responses || []);
-    } catch (error) {
-      logger.error('FCM multi-platform send failed', { userId, error });
-    }
-  }
 }
 
 exports.onDirectMessageCreated = onDocumentCreated('conversations/{convoId}/messages/{msgId}', async event => {

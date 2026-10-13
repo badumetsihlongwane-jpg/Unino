@@ -43,7 +43,7 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             "You have a new notification"
         );
 
-        showSystemNotification(title, body, resolveChannelId(data), data);
+        showSystemNotification(title, body, resolveChannelId(data), data, remoteMessage);
     }
 
     @Override
@@ -100,7 +100,26 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         return ("dm".equalsIgnoreCase(kind) || "group".equalsIgnoreCase(kind)) ? CHANNEL_MESSAGES : CHANNEL_GENERAL;
     }
 
-    private void showSystemNotification(String title, String body, String channelId, Map<String, String> data) {
+    private int getNotificationId(RemoteMessage remoteMessage, Map<String, String> data, String title, String body) {
+        if (data != null) {
+            String notifDocId = data.get("notifDocId");
+            if (!TextUtils.isEmpty(notifDocId)) return Math.abs(notifDocId.hashCode());
+            String docId = data.get("docId");
+            if (!TextUtils.isEmpty(docId)) return Math.abs(docId.hashCode());
+            String msgId = data.get("msgId");
+            if (!TextUtils.isEmpty(msgId)) return Math.abs(msgId.hashCode());
+            String convoId = data.get("convoId");
+            if (!TextUtils.isEmpty(convoId)) return Math.abs(("convo_" + convoId).hashCode());
+            String groupId = data.get("groupId");
+            if (!TextUtils.isEmpty(groupId)) return Math.abs(("group_" + groupId).hashCode());
+        }
+        if (remoteMessage != null && !TextUtils.isEmpty(remoteMessage.getMessageId())) {
+            return Math.abs(remoteMessage.getMessageId().hashCode());
+        }
+        return Math.abs((title + ":" + body).hashCode());
+    }
+
+    private void showSystemNotification(String title, String body, String channelId, Map<String, String> data, RemoteMessage remoteMessage) {
         ensureNotificationChannels(this);
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -120,9 +139,11 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             }
         }
 
+        int notificationId = getNotificationId(remoteMessage, data, title, body);
+
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this,
-            (int) (System.currentTimeMillis() & 0x7fffffff),
+            notificationId,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
@@ -142,7 +163,7 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
         try {
-            NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
+            NotificationManagerCompat.from(this).notify(notificationId, builder.build());
         } catch (Exception ignored) {}
     }
 
