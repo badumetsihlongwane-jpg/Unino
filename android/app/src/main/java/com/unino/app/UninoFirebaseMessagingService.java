@@ -146,10 +146,13 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         } catch (Exception ignored) {}
     }
 
-    private String firstNonBlank(String first, String second, String fallback) {
-        if (!TextUtils.isEmpty(first)) return first;
-        if (!TextUtils.isEmpty(second)) return second;
-        return fallback;
+    private String firstNonBlank(String... items) {
+        if (items != null) {
+            for (String item : items) {
+                if (!TextUtils.isEmpty(item)) return item;
+            }
+        }
+        return "";
     }
 
     private String valueOrDefault(String value, String fallback) {
