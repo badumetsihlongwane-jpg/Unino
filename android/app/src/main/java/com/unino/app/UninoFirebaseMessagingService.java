@@ -163,6 +163,13 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
         try {
+            android.graphics.Bitmap appLogo = android.graphics.BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            if (appLogo != null) {
+                builder.setLargeIcon(appLogo);
+            }
+        } catch (Exception ignored) {}
+
+        try {
             NotificationManagerCompat.from(this).notify(notificationId, builder.build());
         } catch (Exception ignored) {}
     }

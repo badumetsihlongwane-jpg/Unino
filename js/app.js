@@ -4434,12 +4434,18 @@ function openHeaderProfileMenu() {
       <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
+    <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
     <button type="button" data-action="signout" class="profile-menu-danger"><span>↪</span> Sign out</button>
   `;
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
+  menu.querySelector('[data-action="anon-toggle"]')?.addEventListener('click', () => {
+    const nextVal = !allowAnonymousDMsFor(state.profile);
+    setAllowAnonymousMessages(nextVal);
+    closeHeaderProfileMenu();
+  });
   menu.querySelector('[data-action="presence"]')?.addEventListener('click', () => {
     state.manualStatus = state.manualStatus === 'offline' ? 'online' : 'offline';
     _lastActivityAt = Date.now();
@@ -8194,7 +8200,7 @@ No</textarea></div>
       if (q.length < 1) { box.style.display = 'none'; return; }
       const users = await getUsersCache().catch(() => []);
       const hits = users
-        .filter(u => u.id !== state.user.uid)
+        .filter(u => u.id !== state.user.uid && allowAnonymousDMsFor(u))
         .map(u => ({ user: u, score: userSearchScore(u, q) }))
         .filter(entry => entry.score > 0)
         .sort((a, b) => b.score - a.score)
@@ -8386,6 +8392,7 @@ No</textarea></div>
         if (mentionHandles.length) {
           const users = await getUsersCache().catch(() => []);
           const byName = new Map(users.map(u => [mentionHandleForName(u.displayName || ''), u.id]));
+          const userById = new Map(users.map(u => [u.id, u]));
           const targets = new Set();
           mentionHandles.forEach(handle => {
             if (mentionMap.has(handle)) targets.add(mentionMap.get(handle));
@@ -8393,6 +8400,8 @@ No</textarea></div>
           });
           targets.forEach(uid => {
             if (!uid || uid === state.user.uid) return;
+            const targetUser = userById.get(uid);
+            if (targetUser && !allowAnonymousDMsFor(targetUser)) return;
             addNotification(uid, 'mention', 'mentioned you in a post', { postId: postRef.id }, { anonymous: isAnon });
           });
         }
@@ -12629,7 +12638,7 @@ function loadNotifications() {
     return;
   }
 
-  let html = '<div class="notif-header"><h3>Notifications</h3></div><div class="notif-scroll" style="max-height:400px;overflow-y:auto">';
+  let html = '<div class="notif-header"><h3>Notifications</h3><button class="notif-mark-all-btn" onclick="markAllBellNotifsRead()">Mark all read</button></div><div class="notif-scroll" style="max-height:400px;overflow-y:auto">';
   
   // Show reveal requests FIRST (top priority)
   if (revealRequests.length) {
@@ -12646,6 +12655,7 @@ function loadNotifications() {
            <div class="notif-text"><strong>Anonymous contact</strong> wants to reveal their identity</div>
            <div class="notif-time">${timeAgo(n.createdAt)}</div>
          </div>
+         ${!n.read ? '<span class="notif-unread-dot" title="Unread"></span>' : ''}
        </div>`;
     }).join('');
   }
@@ -12662,6 +12672,7 @@ function loadNotifications() {
             <button class="btn-outline btn-sm" onclick="event.stopPropagation();rejectFriendRequest('${r.uid}')">Decline</button>
           </div>
         </div>
+        <span class="notif-unread-dot" title="Pending"></span>
       </div>`).join('');
   }
 
@@ -12689,6 +12700,7 @@ function loadNotifications() {
             `).join('')}
           </div>
         </div>
+        <span class="notif-unread-dot" title="Pending"></span>
       </div>
     `).join('');
   }
@@ -12720,6 +12732,7 @@ function loadNotifications() {
            <div class="notif-text"><strong>${esc(from.name)}</strong> ${esc(n.text)}</div>
            <div class="notif-time">${timeAgo(n.createdAt)}</div>
          </div>
+         ${!n.read ? '<span class="notif-unread-dot" title="Unread"></span>' : ''}
        </div>`;
     }).join('');
   }
@@ -13208,22 +13221,10 @@ async function openChat(convoId) {
     const uid = state.user.uid;
     const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
     const otherUid = convo.participants[idx];
-    await ensureUserContextCache([otherUid], { force: true });
+    ensureUserContextCache([otherUid]).catch(() => {});
     const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
     const name = resolvedIdentity.name;
     const photo = resolvedIdentity.photo;
-
-
-    // Only show anon toggle for anonymous conversations (non-friend chats)
-    const anonBtn = $('#chat-anon-toggle');
-    if (anonBtn) {
-      if (convo.isAnonymous) {
-        anonBtn.style.display = '';
-        anonBtn.onclick = () => toggleAnonymous(convoId);
-      } else {
-        anonBtn.style.display = 'none';
-      }
-    }
 
     // Set initial header (will be updated by anon listener)
     updateAnonUI(convo, uid, name, photo);
@@ -13416,11 +13417,16 @@ async function openChat(convoId) {
           else msgs.scrollTop = previousScrollTop;
         }
 
-        // Mark incoming as read
+        // Mark incoming as read and atomically reset conversation unread count
         const incoming = messages.filter(m => m.senderId !== uid && m.status !== 'read');
-        incoming.forEach(m => {
-          db.collection('conversations').doc(convoId).collection('messages').doc(m.id).update({ status: 'read' }).catch(() => {});
-        });
+        if (incoming.length) {
+          const batch = db.batch();
+          incoming.forEach(m => {
+            batch.update(db.collection('conversations').doc(convoId).collection('messages').doc(m.id), { status: 'read' });
+          });
+          batch.set(db.collection('conversations').doc(convoId), { unread: { [uid]: 0 } }, { merge: true });
+          batch.commit().catch(() => {});
+        }
       });
 
     // Send message + image
@@ -13495,15 +13501,7 @@ async function openChat(convoId) {
           const vrec = $('#voice-recorder'); if (vrec) vrec.style.display = 'none';
         }
         // Check if sender is currently anonymous
-        let senderAnon = false;
-        let freshConvoData = null;
-        try {
-          const freshConvo = await db.collection('conversations').doc(convoId).get();
-          if (freshConvo.exists) {
-            freshConvoData = freshConvo.data();
-            senderAnon = !!(freshConvoData.anonymous || {})[uid];
-          }
-        } catch (_) {}
+        const senderAnon = !!(convo?.anonymous || {})[uid];
         await db.collection('conversations').doc(convoId).collection('messages').add({
           text: safeText || '', imageURL: imageURL || null, mediaType: mediaType || null, audioURL: audioURL || null,
           moderationFlags: moderation.flags,
@@ -13516,12 +13514,17 @@ async function openChat(convoId) {
           unread: { [otherUid]: FieldVal.increment(1), [uid]: 0 }
         };
         // Increment anon msg counter for initiator
-        if (freshConvoData?.isAnonymous && freshConvoData?.anonStartedBy === uid && !freshConvoData?.anonAccepted) {
+        if (convo?.isAnonymous && convo?.anonStartedBy === uid && !convo?.anonAccepted) {
           mergeData.anonMsgCount = FieldVal.increment(1);
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
-        addNotification(otherUid, 'message', 'sent you a message', { convoId }).catch(() => {});
+        const notifPreview = audioURL
+          ? '🎤 Voice message'
+          : imageURL
+            ? (mediaType === 'video' ? '📹 Video' : (safeText ? `📷 Photo: ${safeText}` : '📷 Photo'))
+            : clampText(safeText || 'New message', 100);
+        addNotification(otherUid, 'message', notifPreview, { convoId }).catch(() => {});
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
