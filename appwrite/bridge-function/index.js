@@ -252,9 +252,15 @@ async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', 
     );
     return { ok: true, mode: 'create', appwriteUserId, targetId: target.$id || targetId };
   } catch (e) {
-    if (Number(e?.code || 0) !== 409) throw e;
-    const target = await users.updateTarget(appwriteUserId, targetId, token, undefined, `unino-${platform}`);
-    return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId };
+    if (Number(e?.code || 0) === 409) {
+      try {
+        const target = await users.updateTarget(appwriteUserId, targetId, token, undefined, `unino-${platform}`);
+        return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId };
+      } catch (updateErr) {
+        return { ok: true, mode: 'exists', appwriteUserId, targetId, detail: String(updateErr?.message || updateErr) };
+      }
+    }
+    throw e;
   }
 }
 
@@ -300,9 +306,9 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     data,
     undefined,
     undefined,
-    undefined,
-    undefined,
-    undefined,
+    'ic_notification_small',
+    'default',
+    '#6D28D9',
     undefined,
     undefined,
     false,
@@ -393,6 +399,9 @@ function flattenNotificationData(payload = {}) {
     title: input.title || 'Unino',
     body: input.body || input.text || 'You have a new notification',
     channelId: input.channelId || ((input.kind === 'dm' || input.kind === 'group') ? 'unibo-messages' : 'unibo-general'),
+    priority: 'high',
+    sound: 'default',
+    clickAction: 'OPEN_UNIBO',
     convoId: nested.convoId || '',
     groupId: nested.groupId || '',
     collection: nested.collection || 'groups',
@@ -562,8 +571,9 @@ export default async ({ req, res, log, error }) => {
         }
       }
 
-      log(`push-sync ${action} uid=${userId}`);
-      return json(req, res, 200, { ok: true, route: 'push-sync', result: { pushTable: result, messagingTarget } });
+      log(`push-sync ${action} uid=${userId} targetOk=${messagingTarget?.ok !== false}`);
+      const isOk = messagingTarget?.ok !== false;
+      return json(req, res, isOk ? 200 : 502, { ok: isOk, route: 'push-sync', result: { pushTable: result, messagingTarget } });
     }
 
     if (path === '/event-sync') {

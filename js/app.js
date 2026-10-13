@@ -247,15 +247,20 @@ async function syncPushTokenWithAppwrite(action, userId, token) {
           token,
           platform: window.Capacitor?.getPlatform?.() || 'android'
         });
-        if (resp.ok) return;
-        const detail = await resp.text().catch(() => '');
-        lastErr = new Error(`sync status ${resp.status} from ${url}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+        const body = await resp.clone().json().catch(() => null);
+        if (resp.ok && body?.result?.messagingTarget?.ok !== false) {
+          refreshBackendDebugStatus(`pushSync: ${action} target=${body?.result?.messagingTarget?.mode || 'ok'}`);
+          return;
+        }
+        const detail = body?.result?.messagingTarget?.detail || (await resp.text().catch(() => ''));
+        lastErr = new Error(`push sync status ${resp.status}: ${detail ? detail.slice(0, 160) : 'target-failed'}`);
       } catch (e) {
         lastErr = e;
       }
     }
     if (lastErr) throw lastErr;
   } catch (e) {
+    refreshBackendDebugStatus(`pushSync error: ${e?.message || e}`);
     console.warn('Appwrite push sync skipped:', e?.message || e);
   }
 }
@@ -312,6 +317,8 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     text: pushBody,
     body: pushBody,
     kind,
+    priority: 'high',
+    sound: 'default',
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
     at: new Date().toISOString(),
     payload: notifPayload,
@@ -6079,8 +6086,9 @@ function openLiveStreamFromFeed(streamId = '', isOwn = false) {
 function loadFeedLiveSpotlight() {
   const host = document.getElementById('feed-live-spotlight');
   if (!host) return;
-  host.innerHTML = '<div class="feed-live-card feed-live-card-loading"><span class="inline-spinner"></span><span>Checking who is live…</span></div>';
-  host.style.display = 'block';
+  // Keep hidden while checking so feed scroll and post focus are not interrupted by layout shifts
+  host.style.display = 'none';
+  host.innerHTML = '';
   db.collection('liveStreams')
     .where('status', 'in', ['live', 'starting'])
     .limit(6)
@@ -11430,6 +11438,14 @@ async function openGroupChat(groupId, collection = 'groups') {
           lastMessage: audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText,
           updatedAt: FieldVal.serverTimestamp()
         });
+        const gDoc = await db.collection(collection).doc(groupId).get().catch(() => null);
+        const gData = gDoc?.data?.() || {};
+        const gMembers = (gData.members || []).filter(m => m && m !== uid);
+        const gName = gData.groupTitle || gData.assignmentTitle || gData.name || 'Group';
+        const msgSummary = audioURL ? 'sent a voice message' : imageURL ? 'sent a photo' : (safeText || 'sent a message');
+        gMembers.forEach(targetId => {
+          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, { groupId, collection, kind: 'group' }).catch(() => {});
+        });
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
@@ -12711,6 +12727,42 @@ async function viewPost(pid) {
   try {
     closeModal();
 
+    // If already on the feed page, scroll directly without unmounting or reloading the feed
+    if (state.page === 'feed') {
+      const existingCard = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+      if (existingCard) {
+        _pendingFeedFocusPostId = '';
+        _feedFocusedPostId = postId;
+        _feedFocusLockUntil = Date.now() + 2500;
+        focusFeedPostCard(postId, 'smooth');
+        return;
+      }
+
+      if (_feedSearchQuery) {
+        _feedSearchQuery = '';
+        const input = $('#feed-search-input');
+        if (input) input.value = '';
+      }
+
+      let post = (state.posts || []).find(item => item.id === postId) || null;
+      if (!post) {
+        const doc = await db.collection('posts').doc(postId).get();
+        if (!doc.exists) return toast('Post not found');
+        post = { id: doc.id, ...doc.data() };
+        state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+      }
+
+      _pendingFeedFocusPostId = '';
+      _feedFocusedPostId = postId;
+      _feedFocusLockUntil = Date.now() + 2500;
+      renderFeedResults(state.posts || []);
+      requestAnimationFrame(() => {
+        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
+      });
+      return;
+    }
+
+    // Navigating from another page (explore, chat, hustle, etc.)
     let post = (state.posts || []).find(item => item.id === postId) || null;
     if (!post) {
       const doc = await db.collection('posts').doc(postId).get();
@@ -12721,13 +12773,18 @@ async function viewPost(pid) {
 
     _pendingFeedFocusPostId = postId;
     _feedFocusedPostId = postId;
-    _feedFocusLockUntil = Date.now() + 2200;
-    navigate('feed');
-    setTimeout(() => {
-      if (state.page !== 'feed') return;
-      if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
-      if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
-    }, 100);
+    _feedFocusLockUntil = Date.now() + 3000;
+    navigate('feed', { refresh: false, pushHistory: true, restoreFeed: false });
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (state.page !== 'feed') return;
+        const inDom = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+        if (!inDom && Array.isArray(state.posts) && state.posts.length) {
+          renderFeedResults(state.posts);
+        }
+        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
+      }, 60);
+    });
   } catch (e) {
     console.error(e);
     toast('Could not open post');

@@ -73,7 +73,7 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         if (manager == null) return;
 
         ensureChannel(manager, CHANNEL_MESSAGES, "Messages", "Direct and group message notifications", NotificationManager.IMPORTANCE_HIGH);
-        ensureChannel(manager, CHANNEL_GENERAL, "Activity", "General Unino notifications", NotificationManager.IMPORTANCE_DEFAULT);
+        ensureChannel(manager, CHANNEL_GENERAL, "Activity", "General Unino notifications", NotificationManager.IMPORTANCE_HIGH);
     }
 
     private static void ensureChannel(NotificationManager manager, String channelId, String name, String description, int importance) {
@@ -82,10 +82,15 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
 
         NotificationChannel channel = new NotificationChannel(channelId, name, importance);
         channel.setDescription(description);
+        channel.enableVibration(true);
+        channel.enableLights(true);
+        channel.setLightColor(0xFF6D28D9);
+        channel.setLockscreenVisibility(android.app.Notification.VISIBILITY_PUBLIC);
         manager.createNotificationChannel(channel);
     }
 
     private String resolveChannelId(Map<String, String> data) {
+        if (data == null) return CHANNEL_MESSAGES;
         String explicitChannel = valueOrDefault(data.get("channelId"), "");
         if (!TextUtils.isEmpty(explicitChannel)) return explicitChannel;
 
@@ -95,6 +100,12 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
 
     private void showSystemNotification(String title, String body, String channelId, Map<String, String> data) {
         ensureNotificationChannels(this);
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+        }
 
         Intent launchIntent = new Intent(this, MainActivity.class)
             .setAction("OPEN_UNIBO")
@@ -120,8 +131,9 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(new long[]{0, 250, 250, 250})
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

@@ -97,6 +97,7 @@ public class MainActivity extends BridgeActivity {
 	public void onResume() {
 		super.onResume();
 		applyCurrentSystemInsets();
+		dispatchNativeFcmToken(UninoFirebaseMessagingService.getStoredFcmToken(this));
 	}
 	@Override
 	protected void onNewIntent(Intent intent) {
