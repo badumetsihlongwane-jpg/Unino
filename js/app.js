@@ -4743,13 +4743,27 @@ function focusFeedPostCard(postId, behavior = 'smooth') {
   if (contentEl) {
     const contentRect = contentEl.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
-    const nextTop = Math.max(0, contentEl.scrollTop + cardRect.top - contentRect.top - 96);
+    const nextTop = Math.max(0, contentEl.scrollTop + (cardRect.top - contentRect.top) - 10);
     contentEl.scrollTo({ top: nextTop, behavior });
   } else {
-    card.scrollIntoView({ behavior, block: 'center' });
+    card.scrollIntoView({ behavior, block: 'start' });
   }
   card.classList.add('post-focus-flash');
   setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
+
+  setTimeout(() => {
+    const reCard = document.querySelector(`.post-card[data-post-id="${targetId}"]`);
+    const cEl = document.getElementById('content');
+    if (reCard && cEl) {
+      const cRect = cEl.getBoundingClientRect();
+      const rRect = reCard.getBoundingClientRect();
+      const currentOffset = rRect.top - cRect.top;
+      if (Math.abs(currentOffset - 10) > 25) {
+        cEl.scrollTo({ top: Math.max(0, cEl.scrollTop + currentOffset - 10), behavior: 'smooth' });
+      }
+    }
+  }, 350);
+
   return true;
 }
 
@@ -4857,7 +4871,11 @@ function renderFeed() {
     loadDiscoverPeople();
     loadFeedLiveSpotlight();
   }
+  if (Array.isArray(state.posts) && state.posts.length) {
+    renderFeedResults(state.posts);
+  }
   loadCampusEvents().then(() => {
+    if (Date.now() < _feedFocusLockUntil) return;
     if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
   }).catch(() => {});
 
@@ -6094,6 +6112,7 @@ function loadFeedLiveSpotlight() {
     .limit(6)
     .get()
     .then(snap => {
+      if (Date.now() < _feedFocusLockUntil) return;
       const streams = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.currentViewerCount || 0) - (a.currentViewerCount || 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
@@ -13481,7 +13500,7 @@ async function openChat(convoId) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
-        await addNotification(otherUid, 'message', 'sent you a message', { convoId });
+        addNotification(otherUid, 'message', 'sent you a message', { convoId }).catch(() => {});
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;

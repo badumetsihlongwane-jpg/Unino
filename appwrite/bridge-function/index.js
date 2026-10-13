@@ -54,8 +54,10 @@ function extractBearerFromHeaders(headers = {}) {
   return '';
 }
 
+const DEFAULT_FIREBASE_WEB_API_KEY = 'AIzaSyClbenDcEzwjAiEO8x8-5atWsrFKrQpdgc';
+
 async function verifyFirebaseToken(idToken, apiKeyOverride = '') {
-  const firebaseApiKey = String(apiKeyOverride || process.env.FIREBASE_WEB_API_KEY || '').trim();
+  const firebaseApiKey = String(apiKeyOverride || process.env.FIREBASE_WEB_API_KEY || DEFAULT_FIREBASE_WEB_API_KEY).trim();
   if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY (env or request body.firebaseApiKey)');
   const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseApiKey)}`, {
     method: 'POST',

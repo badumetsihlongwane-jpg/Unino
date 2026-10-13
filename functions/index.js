@@ -2,7 +2,10 @@ const admin = require('firebase-admin');
 const { logger } = require('firebase-functions');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onRequest } = require('firebase-functions/v2/https');
-
+/**
+ * Unino Firebase Cloud Functions - Realtime Push Notifications
+ * Version: 2026.04.13-instant-fcm
+ */
 admin.initializeApp();
 
 const db = admin.firestore();

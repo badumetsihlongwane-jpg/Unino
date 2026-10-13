@@ -86,8 +86,6 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 db.settings({
-  experimentalAutoDetectLongPolling: true,
-  useFetchStreams: false,
   merge: true
 });
 // Storage disabled (requires paid plan) — using base64 data URLs instead

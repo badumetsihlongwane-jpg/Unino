@@ -34,6 +34,12 @@ public class MainActivity extends BridgeActivity {
 		super.onCreate(savedInstanceState);
 		UninoFirebaseMessagingService.ensureNotificationChannels(this);
 
+		if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+			if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+				requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1001);
+			}
+		}
+
 		try {
 			FirebaseApp.initializeApp(this);
 			FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
