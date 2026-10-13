@@ -56,10 +56,20 @@ function extractBearerFromHeaders(headers = {}) {
 }
 
 const DEFAULT_FIREBASE_WEB_API_KEY = 'AIzaSyClbenDcEzwjAiEO8x8-5atWsrFKrQpdgc';
+const DEFAULT_APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
+const DEFAULT_APPWRITE_PROJECT_ID = '69dd43b6002414cdfb70';
+
+function resolveFirebaseApiKey(apiKeyOverride = '') {
+  const candidate = String(apiKeyOverride || process.env.FIREBASE_WEB_API_KEY || '').trim();
+  if (candidate && !candidate.startsWith('http') && candidate.length > 20) {
+    return candidate;
+  }
+  return DEFAULT_FIREBASE_WEB_API_KEY;
+}
 
 async function verifyFirebaseToken(idToken, apiKeyOverride = '') {
-  const firebaseApiKey = String(apiKeyOverride || process.env.FIREBASE_WEB_API_KEY || DEFAULT_FIREBASE_WEB_API_KEY).trim();
-  if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY (env or request body.firebaseApiKey)');
+  const firebaseApiKey = resolveFirebaseApiKey(apiKeyOverride);
+  if (!firebaseApiKey) throw new Error('Missing FIREBASE_WEB_API_KEY');
   const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseApiKey)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -81,20 +91,27 @@ async function verifyFirebaseToken(idToken, apiKeyOverride = '') {
   return { uid: user.localId, email: user.email || '' };
 }
 
+function getAppwriteConfig() {
+  let endpoint = String(process.env.APPWRITE_ENDPOINT || process.env.APPWRITE_FUNCTION_API_ENDPOINT || DEFAULT_APPWRITE_ENDPOINT).trim();
+  let project = String(process.env.APPWRITE_PROJECT_ID || process.env.APPWRITE_FUNCTION_PROJECT_ID || DEFAULT_APPWRITE_PROJECT_ID).trim();
+  // Automatically sanitize legacy paused Sydney project to active Frankfurt project
+  if (project === '69b4202c00370d4748d6' || endpoint.includes('syd.cloud.appwrite.io')) {
+    endpoint = DEFAULT_APPWRITE_ENDPOINT;
+    project = DEFAULT_APPWRITE_PROJECT_ID;
+  }
+  const key = String(process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '').trim();
+  return { endpoint, project, key };
+}
+
 function makeClient() {
-  const endpoint = process.env.APPWRITE_ENDPOINT || process.env.APPWRITE_FUNCTION_API_ENDPOINT || '';
-  const project = process.env.APPWRITE_PROJECT_ID || process.env.APPWRITE_FUNCTION_PROJECT_ID || '';
-  const key = process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '';
+  const { endpoint, project, key } = getAppwriteConfig();
   if (!endpoint || !project || !key) throw new Error('Missing Appwrite env (APPWRITE_ENDPOINT / APPWRITE_PROJECT_ID / APPWRITE_API_KEY)');
   const client = new Client().setEndpoint(endpoint).setProject(project).setKey(key);
   return client;
 }
 
 function getClientEnv() {
-  const endpoint = process.env.APPWRITE_ENDPOINT || process.env.APPWRITE_FUNCTION_API_ENDPOINT || '';
-  const project = process.env.APPWRITE_PROJECT_ID || process.env.APPWRITE_FUNCTION_PROJECT_ID || '';
-  const key = process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '';
-  return { endpoint, project, key };
+  return getAppwriteConfig();
 }
 
 async function fetchSchema(endpoint, project, key, path) {
