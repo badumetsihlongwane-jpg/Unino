@@ -245,7 +245,8 @@ async function syncPushTokenWithAppwrite(action, userId, token) {
           action,
           userId,
           token,
-          platform: window.Capacitor?.getPlatform?.() || 'android'
+          platform: window.Capacitor?.getPlatform?.() || 'android',
+          providerId: window.UNINO_APPWRITE_PUSH_PROVIDER_ID || '69dd5e4600355126b5b0'
         });
         const body = await resp.clone().json().catch(() => null);
         if (resp.ok && body?.result?.messagingTarget?.ok !== false) {
@@ -320,6 +321,7 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     priority: 'high',
     sound: 'default',
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    providerId: window.UNINO_APPWRITE_PUSH_PROVIDER_ID || '69dd5e4600355126b5b0',
     at: new Date().toISOString(),
     payload: notifPayload,
     from: {

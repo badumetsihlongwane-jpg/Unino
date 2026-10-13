@@ -10,7 +10,8 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-03-17-shadow-v4';
+const FUNCTION_VERSION = '2026-04-13-fcm-v5';
+const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const _schemaCache = new Map();
 
 function corsHeaders(req) {
@@ -236,12 +237,13 @@ async function ensureMessagingUser(users, appwriteUserId, email = '') {
   };
 }
 
-async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', email = '' }) {
+async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', email = '', providerId = '' }) {
   const users = new Users(makeClient());
   const appwriteUserId = toAppwriteUserId(firebaseUid);
   const userEnsure = await ensureMessagingUser(users, appwriteUserId, email);
   if (!userEnsure.ok) return { ok: false, skipped: true, reason: userEnsure.reason, appwriteUserId };
 
+  const resolvedProviderId = String(providerId || process.env.APPWRITE_PUSH_PROVIDER_ID || DEFAULT_PUSH_PROVIDER_ID).trim();
   const targetId = buildTargetId(token, platform);
   try {
     const target = await users.createTarget(
@@ -249,17 +251,17 @@ async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', 
       targetId,
       MessagingProviderType.Push,
       token,
-      undefined,
+      resolvedProviderId,
       `unino-${platform}`
     );
-    return { ok: true, mode: 'create', appwriteUserId, targetId: target.$id || targetId };
+    return { ok: true, mode: 'create', appwriteUserId, targetId: target.$id || targetId, providerId: resolvedProviderId };
   } catch (e) {
     if (Number(e?.code || 0) === 409) {
       try {
-        const target = await users.updateTarget(appwriteUserId, targetId, token, undefined, `unino-${platform}`);
-        return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId };
+        const target = await users.updateTarget(appwriteUserId, targetId, token, resolvedProviderId, `unino-${platform}`);
+        return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId, providerId: resolvedProviderId };
       } catch (updateErr) {
-        return { ok: true, mode: 'exists', appwriteUserId, targetId, detail: String(updateErr?.message || updateErr) };
+        return { ok: true, mode: 'exists', appwriteUserId, targetId, providerId: resolvedProviderId, detail: String(updateErr?.message || updateErr) };
       }
     }
     throw e;
@@ -286,25 +288,20 @@ async function listPushTargetsForFirebaseUid(firebaseUid) {
 
 async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {} }) {
   const messaging = new Messaging(makeClient());
+  const appwriteUserId = toAppwriteUserId(targetFirebaseUid);
   const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
   const targetIds = (targetList.targets || []).map(target => target.id).filter(Boolean);
 
-  if (!targetIds.length) {
-    return {
-      sent: false,
-      reason: 'no-targets',
-      appwriteUserId: targetList.appwriteUserId,
-      targetCount: 0
-    };
-  }
+  const userTargets = targetIds.length ? targetIds : [];
+  const targetUsers = [appwriteUserId];
 
   const message = await messaging.createPush(
     ID.unique(),
     String(title || 'Unino notification'),
     String(body || ''),
     [],
-    [],
-    targetIds,
+    targetUsers,
+    userTargets,
     data,
     undefined,
     undefined,
@@ -321,8 +318,8 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     sent: true,
     messageId: message?.$id || '',
     providerType: message?.providerType || 'push',
-    appwriteUserId: targetList.appwriteUserId,
-    targetCount: targetIds.length
+    appwriteUserId,
+    targetCount: userTargets.length || targetUsers.length
   };
 }
 
@@ -566,7 +563,8 @@ export default async ({ req, res, log, error }) => {
             firebaseUid: userId,
             token,
             platform,
-            email: auth.email || ''
+            email: auth.email || '',
+            providerId: body.providerId || process.env.APPWRITE_PUSH_PROVIDER_ID || DEFAULT_PUSH_PROVIDER_ID
           });
         } catch (e) {
           messagingTarget = { ok: false, reason: 'messaging-target-failed', detail: String(e?.message || e) };
