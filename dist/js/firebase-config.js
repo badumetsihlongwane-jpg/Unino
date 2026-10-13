@@ -86,8 +86,6 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 db.settings({
-  experimentalAutoDetectLongPolling: true,
-  useFetchStreams: false,
   merge: true
 });
 // Storage disabled (requires paid plan) — using base64 data URLs instead
@@ -107,6 +105,8 @@ const DEFAULT_APPWRITE_PROJECT_NAME = 'unibo';
 window.UNINO_APPWRITE_ENDPOINT = window.UNINO_APPWRITE_ENDPOINT || DEFAULT_APPWRITE_ENDPOINT;
 window.UNINO_APPWRITE_PROJECT_ID = window.UNINO_APPWRITE_PROJECT_ID || DEFAULT_APPWRITE_PROJECT_ID;
 window.UNINO_APPWRITE_PROJECT_NAME = window.UNINO_APPWRITE_PROJECT_NAME || DEFAULT_APPWRITE_PROJECT_NAME;
+const DEFAULT_APPWRITE_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
+window.UNINO_APPWRITE_PUSH_PROVIDER_ID = window.UNINO_APPWRITE_PUSH_PROVIDER_ID || DEFAULT_APPWRITE_PUSH_PROVIDER_ID;
 
 // Bridge URLs are derived from a single base run URL, for example:
 //   window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run'

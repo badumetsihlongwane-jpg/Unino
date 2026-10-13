@@ -32,12 +32,13 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
         Map<String, String> data = remoteMessage.getData();
 
         String title = firstNonBlank(
-            valueOrDefault(data.get("title"), ""),
+            data != null ? valueOrDefault(data.get("title"), "") : "",
             notification != null ? valueOrDefault(notification.getTitle(), "") : "",
             "Unino"
         );
         String body = firstNonBlank(
-            valueOrDefault(data.get("body"), ""),
+            data != null ? valueOrDefault(data.get("body"), "") : "",
+            data != null ? valueOrDefault(data.get("text"), "") : "",
             notification != null ? valueOrDefault(notification.getBody(), "") : "",
             "You have a new notification"
         );
@@ -90,9 +91,10 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
     }
 
     private String resolveChannelId(Map<String, String> data) {
-        if (data == null) return CHANNEL_MESSAGES;
+        if (data == null) return CHANNEL_GENERAL;
         String explicitChannel = valueOrDefault(data.get("channelId"), "");
-        if (!TextUtils.isEmpty(explicitChannel)) return explicitChannel;
+        if (CHANNEL_MESSAGES.equalsIgnoreCase(explicitChannel)) return CHANNEL_MESSAGES;
+        if (CHANNEL_GENERAL.equalsIgnoreCase(explicitChannel)) return CHANNEL_GENERAL;
 
         String kind = valueOrDefault(data.get("kind"), "");
         return ("dm".equalsIgnoreCase(kind) || "group".equalsIgnoreCase(kind)) ? CHANNEL_MESSAGES : CHANNEL_GENERAL;
@@ -139,7 +141,9 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
-        NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
+        try {
+            NotificationManagerCompat.from(this).notify((int) (System.currentTimeMillis() & 0x7fffffff), builder.build());
+        } catch (Exception ignored) {}
     }
 
     private String firstNonBlank(String first, String second, String fallback) {

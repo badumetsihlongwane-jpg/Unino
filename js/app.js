@@ -41,6 +41,7 @@ let _reelsObserver = null;
 let _reelsSoundEnabled = false;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
+let _nativeWindowBridgeListenersBound = false;
 let _nativeShellReady = false;
 let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
@@ -236,10 +237,13 @@ async function syncEventWithAppwrite(eventType, payload = {}) {
 }
 
 async function syncPushTokenWithAppwrite(action, userId, token) {
-  if (!APPWRITE_PUSH_SYNC_URLS.length || !userId || !token || !auth.currentUser) return;
+  const syncUrls = (APPWRITE_PUSH_SYNC_URLS && APPWRITE_PUSH_SYNC_URLS.length)
+    ? APPWRITE_PUSH_SYNC_URLS
+    : ['https://69dd474c000ed9db9d03.fra.appwrite.run/push-sync'];
+  if (!syncUrls.length || !userId || !token || !auth.currentUser) return;
   try {
     let lastErr = null;
-    for (const url of APPWRITE_PUSH_SYNC_URLS) {
+    for (const url of syncUrls) {
       try {
         const resp = await postToAppwriteBridge(url, {
           action,
@@ -251,6 +255,7 @@ async function syncPushTokenWithAppwrite(action, userId, token) {
         const body = await resp.clone().json().catch(() => null);
         if (resp.ok && body?.result?.messagingTarget?.ok !== false) {
           refreshBackendDebugStatus(`pushSync: ${action} target=${body?.result?.messagingTarget?.mode || 'ok'}`);
+          console.log(`[PushSync] Success: ${action} target=${body?.result?.messagingTarget?.mode || 'ok'} user=${userId}`);
           return;
         }
         const detail = body?.result?.messagingTarget?.detail || (await resp.text().catch(() => ''));
@@ -262,7 +267,7 @@ async function syncPushTokenWithAppwrite(action, userId, token) {
     if (lastErr) throw lastErr;
   } catch (e) {
     refreshBackendDebugStatus(`pushSync error: ${e?.message || e}`);
-    console.warn('Appwrite push sync skipped:', e?.message || e);
+    console.warn('Appwrite push sync error:', e?.message || e);
   }
 }
 
@@ -292,7 +297,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const allowSelf = !!options.allowSelf;
   if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
 
-  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite-native-fcm' : 'firestore-only';
+  const syncUrls = (APPWRITE_EVENT_SYNC_URLS && APPWRITE_EVENT_SYNC_URLS.length)
+    ? APPWRITE_EVENT_SYNC_URLS
+    : ['https://69dd474c000ed9db9d03.fra.appwrite.run/event-sync'];
+  const mode = syncUrls.length ? 'appwrite-native-fcm' : 'firestore-only';
   const { docId = null } = options;
   let appwriteStatus = 'skipped';
   let appwriteDetail = '';
@@ -331,10 +339,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     }
   };
 
-  if (APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
+  if (syncUrls.length && auth.currentUser) {
     try {
       let delivered = false;
-      for (const url of APPWRITE_EVENT_SYNC_URLS) {
+      for (const url of syncUrls) {
         const resp = await postToAppwriteBridge(url, {
           eventType: 'notification_dispatch',
           payload: bridgePayload
@@ -506,13 +514,20 @@ async function runAppwriteBackendDiagnostics() {
     }
   }
 
-  const pushUrl = APPWRITE_PUSH_SYNC_URLS[0] || '';
-  if (pushUrl && auth.currentUser && state.user?.uid && _nativePushToken) {
+  const pushUrl = APPWRITE_PUSH_SYNC_URLS[0] || 'https://69dd474c000ed9db9d03.fra.appwrite.run/push-sync';
+  const effectiveToken = _nativePushToken
+    || window.UninoNativeBridge?.getFcmToken?.()
+    || window.__UNINO_NATIVE_FCM_TOKEN
+    || localStorage.getItem('unino-cached-fcm-token')
+    || '';
+  if (effectiveToken && !_nativePushToken) _nativePushToken = effectiveToken;
+
+  if (pushUrl && auth.currentUser && state.user?.uid && effectiveToken) {
     try {
       const pushResp = await postToAppwriteBridge(pushUrl, {
         action: 'upsert',
         userId: state.user.uid,
-        token: _nativePushToken,
+        token: effectiveToken,
         platform: window.Capacitor?.getPlatform?.() || 'android'
       });
       const body = await pushResp.clone().json().catch(() => null);
@@ -1008,11 +1023,23 @@ function queueNativeFcmTokenHint(token = '') {
   const hinted = String(token || '').trim();
   if (!hinted || hinted.length < 20) return;
   _nativePendingFcmToken = hinted;
-  if (state.user?.uid) savePushTokenForCurrentUser(hinted).catch(() => {});
+  _nativePushToken = hinted;
+  try { localStorage.setItem('unino-cached-fcm-token', hinted); } catch (_) {}
+  if (state.user?.uid) {
+    savePushTokenForCurrentUser(hinted).catch(err => {
+      console.warn('savePushTokenForCurrentUser error:', err);
+    });
+  }
 }
 
 function consumeNativeFcmTokenHint() {
-  const hinted = String(_nativePendingFcmToken || window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+  const hinted = String(
+    _nativePendingFcmToken ||
+    window.UninoNativeBridge?.getFcmToken?.() ||
+    window.__UNINO_NATIVE_FCM_TOKEN ||
+    localStorage.getItem('unino-cached-fcm-token') ||
+    ''
+  ).trim();
   if (!hinted || hinted.length < 20) return;
   queueNativeFcmTokenHint(hinted);
   window.__UNINO_NATIVE_FCM_TOKEN = '';
@@ -1033,9 +1060,10 @@ async function syncNativeStatusBar() {
 }
 
 async function savePushTokenForCurrentUser(token) {
-  if (!token || !state.user) return;
+  if (!token || !state.user?.uid) return;
   _nativePushToken = token;
   try {
+    try { localStorage.setItem('unino-cached-fcm-token', token); } catch (_) {}
     const previousOwner = localStorage.getItem('unino-push-owner') || '';
     if (previousOwner && previousOwner !== state.user.uid) {
       await db.collection('users').doc(previousOwner).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
@@ -1046,8 +1074,8 @@ async function savePushTokenForCurrentUser(token) {
       updatedAt: FieldVal.serverTimestamp(),
       createdAt: FieldVal.serverTimestamp()
     }, { merge: true });
-    // Optional dual-write bridge for Appwrite migration (no-op unless configured).
-    syncPushTokenWithAppwrite('upsert', state.user.uid, token).catch(() => {});
+    // Dual-write bridge to Appwrite FCM Messaging
+    await syncPushTokenWithAppwrite('upsert', state.user.uid, token);
     localStorage.setItem('unino-push-owner', state.user.uid);
   } catch (e) {
     console.warn('Push token save failed:', e);
@@ -1505,8 +1533,8 @@ async function initNativeShell() {
     }
   }
 
-  if (!_nativeNotificationListenersBound) {
-    _nativeNotificationListenersBound = true;
+  if (!_nativeWindowBridgeListenersBound) {
+    _nativeWindowBridgeListenersBound = true;
     window.addEventListener('unino:native-notification-open', event => {
       const detail = event?.detail || {};
       handleNativeNotificationOpen(detail.extra || detail, detail.actionId || 'tap');
@@ -1519,7 +1547,12 @@ async function initNativeShell() {
       window.__UNINO_PENDING_NOTIFICATION = null;
       setTimeout(() => handleNativeNotificationOpen(pending.extra || pending, pending.actionId || 'tap'), 120);
     }
-    const pendingNativeToken = String(window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+    const pendingNativeToken = String(
+      window.UninoNativeBridge?.getFcmToken?.() ||
+      window.__UNINO_NATIVE_FCM_TOKEN ||
+      localStorage.getItem('unino-cached-fcm-token') ||
+      ''
+    ).trim();
     if (pendingNativeToken) queueNativeFcmTokenHint(pendingNativeToken);
   }
 }

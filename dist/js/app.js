@@ -41,6 +41,7 @@ let _reelsObserver = null;
 let _reelsSoundEnabled = false;
 let _nativeBackListenerBound = false;
 let _nativeNotificationListenersBound = false;
+let _nativeWindowBridgeListenersBound = false;
 let _nativeShellReady = false;
 let _nativeLocalNotificationsReady = false;
 let _nativeAppIsActive = true;
@@ -236,27 +237,37 @@ async function syncEventWithAppwrite(eventType, payload = {}) {
 }
 
 async function syncPushTokenWithAppwrite(action, userId, token) {
-  if (!APPWRITE_PUSH_SYNC_URLS.length || !userId || !token || !auth.currentUser) return;
+  const syncUrls = (APPWRITE_PUSH_SYNC_URLS && APPWRITE_PUSH_SYNC_URLS.length)
+    ? APPWRITE_PUSH_SYNC_URLS
+    : ['https://69dd474c000ed9db9d03.fra.appwrite.run/push-sync'];
+  if (!syncUrls.length || !userId || !token || !auth.currentUser) return;
   try {
     let lastErr = null;
-    for (const url of APPWRITE_PUSH_SYNC_URLS) {
+    for (const url of syncUrls) {
       try {
         const resp = await postToAppwriteBridge(url, {
           action,
           userId,
           token,
-          platform: window.Capacitor?.getPlatform?.() || 'android'
+          platform: window.Capacitor?.getPlatform?.() || 'android',
+          providerId: window.UNINO_APPWRITE_PUSH_PROVIDER_ID || '69dd5e4600355126b5b0'
         });
-        if (resp.ok) return;
-        const detail = await resp.text().catch(() => '');
-        lastErr = new Error(`sync status ${resp.status} from ${url}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+        const body = await resp.clone().json().catch(() => null);
+        if (resp.ok && body?.result?.messagingTarget?.ok !== false) {
+          refreshBackendDebugStatus(`pushSync: ${action} target=${body?.result?.messagingTarget?.mode || 'ok'}`);
+          console.log(`[PushSync] Success: ${action} target=${body?.result?.messagingTarget?.mode || 'ok'} user=${userId}`);
+          return;
+        }
+        const detail = body?.result?.messagingTarget?.detail || (await resp.text().catch(() => ''));
+        lastErr = new Error(`push sync status ${resp.status}: ${detail ? detail.slice(0, 160) : 'target-failed'}`);
       } catch (e) {
         lastErr = e;
       }
     }
     if (lastErr) throw lastErr;
   } catch (e) {
-    console.warn('Appwrite push sync skipped:', e?.message || e);
+    refreshBackendDebugStatus(`pushSync error: ${e?.message || e}`);
+    console.warn('Appwrite push sync error:', e?.message || e);
   }
 }
 
@@ -286,7 +297,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const allowSelf = !!options.allowSelf;
   if (!targetId || (!allowSelf && targetId === state.user?.uid)) return { skipped: true, reason: 'self-or-missing-target' };
 
-  const mode = APPWRITE_EVENT_SYNC_URLS.length ? 'appwrite-native-fcm' : 'firestore-only';
+  const syncUrls = (APPWRITE_EVENT_SYNC_URLS && APPWRITE_EVENT_SYNC_URLS.length)
+    ? APPWRITE_EVENT_SYNC_URLS
+    : ['https://69dd474c000ed9db9d03.fra.appwrite.run/event-sync'];
+  const mode = syncUrls.length ? 'appwrite-native-fcm' : 'firestore-only';
   const { docId = null } = options;
   let appwriteStatus = 'skipped';
   let appwriteDetail = '';
@@ -312,7 +326,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     text: pushBody,
     body: pushBody,
     kind,
+    priority: 'high',
+    sound: 'default',
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
+    providerId: window.UNINO_APPWRITE_PUSH_PROVIDER_ID || '69dd5e4600355126b5b0',
     at: new Date().toISOString(),
     payload: notifPayload,
     from: {
@@ -322,10 +339,10 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
     }
   };
 
-  if (APPWRITE_EVENT_SYNC_URLS.length && auth.currentUser) {
+  if (syncUrls.length && auth.currentUser) {
     try {
       let delivered = false;
-      for (const url of APPWRITE_EVENT_SYNC_URLS) {
+      for (const url of syncUrls) {
         const resp = await postToAppwriteBridge(url, {
           eventType: 'notification_dispatch',
           payload: bridgePayload
@@ -497,13 +514,20 @@ async function runAppwriteBackendDiagnostics() {
     }
   }
 
-  const pushUrl = APPWRITE_PUSH_SYNC_URLS[0] || '';
-  if (pushUrl && auth.currentUser && state.user?.uid && _nativePushToken) {
+  const pushUrl = APPWRITE_PUSH_SYNC_URLS[0] || 'https://69dd474c000ed9db9d03.fra.appwrite.run/push-sync';
+  const effectiveToken = _nativePushToken
+    || window.UninoNativeBridge?.getFcmToken?.()
+    || window.__UNINO_NATIVE_FCM_TOKEN
+    || localStorage.getItem('unino-cached-fcm-token')
+    || '';
+  if (effectiveToken && !_nativePushToken) _nativePushToken = effectiveToken;
+
+  if (pushUrl && auth.currentUser && state.user?.uid && effectiveToken) {
     try {
       const pushResp = await postToAppwriteBridge(pushUrl, {
         action: 'upsert',
         userId: state.user.uid,
-        token: _nativePushToken,
+        token: effectiveToken,
         platform: window.Capacitor?.getPlatform?.() || 'android'
       });
       const body = await pushResp.clone().json().catch(() => null);
@@ -999,11 +1023,23 @@ function queueNativeFcmTokenHint(token = '') {
   const hinted = String(token || '').trim();
   if (!hinted || hinted.length < 20) return;
   _nativePendingFcmToken = hinted;
-  if (state.user?.uid) savePushTokenForCurrentUser(hinted).catch(() => {});
+  _nativePushToken = hinted;
+  try { localStorage.setItem('unino-cached-fcm-token', hinted); } catch (_) {}
+  if (state.user?.uid) {
+    savePushTokenForCurrentUser(hinted).catch(err => {
+      console.warn('savePushTokenForCurrentUser error:', err);
+    });
+  }
 }
 
 function consumeNativeFcmTokenHint() {
-  const hinted = String(_nativePendingFcmToken || window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+  const hinted = String(
+    _nativePendingFcmToken ||
+    window.UninoNativeBridge?.getFcmToken?.() ||
+    window.__UNINO_NATIVE_FCM_TOKEN ||
+    localStorage.getItem('unino-cached-fcm-token') ||
+    ''
+  ).trim();
   if (!hinted || hinted.length < 20) return;
   queueNativeFcmTokenHint(hinted);
   window.__UNINO_NATIVE_FCM_TOKEN = '';
@@ -1024,9 +1060,10 @@ async function syncNativeStatusBar() {
 }
 
 async function savePushTokenForCurrentUser(token) {
-  if (!token || !state.user) return;
+  if (!token || !state.user?.uid) return;
   _nativePushToken = token;
   try {
+    try { localStorage.setItem('unino-cached-fcm-token', token); } catch (_) {}
     const previousOwner = localStorage.getItem('unino-push-owner') || '';
     if (previousOwner && previousOwner !== state.user.uid) {
       await db.collection('users').doc(previousOwner).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
@@ -1037,8 +1074,8 @@ async function savePushTokenForCurrentUser(token) {
       updatedAt: FieldVal.serverTimestamp(),
       createdAt: FieldVal.serverTimestamp()
     }, { merge: true });
-    // Optional dual-write bridge for Appwrite migration (no-op unless configured).
-    syncPushTokenWithAppwrite('upsert', state.user.uid, token).catch(() => {});
+    // Dual-write bridge to Appwrite FCM Messaging
+    await syncPushTokenWithAppwrite('upsert', state.user.uid, token);
     localStorage.setItem('unino-push-owner', state.user.uid);
   } catch (e) {
     console.warn('Push token save failed:', e);
@@ -1496,8 +1533,8 @@ async function initNativeShell() {
     }
   }
 
-  if (!_nativeNotificationListenersBound) {
-    _nativeNotificationListenersBound = true;
+  if (!_nativeWindowBridgeListenersBound) {
+    _nativeWindowBridgeListenersBound = true;
     window.addEventListener('unino:native-notification-open', event => {
       const detail = event?.detail || {};
       handleNativeNotificationOpen(detail.extra || detail, detail.actionId || 'tap');
@@ -1510,7 +1547,12 @@ async function initNativeShell() {
       window.__UNINO_PENDING_NOTIFICATION = null;
       setTimeout(() => handleNativeNotificationOpen(pending.extra || pending, pending.actionId || 'tap'), 120);
     }
-    const pendingNativeToken = String(window.__UNINO_NATIVE_FCM_TOKEN || '').trim();
+    const pendingNativeToken = String(
+      window.UninoNativeBridge?.getFcmToken?.() ||
+      window.__UNINO_NATIVE_FCM_TOKEN ||
+      localStorage.getItem('unino-cached-fcm-token') ||
+      ''
+    ).trim();
     if (pendingNativeToken) queueNativeFcmTokenHint(pendingNativeToken);
   }
 }
@@ -4736,13 +4778,27 @@ function focusFeedPostCard(postId, behavior = 'smooth') {
   if (contentEl) {
     const contentRect = contentEl.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
-    const nextTop = Math.max(0, contentEl.scrollTop + cardRect.top - contentRect.top - 96);
+    const nextTop = Math.max(0, contentEl.scrollTop + (cardRect.top - contentRect.top) - 10);
     contentEl.scrollTo({ top: nextTop, behavior });
   } else {
-    card.scrollIntoView({ behavior, block: 'center' });
+    card.scrollIntoView({ behavior, block: 'start' });
   }
   card.classList.add('post-focus-flash');
   setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
+
+  setTimeout(() => {
+    const reCard = document.querySelector(`.post-card[data-post-id="${targetId}"]`);
+    const cEl = document.getElementById('content');
+    if (reCard && cEl) {
+      const cRect = cEl.getBoundingClientRect();
+      const rRect = reCard.getBoundingClientRect();
+      const currentOffset = rRect.top - cRect.top;
+      if (Math.abs(currentOffset - 10) > 25) {
+        cEl.scrollTo({ top: Math.max(0, cEl.scrollTop + currentOffset - 10), behavior: 'smooth' });
+      }
+    }
+  }, 350);
+
   return true;
 }
 
@@ -4850,7 +4906,11 @@ function renderFeed() {
     loadDiscoverPeople();
     loadFeedLiveSpotlight();
   }
+  if (Array.isArray(state.posts) && state.posts.length) {
+    renderFeedResults(state.posts);
+  }
   loadCampusEvents().then(() => {
+    if (Date.now() < _feedFocusLockUntil) return;
     if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
   }).catch(() => {});
 
@@ -6079,13 +6139,15 @@ function openLiveStreamFromFeed(streamId = '', isOwn = false) {
 function loadFeedLiveSpotlight() {
   const host = document.getElementById('feed-live-spotlight');
   if (!host) return;
-  host.innerHTML = '<div class="feed-live-card feed-live-card-loading"><span class="inline-spinner"></span><span>Checking who is live…</span></div>';
-  host.style.display = 'block';
+  // Keep hidden while checking so feed scroll and post focus are not interrupted by layout shifts
+  host.style.display = 'none';
+  host.innerHTML = '';
   db.collection('liveStreams')
     .where('status', 'in', ['live', 'starting'])
     .limit(6)
     .get()
     .then(snap => {
+      if (Date.now() < _feedFocusLockUntil) return;
       const streams = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.currentViewerCount || 0) - (a.currentViewerCount || 0) || (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
@@ -11430,6 +11492,14 @@ async function openGroupChat(groupId, collection = 'groups') {
           lastMessage: audioURL ? '🎤 Voice' : imageURL ? (mediaType === 'video' ? '📹 Video' : (safeText || '📷 Photo')) : safeText,
           updatedAt: FieldVal.serverTimestamp()
         });
+        const gDoc = await db.collection(collection).doc(groupId).get().catch(() => null);
+        const gData = gDoc?.data?.() || {};
+        const gMembers = (gData.members || []).filter(m => m && m !== uid);
+        const gName = gData.groupTitle || gData.assignmentTitle || gData.name || 'Group';
+        const msgSummary = audioURL ? 'sent a voice message' : imageURL ? 'sent a photo' : (safeText || 'sent a message');
+        gMembers.forEach(targetId => {
+          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, { groupId, collection, kind: 'group' }).catch(() => {});
+        });
       } catch (e) { console.error(e); }
     };
     $('#gchat-send').onclick = sendGMsg;
@@ -12711,6 +12781,42 @@ async function viewPost(pid) {
   try {
     closeModal();
 
+    // If already on the feed page, scroll directly without unmounting or reloading the feed
+    if (state.page === 'feed') {
+      const existingCard = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+      if (existingCard) {
+        _pendingFeedFocusPostId = '';
+        _feedFocusedPostId = postId;
+        _feedFocusLockUntil = Date.now() + 2500;
+        focusFeedPostCard(postId, 'smooth');
+        return;
+      }
+
+      if (_feedSearchQuery) {
+        _feedSearchQuery = '';
+        const input = $('#feed-search-input');
+        if (input) input.value = '';
+      }
+
+      let post = (state.posts || []).find(item => item.id === postId) || null;
+      if (!post) {
+        const doc = await db.collection('posts').doc(postId).get();
+        if (!doc.exists) return toast('Post not found');
+        post = { id: doc.id, ...doc.data() };
+        state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+      }
+
+      _pendingFeedFocusPostId = '';
+      _feedFocusedPostId = postId;
+      _feedFocusLockUntil = Date.now() + 2500;
+      renderFeedResults(state.posts || []);
+      requestAnimationFrame(() => {
+        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
+      });
+      return;
+    }
+
+    // Navigating from another page (explore, chat, hustle, etc.)
     let post = (state.posts || []).find(item => item.id === postId) || null;
     if (!post) {
       const doc = await db.collection('posts').doc(postId).get();
@@ -12721,13 +12827,18 @@ async function viewPost(pid) {
 
     _pendingFeedFocusPostId = postId;
     _feedFocusedPostId = postId;
-    _feedFocusLockUntil = Date.now() + 2200;
-    navigate('feed');
-    setTimeout(() => {
-      if (state.page !== 'feed') return;
-      if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
-      if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
-    }, 100);
+    _feedFocusLockUntil = Date.now() + 3000;
+    navigate('feed', { refresh: false, pushHistory: true, restoreFeed: false });
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (state.page !== 'feed') return;
+        const inDom = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+        if (!inDom && Array.isArray(state.posts) && state.posts.length) {
+          renderFeedResults(state.posts);
+        }
+        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
+      }, 60);
+    });
   } catch (e) {
     console.error(e);
     toast('Could not open post');
@@ -13424,7 +13535,7 @@ async function openChat(convoId) {
           convo.anonMsgCount = (convo.anonMsgCount || 0) + 1;
         }
         await db.collection('conversations').doc(convoId).set(mergeData, { merge: true });
-        await addNotification(otherUid, 'message', 'sent you a message', { convoId });
+        addNotification(otherUid, 'message', 'sent you a message', { convoId }).catch(() => {});
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;

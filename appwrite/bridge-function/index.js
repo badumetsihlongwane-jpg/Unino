@@ -10,7 +10,7 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-04-13-fcm-v5';
+const FUNCTION_VERSION = '2026-04-13-fcm-v6';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const _schemaCache = new Map();
 
@@ -99,7 +99,8 @@ function getAppwriteConfig() {
     endpoint = DEFAULT_APPWRITE_ENDPOINT;
     project = DEFAULT_APPWRITE_PROJECT_ID;
   }
-  const key = String(process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '').trim();
+  let key = String(process.env.APPWRITE_API_KEY || process.env.APPWRITE_FUNCTION_API_KEY || '').trim();
+  key = key.replace(/^[<"']+|[>"']+$/g, '');
   return { endpoint, project, key };
 }
 
@@ -262,8 +263,10 @@ async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', 
 
   const resolvedProviderId = String(providerId || process.env.APPWRITE_PUSH_PROVIDER_ID || DEFAULT_PUSH_PROVIDER_ID).trim();
   const targetId = buildTargetId(token, platform);
+  let target = null;
+  let mode = 'create';
   try {
-    const target = await users.createTarget(
+    target = await users.createTarget(
       appwriteUserId,
       targetId,
       MessagingProviderType.Push,
@@ -271,18 +274,32 @@ async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', 
       resolvedProviderId,
       `unino-${platform}`
     );
-    return { ok: true, mode: 'create', appwriteUserId, targetId: target.$id || targetId, providerId: resolvedProviderId };
   } catch (e) {
     if (Number(e?.code || 0) === 409) {
+      mode = 'update';
       try {
-        const target = await users.updateTarget(appwriteUserId, targetId, token, resolvedProviderId, `unino-${platform}`);
-        return { ok: true, mode: 'update', appwriteUserId, targetId: target.$id || targetId, providerId: resolvedProviderId };
+        target = await users.updateTarget(appwriteUserId, targetId, token, resolvedProviderId, `unino-${platform}`);
       } catch (updateErr) {
-        return { ok: true, mode: 'exists', appwriteUserId, targetId, providerId: resolvedProviderId, detail: String(updateErr?.message || updateErr) };
+        mode = 'exists';
+        target = { $id: targetId };
+      }
+    } else {
+      throw e;
+    }
+  }
+
+  // Clean up any older/stale push targets for this user with different identifiers
+  try {
+    const list = await users.listTargets(appwriteUserId, [Query.limit(20)]);
+    const allTargets = Array.isArray(list?.targets) ? list.targets : [];
+    for (const t of allTargets) {
+      if (String(t?.providerType || '') === 'push' && t.$id !== (target?.$id || targetId) && t.identifier !== token) {
+        await users.deleteTarget(appwriteUserId, t.$id).catch(() => {});
       }
     }
-    throw e;
-  }
+  } catch (_) {}
+
+  return { ok: true, mode, appwriteUserId, targetId: target?.$id || targetId, providerId: resolvedProviderId };
 }
 
 async function listPushTargetsForFirebaseUid(firebaseUid) {
@@ -309,16 +326,22 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
   const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
   const targetIds = (targetList.targets || []).map(target => target.id).filter(Boolean);
 
-  const userTargets = targetIds.length ? targetIds : [];
-  const targetUsers = [appwriteUserId];
+  if (!targetIds.length) {
+    return {
+      sent: false,
+      reason: 'no-push-targets-registered',
+      appwriteUserId,
+      hint: 'Target device has not registered its FCM push token with Appwrite bridge yet.'
+    };
+  }
 
   const message = await messaging.createPush(
     ID.unique(),
     String(title || 'Unino notification'),
     String(body || ''),
     [],
-    targetUsers,
-    userTargets,
+    [appwriteUserId],
+    [],
     data,
     undefined,
     undefined,
@@ -336,7 +359,7 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     messageId: message?.$id || '',
     providerType: message?.providerType || 'push',
     appwriteUserId,
-    targetCount: userTargets.length || targetUsers.length
+    targetCount: targetIds.length
   };
 }
 

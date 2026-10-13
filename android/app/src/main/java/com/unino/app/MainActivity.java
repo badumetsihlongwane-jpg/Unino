@@ -17,6 +17,8 @@ import org.json.JSONObject;
 
 import android.content.Intent;
 
+import android.webkit.JavascriptInterface;
+
 import com.getcapacitor.BridgeActivity;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
@@ -28,6 +30,13 @@ public class MainActivity extends BridgeActivity {
 	private static final String TAG = "MainActivity";
 	private static final String APPWRITE_ENDPOINT = "https://fra.cloud.appwrite.io/v1";
 	private static final String APPWRITE_PROJECT_ID = "69dd43b6002414cdfb70";
+
+	public class UninoNativeBridge {
+		@JavascriptInterface
+		public String getFcmToken() {
+			return UninoFirebaseMessagingService.getStoredFcmToken(MainActivity.this);
+		}
+	}
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -65,7 +74,19 @@ public class MainActivity extends BridgeActivity {
 			Log.w(TAG, "Appwrite client init failed", e);
 		}
 
+		if (getBridge() != null && getBridge().getWebView() != null) {
+			try {
+				getBridge().getWebView().addJavascriptInterface(new UninoNativeBridge(), "UninoNativeBridge");
+			} catch (Exception e) {
+				Log.w(TAG, "Failed to register UninoNativeBridge", e);
+			}
+		}
+
 		dispatchNativeFcmToken(UninoFirebaseMessagingService.getStoredFcmToken(this));
+		if (getBridge() != null && getBridge().getWebView() != null) {
+			getBridge().getWebView().postDelayed(() -> dispatchNativeFcmToken(UninoFirebaseMessagingService.getStoredFcmToken(this)), 800);
+			getBridge().getWebView().postDelayed(() -> dispatchNativeFcmToken(UninoFirebaseMessagingService.getStoredFcmToken(this)), 2500);
+		}
 
 		Window window = getWindow();
 
