@@ -2299,7 +2299,7 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
   _commentReactionPopover = pop;
   setTimeout(() => {
     document.addEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
-    document.addEventListener('scroll', closeCommentReactionPopover, true);
+    document.addEventListener('scroll', closeCommentReactionPopover, { passive: true, capture: true });
   }, 0);
 }
 
@@ -2555,9 +2555,9 @@ function bindMessageLongPress(container, scope, primaryId, collection = '') {
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2599,9 +2599,9 @@ function bindPostReactionLongPress(container) {
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2647,9 +2647,9 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2835,10 +2835,13 @@ function renderPostContextTags(post = {}) {
     ? post.locationPing.expiresAt.toDate()
     : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
   const hasExplicitPing = !!post.locationPing?.enabled && (!pingExpiry || pingExpiry.getTime() > Date.now());
-  if (author && hasExplicitPing) {
-    chips.push({ text: '📍 Pin', className: 'clickable', onClick: `openPinnedPostOnRadar('${post.id}')` });
-    const addr = (author.address || '').toLowerCase();
-    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
+  if (hasExplicitPing) {
+    const pinLabel = post.locationPing.label ? `📍 ${post.locationPing.label}` : '📍 View Location';
+    chips.push({ text: pinLabel, className: 'clickable post-pin-chip', onClick: `openPinnedPostOnRadar('${post.id}')` });
+    if (author) {
+      const addr = (author.address || '').toLowerCase();
+      if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
+    }
   }
   const sharedModule = normalizeModules(post.moduleTags || []).some(tag => normalizeModules(state.profile?.modules || []).includes(tag));
   if (sharedModule) chips.push({ text: '🎓 Same module' });
@@ -2866,15 +2869,18 @@ function openPinnedPostOnRadar(postId) {
     toast('Pinned location not available yet');
     return;
   }
-  const label = ping.label || post.authorName || 'Pinned';
-  _pendingRadarPinnedPoint = {
-    lat,
-    lng,
-    label
-  };
+  const label = ping.label || post.authorName || 'Pinned location';
+  _pendingRadarPinnedPoint = { lat, lng, label };
   setPendingMapRoute({ lat, lng }, { label, targetId: postId, source: 'post' });
   exploreView = 'radar';
-  navigate('explore');
+  closeModal();
+  if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
+  if (state.page !== 'explore') {
+    navigate('explore');
+  } else {
+    renderExploreView();
+  }
+  toast(`Viewing ${label} on map`);
 }
 
 function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
@@ -2892,7 +2898,7 @@ function initials(n) {
 
 function avatar(name, photo, cls = 'avatar-sm') {
   const bg = colorFor(name);
-  if (photo) return `<div class="${cls}" style="background:${bg}"><img src="${photo}" alt="" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
+  if (photo) return `<div class="${cls}" style="background:${bg}"><img src="${photo}" alt="" loading="lazy" decoding="async" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
   return `<div class="${cls}" style="background:${bg}">${initials(name)}</div>`;
 }
 
@@ -3814,7 +3820,7 @@ function initPlayer(id) {
   }, { passive: false });
   progressWrap.addEventListener('touchend', () => {
     scrubbing = false; isSeeking = false;
-  });
+  }, { passive: true });
 
   // Hover time preview
   progressWrap.addEventListener('mousemove', (e) => {
@@ -8054,13 +8060,18 @@ function _renderGalleryFrame() {
 }
 
 // ─── Create Post ─────────────────────────────────
-function openCreateModal() {
+function openCreateModal(initialTab = 'post', presetData = {}) {
   let pendingFiles = [];
   let pendingIsVideo = false;
   let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
   let postPoll = null;
-  let createTab = 'post'; // 'post' or 'event'
+  let createTab = initialTab === 'event' ? 'event' : 'post';
   window._eventFiles = [];
+  if (presetData && presetData.location) {
+    const lat = Number.isFinite(Number(presetData.lat)) ? Number(presetData.lat) : null;
+    const lng = Number.isFinite(Number(presetData.lng)) ? Number(presetData.lng) : null;
+    window._pendingRadarPinnedPoint = { lat, lng, label: String(presetData.location).trim() };
+  }
 
   const renderCreateInner = () => {
     const mi = $('#modal-inner');
@@ -8441,8 +8452,12 @@ No</textarea></div>
   const wireEventTab = () => {
     const pendingPoint = window._pendingRadarPinnedPoint || null;
     const locationInput = $('#ev-location-text');
-    if (pendingPoint && locationInput && !String(locationInput.value || '').trim()) {
-      locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
+    if (locationInput) {
+      if (presetData && presetData.location) {
+        locationInput.value = String(presetData.location).trim();
+      } else if (pendingPoint && !String(locationInput.value || '').trim()) {
+        locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
+      }
     }
 
     if ($('#ev-use-location')) $('#ev-use-location').onclick = () => {
@@ -8728,8 +8743,8 @@ function setupPullToRefresh() {
   };
   content.addEventListener('touchstart', onStart, { passive: true });
   content.addEventListener('touchmove', onMove, { passive: false });
-  content.addEventListener('touchend', onEnd);
-  content.addEventListener('touchcancel', onEnd);
+  content.addEventListener('touchend', onEnd, { passive: true });
+  content.addEventListener('touchcancel', onEnd, { passive: true });
   _pullRefreshState = { reset };
 }
 
@@ -9818,6 +9833,26 @@ function mountCampusLocationLabels(map) {
   });
 }
 
+let allCampusEvents = [];
+
+function getEventsForVenue(venueName = '', venueLat = null, venueLng = null) {
+  if (!Array.isArray(allCampusEvents) || !allCampusEvents.length) return [];
+  const cleanName = String(venueName || '').trim().toLowerCase();
+  return allCampusEvents.filter(ev => {
+    const evLoc = String(ev.location || '').trim().toLowerCase();
+    const evLabel = String(ev.locationLabel || '').trim().toLowerCase();
+    if (cleanName) {
+      if (evLoc === cleanName || normalizePlaceKey(evLoc) === normalizePlaceKey(cleanName)) return true;
+      if (evLabel === cleanName || normalizePlaceKey(evLabel) === normalizePlaceKey(cleanName)) return true;
+    }
+    if (Number.isFinite(venueLat) && Number.isFinite(venueLng) && Number.isFinite(ev.geoLat) && Number.isFinite(ev.geoLng)) {
+      const distKm = distanceKmBetween({ lat: venueLat, lng: venueLng }, { lat: ev.geoLat, lng: ev.geoLng });
+      if (distKm <= 0.05) return true;
+    }
+    return false;
+  });
+}
+
 async function mountCampusGeoJsonLayers(map) {
   if (!map || typeof map.getStyle !== 'function') return;
   const geojson = await loadCampusGeoJson();
@@ -9902,16 +9937,38 @@ async function mountCampusGeoJsonLayers(map) {
 
     const encodedName = encodeURIComponent(name);
     const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
-    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`;
+    const bEvents = getEventsForVenue(name, lat, lng);
+    const hasEvts = bEvents.length > 0;
+    const badgeHTML = `<div class="building-map-badge ${hasEvts ? 'has-events' : ''}" data-name="${esc(name)}">${esc(displayLabel)}${hasEvts ? ` <span class="badge-event-pill">🎉 ${bEvents.length}</span>` : ''}</div>`;
 
     const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
       if (activePopup) {
         try { activePopup.remove(); } catch (_) {}
         activePopup = null;
       }
+      const bEventsNow = getEventsForVenue(name, lat, lng);
+      const eventsHtml = bEventsNow.length ? `
+        <div class="campus-map-popup-events">
+          ${bEventsNow.slice(0, 3).map(e => `
+            <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+              <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+              <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
       activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
         .setLngLat([lng, lat])
-        .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+        .setHTML(`
+          <div class="campus-map-popup">
+            <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+            <div class="campus-map-popup-sub">${bEventsNow.length ? `🎉 ${bEventsNow.length} upcoming event${bEventsNow.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+            ${eventsHtml}
+            <div class="campus-map-popup-actions">
+              <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+              <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+            </div>
+          </div>`)
         .addTo(map);
       _mapLibrePopups.push(activePopup);
     });
@@ -10003,9 +10060,29 @@ async function mountCampusGeoJsonLayers(map) {
       try { activePopup.remove(); } catch (_) {}
       activePopup = null;
     }
+    const bEventsNow = getEventsForVenue(name, lat, lng);
+    const eventsHtml = bEventsNow.length ? `
+      <div class="campus-map-popup-events">
+        ${bEventsNow.slice(0, 3).map(e => `
+          <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+            <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+            <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
     activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+      .setHTML(`
+        <div class="campus-map-popup">
+          <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+          <div class="campus-map-popup-sub">${bEventsNow.length ? `🎉 ${bEventsNow.length} upcoming event${bEventsNow.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+          ${eventsHtml}
+          <div class="campus-map-popup-actions">
+            <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+            <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+          </div>
+        </div>`)
       .addTo(map);
     _mapLibrePopups.push(activePopup);
   };
@@ -10276,19 +10353,8 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
     return;
   }
   window._pendingRadarPinnedPoint = { lat: safeLat, lng: safeLng, label: name };
-  navigate('create');
-  setTimeout(() => {
-    const title = document.getElementById('ev-title')
-      || document.getElementById('create-event-title')
-      || document.getElementById('event-title')
-      || document.querySelector('input[placeholder*="event" i]');
-    const loc = document.getElementById('ev-location-text')
-      || document.getElementById('create-event-location')
-      || document.getElementById('event-location')
-      || document.querySelector('input[placeholder*="location" i]');
-    if (loc && !loc.value) loc.value = name;
-    if (title && !title.value) title.value = `${name} meetup`;
-  }, 120);
+  closeModal();
+  openCreateModal('event', { location: name, lat: safeLat, lng: safeLng });
 }
 
 function updateMapDestinationPanel(destination = null) {
@@ -10382,8 +10448,6 @@ function routeToCampusLocation(locationId = '') {
   closeChatPlusMenus();
   routeToMapPoint(loc.lat, loc.lng, loc.name || 'Destination');
 }
-
-let allCampusEvents = [];
 
 function eventStartTimeMs(eventDoc = {}) {
   const dateRaw = (eventDoc.date || '').trim();
@@ -10571,12 +10635,33 @@ function initLeafletMap(eventsByLoc) {
         if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
         const encodedName = encodeURIComponent(name);
         const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
+        const bEvents = getEventsForVenue(name, lat, lng);
+        const hasEvts = bEvents.length > 0;
         const icon = L.divIcon({
           className: 'building-map-badge-wrap',
-          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`,
+          html: `<div class="building-map-badge ${hasEvts ? 'has-events' : ''}" data-name="${esc(name)}">${esc(displayLabel)}${hasEvts ? ` <span class="badge-event-pill">🎉 ${bEvents.length}</span>` : ''}</div>`,
           iconSize: null
         });
-        const popupHtml = `<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`;
+        const eventsHtml = bEvents.length ? `
+          <div class="campus-map-popup-events">
+            ${bEvents.slice(0, 3).map(e => `
+              <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+                <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+                <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : '';
+        const popupHtml = `
+          <div class="campus-map-popup">
+            <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+            <div class="campus-map-popup-sub">${bEvents.length ? `🎉 ${bEvents.length} upcoming event${bEvents.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+            ${eventsHtml}
+            <div class="campus-map-popup-actions">
+              <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+              <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+            </div>
+          </div>`;
         const marker = L.marker([lat, lng], { icon, zIndexOffset: 200 }).addTo(_leafletMap);
         marker.bindPopup(popupHtml);
       });
@@ -10676,23 +10761,22 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
+  let label = '';
+  let lat = null;
+  let lng = null;
   if (presetLoc) {
     const campusLoc = getCampusLocationById(presetLoc) || findCampusLocationByInput(presetLoc);
     if (campusLoc) {
-      window._pendingRadarPinnedPoint = {
-        lat: Number(campusLoc.lat),
-        lng: Number(campusLoc.lng),
-        label: campusLoc.name || 'Pinned location'
-      };
+      label = campusLoc.name || presetLoc;
+      lat = Number(campusLoc.lat);
+      lng = Number(campusLoc.lng);
+    } else {
+      label = String(presetLoc).trim();
     }
+    window._pendingRadarPinnedPoint = { lat, lng, label };
   }
-  // Open the create modal and switch to event tab
-  openCreateModal();
-  // Auto-switch to event tab after a tick (modal needs to render first)
-  setTimeout(() => {
-    const evTab = document.querySelector('.create-tab[data-ct="event"]');
-    if (evTab) evTab.click();
-  }, 50);
+  closeModal();
+  openCreateModal('event', { location: label, lat, lng });
 }
 
 function removeEventImage(idx) {
@@ -10913,7 +10997,7 @@ async function loadListings(cat = 'all', query = '') {
     }
     grid.innerHTML = items.map(item => `
       <div class="listing-card" onclick="openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
-        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy">` : '<div class="listing-placeholder">📦</div>'}
+        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
         <div class="listing-info">
           <div class="listing-meta-tags">
             ${item._isHot ? '<span class="listing-meta-tag hot">🔥 Hot</span>' : ''}
@@ -11420,7 +11504,7 @@ document.addEventListener('pointerdown', event => {
   if (event.target.closest('.chat-plus-wrap')) return;
   closeChatPlusMenus();
 }, true);
-document.addEventListener('scroll', () => closeChatPlusMenus(), true);
+document.addEventListener('scroll', () => closeChatPlusMenus(), { passive: true, capture: true });
 
 function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
   const options = Array.isArray(poll.options) ? poll.options : [];
@@ -14396,7 +14480,7 @@ function renderProfilePosts(posts, user) {
       ${p.content ? renderExpandablePostContent(p.content, `profile-${p.id}`, 170) : ''}
       ${renderPostModuleTags(p.moduleTags || [])}
       ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
-      ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
+      ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" decoding="async" alt="" onclick="viewImage('${mediaURL}')"></div>` : ''}
       ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
       ${p.repostOf ? renderQuoteEmbed(p.repostOf, { repostStyle: true }) : ''}
       <div class="post-engagement">
@@ -14683,7 +14767,7 @@ function renderProfilePhotos(posts) {
   if (!all.length) return '<div class="empty-state"><h3>No photos yet</h3></div>';
   return `<div class="profile-photo-grid">${all.map(m => {
     if (m.type === 'img') {
-      return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy"></div>`;
+      return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy" decoding="async" alt=""></div>`;
     }
     return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><video class="inline-video-preview" src="${m.url}" preload="metadata" muted playsinline></video><div class="photo-grid-play">▶</div></div>`;
   }).join('')}</div>`;
@@ -15917,8 +16001,8 @@ document.addEventListener('DOMContentLoaded', () => {
   ensureChatPlusMenu($('#gchat-plus-menu'), 'group');
   $('#chat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
   $('#gchat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
-  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
-  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
+  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, { passive: true, capture: true });
+  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, { passive: true, capture: true });
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
@@ -15936,7 +16020,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dx < 0 && _galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); }
         else if (dx > 0 && _galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); }
       }
-    });
+    }, { passive: true });
   }
   document.addEventListener('contextmenu', e => {
     const video = e.target && e.target.closest ? e.target.closest('video') : null;
@@ -15981,7 +16065,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const dd = $('#notif-dropdown');
       if (!dd || dd.style.display !== 'block') return;
       if (isRecentContentScrollGesture()) closeNotifDropdown();
-    }, true);
+    }, { passive: true, capture: true });
   }
 
   // Expose globals for inline onclick
@@ -16027,6 +16111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadCurrentGalleryImage, downloadMediaUrl, downloadMediaUrlEncoded, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
-    toggleAppwriteMirror, setAppwriteMirrorEnabled
+    toggleAppwriteMirror, setAppwriteMirrorEnabled,
+    openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint
   });
 });

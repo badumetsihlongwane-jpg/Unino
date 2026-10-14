@@ -2299,7 +2299,7 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
   _commentReactionPopover = pop;
   setTimeout(() => {
     document.addEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
-    document.addEventListener('scroll', closeCommentReactionPopover, true);
+    document.addEventListener('scroll', closeCommentReactionPopover, { passive: true, capture: true });
   }, 0);
 }
 
@@ -2555,9 +2555,9 @@ function bindMessageLongPress(container, scope, primaryId, collection = '') {
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2599,9 +2599,9 @@ function bindPostReactionLongPress(container) {
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2647,9 +2647,9 @@ function bindCommentLongPress(container, postId, source = 'feed', postAuthorId =
       didOpen = false;
     }, true);
     item.addEventListener('touchstart', start, { passive: true });
-    item.addEventListener('touchend', clear);
-    item.addEventListener('touchmove', clear);
-    item.addEventListener('touchcancel', clear);
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchmove', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
     item.addEventListener('mousedown', start);
     item.addEventListener('mouseup', clear);
     item.addEventListener('mouseleave', clear);
@@ -2898,7 +2898,7 @@ function initials(n) {
 
 function avatar(name, photo, cls = 'avatar-sm') {
   const bg = colorFor(name);
-  if (photo) return `<div class="${cls}" style="background:${bg}"><img src="${photo}" alt="" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
+  if (photo) return `<div class="${cls}" style="background:${bg}"><img src="${photo}" alt="" loading="lazy" decoding="async" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
   return `<div class="${cls}" style="background:${bg}">${initials(name)}</div>`;
 }
 
@@ -3820,7 +3820,7 @@ function initPlayer(id) {
   }, { passive: false });
   progressWrap.addEventListener('touchend', () => {
     scrubbing = false; isSeeking = false;
-  });
+  }, { passive: true });
 
   // Hover time preview
   progressWrap.addEventListener('mousemove', (e) => {
@@ -8743,8 +8743,8 @@ function setupPullToRefresh() {
   };
   content.addEventListener('touchstart', onStart, { passive: true });
   content.addEventListener('touchmove', onMove, { passive: false });
-  content.addEventListener('touchend', onEnd);
-  content.addEventListener('touchcancel', onEnd);
+  content.addEventListener('touchend', onEnd, { passive: true });
+  content.addEventListener('touchcancel', onEnd, { passive: true });
   _pullRefreshState = { reset };
 }
 
@@ -10997,7 +10997,7 @@ async function loadListings(cat = 'all', query = '') {
     }
     grid.innerHTML = items.map(item => `
       <div class="listing-card" onclick="openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
-        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy">` : '<div class="listing-placeholder">📦</div>'}
+        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
         <div class="listing-info">
           <div class="listing-meta-tags">
             ${item._isHot ? '<span class="listing-meta-tag hot">🔥 Hot</span>' : ''}
@@ -11504,7 +11504,7 @@ document.addEventListener('pointerdown', event => {
   if (event.target.closest('.chat-plus-wrap')) return;
   closeChatPlusMenus();
 }, true);
-document.addEventListener('scroll', () => closeChatPlusMenus(), true);
+document.addEventListener('scroll', () => closeChatPlusMenus(), { passive: true, capture: true });
 
 function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
   const options = Array.isArray(poll.options) ? poll.options : [];
@@ -14480,7 +14480,7 @@ function renderProfilePosts(posts, user) {
       ${p.content ? renderExpandablePostContent(p.content, `profile-${p.id}`, 170) : ''}
       ${renderPostModuleTags(p.moduleTags || [])}
       ${renderPostHashTags(getPostHashTags(p).filter(tag => !(p.moduleTags || []).includes(tag.toUpperCase())))}
-      ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" onclick="viewImage('${mediaURL}')"></div>` : ''}
+      ${!p.repostOf && hasImage && mediaURL ? `<div class="post-image-wrap"><img src="${mediaURL}" class="post-image" loading="lazy" decoding="async" alt="" onclick="viewImage('${mediaURL}')"></div>` : ''}
       ${!p.repostOf && hasVideo && videoPlayerData ? videoPlayerData.html : ''}
       ${p.repostOf ? renderQuoteEmbed(p.repostOf, { repostStyle: true }) : ''}
       <div class="post-engagement">
@@ -14767,7 +14767,7 @@ function renderProfilePhotos(posts) {
   if (!all.length) return '<div class="empty-state"><h3>No photos yet</h3></div>';
   return `<div class="profile-photo-grid">${all.map(m => {
     if (m.type === 'img') {
-      return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy"></div>`;
+      return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><img src="${m.url}" loading="lazy" decoding="async" alt=""></div>`;
     }
     return `<div class="photo-grid-item" onclick="viewImage('${m.url}')"><video class="inline-video-preview" src="${m.url}" preload="metadata" muted playsinline></video><div class="photo-grid-play">▶</div></div>`;
   }).join('')}</div>`;
@@ -16001,8 +16001,8 @@ document.addEventListener('DOMContentLoaded', () => {
   ensureChatPlusMenu($('#gchat-plus-menu'), 'group');
   $('#chat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
   $('#gchat-msgs')?.addEventListener('pointerdown', closeChatPlusMenus, true);
-  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
-  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, true);
+  $('#chat-msgs')?.addEventListener('scroll', closeChatPlusMenus, { passive: true, capture: true });
+  $('#gchat-msgs')?.addEventListener('scroll', closeChatPlusMenus, { passive: true, capture: true });
 
   // Image viewer close + gallery navigation + swipe
   $('#img-close')?.addEventListener('click', () => { closeGalleryViewer(); });
@@ -16020,7 +16020,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dx < 0 && _galleryIdx < _galleryUrls.length - 1) { _galleryIdx++; _renderGalleryFrame(); }
         else if (dx > 0 && _galleryIdx > 0) { _galleryIdx--; _renderGalleryFrame(); }
       }
-    });
+    }, { passive: true });
   }
   document.addEventListener('contextmenu', e => {
     const video = e.target && e.target.closest ? e.target.closest('video') : null;
@@ -16065,7 +16065,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const dd = $('#notif-dropdown');
       if (!dd || dd.style.display !== 'block') return;
       if (isRecentContentScrollGesture()) closeNotifDropdown();
-    }, true);
+    }, { passive: true, capture: true });
   }
 
   // Expose globals for inline onclick

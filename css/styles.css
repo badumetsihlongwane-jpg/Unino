@@ -1892,6 +1892,8 @@ video::-webkit-media-controls-start-playback-button {
   gap: 10px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
+  content-visibility: auto;
+  contain-intrinsic-size: 65px;
 }
 .comment-item:last-child { border-bottom: none; }
 
@@ -2206,6 +2208,8 @@ video::-webkit-media-controls-start-playback-button {
   margin: 6px 10px;
   border-radius: 16px;
   background: var(--bg-secondary);
+  content-visibility: auto;
+  contain-intrinsic-size: 72px;
 }
 
 .convo-item:hover {
@@ -2759,6 +2763,8 @@ video::-webkit-media-controls-start-playback-button {
   overflow: hidden;
   cursor: pointer;
   transition: all var(--transition);
+  content-visibility: auto;
+  contain-intrinsic-size: 240px;
 }
 
 .listing-card:hover {

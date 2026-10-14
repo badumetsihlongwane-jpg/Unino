@@ -7,3 +7,9 @@ android/local.properties
 android/app/build/
 android/build/
 android/app/google-services.json.firebase/
+
+# Celcat Timetable Captures & Profiles
+celcat_capture/
+__pycache__/
+*.py[cod]
+.DS_Store
