@@ -1861,7 +1861,7 @@ video::-webkit-media-controls-start-playback-button {
 
 .comment-reaction-popover {
   position: fixed;
-  z-index: 1200;
+  z-index: 12500 !important;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3555,17 +3555,22 @@ body.image-view-open .modal-bg {
   width: min(340px, calc(100vw - 20px));
   max-width: calc(100vw - 20px);
   max-height: min(430px, 62vh);
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
   overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
-  z-index: 1000;
+  z-index: 2000;
   animation: fadeIn 0.15s ease;
   overscroll-behavior: contain;
   touch-action: pan-y;
+}
+
+.notif-dropdown[style*="display: none"],
+.notif-dropdown[style*="display:none"] {
+  display: none !important;
 }
 
 @media (max-width: 480px) {
@@ -3615,7 +3620,7 @@ body.image-view-open .modal-bg {
 .notif-scroll {
   flex: 1 1 auto;
   min-height: 0 !important;
-  max-height: 100%;
+  max-height: calc(min(430px, 62vh) - 48px) !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -4428,7 +4433,7 @@ body.image-view-open .modal-bg {
 .story-viewer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  z-index: 10000;
   background: #000;
   flex-direction: column;
   align-items: center;
@@ -4450,7 +4455,7 @@ body.image-view-open .modal-bg {
   display: flex;
   gap: 4px;
   padding: 6px 10px;
-  z-index: 310;
+  z-index: 10010;
 }
 .story-progress-seg {
   flex: 1;
@@ -4469,6 +4474,9 @@ body.image-view-open .modal-bg {
 .story-progress-seg.active .story-progress-fill {
   animation: storyProgress 5s linear forwards;
 }
+.story-viewer-overlay.is-paused .story-progress-seg.active .story-progress-fill {
+  animation-play-state: paused !important;
+}
 
 @keyframes storyProgress {
   from { width: 0; }
@@ -4484,7 +4492,7 @@ body.image-view-open .modal-bg {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  z-index: 310;
+  z-index: 10010;
 }
 
 .pull-refresh-indicator {
@@ -4597,13 +4605,16 @@ body.image-view-open .modal-bg {
   position: absolute;
   inset: calc(var(--app-safe-top) + 80px) 0 40px;
   display: flex;
-  z-index: 305;
+  z-index: 10005;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 .story-sound-toggle {
   position: absolute;
   right: 16px;
   bottom: 92px;
-  z-index: 311;
+  z-index: 10012;
   padding: 8px 12px;
   border-radius: 999px;
   background: rgba(0,0,0,0.55);
@@ -4620,6 +4631,9 @@ body.image-view-open .modal-bg {
   flex: 1;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .story-reply-bar {
@@ -4633,7 +4647,7 @@ body.image-view-open .modal-bg {
   padding: 10px 14px;
   background: rgba(0,0,0,0.6);
   backdrop-filter: blur(10px);
-  z-index: 310;
+  z-index: 10010;
 }
 .story-reply-bar input {
   flex: 1;

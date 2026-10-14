@@ -1116,7 +1116,7 @@ function closeNotifDropdown() {
 
 function clearTransientUi() {
   const notifDropdown = $('#notif-dropdown');
-  if (notifDropdown?.style.display === 'block') {
+  if (notifDropdown && notifDropdown.style.display !== 'none' && notifDropdown.style.display !== '') {
     notifDropdown.style.display = 'none';
     return true;
   }
@@ -1408,10 +1408,10 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
     notifications.filter(n => !n.read).forEach(n => _nativeGeneralNotifIds.add(n.id));
     return;
   }
-
   notifications.forEach(notification => {
     if (notification.read || _nativeGeneralNotifIds.has(notification.id)) return;
-    if (appIsForeground() && $('#notif-dropdown')?.style.display === 'block') {
+    const dd = $('#notif-dropdown');
+    if (appIsForeground() && dd && dd.style.display !== 'none' && dd.style.display !== '') {
       _nativeGeneralNotifIds.add(notification.id);
       return;
     }
@@ -2262,21 +2262,40 @@ async function reactToPost(postId, emoji, source = 'feed') {
   }
 }
 
+let _commentReactionAnchor = null;
+
 function closeCommentReactionPopover() {
   if (_commentReactionPopover?.parentNode) _commentReactionPopover.parentNode.removeChild(_commentReactionPopover);
   _commentReactionPopover = null;
+  _commentReactionAnchor = null;
   document.removeEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
   document.removeEventListener('scroll', closeCommentReactionPopover, true);
 }
 
 function handleCommentReactionPopoverOutside(event) {
-  if (_commentReactionPopover && !_commentReactionPopover.contains(event.target)) closeCommentReactionPopover();
+  if (!_commentReactionPopover) return;
+  if (_commentReactionPopover.contains(event.target)) return;
+  if (_commentReactionAnchor && (_commentReactionAnchor === event.target || _commentReactionAnchor.contains(event.target))) return;
+  closeCommentReactionPopover();
 }
 
 function openCommentReactionPicker(postId, commentId, source = 'feed', current = '', event = null) {
   closeCommentReactionPopover();
   const anchor = event?.currentTarget || event?.target;
   if (!anchor?.getBoundingClientRect) return;
+  _commentReactionAnchor = anchor;
+
+  // Robust postId resolution
+  let resolvedPostId = postId;
+  if (!resolvedPostId) {
+    const row = document.getElementById(`c-${commentId}`) || document.getElementById(`rc-${commentId}`);
+    resolvedPostId = row?.dataset?.postId || row?.closest('[data-post-id]')?.dataset?.postId || '';
+  }
+  if (!resolvedPostId) {
+    const container = document.getElementById('comments-container');
+    if (container?.dataset?.postId) resolvedPostId = container.dataset.postId;
+  }
+
   const pop = document.createElement('div');
   pop.className = 'comment-reaction-popover';
   pop.innerHTML = REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" type="button" data-emoji="${emoji}">${emoji}</button>`).join('');
@@ -2285,25 +2304,38 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
     if (!btn) return;
     ev.preventDefault();
     ev.stopPropagation();
-    reactToComment(postId, commentId, btn.dataset.emoji || '', source);
+    reactToComment(resolvedPostId, commentId, btn.dataset.emoji || '', source);
   });
   document.body.appendChild(pop);
+
   const rect = anchor.getBoundingClientRect();
-  const popRect = pop.getBoundingClientRect();
-  let top = rect.top - popRect.height - 10;
-  if (top < 12) top = rect.bottom + 10;
-  let left = rect.left + (rect.width / 2) - (popRect.width / 2);
-  left = Math.max(12, Math.min(left, window.innerWidth - popRect.width - 12));
+  const popHeight = pop.offsetHeight || 52;
+  const popWidth = pop.offsetWidth || 260;
+  let top = rect.top - popHeight - 8;
+  if (top < 12) top = rect.bottom + 8;
+  let left = rect.left + (rect.width / 2) - (popWidth / 2);
+  left = Math.max(12, Math.min(left, window.innerWidth - popWidth - 12));
   pop.style.top = `${top}px`;
   pop.style.left = `${left}px`;
   _commentReactionPopover = pop;
+
   setTimeout(() => {
     document.addEventListener('pointerdown', handleCommentReactionPopoverOutside, true);
     document.addEventListener('scroll', closeCommentReactionPopover, { passive: true, capture: true });
-  }, 0);
+  }, 120);
 }
 
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
+  let resolvedPostId = postId;
+  if (!resolvedPostId) {
+    const row = document.getElementById(`c-${commentId}`) || document.getElementById(`rc-${commentId}`);
+    resolvedPostId = row?.dataset?.postId || row?.closest('[data-post-id]')?.dataset?.postId || '';
+  }
+  if (!resolvedPostId) {
+    const container = document.getElementById('comments-container');
+    if (container?.dataset?.postId) resolvedPostId = container.dataset.postId;
+  }
+
   const previous = _commentStateCache[commentId]
     ? { reactions: { ...(_commentStateCache[commentId].reactions || {}) }, likes: [...(_commentStateCache[commentId].likes || [])] }
     : null;
@@ -2311,16 +2343,17 @@ async function reactToComment(postId, commentId, emoji, source = 'feed') {
   if (previous) {
     const optimistic = buildLocalReactionResult(previous, emoji);
     _commentStateCache[commentId] = { reactions: optimistic.reactions, likes: optimistic.likes };
-    refreshCommentReactionUI(commentId, optimistic.reactions, optimistic.likes);
+    refreshCommentReactionUI(commentId, optimistic.reactions, optimistic.likes, resolvedPostId);
   }
   try {
-    const result = await updateDocReaction(db.collection('posts').doc(postId).collection('comments').doc(commentId), emoji, { includeLikes: true });
+    if (!resolvedPostId) throw new Error('Missing postId for comment reaction');
+    const result = await updateDocReaction(db.collection('posts').doc(resolvedPostId).collection('comments').doc(commentId), emoji, { includeLikes: true });
     if (result) {
       _commentStateCache[commentId] = { reactions: result.reactions || {}, likes: result.likes || [] };
-      refreshCommentReactionUI(commentId, result.reactions, result.likes || []);
+      refreshCommentReactionUI(commentId, result.reactions, result.likes || [], resolvedPostId);
     }
     syncEventWithAppwrite('comment_reaction', {
-      postId,
+      postId: resolvedPostId,
       commentId,
       emoji,
       reactedAt: Date.now()
@@ -2328,7 +2361,7 @@ async function reactToComment(postId, commentId, emoji, source = 'feed') {
   } catch (e) {
     if (previous) {
       _commentStateCache[commentId] = previous;
-      refreshCommentReactionUI(commentId, previous.reactions, previous.likes || []);
+      refreshCommentReactionUI(commentId, previous.reactions, previous.likes || [], resolvedPostId);
     }
     console.error(e);
     toast('Could not react right now');
@@ -2349,7 +2382,7 @@ function renderCommentReactionBadge(raw = {}, likes = [], postId = '', commentId
     </div>`;
 }
 
-function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
+function refreshCommentReactionUI(commentId, reactions = {}, likes = [], postId = '') {
   const normalizedReactions = normalizeReactionMap(reactions, likes || []);
   _commentStateCache[commentId] = { reactions: normalizedReactions, likes: [...(likes || [])] };
   const liked = (likes || []).includes(state.user?.uid);
@@ -2358,6 +2391,7 @@ function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
   ['c-', 'rc-'].forEach(prefix => {
     const row = document.getElementById(`${prefix}${commentId}`);
     if (!row) return;
+    const resolvedPid = postId || row.dataset.postId || row.closest('[data-post-id]')?.dataset.postId || '';
     const likeBtn = row.querySelector('.c-act.like-only');
     if (likeBtn) {
       likeBtn.classList.toggle('liked', liked);
@@ -2376,7 +2410,7 @@ function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
       if (summary.total > 0) {
         const topEmojis = summary.entries.slice(0, 3).map(([emoji]) => emoji).join('');
         slot.innerHTML = `
-          <div class="comment-reactions-badge ${currentReaction ? 'active' : ''}" onclick="event.stopPropagation();openCommentReactionPicker(this.closest('[data-post-id]')?.dataset.postId || '', '${commentId}', 'feed', '${currentReaction}', event)" title="${summary.total} reaction${summary.total === 1 ? '' : 's'}">
+          <div class="comment-reactions-badge ${currentReaction ? 'active' : ''}" onclick="event.stopPropagation();openCommentReactionPicker('${resolvedPid}', '${commentId}', '${prefix === 'rc-' ? 'reel' : 'feed'}', '${currentReaction}', event)" title="${summary.total} reaction${summary.total === 1 ? '' : 's'}">
             <span class="cr-emojis">${topEmojis}</span>
             <span class="cr-count">${summary.total}</span>
           </div>`;
@@ -5077,7 +5111,7 @@ function listenForGroupAlerts() {
       refreshChatBadge();
       updateNotifBadge();
       const dd = $('#notif-dropdown');
-      if (dd && dd.style.display === 'block') loadNotifications();
+      if (dd && dd.style.display !== 'none' && dd.style.display !== '') loadNotifications();
     }, () => {});
 }
 
@@ -6089,7 +6123,43 @@ function openStoryCreator() {
   };
 }
 
-let storyViewerData = { groups: [], currentGroup: 0, currentStory: 0, timer: null };
+let storyViewerData = { groups: [], currentGroup: 0, currentStory: 0, timer: null, paused: false, remainingMs: 5000, frameDuration: 5000, frameStartTime: Date.now() };
+let _storyHoldTimer = null;
+let _isStoryHolding = false;
+
+function bindStoryNavTarget(el, dir) {
+  if (!el) return;
+  el.onpointerdown = (e) => {
+    e.preventDefault();
+    _isStoryHolding = false;
+    clearTimeout(_storyHoldTimer);
+    _storyHoldTimer = setTimeout(() => {
+      _isStoryHolding = true;
+      pauseStoryViewer();
+    }, 220);
+  };
+  el.onpointerup = (e) => {
+    e.preventDefault();
+    clearTimeout(_storyHoldTimer);
+    if (_isStoryHolding) {
+      resumeStoryViewer(storyViewerData.remainingMs || 5000);
+    } else {
+      advanceStory(dir);
+    }
+    _isStoryHolding = false;
+  };
+  el.onpointercancel = (e) => {
+    clearTimeout(_storyHoldTimer);
+    if (_isStoryHolding) {
+      resumeStoryViewer(storyViewerData.remainingMs || 5000);
+    }
+    _isStoryHolding = false;
+  };
+  el.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+}
 
 async function viewStory(userId, focusStoryId = '') {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -6109,6 +6179,16 @@ async function viewStory(userId, focusStoryId = '') {
       if (!byUser[s.authorId]) byUser[s.authorId] = [];
       byUser[s.authorId].push(s);
     });
+
+    // Sort each author's stories in chronological order (oldest -> newest)
+    Object.keys(byUser).forEach(uid => {
+      byUser[uid].sort((a, b) => {
+        const aT = (a.createdAt?.seconds || 0) || (a.createdAt?.toDate ? a.createdAt.toDate().getTime() / 1000 : 0);
+        const bT = (b.createdAt?.seconds || 0) || (b.createdAt?.toDate ? b.createdAt.toDate().getTime() / 1000 : 0);
+        return aT - bT;
+      });
+    });
+
     const groups = Object.keys(byUser).map(uid => ({ uid, stories: byUser[uid] }));
     const startIdx = groups.findIndex(g => g.uid === userId);
     if (startIdx === -1) return toast('No stories');
@@ -6117,9 +6197,12 @@ async function viewStory(userId, focusStoryId = '') {
     if (focusStoryId) {
       const maybeIdx = (groups[startIdx]?.stories || []).findIndex(item => item.id === focusStoryId);
       if (maybeIdx >= 0) startStoryIdx = maybeIdx;
+    } else {
+      const unseenIdx = (groups[startIdx]?.stories || []).findIndex(item => !(item.viewedBy || []).includes(state.user.uid));
+      if (unseenIdx >= 0) startStoryIdx = unseenIdx;
     }
 
-    storyViewerData = { groups, currentGroup: startIdx, currentStory: startStoryIdx, timer: null };
+    storyViewerData = { groups, currentGroup: startIdx, currentStory: startStoryIdx, timer: null, paused: false, remainingMs: 5000, frameDuration: 5000, frameStartTime: Date.now() };
     showStoryFrame();
   } catch (e) { console.error(e); toast('Could not load stories'); }
 }
@@ -6155,17 +6238,31 @@ function showStoryFrame() {
   const group = groups[currentGroup];
   if (currentStory >= group.stories.length) {
     storyViewerData.currentGroup++;
-    storyViewerData.currentStory = 0;
+    if (storyViewerData.currentGroup >= groups.length) return closeStoryViewer();
+    const nextGroup = storyViewerData.groups[storyViewerData.currentGroup];
+    const unseenIdx = (nextGroup?.stories || []).findIndex(s => !(s.viewedBy || []).includes(state.user.uid));
+    storyViewerData.currentStory = unseenIdx >= 0 ? unseenIdx : 0;
     return showStoryFrame();
   }
   const story = group.stories[currentStory];
   const viewer = $('#story-viewer');
   viewer.style.display = 'flex';
+  viewer.classList.remove('is-paused');
+
+  let autoAdvanceMs = 5000;
+  if (story.type === 'video' && story.videoURL) {
+    autoAdvanceMs = 15000;
+  }
+
+  storyViewerData.frameDuration = autoAdvanceMs;
+  storyViewerData.frameStartTime = Date.now();
+  storyViewerData.remainingMs = autoAdvanceMs;
+  storyViewerData.paused = false;
 
   // Progress bar
   const bar = $('#story-progress-bar');
   bar.innerHTML = group.stories.map((_, i) =>
-    `<div class="story-progress-seg ${i < currentStory ? 'done' : i === currentStory ? 'active' : ''}"><div class="story-progress-fill"></div></div>`
+    `<div class="story-progress-seg ${i < currentStory ? 'done' : i === currentStory ? 'active' : ''}"><div class="story-progress-fill" style="${i === currentStory ? `animation-duration:${autoAdvanceMs}ms;` : ''}"></div></div>`
   ).join('');
 
   // Header
@@ -6181,7 +6278,6 @@ function showStoryFrame() {
 
   // Content
   const content = $('#story-viewer-content');
-  let autoAdvanceMs = 5000;
   if (story.type === 'video' && story.videoURL) {
     content.innerHTML = `
       <video src="${story.videoURL}" class="story-full-video" autoplay muted playsinline loop style="width:100%;height:100%;object-fit:cover"></video>
@@ -6189,7 +6285,6 @@ function showStoryFrame() {
       ${story.caption ? `<div class="story-caption">${esc(story.caption)}</div>` : ''}
     `;
     content.style.background = '#000';
-    autoAdvanceMs = 15000;
     const vid = content.querySelector('video');
     if (vid) {
       vid.onended = () => advanceStory(1);
@@ -6229,8 +6324,8 @@ function showStoryFrame() {
         replySend.innerHTML = '❤';
         replySend.title = 'Like story';
       }
-      replyInput.onfocus = () => clearTimeout(storyViewerData.timer);
-      replyInput.onblur = () => { if (!storyViewerData.paused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs); };
+      replyInput.onfocus = () => pauseStoryViewer();
+      replyInput.onblur = () => { if (!storyViewerData.paused) resumeStoryViewer(storyViewerData.remainingMs || autoAdvanceMs); };
       const doReply = () => {
         const text = replyInput.value.trim();
         if (!text) return;
@@ -6244,25 +6339,18 @@ function showStoryFrame() {
     }
   }
 
-  // Navigation
-  $('#story-prev').onclick = () => advanceStory(-1);
-  $('#story-next').onclick = () => advanceStory(1);
+  // Navigation tap and hold handlers
+  bindStoryNavTarget($('#story-prev'), -1);
+  bindStoryNavTarget($('#story-next'), 1);
   $('#story-close').onclick = closeStoryViewer;
-  const storyContentEl = $('#story-viewer-content');
-  if (storyContentEl) {
-    storyContentEl.onpointerdown = () => pauseStoryViewer();
-    storyContentEl.onpointerup = () => resumeStoryViewer(autoAdvanceMs);
-    storyContentEl.onpointercancel = () => resumeStoryViewer(autoAdvanceMs);
-    storyContentEl.onclick = () => {
-      if (storyViewerData.paused) resumeStoryViewer(autoAdvanceMs);
-      else pauseStoryViewer();
-    };
-  }
 }
 
 function pauseStoryViewer() {
   clearTimeout(storyViewerData.timer);
   storyViewerData.paused = true;
+  $('#story-viewer')?.classList.add('is-paused');
+  const elapsed = Date.now() - (storyViewerData.frameStartTime || Date.now());
+  storyViewerData.remainingMs = Math.max(400, (storyViewerData.remainingMs || 5000) - elapsed);
   const vid = $('#story-viewer-content video');
   if (vid && !vid.paused) vid.pause();
 }
@@ -6270,10 +6358,13 @@ function pauseStoryViewer() {
 function resumeStoryViewer(autoAdvanceMs = 5000) {
   const wasPaused = !!storyViewerData.paused;
   storyViewerData.paused = false;
+  $('#story-viewer')?.classList.remove('is-paused');
   const vid = $('#story-viewer-content video');
   if (vid && vid.paused) vid.play().catch(() => {});
   clearTimeout(storyViewerData.timer);
-  if (wasPaused) storyViewerData.timer = setTimeout(() => advanceStory(1), autoAdvanceMs);
+  const dur = wasPaused ? (storyViewerData.remainingMs || 1000) : autoAdvanceMs;
+  storyViewerData.frameStartTime = Date.now();
+  storyViewerData.timer = setTimeout(() => advanceStory(1), dur);
 }
 
 async function openStoryInsights(storyId = '') {
@@ -6356,13 +6447,29 @@ async function toggleStoryLike(story = {}) {
 
 function advanceStory(dir) {
   clearTimeout(storyViewerData.timer);
+  clearTimeout(_storyHoldTimer);
+  _isStoryHolding = false;
+  $('#story-viewer')?.classList.remove('is-paused');
+  storyViewerData.paused = false;
+
   if (dir > 0) {
     storyViewerData.currentStory++;
+    if (storyViewerData.currentStory >= storyViewerData.groups[storyViewerData.currentGroup].stories.length) {
+      storyViewerData.currentGroup++;
+      if (storyViewerData.currentGroup >= storyViewerData.groups.length) {
+        return closeStoryViewer();
+      }
+      const nextGroup = storyViewerData.groups[storyViewerData.currentGroup];
+      const unseenIdx = (nextGroup?.stories || []).findIndex(s => !(s.viewedBy || []).includes(state.user.uid));
+      storyViewerData.currentStory = unseenIdx >= 0 ? unseenIdx : 0;
+    }
   } else {
     storyViewerData.currentStory--;
     if (storyViewerData.currentStory < 0) {
       storyViewerData.currentGroup--;
-      if (storyViewerData.currentGroup < 0) return closeStoryViewer();
+      if (storyViewerData.currentGroup < 0) {
+        return closeStoryViewer();
+      }
       storyViewerData.currentStory = storyViewerData.groups[storyViewerData.currentGroup].stories.length - 1;
     }
   }
@@ -6371,6 +6478,9 @@ function advanceStory(dir) {
 
 function closeStoryViewer() {
   clearTimeout(storyViewerData.timer);
+  clearTimeout(_storyHoldTimer);
+  _isStoryHolding = false;
+  $('#story-viewer')?.classList.remove('is-paused');
   // Stop any playing video/audio
   const vid = $('#story-viewer-content video');
   if (vid) { vid.pause(); vid.src = ''; }
@@ -7893,8 +8003,9 @@ async function openReelComments(postId, options = {}) {
     const target = c.replyTo ? commentById[c.replyTo] : null;
     const fromLabel = c.authorId === state.user.uid ? 'me' : (c.authorName || 'User');
     const toLabel = target ? (target.authorId === state.user.uid ? 'me' : (target.authorName || 'User')) : '';
+    panel.dataset.postId = postId;
     return `
-      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="rc-${c.id}" data-comment-id="${c.id}" data-post-id="${postId}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col">${avatar(c.authorName || 'User', c.authorPhoto, 'avatar-sm')}</div>
         <div class="comment-content-col">
           <div class="comment-bubble enhanced">
@@ -7902,11 +8013,13 @@ async function openReelComments(postId, options = {}) {
             ${target ? `<div class="comment-reply-to">${esc(fromLabel)} &gt; ${esc(toLabel)}</div>` : ''}
             ${c.text ? `<div class="comment-text">${esc(c.text)}</div>` : ''}
             ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
+            ${renderCommentReactionBadge(c.reactions, c.likes || [], postId, c.id)}
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
-            <button class="c-act" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
             <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','reel')" onmousedown="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
+            <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
+            <button class="c-act c-reply-btn" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
           </div>
           ${cReplies.length ? `
             <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -7919,12 +8032,13 @@ async function openReelComments(postId, options = {}) {
   };
 
   panel.className = 'reel-comments-panel is-open';
+  panel.dataset.postId = postId;
   panel.innerHTML = `
     <div class="reel-comments-header">
       <h3>Comments</h3>
       <button class="icon-btn" onclick="closeReelComments()">✕</button>
     </div>
-    <div class="reel-comments-list" id="reel-comments-list">
+    <div class="reel-comments-list" id="reel-comments-list" data-post-id="${postId}">
       ${topLevel.length ? topLevel.map(c => renderComment(c)).join('') : '<div class="empty-msg" style="text-align:center;padding:20px;color:var(--text-tertiary)">No comments yet</div>'}
     </div>
     <div id="reel-comment-reply-indicator" class="reply-indicator" style="display:none">
@@ -8184,7 +8298,7 @@ async function openComments(postId, options = {}) {
      const reactionBadgeHtml = renderCommentReactionBadge(c.reactions, c.likes || [], postId, c.id);
      
      return `
-      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
+      <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-post-id="${postId}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col" ${profileClick} ${authorClickStyle}>
           ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
         </div>
@@ -8223,7 +8337,7 @@ async function openComments(postId, options = {}) {
   const commentModalHtml = `
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:72vh;padding:0">
-      <div id="comments-container" class="comments-scroll" style="flex:1;overflow-y:auto;padding:16px 16px 8px">
+      <div id="comments-container" class="comments-scroll" data-post-id="${postId}" style="flex:1;overflow-y:auto;padding:16px 16px 8px">
         ${renderCommentTree()}
       </div>
       <div id="comment-reply-indicator" class="reply-indicator" style="display:none">
@@ -13559,7 +13673,7 @@ async function acceptFriendRequest(fromUid, fromName, fromPhoto) {
     toast(`You and ${fromName} are now friends!`);
     // Only refresh dropdown if it's actually open
     const dd = $('#notif-dropdown');
-    if (dd && dd.style.display === 'block') {
+    if (dd && dd.style.display !== 'none' && dd.style.display !== '') {
       loadNotifications();
       if (!(state.profile.friendRequests || []).length) dd.style.display = 'none';
     }
@@ -13751,6 +13865,15 @@ async function checkUpcomingLectureAlerts() {
             channelId: 'unibo-general',
             extra: { kind: 'timetable', module: mod }
           });
+          // Dispatch in-app notification doc to users/{uid}/notifications
+          dispatchNotificationGateway(state.user.uid, {
+            type: 'timetable',
+            text: msg,
+            payload: { kind: 'timetable', module: mod, group: slot.group || '', venue: slot.venue || '', start: slot.start || '', day: todayDay },
+            read: false,
+            createdAt: FieldVal.serverTimestamp(),
+            from: { uid: 'timetable', name: 'Class Reminder', photo: null }
+          }, { allowSelf: true, docId: `tt_${notifId}` }).catch(e => console.error('TT notif error:', e));
           toast(`⏰ Upcoming: ${msg}`);
         }
       }
@@ -14243,7 +14366,7 @@ function listenForNotifications() {
     }
     updateNotifBadge();
     const dd = $('#notif-dropdown');
-    if (dd && dd.style.display === 'block') loadNotifications();
+    if (dd && dd.style.display !== 'none' && dd.style.display !== '') loadNotifications();
   }, err => {
     console.warn('User listener error:', err);
     recoverInvalidSession(err, 'User profile listener denied').catch(() => {});
@@ -14259,7 +14382,7 @@ function listenForNotifications() {
       maybeNotifyForGeneralNotifications(bellNotifications(_notifications));
       updateNotifBadge();
       const dd = $('#notif-dropdown');
-      if (dd && dd.style.display === 'block') loadNotifications();
+      if (dd && dd.style.display !== 'none' && dd.style.display !== '') loadNotifications();
     }, err => {
       console.warn('Notif listener error:', err);
       _notifications = [];
@@ -14368,28 +14491,35 @@ function loadNotifications() {
   if (otherNotifs.length) {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
-      const icon = n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : n.type === 'live' ? '🔴' : '🔔';
+      const isTimetable = n.type === 'timetable';
+      const icon = isTimetable ? '⏰' : n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : n.type === 'live' ? '🔴' : '🔔';
       const isOwnLive = !!n.from?.uid && n.from.uid === state.user?.uid;
-      const clickAction = n.payload?.convoId
-        ? `closeNotifDropdown();openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
-        : n.payload?.streamId
-          ? `closeNotifDropdown();openLiveStreamFromFeed('${n.payload.streamId}', ${isOwnLive ? 'true' : 'false'});markNotifRead('${n.id}')`
-          : n.payload?.postId
-            ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
-            : n.payload?.groupId
-              ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
-              : n.from?.uid && n.from.uid !== 'anonymous'
-                ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
-                : `closeNotifDropdown();markNotifRead('${n.id}')`;
-      const from = n.from || { name: 'Unibo', photo: null };
+      const clickAction = isTimetable
+        ? `closeNotifDropdown();openTimetableModal('${state.user?.uid || ''}', '${n.payload?.module || ''}');markNotifRead('${n.id}')`
+        : n.payload?.convoId
+          ? `closeNotifDropdown();openChat('${n.payload.convoId}');markNotifRead('${n.id}')`
+          : n.payload?.streamId
+            ? `closeNotifDropdown();openLiveStreamFromFeed('${n.payload.streamId}', ${isOwnLive ? 'true' : 'false'});markNotifRead('${n.id}')`
+            : n.payload?.postId
+              ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+              : n.payload?.groupId
+                ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
+                : n.from?.uid && n.from.uid !== 'anonymous'
+                  ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
+                  : `closeNotifDropdown();markNotifRead('${n.id}')`;
+      const from = n.from || { name: isTimetable ? 'Class Reminder' : 'Unibo', photo: null };
+      const fromName = isTimetable ? (n.from?.name || 'Class Reminder') : from.name;
+      const avatarHtml = isTimetable
+        ? `<div class="avatar-sm" style="display:flex;align-items:center;justify-content:center;background:var(--accent-glow, rgba(108,92,231,0.15));font-size:18px">⏰</div>`
+        : avatar(from.name, from.photo, 'avatar-sm');
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="${clickAction}">
          <div style="position:relative">
-           ${avatar(from.name, from.photo, 'avatar-sm')}
+           ${avatarHtml}
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:11px;background:var(--bg-secondary);border-radius:50%;padding:1px">${icon}</div>
          </div>
          <div class="notif-content">
-           <div class="notif-text"><strong>${esc(from.name)}</strong> ${esc(n.text)}</div>
+           <div class="notif-text"><strong>${esc(fromName)}</strong> ${esc(n.text)}</div>
            <div class="notif-time">${timeAgo(n.createdAt)}</div>
          </div>
          ${!n.read ? '<span class="notif-unread-dot" title="Unread"></span>' : ''}
@@ -17508,9 +17638,9 @@ document.addEventListener('DOMContentLoaded', () => {
     e.stopPropagation();
     requestLocalNotificationPermission().catch(() => {});
     const dd = $('#notif-dropdown');
-    if (dd.style.display === 'block') { closeNotifDropdown(); return; }
+    if (dd && dd.style.display !== 'none' && dd.style.display !== '') { closeNotifDropdown(); return; }
     loadNotifications();
-    dd.style.display = 'block';
+    dd.style.display = 'flex';
     _notifDropdownCloseHandler = ev => {
       const trigger = $('#notif-btn');
       if (!dd.contains(ev.target) && ev.target !== trigger && !trigger?.contains(ev.target)) {
@@ -17551,7 +17681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     contentEl.addEventListener('scroll', () => {
       const dd = $('#notif-dropdown');
-      if (!dd || dd.style.display !== 'block') return;
+      if (!dd || dd.style.display === 'none' || dd.style.display === '') return;
       if (_notifTouchActive) return;
       if (isRecentContentScrollGesture()) closeNotifDropdown();
     }, { passive: true, capture: true });
