@@ -9068,35 +9068,38 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1.5px solid #7C3AED;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(109, 40, 217, 0.45);
   color: #2E1065;
-  font-weight: 800;
-  font-size: 11px;
+  font-weight: 700;
+  font-size: 10px;
   line-height: 1;
-  padding: 3px 7px;
-  border-radius: 7px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(109, 40, 217, 0.15);
+  padding: 2px 5.5px;
+  border-radius: 5px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12), 0 0 1px rgba(109, 40, 217, 0.2);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  letter-spacing: 0.3px;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  letter-spacing: 0.2px;
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1), transform 0.15s ease, box-shadow 0.15s ease;
   pointer-events: auto;
+  z-index: 5;
 }
 .building-map-badge:hover {
-  transform: scale(1.12);
-  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.3);
+  transform: scale(1.15) !important;
+  box-shadow: 0 4px 14px rgba(109, 40, 217, 0.35);
   background: #ffffff;
+  border-color: #7C3AED;
+  z-index: 20;
 }
 .building-map-badge:active {
-  transform: scale(0.95);
+  transform: scale(0.95) !important;
 }
 [data-theme="dark"] .building-map-badge {
-  background: rgba(26, 20, 48, 0.95);
-  border-color: #A78BFA;
+  background: rgba(24, 20, 44, 0.95);
+  border-color: rgba(167, 139, 250, 0.45);
   color: #EDE9FE;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(167, 139, 250, 0.25);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4), 0 0 1px rgba(167, 139, 250, 0.3);
 }
 [data-theme="dark"] .building-map-badge:hover {
   background: #2E1065;

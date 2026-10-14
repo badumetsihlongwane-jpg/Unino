@@ -9823,7 +9823,7 @@ async function mountCampusGeoJsonLayers(map) {
   if (!geojson || map.getSource('campus-geojson')) return;
   const extent = getCampusExtent(geojson);
   if (extent && !getUserCoords(state.profile)) {
-    map.fitBounds(extent.bounds, { padding: 48, maxZoom: 17.2, duration: 500 });
+    map.fitBounds(extent.bounds, { padding: 20, maxZoom: 17.0, duration: 500 });
   }
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
@@ -9857,6 +9857,41 @@ async function mountCampusGeoJsonLayers(map) {
   let activePopup = null;
   const buildingBadges = [];
 
+  const BUILDING_PRIORITY = {
+    'A6': 100, // Top priority: explicitly requested landmark
+    'A1': 95,
+    'A14': 92,
+    'B1': 90,
+    'B3': 88,
+    'C1': 88,
+    'D3': 88,
+    'E1': 88,
+    'D1-Pool': 82,
+    'D2-Courts': 80,
+    'E6': 78,
+    'B7': 76,
+    'A4': 74,
+    'A8': 72,
+    'C2': 70,
+    'E2': 70,
+    'E5': 68,
+    'A10': 66,
+    'B5': 64,
+    'A2': 62,
+    'A3': 60,
+    'A5': 60,
+    'A7': 60,
+    'A9': 58,
+    'A11': 58,
+    'A12': 58,
+    'B2': 56,
+    'B4': 56,
+    'B6': 56,
+    'C3': 54,
+    'E4': 52,
+    'E3': 50
+  };
+
   (labelPoints?.features || []).forEach(feat => {
     const name = String(feat?.properties?.name || '').trim();
     const coords = feat?.geometry?.coordinates || [];
@@ -9865,7 +9900,8 @@ async function mountCampusGeoJsonLayers(map) {
     if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
 
     const encodedName = encodeURIComponent(name);
-    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(name)}</div>`;
+    const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
+    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`;
 
     const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
       if (activePopup) {
@@ -9880,21 +9916,72 @@ async function mountCampusGeoJsonLayers(map) {
     });
 
     if (marker && marker.getElement()) {
-      buildingBadges.push(marker.getElement());
+      buildingBadges.push({
+        el: marker.getElement(),
+        name,
+        priority: BUILDING_PRIORITY[name] || 50
+      });
     }
   });
 
-  const updateBadgeVisibility = () => {
+  let _declutterRaf = null;
+  const declutterBuildingBadges = () => {
     if (!map) return;
     const zoom = map.getZoom();
-    const show = zoom >= 14.0;
-    buildingBadges.forEach(el => {
-      if (el) el.style.display = show ? '' : 'none';
+    if (zoom < 14.0) {
+      buildingBadges.forEach(item => {
+        if (item.el) {
+          item.el.style.opacity = '0';
+          item.el.style.pointerEvents = 'none';
+        }
+      });
+      return;
+    }
+
+    const sorted = [...buildingBadges].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    const placedBoxes = [];
+    const buffer = zoom >= 17.5 ? 1 : (zoom >= 16.5 ? 3 : 5);
+
+    sorted.forEach(item => {
+      const el = item.el;
+      if (!el) return;
+      el.style.display = '';
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      let collides = false;
+      for (let i = 0; i < placedBoxes.length; i++) {
+        const p = placedBoxes[i];
+        if (!(rect.right + buffer < p.left ||
+              rect.left - buffer > p.right ||
+              rect.bottom + buffer < p.top ||
+              rect.top - buffer > p.bottom)) {
+          collides = true;
+          break;
+        }
+      }
+
+      if (collides) {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      } else {
+        placedBoxes.push(rect);
+        el.style.opacity = '1';
+        el.style.pointerEvents = 'auto';
+      }
     });
   };
 
-  map.on('zoom', updateBadgeVisibility);
-  updateBadgeVisibility();
+  const scheduleDeclutter = () => {
+    if (_declutterRaf) cancelAnimationFrame(_declutterRaf);
+    _declutterRaf = requestAnimationFrame(declutterBuildingBadges);
+  };
+
+  map.on('zoom', scheduleDeclutter);
+  map.on('move', scheduleDeclutter);
+  map.on('render', scheduleDeclutter);
+  setTimeout(scheduleDeclutter, 150);
+  setTimeout(scheduleDeclutter, 600);
 
   const handleBuildingClick = e => {
     const feature = e.features && e.features[0];
@@ -10482,9 +10569,10 @@ function initLeafletMap(eventsByLoc) {
         const lat = Number(coords[1]);
         if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
         const encodedName = encodeURIComponent(name);
+        const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
         const icon = L.divIcon({
           className: 'building-map-badge-wrap',
-          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(name)}</div>`,
+          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`,
           iconSize: null
         });
         const popupHtml = `<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`;
