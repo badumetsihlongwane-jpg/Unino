@@ -3191,7 +3191,7 @@ async function openModuleFeed(tag) {
     } catch (e) { console.error(e); }
   }
   openModal(`
-    <div class="modal-header"><h2>${esc(moduleTag)} Posts</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>${esc(moduleTag)} Posts</h2><button class="btn-sm btn-outline" style="margin-left:auto;margin-right:8px;font-size:11px;padding:3px 8px" onclick="openTimetableModal(state.user?.uid, '${esc(moduleTag)}')">📅 Schedule</button><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body module-feed-modal">
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
@@ -4119,6 +4119,46 @@ if (typeof window !== 'undefined') {
 }
 
 // ══════════════════════════════════════════════════
+//  NWU TIMETABLE & WEEKLY LECTURE SCHEDULE
+// ══════════════════════════════════════════════════
+let _nwuWeeklyTimetable = null;
+let _loadingWeeklyTimetablePromise = null;
+
+async function loadWeeklyTimetable() {
+  if (_nwuWeeklyTimetable && Object.keys(_nwuWeeklyTimetable).length) return _nwuWeeklyTimetable;
+  if (_loadingWeeklyTimetablePromise) return _loadingWeeklyTimetablePromise;
+  _loadingWeeklyTimetablePromise = (async () => {
+    const candidatePaths = [
+      'data/nwu_timetable_weekly.json',
+      './data/nwu_timetable_weekly.json',
+      '/data/nwu_timetable_weekly.json',
+      'celcat_capture/nwu_timetable_weekly.json'
+    ];
+    for (const p of candidatePaths) {
+      try {
+        const res = await fetch(p);
+        if (res.ok) {
+          _nwuWeeklyTimetable = await res.json();
+          return _nwuWeeklyTimetable;
+        }
+      } catch (_) {}
+    }
+    _nwuWeeklyTimetable = {};
+    return _nwuWeeklyTimetable;
+  })();
+  return _loadingWeeklyTimetablePromise;
+}
+
+if (typeof window !== 'undefined') {
+  window.loadWeeklyTimetable = loadWeeklyTimetable;
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(() => { loadWeeklyTimetable().catch(() => {}); });
+  } else {
+    setTimeout(() => { loadWeeklyTimetable().catch(() => {}); }, 2500);
+  }
+}
+
+// ══════════════════════════════════════════════════
 //  AUTH
 // ══════════════════════════════════════════════════
 function initAuth() {
@@ -4297,6 +4337,38 @@ function initAuth() {
     setSignupStep(1);
     loadCoursesCatalogue().catch(() => {});
   });
+
+  // Gesture-aware tap vs scroll detector for mobile touchscreens
+  function attachScrollSafeTap(element, onSelect) {
+    if (!element || typeof onSelect !== 'function') return;
+    let startX = 0;
+    let startY = 0;
+    let hasMoved = false;
+
+    element.addEventListener('pointerdown', e => {
+      startX = e.clientX;
+      startY = e.clientY;
+      hasMoved = false;
+    }, { passive: true });
+
+    element.addEventListener('pointermove', e => {
+      if (!hasMoved) {
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (dx > 8 || dy > 8) hasMoved = true;
+      }
+    }, { passive: true });
+
+    const fireSelection = e => {
+      if (!hasMoved) {
+        if (e && e.cancelable) e.preventDefault();
+        onSelect(e);
+      }
+    };
+
+    element.addEventListener('pointerup', fireSelection);
+    element.addEventListener('click', fireSelection);
+  }
 
   // ─── Setup Course Suggestions and Interactive Modules Flow ───
   function setupSignupCourseAndModuleFlow() {
@@ -4494,11 +4566,7 @@ function initAuth() {
       majorDropdown.style.display = 'block';
 
       majorDropdown.querySelectorAll('.signup-autocomplete-item').forEach(item => {
-        const pickCourse = (e) => {
-          if (e) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
+        attachScrollSafeTap(item, () => {
           const chosen = item.getAttribute('data-course');
           majorInput.value = chosen;
           majorDropdown.style.display = 'none';
@@ -4506,15 +4574,12 @@ function initAuth() {
             yearSelect.value = '1st Year';
           }
           renderSuggestions();
-        };
-        item.addEventListener('pointerdown', pickCourse);
-        item.addEventListener('click', pickCourse);
+        });
       });
     };
 
     majorInput.addEventListener('input', e => {
       renderCourseSuggestions(e.target.value);
-      renderSuggestions();
     });
     majorInput.addEventListener('keyup', e => {
       renderCourseSuggestions(e.target.value);
@@ -4524,6 +4589,14 @@ function initAuth() {
     });
     majorInput.addEventListener('pointerdown', e => {
       renderCourseSuggestions(majorInput.value);
+    });
+    majorInput.addEventListener('change', () => {
+      renderSuggestions();
+    });
+    majorInput.addEventListener('blur', () => {
+      setTimeout(() => {
+        renderSuggestions();
+      }, 180);
     });
 
     document.addEventListener('pointerdown', e => {
@@ -4642,16 +4715,10 @@ function initAuth() {
       signupAddressSuggestions.innerHTML = hits.map(h => `<button type="button" class="address-suggestion-item" data-v="${esc(h)}">${esc(h)}</button>`).join('');
       signupAddressSuggestions.style.display = 'block';
       signupAddressSuggestions.querySelectorAll('.address-suggestion-item').forEach(btn => {
-        const selectAddress = (e) => {
-          if (e) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
+        attachScrollSafeTap(btn, () => {
           signupAddressInput.value = btn.getAttribute('data-v') || '';
           signupAddressSuggestions.style.display = 'none';
-        };
-        btn.addEventListener('pointerdown', selectAddress);
-        btn.addEventListener('click', selectAddress);
+        });
       });
     };
 
@@ -4962,6 +5029,7 @@ function openHeaderProfileMenu() {
       <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
+    <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
     <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
@@ -4969,6 +5037,7 @@ function openHeaderProfileMenu() {
   `;
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
+  menu.querySelector('[data-action="timetable"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openTimetableModal(state.user.uid); });
   menu.querySelector('[data-action="anon-toggle"]')?.addEventListener('click', () => {
     const nextVal = !allowAnonymousDMsFor(state.profile);
     setAllowAnonymousMessages(nextVal);
@@ -5122,8 +5191,12 @@ function setupPresenceTracking() {
     _inAppBackListenerBound = true;
   }
   clearInterval(_presenceTimer);
-  _presenceTimer = setInterval(() => refreshPresence().catch(() => {}), 30000);
+  _presenceTimer = setInterval(() => {
+    refreshPresence().catch(() => {});
+    checkUpcomingLectureAlerts().catch(() => {});
+  }, 30000);
   refreshPresence(true).catch(() => {});
+  setTimeout(() => checkUpcomingLectureAlerts().catch(() => {}), 3000);
 }
 
 // ─── Navigation ──────────────────────────────────
@@ -9828,14 +9901,15 @@ async function showUserPreview(uid) {
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}${user.gender ? ' · ' + esc(user.gender) : ''}</div>
         ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
         ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
-        <div style="display:flex;gap:8px;justify-content:center">
+        ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${esc(m)}')" title="View ${esc(m)} schedule">📅 ${esc(m)}</span>`).join('')}</div>` : ''}
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           ${isMe ? '' : isFriend
             ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
             : `${allowsAnon ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anon Off</button>`}
                ${isPending
                  ? `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`
                  : `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}`}
+          <button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Profile</button>
         </div>
       </div>
@@ -13344,6 +13418,390 @@ async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
   return ref.id;
 }
 
+// ─── Timetable & Lecture Schedule Viewer ─────────
+function locateTimetableVenue(venueStr = '') {
+  closeModal();
+  if (!venueStr) return;
+  const clean = String(venueStr).toUpperCase().trim();
+  let matchedLocation = null;
+
+  if (typeof CAMPUS_LOCATIONS !== 'undefined' && Array.isArray(CAMPUS_LOCATIONS) && CAMPUS_LOCATIONS.length) {
+    if (clean.includes('A2') || clean.includes('CS') || clean.includes('COMP')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'cs-building' || l.id === 'lab-block');
+    } else if (clean.includes('A5') || clean.includes('HALL') || clean.includes('GREAT')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'main-hall' || l.id === 'amphitheatre');
+    } else if (clean.includes('LIB')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'library');
+    } else if (clean.includes('LAB')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'lab-block');
+    } else if (clean.includes('ADM')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'admin');
+    } else if (clean.includes('SPORT') || clean.includes('GYM')) {
+      matchedLocation = CAMPUS_LOCATIONS.find(l => l.id === 'sports-complex');
+    } else {
+      matchedLocation = CAMPUS_LOCATIONS[0];
+    }
+  }
+
+  showScreen('app');
+  navigate('explore');
+  if (matchedLocation) {
+    setTimeout(() => {
+      openLocationDetail(matchedLocation.id);
+      toast(`Locating ${venueStr} (${matchedLocation.name})`);
+    }, 450);
+  } else {
+    toast(`Viewing campus radar for ${venueStr}`);
+  }
+}
+
+let _lastLectureNotifiedKey = {};
+
+async function checkUpcomingLectureAlerts() {
+  if (!state.user || !state.profile) return;
+  const pref = (state.profile.timetableAlerts) || localStorage.getItem('unino-tt-alert-pref') || 'off';
+  if (pref === 'off') return;
+  const alertMinutes = parseInt(pref, 10);
+  if (!alertMinutes || isNaN(alertMinutes)) return;
+
+  const enrolledModules = normalizeModules(state.profile.modules || []);
+  if (!enrolledModules.length) return;
+
+  const timetable = await loadWeeklyTimetable();
+  if (!timetable) return;
+
+  const currentWeekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const now = new Date();
+  const todayDay = currentWeekDays[now.getDay()];
+  if (todayDay === 'Sunday' || todayDay === 'Saturday') return;
+
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const dateKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+  enrolledModules.forEach(mod => {
+    const slots = timetable[mod] || [];
+    slots.forEach(slot => {
+      if (slot.day !== todayDay) return;
+      const [sh, sm] = (slot.start || '00:00').split(':').map(Number);
+      const startMin = (sh || 0) * 60 + (sm || 0);
+      const diff = startMin - nowMin;
+
+      // Trigger if class starts within alertMinutes window (and not already started)
+      if (diff > 0 && diff <= alertMinutes) {
+        const notifId = `${dateKey}_${mod}_${slot.start}`;
+        if (!_lastLectureNotifiedKey[notifId]) {
+          _lastLectureNotifiedKey[notifId] = true;
+          const venueText = slot.venue ? ` at ${slot.venue}` : '';
+          const msg = `${mod} lecture starts in ${diff}m (${slot.start})${venueText}`;
+          const numericId = Math.abs(String(notifId).split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0) | 0, 0)) || 99991;
+          scheduleLocalNotification({
+            id: numericId,
+            title: `📚 Upcoming Class: ${mod}`,
+            body: msg,
+            channelId: 'unibo-general',
+            extra: { kind: 'timetable', module: mod }
+          });
+          toast(`⏰ Upcoming: ${msg}`);
+        }
+      }
+    });
+  });
+}
+
+function updateTimetableAlertPreference(pref) {
+  if (!state.user) return;
+  if (!state.profile) state.profile = {};
+  state.profile.timetableAlerts = pref;
+  localStorage.setItem('unino-tt-alert-pref', pref);
+  db.collection('users').doc(state.user.uid).set({
+    timetableAlerts: pref
+  }, { merge: true }).catch(() => {});
+  if (pref !== 'off') {
+    requestLocalNotificationPermission().catch(() => {});
+    toast(`Lecture reminders set: ${pref}m before classes ✓`);
+    setTimeout(() => checkUpcomingLectureAlerts().catch(() => {}), 500);
+  } else {
+    toast('Lecture reminders turned off');
+  }
+}
+
+async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
+  const isMe = !uid || uid === state.user?.uid;
+  let targetUser = isMe ? (state.profile || {}) : null;
+  if (!targetUser) {
+    try {
+      const doc = await db.collection('users').doc(uid).get();
+      if (doc.exists) targetUser = { id: doc.id, ...doc.data() };
+    } catch (_) {}
+  }
+  if (!targetUser) targetUser = state.profile || {};
+
+  const enrolledModules = normalizeModules(targetUser.modules || []);
+  const allTimetable = await loadWeeklyTimetable();
+
+  const currentWeekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayIndex = new Date().getDay();
+  let defaultDay = currentWeekDays[todayIndex];
+  if (defaultDay === 'Saturday' || defaultDay === 'Sunday') defaultDay = 'Monday';
+
+  let currentSelectedDay = defaultDay;
+  let currentFilterModule = initialModule ? initialModule.toUpperCase() : 'ALL';
+  let currentSearchQuery = '';
+
+  const parseMinutes = (timeStr = '') => {
+    const [h, m] = (timeStr || '00:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  const buildModalHtml = () => {
+    let modulesToShow = [];
+    if (currentSearchQuery.trim()) {
+      const q = currentSearchQuery.trim().toUpperCase();
+      modulesToShow = Object.keys(allTimetable).filter(m => m.includes(q)).slice(0, 10);
+    } else if (currentFilterModule !== 'ALL') {
+      modulesToShow = [currentFilterModule];
+    } else {
+      modulesToShow = enrolledModules;
+    }
+
+    const daySlots = [];
+    modulesToShow.forEach(mod => {
+      const slots = allTimetable[mod] || [];
+      slots.forEach(slot => {
+        if (currentSelectedDay === 'ALL' || slot.day === currentSelectedDay) {
+          daySlots.push({ ...slot, module: mod });
+        }
+      });
+    });
+
+    daySlots.sort((a, b) => {
+      const da = DAYS_ORDER.indexOf(a.day);
+      const db = DAYS_ORDER.indexOf(b.day);
+      if (da !== db) return da - db;
+      return (a.start || '').localeCompare(b.start || '');
+    });
+
+    const clashes = [];
+    if (enrolledModules.length > 1) {
+      const timeMap = {};
+      enrolledModules.forEach(mod => {
+        const slots = allTimetable[mod] || [];
+        slots.forEach(s => {
+          const key = `${s.day}_${s.start}`;
+          timeMap[key] = timeMap[key] || [];
+          timeMap[key].push({ ...s, module: mod });
+        });
+      });
+      Object.entries(timeMap).forEach(([_, list]) => {
+        if (list.length > 1) clashes.push(list);
+      });
+    }
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const todayName = currentWeekDays[now.getDay()];
+
+    let clashBannerHtml = '';
+    if (clashes.length > 0 && currentFilterModule === 'ALL' && !currentSearchQuery) {
+      const clashDescriptions = clashes.slice(0, 2).map(c => {
+        const mods = Array.from(new Set(c.map(item => item.module))).join(' & ');
+        return `${c[0].day} ${c[0].start} (${mods})`;
+      }).join('; ');
+      clashBannerHtml = `
+        <div class="timetable-clash-warning">
+          <span style="font-size:16px">⚠️</span>
+          <div>
+            <strong>Timetable Clash Detected:</strong> Overlapping lectures on ${esc(clashDescriptions)}. Verify your group with your faculty department.
+          </div>
+        </div>
+      `;
+    }
+
+    const daysList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'ALL'];
+    const tabsHtml = `
+      <div class="timetable-day-tabs">
+        ${daysList.map(d => `
+          <button type="button" class="timetable-day-tab ${currentSelectedDay === d ? 'active' : ''} ${todayName === d ? 'is-today' : ''}" data-day="${d}">
+            ${d === 'ALL' ? 'All Days' : d.slice(0, 3)}
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    const moduleChipsHtml = enrolledModules.length ? `
+      <div class="timetable-modules-tray">
+        <button type="button" class="timetable-mod-chip ${currentFilterModule === 'ALL' && !currentSearchQuery ? 'active' : ''}" data-mod="ALL">All Enrolled (${enrolledModules.length})</button>
+        ${enrolledModules.map(m => `
+          <button type="button" class="timetable-mod-chip ${currentFilterModule === m ? 'active' : ''}" data-mod="${esc(m)}">${esc(m)}</button>
+        `).join('')}
+      </div>
+    ` : '';
+
+    let cardsHtml = '';
+    if (!daySlots.length) {
+      if (!enrolledModules.length && !currentSearchQuery) {
+        cardsHtml = `
+          <div style="text-align:center;padding:36px 16px;color:var(--text-secondary)">
+            <div style="font-size:40px;margin-bottom:8px">📚</div>
+            <div style="font-weight:700;font-size:15px;color:var(--text-primary)">No enrolled modules</div>
+            <p style="font-size:12px;margin:6px auto 14px;max-width:280px">Add your NWU modules in Edit Profile or type any module code in the search bar above.</p>
+            ${isMe ? `<button type="button" class="btn-primary btn-sm" onclick="closeModal();editProfile()">✏️ Add Enrolled Modules</button>` : ''}
+          </div>
+        `;
+      } else {
+        cardsHtml = `
+          <div style="text-align:center;padding:32px 16px;color:var(--text-tertiary)">
+            <div style="font-size:32px;margin-bottom:6px">☕</div>
+            <div style="font-weight:700;font-size:14px;color:var(--text-primary)">No classes scheduled ${currentSelectedDay !== 'ALL' ? `for ${currentSelectedDay}` : ''}</div>
+            <p style="font-size:12px;margin-top:4px">Enjoy your free time or prepare for upcoming sessions!</p>
+          </div>
+        `;
+      }
+    } else {
+      cardsHtml = `
+        <div class="timetable-cards-list">
+          ${daySlots.map(s => {
+            const startMin = parseMinutes(s.start);
+            const endMin = parseMinutes(s.end);
+            const isToday = s.day === todayName;
+            let statusPill = '';
+            let cardClass = '';
+
+            if (isToday) {
+              if (nowMinutes >= startMin && nowMinutes < endMin) {
+                statusPill = '<span class="timetable-status-pill now">● Now</span>';
+                cardClass = 'is-now';
+              } else if (nowMinutes < startMin && (startMin - nowMinutes <= 120)) {
+                statusPill = `<span class="timetable-status-pill next">in ${startMin - nowMinutes}m</span>`;
+                cardClass = 'is-next';
+              } else if (nowMinutes >= endMin) {
+                statusPill = '<span class="timetable-status-pill done">Finished</span>';
+              }
+            }
+
+            const durHours = ((endMin - startMin) / 60).toFixed(1).replace('.0', '');
+            const durText = `${durHours}h`;
+
+            return `
+              <div class="timetable-card ${cardClass}">
+                <div class="timetable-time-col">
+                  <div class="timetable-time-start">${esc(s.start)}</div>
+                  <div class="timetable-time-end">${esc(s.end)}</div>
+                  <div class="timetable-time-dur">${esc(durText)}</div>
+                </div>
+                <div class="timetable-info-col">
+                  <div class="timetable-card-head">
+                    <span class="timetable-mod-badge">📖 ${esc(s.module)}</span>
+                    ${statusPill}
+                  </div>
+                  <div class="timetable-venue-row">
+                    <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${esc(s.venue)}')">
+                      📍 ${esc(s.venue || 'TBA')}
+                    </button>
+                    ${s.group ? `<span class="timetable-group-tag">Grp: ${esc(s.group)}</span>` : ''}
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
+                    <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} weeks active</span>
+                    <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${esc(s.module)}')">💬 Discuss</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    const currentAlertPref = (state.profile?.timetableAlerts) || localStorage.getItem('unino-tt-alert-pref') || '15';
+
+    const alertsHtml = isMe ? `
+      <div class="timetable-alert-box">
+        <div class="timetable-alert-info">
+          <span class="timetable-alert-icon">🔔</span>
+          <div>
+            <div class="timetable-alert-title">Lecture Reminders</div>
+            <div class="timetable-alert-desc">Alert you on this device before each class session</div>
+          </div>
+        </div>
+        <select class="timetable-alert-select" id="timetable-alert-select">
+          <option value="off" ${currentAlertPref === 'off' ? 'selected' : ''}>Off</option>
+          <option value="15" ${currentAlertPref === '15' ? 'selected' : ''}>15m before</option>
+          <option value="30" ${currentAlertPref === '30' ? 'selected' : ''}>30m before</option>
+          <option value="60" ${currentAlertPref === '60' ? 'selected' : ''}>1h before</option>
+        </select>
+      </div>
+    ` : '';
+
+    return `
+      <div class="timetable-modal-header">
+        <div class="timetable-title-area">
+          <h2>📅 Academic Timetable</h2>
+          <div class="timetable-sub">
+            ${isMe ? 'Your enrolled lecture schedule' : `${esc(targetUser.displayName || 'Student')}'s schedule`} · NWU 2026
+          </div>
+        </div>
+        <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="timetable-modal-body">
+        <div class="timetable-search-bar">
+          <input type="text" id="tt-search-input" placeholder="Search any module (e.g. CMPG121, ALDE111, BMAN111)..." autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
+        </div>
+        ${moduleChipsHtml}
+        ${tabsHtml}
+        ${clashBannerHtml}
+        ${cardsHtml}
+        ${alertsHtml}
+      </div>
+    `;
+  };
+
+  const wireEvents = () => {
+    const modal = $('#modal-inner');
+    if (!modal) return;
+
+    const searchInput = modal.querySelector('#tt-search-input');
+    searchInput?.addEventListener('input', e => {
+      currentSearchQuery = e.target.value;
+      modal.innerHTML = buildModalHtml();
+      wireEvents();
+      const newInp = modal.querySelector('#tt-search-input');
+      if (newInp) {
+        newInp.focus();
+        newInp.setSelectionRange(newInp.value.length, newInp.value.length);
+      }
+    });
+
+    modal.querySelectorAll('.timetable-day-tab').forEach(tab => {
+      tab.onclick = () => {
+        currentSelectedDay = tab.dataset.day;
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
+      };
+    });
+
+    modal.querySelectorAll('.timetable-mod-chip').forEach(chip => {
+      chip.onclick = () => {
+        currentFilterModule = chip.dataset.mod;
+        currentSearchQuery = '';
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
+      };
+    });
+
+    const alertSelect = modal.querySelector('#timetable-alert-select');
+    if (alertSelect) {
+      alertSelect.onchange = () => {
+        updateTimetableAlertPreference(alertSelect.value);
+      };
+    }
+  };
+
+  openModal(buildModalHtml());
+  wireEvents();
+}
+
 async function openFriendsList(uid = state.user?.uid, name = state.profile?.displayName || 'Friends') {
   if (!uid) return;
   try {
@@ -14872,7 +15330,7 @@ async function openProfile(uid) {
           ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${esc(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
+        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openTimetableModal('${uid}','${esc(m)}')" title="View ${esc(m)} schedule">📅 ${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
@@ -14883,6 +15341,7 @@ async function openProfile(uid) {
         <div class="profile-actions">
           ${isMe
             ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+               <button class="btn-outline" onclick="openTimetableModal('${uid}')">📅 Timetable</button>
                <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
             : (() => {
                 const isFriend = (state.profile.friends || []).includes(uid);
@@ -14902,7 +15361,10 @@ async function openProfile(uid) {
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
-                return `${msgBtn}\n               ${friendBtn}`;
+                const timetableBtn = (user.modules && user.modules.length)
+                  ? `<button class="btn-outline" onclick="openTimetableModal('${uid}')">📅 Timetable</button>`
+                  : '';
+                return `${msgBtn}\n               ${friendBtn}${timetableBtn ? `\n               ${timetableBtn}` : ''}`;
               })()}
         </div>
       </div>
@@ -16555,10 +17017,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
 
+  let _notifTouchActive = false;
+  let _notifTouchTimer = null;
   const ddEl = $('#notif-dropdown');
   if (ddEl) {
     ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach(evName => {
-      ddEl.addEventListener(evName, e => e.stopPropagation(), { passive: true });
+      ddEl.addEventListener(evName, e => {
+        _notifTouchActive = true;
+        clearTimeout(_notifTouchTimer);
+        _notifTouchTimer = setTimeout(() => { _notifTouchActive = false; }, 800);
+        e.stopPropagation();
+      }, { passive: true });
+    });
+    ['touchend', 'touchcancel', 'pointerup'].forEach(evName => {
+      ddEl.addEventListener(evName, () => {
+        clearTimeout(_notifTouchTimer);
+        _notifTouchTimer = setTimeout(() => { _notifTouchActive = false; }, 400);
+      }, { passive: true });
     });
   }
 
@@ -16566,11 +17041,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const contentEl = $('#content');
   if (contentEl) {
     ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach(eventName => {
-      contentEl.addEventListener(eventName, () => noteContentScrollGesture(), { passive: true, capture: true });
+      contentEl.addEventListener(eventName, () => {
+        if (_notifTouchActive) return;
+        noteContentScrollGesture();
+      }, { passive: true, capture: true });
     });
     contentEl.addEventListener('scroll', () => {
       const dd = $('#notif-dropdown');
       if (!dd || dd.style.display !== 'block') return;
+      if (_notifTouchActive) return;
       if (isRecentContentScrollGesture()) closeNotifDropdown();
     }, { passive: true, capture: true });
   }
@@ -16619,6 +17098,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
-    openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint
+    openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
+    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts
   });
 });
