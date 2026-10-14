@@ -2335,6 +2335,20 @@ async function reactToComment(postId, commentId, emoji, source = 'feed') {
   }
 }
 
+function renderCommentReactionBadge(raw = {}, likes = [], postId = '', commentId = '') {
+  const { entries, total } = getReactionSummary(raw, likes);
+  const myReaction = getUserReaction(raw, likes);
+  if (!total) return `<div class="comment-reaction-badge-slot" id="crb-${commentId}"></div>`;
+  const topEmojis = entries.slice(0, 3).map(([emoji]) => emoji).join('');
+  return `
+    <div class="comment-reaction-badge-slot" id="crb-${commentId}">
+      <div class="comment-reactions-badge ${myReaction ? 'active' : ''}" onclick="event.stopPropagation();openCommentReactionPicker('${postId}','${commentId}','feed','${myReaction || ''}', event)" title="${total} reaction${total === 1 ? '' : 's'}">
+        <span class="cr-emojis">${topEmojis}</span>
+        <span class="cr-count">${total}</span>
+      </div>
+    </div>`;
+}
+
 function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
   const normalizedReactions = normalizeReactionMap(reactions, likes || []);
   _commentStateCache[commentId] = { reactions: normalizedReactions, likes: [...(likes || [])] };
@@ -2350,6 +2364,25 @@ function refreshCommentReactionUI(commentId, reactions = {}, likes = []) {
       likeBtn.classList.toggle('reacted', !!currentReaction && currentReaction !== '❤️');
       likeBtn.classList.toggle('has-emoji', !!currentReaction && currentReaction !== '❤️');
       likeBtn.innerHTML = renderCommentLikeMarkup(liked, total, currentReaction);
+    }
+    const reactBtn = row.querySelector('.c-act.c-react-btn');
+    if (reactBtn) {
+      reactBtn.classList.toggle('reacted', !!currentReaction && currentReaction !== '❤️');
+      reactBtn.innerHTML = currentReaction && currentReaction !== '❤️' ? `${currentReaction} React` : '😊 React';
+    }
+    const slot = row.querySelector(`#crb-${commentId}`) || row.querySelector('.comment-reaction-badge-slot');
+    if (slot) {
+      const summary = getReactionSummary(normalizedReactions, likes);
+      if (summary.total > 0) {
+        const topEmojis = summary.entries.slice(0, 3).map(([emoji]) => emoji).join('');
+        slot.innerHTML = `
+          <div class="comment-reactions-badge ${currentReaction ? 'active' : ''}" onclick="event.stopPropagation();openCommentReactionPicker(this.closest('[data-post-id]')?.dataset.postId || '', '${commentId}', 'feed', '${currentReaction}', event)" title="${summary.total} reaction${summary.total === 1 ? '' : 's'}">
+            <span class="cr-emojis">${topEmojis}</span>
+            <span class="cr-count">${summary.total}</span>
+          </div>`;
+      } else {
+        slot.innerHTML = '';
+      }
     }
   });
 }
@@ -8135,33 +8168,40 @@ async function openComments(postId, options = {}) {
 
   function renderComment(c, isReply = false) {
      const liked = (c.likes || []).includes(state.user.uid);
-      const myReaction = getUserReaction(c.reactions, c.likes || []);
+     const myReaction = getUserReaction(c.reactions, c.likes || []);
      const cReplies = replyMap[c.id] || [];
-      const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
-      const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
-      const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
-      const target = c.replyTo ? commentById[c.replyTo] : null;
-      const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
-      const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
-      const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
+     const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
+     const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
+     const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
+     const target = c.replyTo ? commentById[c.replyTo] : null;
+     const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
+     const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
+     const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
+     const profileClick = hiddenIdentity && c.authorId !== state.user.uid
+       ? `onclick="openAnonPostActions('${c.authorId}')"`
+       : hiddenIdentity ? '' : `onclick="closeModal();openProfile('${c.authorId}')"`;
+     const authorClickStyle = (hiddenIdentity && c.authorId === state.user.uid) ? '' : 'style="cursor:pointer"';
+     const reactionBadgeHtml = renderCommentReactionBadge(c.reactions, c.likes || [], postId, c.id);
      
      return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-author-id="${c.authorId || ''}">
-        <div class="comment-avatar-col">
+        <div class="comment-avatar-col" ${profileClick} ${authorClickStyle}>
           ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
         </div>
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" ${hiddenIdentity && c.authorId !== state.user.uid ? `onclick="openAnonPostActions('${c.authorId}')" style="cursor:pointer"` : hiddenIdentity ? '' : `onclick="openProfile('${c.authorId}')"`}>${esc(replyLabel)}</span>
+                  <span class="comment-author" ${profileClick} ${authorClickStyle}>${esc(replyLabel)}</span>
               </div>
               <div class="comment-text">${esc(c.text)}</div>
               ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
+              ${reactionBadgeHtml}
            </div>
            <div class="comment-actions-row">
-               <span class="comment-time">${timeAgo(c.createdAt)}</span>
-            <button class="c-act" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
-            <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
+             <span class="comment-time">${timeAgo(c.createdAt)}</span>
+             <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)" title="Like comment">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
+             <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
+             <button class="c-act c-reply-btn" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -8270,14 +8310,24 @@ function setCommentReply(commentId, authorName) {
   const ind = $('#comment-reply-indicator');
   const label = $('#comment-reply-label');
   if (ind) { ind.style.display = 'flex'; }
-  if (label) { label.innerHTML = `<span style="font-weight:600">↩ Replying to:</span> ${esc(authorName)}`; }
-  $('#comment-input')?.focus();
+  if (label) {
+    label.innerHTML = `<span>↩ Replying to <strong style="color:var(--text-primary)">@${esc(authorName)}</strong></span>`;
+  }
+  const input = $('#comment-input');
+  if (input) {
+    input.placeholder = `Replying to @${authorName}...`;
+    input.focus();
+  }
 }
 
 function clearCommentReply() {
   _commentReplyTo = null;
   const ind = $('#comment-reply-indicator');
   if (ind) ind.style.display = 'none';
+  const input = $('#comment-input');
+  if (input) {
+    input.placeholder = 'Write a comment...';
+  }
 }
 
 async function postComment(postId) {
@@ -8296,6 +8346,7 @@ async function postComment(postId) {
   }
   input.value = '';
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
+  clearCommentReply();
   const fileSig = imgFile ? `${imgFile.name}:${imgFile.size}:${imgFile.lastModified}` : 'noimg';
   const dedupeKey = `${postId}|${replyTo || 'root'}|${text || ''}|${fileSig}`;
   if (_lastFeedCommentSubmit.key === dedupeKey && (Date.now() - _lastFeedCommentSubmit.at) < 8000) {
@@ -8337,23 +8388,26 @@ async function postComment(postId) {
       const displayPhoto = commentAnon ? null : (state.profile.photoURL || null);
       const tempId = `tmp-${Date.now()}`;
       const node = document.createElement('div');
-      node.className = 'comment-item';
+      node.className = replyTo ? 'comment-item reply-item' : 'comment-item';
       node.id = `c-${tempId}`;
       node.dataset.commentId = tempId;
       node.dataset.authorId = state.user.uid;
       _commentStateCache[tempId] = { reactions: {}, likes: [] };
+      const dynProfileClick = commentAnon ? '' : `onclick="closeModal();openProfile('${state.user.uid}')" style="cursor:pointer"`;
       node.innerHTML = `
-        <div class="comment-avatar-col">${commentAnon ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(displayName, displayPhoto, 'avatar-sm')}</div>
+        <div class="comment-avatar-col" ${dynProfileClick}>${commentAnon ? '<div class="avatar-sm anon-avatar">👻</div>' : avatar(displayName, displayPhoto, 'avatar-sm')}</div>
         <div class="comment-content-col">
           <div class="comment-bubble enhanced">
-            <div class="comment-header"><span class="comment-author">${esc(displayName)}</span></div>
+            <div class="comment-header"><span class="comment-author" ${dynProfileClick}>${esc(displayName)}</span></div>
             <div class="comment-text">${esc(text || '')}</div>
             ${imageURL ? `<img src="${imageURL}" class="comment-inline-image" onclick="viewImage('${imageURL}')">` : ''}
+            <div class="comment-reaction-badge-slot" id="crb-${tempId}"></div>
           </div>
           <div class="comment-actions-row">
             <span class="comment-time">Just now</span>
-            <button class="c-act" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
             <button class="c-act like-only" type="button" disabled title="Syncing...">${renderCommentLikeMarkup(false, 0, '')}</button>
+            <button class="c-act c-react-btn" onclick="openCommentReactionPicker('${postId}','${tempId}','feed','', event)" title="React with emoji">😊 React</button>
+            <button class="c-act c-reply-btn" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
           </div>
         </div>
       `;
@@ -12167,6 +12221,8 @@ document.addEventListener('pointerdown', event => {
 }, true);
 document.addEventListener('scroll', () => closeChatPlusMenus(), { passive: true, capture: true });
 
+let _activePollCache = {};
+
 function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messageId = '') {
   const options = Array.isArray(poll.options) ? poll.options : [];
   const voters = poll.votes || {};
@@ -12174,6 +12230,11 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
   const myVote = voters[state.user?.uid] || '';
   const isFeedPoll = scope === 'post';
   const totalLabel = total ? `${total} total vote${total === 1 ? '' : 's'}` : 'No votes yet';
+
+  // Cache poll state for instant reactive voting
+  const cacheKey = `${scope}:${primaryId}:${messageId}`;
+  _activePollCache[cacheKey] = poll;
+
   return `
     <div class="poll-card modern-poll ${isFeedPoll ? 'feed-poll' : ''}" data-poll-scope="${scope}" data-poll-primary="${primaryId}" data-poll-message="${messageId}">
       ${isFeedPoll ? `<div class="feed-poll-head"><span class="feed-poll-chip">Campus poll</span><span class="feed-poll-total">${totalLabel}</span></div>` : ''}
@@ -12183,10 +12244,10 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
           const count = Object.values(voters).filter(v => v === opt).length;
           const pct = total ? Math.round((count / total) * 100) : 0;
           const encodedOpt = encodeURIComponent(opt || '');
-          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 12 : 0, pct)}%"></span></button>`;
+          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 10 : 0, pct)}%"></span></button>`;
         }).join('')}
       </div>
-      <div class="poll-footer">${isFeedPoll ? 'Tap an option to vote' : totalLabel}</div>
+      <div class="poll-footer">${isFeedPoll ? (myVote ? `Voted: <strong>${esc(myVote)}</strong>` : 'Tap an option to vote') : totalLabel}</div>
     </div>`;
 }
 
@@ -12202,26 +12263,57 @@ function voteOnPollEncoded(scope = 'post', primaryId = '', messageId = '', encod
 
 async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {
   try {
+    const uid = state.user?.uid;
+    if (!uid) return toast('Sign in to vote');
+
+    const cacheKey = `${scope}:${primaryId}:${messageId}`;
+    const localPost = scope === 'post' ? getLocalPostById(primaryId) : null;
+    const currentPoll = _activePollCache[cacheKey] || localPost?.poll || null;
+
+    // 1. Optimistic Realtime Local State & DOM Update
+    if (currentPoll) {
+      const nextVotes = { ...(currentPoll.votes || {}), [uid]: option };
+      const optimisticPoll = { ...currentPoll, votes: nextVotes };
+      _activePollCache[cacheKey] = optimisticPoll;
+      if (localPost) localPost.poll = optimisticPoll;
+
+      const updatedHtml = renderInteractivePoll(optimisticPoll, scope, primaryId, messageId);
+      document.querySelectorAll(`[data-poll-scope="${scope}"][data-poll-primary="${primaryId}"][data-poll-message="${messageId}"]`).forEach(el => {
+        el.outerHTML = updatedHtml;
+      });
+    }
+
     let ref = null;
     if (scope === 'post') ref = db.collection('posts').doc(primaryId);
     else if (scope === 'group') ref = db.collection(_activeGroupChat.collection || 'groups').doc(primaryId).collection('messages').doc(messageId);
     else if (scope === 'dm') ref = db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
     if (!ref) return;
-    const host = document.querySelector(`[data-poll-scope="${scope}"][data-poll-primary="${primaryId}"][data-poll-message="${messageId}"]`);
-    if (host) {
-      host.querySelectorAll('.poll-option').forEach(btn => {
-        const active = btn.getAttribute('data-opt') === option;
-        btn.classList.toggle('active', active);
-      });
-    }
+
+    // 2. Fetch latest snapshot from Firestore and update
     const snap = await ref.get();
     if (!snap.exists) return;
     const data = snap.data() || {};
-    const poll = data.poll || { options: [], votes: {} };
+    const poll = data.poll || currentPoll || { options: [], votes: {} };
     const votes = { ...(poll.votes || {}) };
-    votes[state.user.uid] = option;
-    await ref.update({ poll: { ...poll, votes } });
-  } catch (e) { console.error(e); toast('Could not save vote'); }
+    votes[uid] = option;
+    const syncedPoll = { ...poll, votes };
+
+    await ref.update({ poll: syncedPoll });
+
+    // 3. Keep cache and UI perfectly in sync
+    _activePollCache[cacheKey] = syncedPoll;
+    if (scope === 'post') {
+      const p = getLocalPostById(primaryId);
+      if (p) p.poll = syncedPoll;
+    }
+    const finalHtml = renderInteractivePoll(syncedPoll, scope, primaryId, messageId);
+    document.querySelectorAll(`[data-poll-scope="${scope}"][data-poll-primary="${primaryId}"][data-poll-message="${messageId}"]`).forEach(el => {
+      el.outerHTML = finalHtml;
+    });
+  } catch (e) {
+    console.error(e);
+    toast('Could not save vote');
+  }
 }
 
 function openChatPollComposer(scope = 'dm') {
@@ -14216,8 +14308,8 @@ function loadNotifications() {
       return `
       <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="closeNotifDropdown();openChat('${convoId}');markNotifRead('${n.id}')">
          <div style="position:relative">
-           <div class="avatar-md anon-avatar">👻</div>
-           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">🎭</div>
+           <div class="avatar-sm anon-avatar">👻</div>
+           <div style="position:absolute;bottom:-2px;right:-2px;font-size:11px;background:var(--bg-secondary);border-radius:50%;padding:1px">🎭</div>
          </div>
          <div class="notif-content">
            <div class="notif-text"><strong>Anonymous contact</strong> wants to reveal their identity</div>
@@ -14232,7 +14324,7 @@ function loadNotifications() {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">Friend Requests</div>`;
     html += requests.map(r => `
       <div class="notif-item unread" onclick="closeNotifDropdown();openProfile('${r.uid}')">
-        ${avatar(r.name, r.photo, 'avatar-md')}
+        ${avatar(r.name, r.photo, 'avatar-sm')}
         <div class="notif-content">
           <div class="notif-text"><strong>${esc(r.name)}</strong> sent you a friend request</div>
           <div class="notif-actions">
@@ -14250,8 +14342,8 @@ function loadNotifications() {
     html += asgAlerts.map(g => `
       <div class="notif-item unread" onclick="closeNotifDropdown();openGroupDetail('${g.id}')">
         <div style="position:relative">
-          <div class="avatar-md group-avatar-icon">📋</div>
-          <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">⏳</div>
+          <div class="avatar-sm group-avatar-icon">📋</div>
+          <div style="position:absolute;bottom:-2px;right:-2px;font-size:11px;background:var(--bg-secondary);border-radius:50%;padding:1px">⏳</div>
         </div>
         <div class="notif-content">
           <div class="notif-text"><strong>${esc(g.groupTitle || g.assignmentTitle || g.moduleCode || 'Group')}</strong> has ${(g.pendingRequests || []).length} pending request${(g.pendingRequests || []).length === 1 ? '' : 's'}</div>
@@ -14293,8 +14385,8 @@ function loadNotifications() {
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="${clickAction}">
          <div style="position:relative">
-           ${avatar(from.name, from.photo, 'avatar-md')}
-           <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">${icon}</div>
+           ${avatar(from.name, from.photo, 'avatar-sm')}
+           <div style="position:absolute;bottom:-2px;right:-2px;font-size:11px;background:var(--bg-secondary);border-radius:50%;padding:1px">${icon}</div>
          </div>
          <div class="notif-content">
            <div class="notif-text"><strong>${esc(from.name)}</strong> ${esc(n.text)}</div>
@@ -15514,6 +15606,7 @@ async function unblockUser(uid, name = '') {
 //  PROFILE — Fixed avatar position (inside cover)
 // ══════════════════════════════════════════════════
 async function openProfile(uid) {
+  closeModal();
   showScreen('profile-view');
   const body = $('#prof-body');
   const backBtn = $('#prof-back');
@@ -17509,6 +17602,7 @@ document.addEventListener('DOMContentLoaded', () => {
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
-    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, resolveEffectiveGroup, inferFacultyFromMajor
+    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, resolveEffectiveGroup, inferFacultyFromMajor,
+    voteOnPollEncoded, voteOnPoll
   });
 });
