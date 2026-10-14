@@ -4025,6 +4025,100 @@ function initTheme() {
 }
 
 // ══════════════════════════════════════════════════
+//  NWU CELCAT COURSES & DYNAMIC MODULES CATALOGUE
+// ══════════════════════════════════════════════════
+let _nwuCoursesCatalogue = null;
+let _loadingCoursesPromise = null;
+let _signupModules = [];
+
+const POPULAR_CAMPUS_MODULES = [
+  'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
+  'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
+  'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
+  'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
+];
+
+const POPULAR_NWU_DEGREES = [
+  'BSc in Information Technology',
+  'BSc in Computer Science & Information Technology',
+  'BCom in Accounting',
+  'Bachelor of Laws (LLB)',
+  'Bachelor of Education (BEd)',
+  'BCom in Business Management'
+];
+
+async function loadCoursesCatalogue() {
+  if (_nwuCoursesCatalogue && Object.keys(_nwuCoursesCatalogue).length) return _nwuCoursesCatalogue;
+  if (_loadingCoursesPromise) return _loadingCoursesPromise;
+  _loadingCoursesPromise = (async () => {
+    const candidatePaths = [
+      'data/nwu_courses_quick_suggest.json',
+      './data/nwu_courses_quick_suggest.json',
+      '/data/nwu_courses_quick_suggest.json',
+      'celcat_capture/nwu_courses_quick_suggest.json',
+      './celcat_capture/nwu_courses_quick_suggest.json'
+    ];
+    for (const p of candidatePaths) {
+      try {
+        const res = await fetch(p);
+        if (res.ok) {
+          _nwuCoursesCatalogue = await res.json();
+          return _nwuCoursesCatalogue;
+        }
+      } catch (_) {}
+    }
+    _nwuCoursesCatalogue = {};
+    return _nwuCoursesCatalogue;
+  })();
+  return _loadingCoursesPromise;
+}
+
+function mapYearToDatasetKey(yearStr = '') {
+  if (!yearStr) return 'Year 1';
+  const match = String(yearStr).match(/(\d)/);
+  if (match) return `Year ${match[1]}`;
+  if (/honours/i.test(yearStr)) return 'Year 4';
+  if (/postgrad/i.test(yearStr)) return 'Year 4';
+  return 'Year 1';
+}
+
+function getCourseCurriculumModules(courseName, yearStr = '') {
+  if (!_nwuCoursesCatalogue || !courseName) return [];
+  const courseData = _nwuCoursesCatalogue[courseName];
+  if (!courseData) {
+    const lower = courseName.trim().toLowerCase();
+    const exactKey = Object.keys(_nwuCoursesCatalogue).find(k => k.toLowerCase() === lower);
+    if (exactKey) return getCourseCurriculumModules(exactKey, yearStr);
+    return [];
+  }
+  const yearKey = mapYearToDatasetKey(yearStr);
+  if (courseData[yearKey] && courseData[yearKey].length) {
+    return courseData[yearKey];
+  }
+  if (courseData['Year 1'] && courseData['Year 1'].length) {
+    return courseData['Year 1'];
+  }
+  const allMods = [];
+  for (const yr of Object.keys(courseData)) {
+    if (Array.isArray(courseData[yr])) allMods.push(...courseData[yr]);
+  }
+  return Array.from(new Set(allMods));
+}
+
+// Global exposure for editProfile() and console debugging
+if (typeof window !== 'undefined') {
+  window.loadCoursesCatalogue = loadCoursesCatalogue;
+  window.getCourseCurriculumModules = getCourseCurriculumModules;
+  window.POPULAR_CAMPUS_MODULES = POPULAR_CAMPUS_MODULES;
+  window.POPULAR_NWU_DEGREES = POPULAR_NWU_DEGREES;
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(() => { loadCoursesCatalogue().catch(() => {}); });
+  } else {
+    setTimeout(() => { loadCoursesCatalogue().catch(() => {}); }, 1200);
+  }
+}
+
+// ══════════════════════════════════════════════════
 //  AUTH
 // ══════════════════════════════════════════════════
 function initAuth() {
@@ -4082,77 +4176,129 @@ function initAuth() {
     catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Log In'; }
   });
 
-  // ─── NWU Celcat Courses & Dynamic Modules Autocomplete ───
-  let _nwuCoursesCatalogue = null;
-  let _loadingCoursesPromise = null;
-  let _signupModules = [];
+  // ─── Multi-Step Sign-Up Slide Controller ───
+  let _signupCurrentStep = 1;
+  const STEP_LABELS = {
+    1: 'Step 1 of 3 · Basic Account',
+    2: 'Step 2 of 3 · Degree & Academics',
+    3: 'Step 3 of 3 · Campus & Identity'
+  };
 
-  const POPULAR_CAMPUS_MODULES = [
-    'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
-    'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
-    'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
-    'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
-  ];
+  function setSignupStep(step) {
+    if (step < 1) step = 1;
+    if (step > 3) step = 3;
+    _signupCurrentStep = step;
 
-  async function loadCoursesCatalogue() {
-    if (_nwuCoursesCatalogue && Object.keys(_nwuCoursesCatalogue).length) return _nwuCoursesCatalogue;
-    if (_loadingCoursesPromise) return _loadingCoursesPromise;
-    _loadingCoursesPromise = (async () => {
-      try {
-        let res = await fetch('data/nwu_courses_quick_suggest.json');
-        if (!res.ok) res = await fetch('celcat_capture/nwu_courses_quick_suggest.json');
-        if (res.ok) {
-          _nwuCoursesCatalogue = await res.json();
-          populateCoursesDatalist(_nwuCoursesCatalogue);
-          return _nwuCoursesCatalogue;
-        }
-      } catch (err) {
-        console.warn('Could not load course suggestions catalogue', err);
+    $$('#signup-form .signup-step-pane').forEach(pane => {
+      const paneStep = Number(pane.getAttribute('data-signup-step'));
+      if (paneStep === step) {
+        pane.classList.add('active');
+      } else {
+        pane.classList.remove('active');
       }
-      _nwuCoursesCatalogue = {};
-      return _nwuCoursesCatalogue;
-    })();
-    return _loadingCoursesPromise;
+    });
+
+    $$('#signup-form .stepper-step').forEach(s => {
+      const sNum = Number(s.getAttribute('data-step'));
+      s.classList.remove('active', 'completed');
+      if (sNum === step) {
+        s.classList.add('active');
+      } else if (sNum < step) {
+        s.classList.add('completed');
+      }
+    });
+
+    const labelEl = $('#signup-step-label');
+    if (labelEl) labelEl.textContent = STEP_LABELS[step] || `Step ${step} of 3`;
+
+    if (step === 2) {
+      loadCoursesCatalogue().then(() => {
+        setupSignupCourseAndModuleFlow();
+      }).catch(() => {});
+    }
+
+    const authScreen = $('#auth-screen');
+    if (authScreen) authScreen.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function populateCoursesDatalist(catalogue) {
-    const datalist = document.getElementById('courses-datalist');
-    if (!datalist || !catalogue) return;
-    datalist.innerHTML = Object.keys(catalogue).sort().map(courseName => `<option value="${esc(courseName)}">`).join('');
+  function validateSignupStep1() {
+    const fname = ($('#s-fname')?.value || '').trim();
+    const lname = ($('#s-lname')?.value || '').trim();
+    const email = ($('#s-email')?.value || '').trim();
+    const pass = $('#s-pass')?.value || '';
+
+    if (!fname || !lname) {
+      toast('Please enter your first and last name');
+      return false;
+    }
+    if (!email) {
+      toast('Please enter your @mynwu.ac.za email');
+      return false;
+    }
+    if (!isStudentEmail(email)) {
+      toast('Only @mynwu.ac.za emails can sign up');
+      return false;
+    }
+    if (!pass || pass.length < 6) {
+      toast('Password must be at least 6 characters');
+      return false;
+    }
+    return true;
   }
 
-  function mapYearToDatasetKey(yearStr = '') {
-    if (!yearStr) return 'Year 1';
-    const match = String(yearStr).match(/(\d)/);
-    if (match) return `Year ${match[1]}`;
-    if (/honours/i.test(yearStr)) return 'Year 4';
-    if (/postgrad/i.test(yearStr)) return 'Year 4';
-    return 'Year 1';
+  function validateSignupStep2() {
+    const uni = ($('#s-uni')?.value || '').trim();
+    const year = ($('#s-year')?.value || '').trim();
+    const major = ($('#s-major')?.value || '').trim();
+
+    if (!uni) {
+      toast('Please select your university');
+      return false;
+    }
+    if (!year) {
+      toast('Please select your year of study');
+      return false;
+    }
+    if (!major) {
+      toast('Please enter or select your degree / course');
+      return false;
+    }
+    return true;
   }
 
-  function getCourseCurriculumModules(courseName, yearStr = '') {
-    if (!_nwuCoursesCatalogue || !courseName) return [];
-    const courseData = _nwuCoursesCatalogue[courseName];
-    if (!courseData) {
-      const lower = courseName.trim().toLowerCase();
-      const exactKey = Object.keys(_nwuCoursesCatalogue).find(k => k.toLowerCase() === lower);
-      if (exactKey) return getCourseCurriculumModules(exactKey, yearStr);
-      return [];
-    }
-    const yearKey = mapYearToDatasetKey(yearStr);
-    if (courseData[yearKey] && courseData[yearKey].length) {
-      return courseData[yearKey];
-    }
-    if (courseData['Year 1'] && courseData['Year 1'].length) {
-      return courseData['Year 1'];
-    }
-    const allMods = [];
-    for (const yr of Object.keys(courseData)) {
-      if (Array.isArray(courseData[yr])) allMods.push(...courseData[yr]);
-    }
-    return Array.from(new Set(allMods));
-  }
+  $('#s-next-1')?.addEventListener('click', () => {
+    if (validateSignupStep1()) setSignupStep(2);
+  });
+  $('#s-prev-2')?.addEventListener('click', () => {
+    setSignupStep(1);
+  });
+  $('#s-next-2')?.addEventListener('click', () => {
+    if (validateSignupStep2()) setSignupStep(3);
+  });
+  $('#s-prev-3')?.addEventListener('click', () => {
+    setSignupStep(2);
+  });
 
+  $$('#signup-form .stepper-step').forEach(stepBtn => {
+    stepBtn.addEventListener('click', () => {
+      const targetStep = Number(stepBtn.getAttribute('data-step'));
+      if (targetStep === _signupCurrentStep) return;
+      if (targetStep < _signupCurrentStep) {
+        setSignupStep(targetStep);
+      } else if (targetStep === 2 && validateSignupStep1()) {
+        setSignupStep(2);
+      } else if (targetStep === 3 && validateSignupStep1() && validateSignupStep2()) {
+        setSignupStep(3);
+      }
+    });
+  });
+
+  $('#to-signup')?.addEventListener('click', () => {
+    setSignupStep(1);
+    loadCoursesCatalogue().catch(() => {});
+  });
+
+  // ─── Setup Course Suggestions and Interactive Modules Flow ───
   function setupSignupCourseAndModuleFlow() {
     const majorInput = $('#s-major');
     const majorDropdown = $('#s-major-suggestions');
@@ -4170,7 +4316,7 @@ function initAuth() {
 
     const triggerLoad = () => loadCoursesCatalogue();
     majorInput.addEventListener('focus', triggerLoad, { passive: true });
-    $('#to-signup')?.addEventListener('click', triggerLoad, { passive: true });
+    majorInput.addEventListener('pointerdown', triggerLoad, { passive: true });
 
     const syncModulesValue = () => {
       if (hiddenModulesInput) hiddenModulesInput.value = _signupModules.join(',');
@@ -4192,13 +4338,18 @@ function initAuth() {
       `).join('');
 
       bubblesWrap.querySelectorAll('.edit-mod-bubble-del').forEach(btn => {
-        btn.onclick = (e) => {
-          e.stopPropagation();
+        const removeFn = (e) => {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
           const code = btn.dataset.mod;
           _signupModules = _signupModules.filter(m => m !== code);
           renderBubbles();
           renderSuggestions();
         };
+        btn.addEventListener('pointerdown', removeFn);
+        btn.addEventListener('click', removeFn);
       });
     };
 
@@ -4226,7 +4377,11 @@ function initAuth() {
           const unaddedCount = listToRender.filter(m => !_signupModules.includes(m)).length;
           addAllBtn.textContent = unaddedCount === 0 ? 'All Added ✓' : `+ Add All (${unaddedCount})`;
           addAllBtn.disabled = unaddedCount === 0;
-          addAllBtn.onclick = () => {
+          addAllBtn.onclick = (e) => {
+            if (e) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
             listToRender.forEach(m => {
               if (!_signupModules.includes(m)) _signupModules.push(m);
             });
@@ -4248,8 +4403,11 @@ function initAuth() {
       }).join('');
 
       pillsWrap.querySelectorAll('.edit-mod-pill').forEach(pill => {
-        pill.onclick = (e) => {
-          e.stopPropagation();
+        const toggleMod = (e) => {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
           const mod = pill.dataset.mod;
           if (_signupModules.includes(mod)) {
             _signupModules = _signupModules.filter(m => m !== mod);
@@ -4259,6 +4417,8 @@ function initAuth() {
           renderBubbles();
           renderSuggestions();
         };
+        pill.addEventListener('pointerdown', toggleMod);
+        pill.addEventListener('click', toggleMod);
       });
     };
 
@@ -4297,13 +4457,19 @@ function initAuth() {
       if (!majorDropdown) return;
       const catalogue = await loadCoursesCatalogue();
       const q = query.trim().toLowerCase();
-      if (!q || q.length < 2) {
-        majorDropdown.style.display = 'none';
-        majorDropdown.innerHTML = '';
-        return;
+      let hits = [];
+
+      if (!q) {
+        // When focused or tapped on phone with empty query, show popular NWU degrees
+        hits = POPULAR_NWU_DEGREES.filter(name => catalogue && catalogue[name]);
+        if (!hits.length && catalogue) hits = Object.keys(catalogue).slice(0, 6);
+      } else {
+        const courses = Object.keys(catalogue || {});
+        const startsWithMatches = courses.filter(name => name.toLowerCase().startsWith(q));
+        const containsMatches = courses.filter(name => !name.toLowerCase().startsWith(q) && name.toLowerCase().includes(q));
+        hits = [...startsWithMatches, ...containsMatches].slice(0, 8);
       }
-      const courses = Object.keys(catalogue || {});
-      const hits = courses.filter(name => name.toLowerCase().includes(q)).slice(0, 8);
+
       if (!hits.length) {
         majorDropdown.style.display = 'none';
         majorDropdown.innerHTML = '';
@@ -4311,9 +4477,12 @@ function initAuth() {
       }
 
       majorDropdown.innerHTML = hits.map(courseName => {
-        const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-        const highlighted = esc(courseName).replace(regex, '<mark>$1</mark>');
-        const numYears = Object.keys(catalogue[courseName] || {}).length;
+        let highlighted = esc(courseName);
+        if (q) {
+          const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+          highlighted = esc(courseName).replace(regex, '<mark>$1</mark>');
+        }
+        const numYears = (catalogue && catalogue[courseName]) ? Object.keys(catalogue[courseName]).length : 3;
         return `
           <button type="button" class="signup-autocomplete-item" data-course="${esc(courseName)}">
             <span class="course-match-title">${highlighted}</span>
@@ -4325,7 +4494,11 @@ function initAuth() {
       majorDropdown.style.display = 'block';
 
       majorDropdown.querySelectorAll('.signup-autocomplete-item').forEach(item => {
-        item.onclick = () => {
+        const pickCourse = (e) => {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
           const chosen = item.getAttribute('data-course');
           majorInput.value = chosen;
           majorDropdown.style.display = 'none';
@@ -4334,6 +4507,8 @@ function initAuth() {
           }
           renderSuggestions();
         };
+        item.addEventListener('pointerdown', pickCourse);
+        item.addEventListener('click', pickCourse);
       });
     };
 
@@ -4341,8 +4516,14 @@ function initAuth() {
       renderCourseSuggestions(e.target.value);
       renderSuggestions();
     });
+    majorInput.addEventListener('keyup', e => {
+      renderCourseSuggestions(e.target.value);
+    });
     majorInput.addEventListener('focus', e => {
-      if (e.target.value) renderCourseSuggestions(e.target.value);
+      renderCourseSuggestions(e.target.value);
+    });
+    majorInput.addEventListener('pointerdown', e => {
+      renderCourseSuggestions(majorInput.value);
     });
 
     document.addEventListener('pointerdown', e => {
@@ -4362,6 +4543,15 @@ function initAuth() {
   // SIGNUP
   $('#signup-form')?.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateSignupStep1()) {
+      setSignupStep(1);
+      return;
+    }
+    if (!validateSignupStep2()) {
+      setSignupStep(2);
+      return;
+    }
+
     const btn = $('#s-btn');
     const fname = $('#s-fname').value.trim(), lname = $('#s-lname').value.trim();
     const email = $('#s-email').value.trim(), pass = $('#s-pass').value;
@@ -4371,9 +4561,24 @@ function initAuth() {
     const gender = ($('#s-gender')?.value || '').trim();
     const orientation = ($('#s-orientation')?.value || '').trim();
     const address = $('#s-address')?.value.trim() || '';
-    if (!fname || !lname || !email || !pass || !uni || !major || !address || !gender) return toast('All fields required');
+
+    if (!gender) {
+      toast('Please enter or select your gender');
+      setSignupStep(3);
+      return;
+    }
+    if (!address) {
+      toast('Please enter your campus residence or area');
+      setSignupStep(3);
+      return;
+    }
+    if (!fname || !lname || !email || !pass || !uni || !major) {
+      toast('All fields required');
+      return;
+    }
     if (pass.length < 6) return toast('Password must be 6+ characters');
     if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
+
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try {
       const cred = await auth.createUserWithEmailAndPassword(email, pass);
@@ -4399,9 +4604,14 @@ function initAuth() {
       await cred.user.updateProfile({ displayName });
       toast('Account created.');
       _signupModules = [];
+      setSignupStep(1);
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
-      btn.disabled = false; btn.textContent = 'Create Account';
-    } catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Create Account'; }
+      btn.disabled = false; btn.textContent = '🚀 Complete Sign Up';
+    } catch (err) {
+      toast(friendlyErr(err.code));
+      btn.disabled = false;
+      btn.textContent = '🚀 Complete Sign Up';
+    }
   });
 
   // Suggest common addresses during signup.
@@ -4432,18 +4642,29 @@ function initAuth() {
       signupAddressSuggestions.innerHTML = hits.map(h => `<button type="button" class="address-suggestion-item" data-v="${esc(h)}">${esc(h)}</button>`).join('');
       signupAddressSuggestions.style.display = 'block';
       signupAddressSuggestions.querySelectorAll('.address-suggestion-item').forEach(btn => {
-        btn.onclick = () => {
+        const selectAddress = (e) => {
+          if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
           signupAddressInput.value = btn.getAttribute('data-v') || '';
           signupAddressSuggestions.style.display = 'none';
         };
+        btn.addEventListener('pointerdown', selectAddress);
+        btn.addEventListener('click', selectAddress);
       });
     };
 
     signupAddressInput.addEventListener('input', e => renderAddressHints(e.target.value));
+    signupAddressInput.addEventListener('keyup', e => renderAddressHints(e.target.value));
     signupAddressInput.addEventListener('focus', e => renderAddressHints(e.target.value));
-    signupAddressInput.addEventListener('blur', () => setTimeout(() => {
-      signupAddressSuggestions.style.display = 'none';
-    }, 120));
+    signupAddressInput.addEventListener('pointerdown', e => renderAddressHints(signupAddressInput.value));
+
+    document.addEventListener('pointerdown', e => {
+      if (signupAddressSuggestions && !signupAddressSuggestions.contains(e.target) && e.target !== signupAddressInput) {
+        signupAddressSuggestions.style.display = 'none';
+      }
+    }, { passive: true });
   }
 
   setupSignupCourseAndModuleFlow();
@@ -9459,16 +9680,16 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
       _mapLibreMap = mapRef;
       _leafletMap = mapRef;
       mapRef.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+      mapRef.on('styleimagemissing', evt => {
+        if (_mapLibreMap !== mapRef) return;
+        const missingId = evt?.id;
+        if (!missingId || mapRef.hasImage(missingId)) return;
+        try {
+          mapRef.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
+        } catch (_) {}
+      });
       mapRef.on('load', () => {
         if (_mapLibreMap !== mapRef) return;
-        mapRef.on('styleimagemissing', evt => {
-          if (_mapLibreMap !== mapRef) return;
-          const missingId = evt?.id;
-          if (!missingId || mapRef.hasImage(missingId)) return;
-          try {
-            mapRef.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
-          } catch (_) {}
-        });
         try {
           const layers = mapRef.getStyle().layers || [];
           const labelLayerId = (layers.find(l => l.type === 'symbol' && l.layout && l.layout['text-field']) || {}).id;

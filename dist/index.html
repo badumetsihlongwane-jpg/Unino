@@ -9,12 +9,11 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=50">
+  <link rel="stylesheet" href="css/styles.css?v=51">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preload" href="NWUCAMP.geojson" as="fetch" crossorigin="anonymous">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="icon" type="image/png" href="unino-icon-light.png?v=50" id="theme-favicon">
+  <link rel="icon" type="image/png" href="unino-icon-light.png?v=51" id="theme-favicon">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 </head>
@@ -47,81 +46,180 @@
       <p class="switch-text">No account? <a href="#" id="to-signup">Sign Up</a></p>
     </form>
     <form id="signup-form" class="auth-form" autocomplete="off">
-      <div class="row2">
-        <input type="text" id="s-fname" placeholder="First name" required>
-        <input type="text" id="s-lname" placeholder="Last name" required>
-      </div>
-      <input type="email" id="s-email" placeholder="University email" required>
-      <div class="password-field"><input type="password" id="s-pass" placeholder="Password (6+ chars)" required><button type="button" class="password-toggle" data-target="s-pass">Show</button></div>
-      <select id="s-uni" required>
-        <option value="">Select university…</option>
-        <option selected>NWU</option>
-      </select>
-      <div class="signup-field-wrap">
-        <input type="text" id="s-major" placeholder="Degree / Course (e.g. BSc in Information Technology)" autocomplete="off" list="courses-datalist" required>
-        <datalist id="courses-datalist"></datalist>
-        <div id="s-major-suggestions" class="signup-autocomplete-dropdown" style="display:none"></div>
-      </div>
-      <select id="s-year" required>
-        <option value="">Year of study…</option>
-        <option>1st Year</option>
-        <option>2nd Year</option>
-        <option>3rd Year</option>
-        <option>Honours</option>
-        <option>Postgrad</option>
-        <option>PhD</option>
-      </select>
-
-      <!-- Academic Modules Card (Bubble Chips & Degree Curriculum Suggestions) -->
-      <div class="signup-modules-box" id="s-modules-box">
-        <div class="signup-modules-header">
-          <div class="signup-modules-title">
-            <span>📚 Enrolled Modules</span>
+      <!-- Multi-Step Progress Tracker -->
+      <div class="signup-stepper-wrap">
+        <div class="signup-stepper">
+          <div class="stepper-step active" data-step="1">
+            <div class="step-circle">1</div>
+            <span class="step-title">Account</span>
           </div>
-          <span class="signup-modules-counter" id="s-modules-counter">0 enrolled</span>
-        </div>
-        <p class="signup-modules-hint">Select your course & year above to auto-suggest your timetable modules, or tap pills / type below.</p>
-
-        <!-- Active Enrolled Bubbles -->
-        <div class="edit-mod-bubbles-tray signup-bubbles-tray" id="s-mod-bubbles-wrap">
-          <div class="edit-mod-empty">No modules added yet. Tap suggestions below or type a code.</div>
-        </div>
-
-        <!-- Add Module Input Row -->
-        <div class="edit-mod-input-row signup-mod-input-row">
-          <input type="text" id="s-mod-input" placeholder="Add module (e.g. CMPG121)" autocomplete="off" autocapitalize="characters" maxlength="12">
-          <button type="button" class="btn-primary" id="s-mod-add-btn">+ Add</button>
-        </div>
-
-        <!-- Suggested Modules Tray -->
-        <div class="signup-mod-suggestions" id="s-mod-suggestions-wrap">
-          <div class="edit-mod-suggestions-header">
-            <span id="s-mod-suggestions-title">Popular NWU Modules</span>
-            <button type="button" class="signup-mod-add-all-btn" id="s-mod-add-all-btn" style="display:none">+ Add All</button>
+          <div class="stepper-line"></div>
+          <div class="stepper-step" data-step="2">
+            <div class="step-circle">2</div>
+            <span class="step-title">Academics</span>
           </div>
-          <div class="edit-mod-pills-wrap signup-pills-wrap" id="s-mod-pills-wrap"></div>
+          <div class="stepper-line"></div>
+          <div class="stepper-step" data-step="3">
+            <div class="step-circle">3</div>
+            <span class="step-title">Campus</span>
+          </div>
+        </div>
+        <div class="signup-step-label" id="signup-step-label">Step 1 of 3 · Basic Account</div>
+      </div>
+
+      <!-- ─── SLIDE 1: Basic Account ─── -->
+      <div class="signup-step-pane active" data-signup-step="1">
+        <div class="step-pane-intro">
+          <div class="step-pane-title">Create Account</div>
+          <div class="step-pane-sub">Join your fellow NWU students on Unino.</div>
         </div>
 
-        <!-- Hidden input syncing module codes for form submit -->
-        <input type="hidden" id="s-modules" name="modules" value="">
+        <div class="row2">
+          <div class="signup-field-group">
+            <label class="signup-field-label" for="s-fname">First Name</label>
+            <input type="text" id="s-fname" placeholder="First name" required>
+          </div>
+          <div class="signup-field-group">
+            <label class="signup-field-label" for="s-lname">Last Name</label>
+            <input type="text" id="s-lname" placeholder="Last name" required>
+          </div>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-email">University Email</label>
+          <input type="email" id="s-email" placeholder="e.g. 12345678@mynwu.ac.za" required>
+          <div class="signup-field-hint">Must be your official @mynwu.ac.za student email.</div>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-pass">Create Password</label>
+          <div class="password-field">
+            <input type="password" id="s-pass" placeholder="Password (6+ chars)" required>
+            <button type="button" class="password-toggle" data-target="s-pass">Show</button>
+          </div>
+        </div>
+
+        <button type="button" class="btn-accent w100" id="s-next-1" style="margin-top:8px">Continue to Academics →</button>
+        <p class="switch-text">Already registered? <a href="#" id="to-login">Log In</a></p>
       </div>
 
-      <div class="row2">
-        <input type="text" id="s-gender" placeholder="Gender" required>
-        <select id="s-orientation">
-          <option value="">Orientation (optional)</option>
-          <option>Straight</option>
-          <option>Gay</option>
-          <option>Lesbian</option>
-          <option>Bisexual</option>
-        </select>
+      <!-- ─── SLIDE 2: Academics & Modules ─── -->
+      <div class="signup-step-pane" data-signup-step="2">
+        <div class="step-pane-intro">
+          <div class="step-pane-title">Degree & Timetable</div>
+          <div class="step-pane-sub">Select your course to auto-suggest curriculum modules.</div>
+        </div>
+
+        <div class="row2">
+          <div class="signup-field-group" style="flex:1">
+            <label class="signup-field-label" for="s-uni">University</label>
+            <select id="s-uni" required>
+              <option selected>NWU</option>
+            </select>
+          </div>
+          <div class="signup-field-group" style="flex:1.2">
+            <label class="signup-field-label" for="s-year">Year of Study</label>
+            <select id="s-year" required>
+              <option value="">Select year…</option>
+              <option>1st Year</option>
+              <option>2nd Year</option>
+              <option>3rd Year</option>
+              <option>Honours</option>
+              <option>Postgrad</option>
+              <option>PhD</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-major">Degree / Course</label>
+          <div class="signup-field-wrap">
+            <input type="text" id="s-major" placeholder="Type degree name (e.g. BSc, BCom, Law...)" autocomplete="off" required>
+            <div id="s-major-suggestions" class="signup-autocomplete-dropdown" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Academic Modules Card -->
+        <div class="signup-modules-box" id="s-modules-box">
+          <div class="signup-modules-header">
+            <div class="signup-modules-title">
+              <span>📚 Enrolled Modules</span>
+            </div>
+            <span class="signup-modules-counter" id="s-modules-counter">0 enrolled</span>
+          </div>
+
+          <!-- Active Enrolled Bubbles -->
+          <div class="edit-mod-bubbles-tray signup-bubbles-tray" id="s-mod-bubbles-wrap">
+            <div class="edit-mod-empty">No modules added yet. Tap suggestions below or type a code.</div>
+          </div>
+
+          <!-- Add Module Input Row -->
+          <div class="edit-mod-input-row signup-mod-input-row">
+            <input type="text" id="s-mod-input" placeholder="Add module (e.g. CMPG121)" autocomplete="off" autocapitalize="characters" maxlength="12">
+            <button type="button" class="btn-primary" id="s-mod-add-btn">+ Add</button>
+          </div>
+
+          <!-- Suggested Modules Tray -->
+          <div class="signup-mod-suggestions" id="s-mod-suggestions-wrap">
+            <div class="edit-mod-suggestions-header">
+              <span id="s-mod-suggestions-title">Popular NWU Modules</span>
+              <button type="button" class="signup-mod-add-all-btn" id="s-mod-add-all-btn" style="display:none">+ Add All</button>
+            </div>
+            <div class="edit-mod-pills-wrap signup-pills-wrap" id="s-mod-pills-wrap"></div>
+          </div>
+
+          <!-- Hidden input keeping raw comma-separated string synced -->
+          <input type="hidden" id="s-modules" name="modules" value="">
+        </div>
+
+        <div class="signup-step-btns">
+          <button type="button" class="btn-secondary signup-back-btn" id="s-prev-2">← Back</button>
+          <button type="button" class="btn-accent signup-fwd-btn" id="s-next-2">Continue to Campus →</button>
+        </div>
       </div>
-      <div class="signup-field-wrap">
-        <input type="text" id="s-address" placeholder="Campus / res / area (e.g. Potch Main Campus)" autocomplete="off" style="margin-bottom:0">
-        <div id="s-address-suggestions" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:150px;overflow-y:auto;margin-bottom:12px"></div>
+
+      <!-- ─── SLIDE 3: Campus & Identity ─── -->
+      <div class="signup-step-pane" data-signup-step="3">
+        <div class="step-pane-intro">
+          <div class="step-pane-title">Campus & Identity</div>
+          <div class="step-pane-sub">Almost done! Customize your profile and location.</div>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-gender">Gender</label>
+          <input type="text" id="s-gender" placeholder="e.g. Female, Male, Non-binary" required>
+          <div class="edit-gender-chips" style="margin-top:6px">
+            <button type="button" class="edit-chip-sm" onclick="$('#s-gender').value='Female'">Female</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#s-gender').value='Male'">Male</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#s-gender').value='Non-binary'">Non-binary</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#s-gender').value='Prefer not to say'">Prefer not to say</button>
+          </div>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-orientation">Orientation <span style="font-weight:400;color:var(--text-tertiary)">(Optional)</span></label>
+          <select id="s-orientation">
+            <option value="">Orientation (optional)</option>
+            <option>Straight</option>
+            <option>Gay</option>
+            <option>Lesbian</option>
+            <option>Bisexual</option>
+          </select>
+        </div>
+
+        <div class="signup-field-group">
+          <label class="signup-field-label" for="s-address">Campus / Residence / Area</label>
+          <div class="signup-field-wrap">
+            <input type="text" id="s-address" placeholder="e.g. Patria Res, Frikkie du Preez, Bult" autocomplete="off" style="margin-bottom:0" required>
+            <div id="s-address-suggestions" style="display:none;background:var(--bg-secondary);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:150px;overflow-y:auto;margin-bottom:12px"></div>
+          </div>
+        </div>
+
+        <div class="signup-step-btns">
+          <button type="button" class="btn-secondary signup-back-btn" id="s-prev-3">← Back</button>
+          <button type="submit" class="btn-accent signup-fwd-btn" id="s-btn">🚀 Complete Sign Up</button>
+        </div>
       </div>
-      <button type="submit" class="btn-accent w100" id="s-btn">Create Account</button>
-      <p class="switch-text">Already registered? <a href="#" id="to-login">Log In</a></p>
     </form>
   </div>
 </div>

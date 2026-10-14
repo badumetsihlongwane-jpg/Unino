@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 const rootDir = process.cwd();
 const distDir = join(rootDir, 'dist');
-const includePaths = ['index.html', 'css', 'js', 'worker', 'Start'];
+const includePaths = ['index.html', 'css', 'js', 'data', 'worker', 'Start'];
 
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
