@@ -2371,7 +2371,8 @@ function openMessageActionSheet(scope, primaryId, messageId, collection = '') {
       <div class="reaction-picker-row">
         ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToMessage('${scope}','${primaryId}','${messageId}','${emoji}','${collection}')">${emoji}</button>`).join('')}
       </div>
-      ${isMine ? `<button class="btn-primary btn-full" style="margin-top:12px;background:var(--red);border:none" onclick="deleteMessage('${scope}','${primaryId}','${messageId}','${collection}')">Delete Message</button>` : ''}
+      <button class="btn-outline btn-full" style="margin-top:12px;font-weight:600" onclick="closeModal();${scope === 'group' ? `setGroupReply('${messageId}')` : `setDmReply('${messageId}')`}">↩ Reply to Message</button>
+      ${isMine ? `<button class="btn-primary btn-full" style="margin-top:8px;background:var(--red);border:none" onclick="deleteMessage('${scope}','${primaryId}','${messageId}','${collection}')">Delete Message</button>` : ''}
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -11646,24 +11647,35 @@ async function openGroupChat(groupId, collection = 'groups') {
             if (!m.deleted && m.text) content += esc(m.text);
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
-            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
-            const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
-              : '';
+            let replyDisplayName = 'Message';
+            if (replyToSenderId === uid) {
+              replyDisplayName = 'You';
+            } else if (replyToSenderId) {
+              const originalMsg = _gMsgLookup.get(m.replyToId || '');
+              const targetIdent = getResolvedUserIdentity(replyToSenderId, originalMsg?.senderName || m.replyToName || 'User');
+              replyDisplayName = (targetIdent.name || 'User').split(' ')[0] || 'User';
+            } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
+              replyDisplayName = m.replyToName.split(' ')[0];
+            }
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             const senderIdentity = getResolvedUserIdentity(m.senderId, m.senderName || '?', m.senderPhoto || null);
+            const allowReply = !m.deleted && m.type !== 'deleted';
+            const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(senderIdentity.name || '?', senderIdentity.photo, 'avatar-xs')}</div>` : ''}
+              ${isMe ? replyBtnHtml : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
-              ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
-              ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
-              ${content}
-              ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
-              <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-            </div>
-            ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}</div></div>`;
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
+                  ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
+                  ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
+                  ${content}
+                  <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+                </div>
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
+              </div>
+              ${!isMe ? replyBtnHtml : ''}
+            </div>`;
           }).join('');
           bindMessageLongPress(msgs, 'group', groupId, collection);
           scrollToLatest(msgs);
@@ -11781,16 +11793,23 @@ async function openGroupChat(groupId, collection = 'groups') {
 function setGroupReply(messageId) {
   const m = _gMsgLookup.get(messageId);
   if (!m) return;
+  let senderFirstName = 'User';
+  if (m.senderId === state.user?.uid) {
+    senderFirstName = 'You';
+  } else {
+    const ident = getResolvedUserIdentity(m.senderId, m.senderName || 'User', null);
+    senderFirstName = (ident.name || m.senderName || 'User').split(' ')[0] || 'User';
+  }
   const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
   _gReplyTo = {
     id: m.id,
     text: replyText,
-    name: m.senderName || 'User',
+    name: senderFirstName,
     senderId: m.senderId
   };
   const ind = $('#gchat-reply-indicator');
   if (!ind) return;
-  ind.innerHTML = `<span>↩ Replying to <strong>${esc(_gReplyTo.name)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearGroupReply()">&times;</button>`;
+  ind.innerHTML = `<span>↩ Replying to <strong>${esc(senderFirstName)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearGroupReply()">&times;</button>`;
   ind.style.display = 'flex';
   $('#gchat-input')?.focus();
 }
@@ -11804,8 +11823,17 @@ function clearGroupReply() {
 function setDmReply(messageId) {
   const m = _dmMsgLookup.get(messageId);
   if (!m) return;
-  const otherName = m.senderId === state.user?.uid ? 'You' : 'Them';
-  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
+  let otherName = 'User';
+  if (m.senderId === state.user?.uid) {
+    otherName = 'You';
+  } else if (m.senderAnon) {
+    otherName = 'Anonymous';
+  } else {
+    const fallbackName = window._activeChatPartner?.name || 'User';
+    const ident = getResolvedUserIdentity(m.senderId, fallbackName, null);
+    otherName = (ident.name || fallbackName || 'User').split(' ')[0] || 'User';
+  }
+  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : (m.type === 'share_post' ? '[shared post]' : '[message]')));
   _dmReplyTo = { id: m.id, text: replyText, name: otherName, senderId: m.senderId };
   const ind = $('#dm-reply-indicator');
   if (!ind) return;
@@ -13275,10 +13303,11 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const otherPhoto = resolvedIdentity.photo;
   const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
   const anonName = getAnonDisplayName(convo, uid, otherUid);
+  const isPermanentlyRevealed = convo.revealed || convo.mutuallyRevealed || (!convo.isAnonymous && !meAnon && !themAnon);
 
   // Update header display
   const hdrInfo = $('#chat-hdr-info');
-  if (themAnon) {
+  if (themAnon && !isPermanentlyRevealed) {
     hdrInfo.innerHTML = `
       <div class="avatar-sm anon-avatar">👻</div>
       <div><div style="display:flex;align-items:center;gap:8px"><h3 style="font-size:15px;font-weight:700">${esc(anonName)}</h3><button class="anon-name-edit" onclick="editAnonNickname('${convo._id}')">✎</button></div>
@@ -13291,29 +13320,39 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     `;
   }
 
-  // Update toggle button visual
+  // Update toggle button visual (hide permanently once revealed)
   const toggleBtn = $('#chat-anon-toggle');
   if (toggleBtn) {
-    toggleBtn.querySelector('.anon-icon-off').style.display = meAnon ? 'none' : 'block';
-    toggleBtn.querySelector('.anon-icon-on').style.display = meAnon ? 'block' : 'none';
-    toggleBtn.classList.toggle('anon-active', meAnon);
+    if (isPermanentlyRevealed) {
+      toggleBtn.style.display = 'none';
+    } else {
+      toggleBtn.style.display = '';
+      toggleBtn.querySelector('.anon-icon-off').style.display = meAnon ? 'none' : 'block';
+      toggleBtn.querySelector('.anon-icon-on').style.display = meAnon ? 'block' : 'none';
+      toggleBtn.classList.toggle('anon-active', meAnon);
+    }
   }
 
   // Update reveal banner
   const banner = $('#anon-reveal-banner');
   if (banner) {
-    if (meAnon && themAnon) {
+    if (isPermanentlyRevealed) {
+      banner.style.display = 'none';
+    } else if (meAnon && themAnon) {
       const iRequested = !!revealRequests[uid];
       const theyRequested = !!revealRequests[otherUid];
       if (iRequested && theyRequested) {
         // Mutual reveal! Both requested
-        banner.innerHTML = `<span>🎉 Both revealed! You can now see each other.</span>`;
+        banner.innerHTML = `<span>🎉 Both revealed! Identities permanently unlocked.</span>`;
         banner.className = 'anon-reveal-banner reveal-success';
         banner.style.display = 'flex';
-        // Auto-remove anonymous for both
+        // Auto-remove anonymous for both permanently
         db.collection('conversations').doc(convo._id).update({
           [`anonymous.${uid}`]: false,
           [`anonymous.${otherUid}`]: false,
+          isAnonymous: false,
+          revealed: true,
+          mutuallyRevealed: true,
           revealRequests: {}
         }).then(() => syncConversationIdentities(convo._id)).catch(() => {});
       } else if (iRequested) {
@@ -13338,7 +13377,7 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     }
 
     // Show accept button for anon chat recipient
-    if (convo.isAnonymous && !convo.anonAccepted && convo.anonStartedBy && convo.anonStartedBy !== uid) {
+    if (convo.isAnonymous && !convo.anonAccepted && convo.anonStartedBy && convo.anonStartedBy !== uid && !isPermanentlyRevealed) {
       const acceptHtml = `<button class="btn-primary btn-sm" style="margin-left:8px" onclick="acceptAnonChat('${convo._id}')">Accept Chat</button>`;
       banner.innerHTML += acceptHtml;
       banner.style.display = 'flex';
@@ -13359,14 +13398,20 @@ async function toggleAnonymous(convoId) {
     const doc = await db.collection('conversations').doc(convoId).get();
     if (!doc.exists) return;
     const convo = doc.data();
+    if (convo.revealed || convo.mutuallyRevealed || !convo.isAnonymous) {
+      return toast('Reveal is permanent — cannot return to anonymous in this chat');
+    }
     const currentAnon = (convo.anonymous || {})[uid] || false;
+    if (currentAnon === false) {
+      return toast('Once revealed, you cannot return to anonymous mode');
+    }
+    // Cannot toggle back to anon once revealed; can only reveal
     await db.collection('conversations').doc(convoId).update({
-      [`anonymous.${uid}`]: !currentAnon,
-      // Clear reveal requests when toggling
+      [`anonymous.${uid}`]: false,
       revealRequests: {}
     });
-    if (currentAnon) await syncConversationIdentities(convoId);
-    toast(!currentAnon ? `You are now ${getUserAnonIdentity(state.profile || {})}` : 'Identity revealed');
+    await syncConversationIdentities(convoId);
+    toast('Identity revealed');
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -13376,8 +13421,25 @@ async function requestReveal(convoId) {
     const snap = await db.collection('conversations').doc(convoId).get();
     if (!snap.exists) return;
     const convo = snap.data();
-    const otherUid = convo.participants.find(p => p !== uid);
+    if (convo.revealed || convo.mutuallyRevealed) return toast('Already revealed');
+    const otherUid = (convo.participants || []).find(p => p !== uid);
     if (!otherUid) return;
+
+    // Check if they already requested: complete mutual reveal atomically!
+    const theyRequested = !!(convo.revealRequests || {})[otherUid];
+    if (theyRequested) {
+      await db.collection('conversations').doc(convoId).update({
+        [`anonymous.${uid}`]: false,
+        [`anonymous.${otherUid}`]: false,
+        isAnonymous: false,
+        revealed: true,
+        mutuallyRevealed: true,
+        revealRequests: {}
+      });
+      await syncConversationIdentities(convoId);
+      toast('🎉 Both agreed! Identities permanently revealed.');
+      return;
+    }
     
     // Mark my reveal request
     await db.collection('conversations').doc(convoId).update({
@@ -13394,9 +13456,20 @@ async function requestReveal(convoId) {
 async function mutualReveal(convoId) {
   const uid = state.user.uid;
   try {
+    const snap = await db.collection('conversations').doc(convoId).get();
+    if (!snap.exists) return;
+    const convo = snap.data();
+    const otherUid = (convo.participants || []).find(p => p !== uid);
     await db.collection('conversations').doc(convoId).update({
-      [`revealRequests.${uid}`]: true
+      [`anonymous.${uid}`]: false,
+      [`anonymous.${otherUid}`]: false,
+      isAnonymous: false,
+      revealed: true,
+      mutuallyRevealed: true,
+      revealRequests: {}
     });
+    await syncConversationIdentities(convoId);
+    toast('🎉 Mutual reveal complete! Identities permanently revealed.');
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -13487,6 +13560,7 @@ async function openChat(convoId) {
     const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
     const name = resolvedIdentity.name;
     const photo = resolvedIdentity.photo;
+    window._activeChatPartner = { uid: otherUid, name, photo };
 
     // Set initial header (will be updated by anon listener)
     updateAnonUI(convo, uid, name, photo);
@@ -13497,6 +13571,7 @@ async function openChat(convoId) {
       if (!snap.exists) return;
       const liveConvo = snap.data();
       liveConvo._id = convoId;
+      Object.assign(convo, liveConvo);
       updateAnonUI(liveConvo, uid, name, photo);
     });
 
@@ -13583,29 +13658,33 @@ async function openChat(convoId) {
               else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             }
             // Handle shared post messages
-            if (!m.deleted && m.type === 'share_post' && m.payload?.postId) {
-              const pl = m.payload;
+            const isSharedPost = (!m.deleted && m.type === 'share_post' && m.payload?.postId) || (!m.deleted && m.text && m.text.startsWith('shared post::'));
+            if (isSharedPost) {
+              const pl = m.payload || {};
+              const postId = pl.postId || (m.text ? m.text.replace('shared post::','').trim() : '');
               let mediaPreview = '';
-              if (pl.mediaURL && pl.mediaType === 'video') {
-                mediaPreview = `<div style="position:relative;border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px">
-                  <video class="inline-video-preview" src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
-                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              const mediaUrl = pl.mediaURL || '';
+              const isVid = pl.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(mediaUrl);
+              if (mediaUrl && isVid) {
+                mediaPreview = `<div style="position:relative;border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px;background:#000">
+                  <video class="inline-video-preview" src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3)">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
                 </div>`;
-              } else if (pl.mediaURL && (pl.mediaType === 'image' || !pl.mediaType)) {
-                mediaPreview = `<div style="border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px"><img src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
+              } else if (mediaUrl) {
+                mediaPreview = `<div style="border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px"><img src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
               }
-              let snippetHTML = pl.content ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(pl.content)}</div>` : '';
-              content = `<div class="shared-post-card" onclick="viewPost('${pl.postId}')">
+              const snippetText = pl.content ? `<div class="shared-post-body">${esc(pl.content)}</div>` : '';
+              const authorLabel = pl.authorName ? `<span class="shared-post-author">by ${esc(pl.authorName)}</span>` : '';
+              content = `<div class="shared-post-card" onclick="viewPost('${postId}')">
                 ${mediaPreview}
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
-                  ${pl.authorName ? `<span style="font-size:11px;color:var(--text-tertiary)">by ${esc(pl.authorName)}</span>` : ''}
+                <div class="shared-post-header">
+                  <span class="shared-post-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Shared Post</span>
+                  ${authorLabel}
                 </div>
-                ${snippetHTML}
-                <div style="font-size:11px;color:var(--text-tertiary)">Tap to view</div>
+                ${snippetText}
+                <div class="shared-post-footer"><span>Tap to view post</span> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></div>
               </div>`;
             } else if (!m.deleted && m.type === 'story_reply' && m.payload) {
               const sp = m.payload;
@@ -13665,15 +13744,6 @@ async function openChat(convoId) {
               content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
             } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
-            } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
-              const spId = m.text.replace('shared post::','');
-              content = `<div class="shared-post-card" onclick="viewPost('${spId}')">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
-                </div>
-                <div style="font-size:13px;color:var(--text-secondary)">Tap to view post</div>
-              </div>`;
             }
             const ts = m.createdAt || m.timestamp;
 
@@ -13705,16 +13775,36 @@ async function openChat(convoId) {
 
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _dmMsgLookup.get(m.replyToId || '')?.senderId;
-            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
-            const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
-              : '';
+            let replyDisplayName = 'Message';
+            if (replyToSenderId === uid) {
+              replyDisplayName = 'You';
+            } else if (replyToSenderId) {
+              const targetIdent = getResolvedUserIdentity(replyToSenderId, (name || 'User'));
+              const fName = (targetIdent.name || 'User').split(' ')[0] || 'User';
+              replyDisplayName = m.senderAnon ? 'Anonymous' : fName;
+            } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
+              replyDisplayName = m.replyToName.split(' ')[0];
+            } else {
+              replyDisplayName = (name || 'User').split(' ')[0] || 'User';
+            }
+            const bubbleSpecialCls = isSharedPost ? 'msg-bubble-shared-post' : (m.locationPin ? 'msg-bubble-pin' : '');
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
+            const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
+
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : ''}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              ${isMe ? replyBtnHtml : ''}
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${bubbleSpecialCls}" data-message-id="${m.id}">
+                  ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
+                  ${content}
+                  <div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div>
+                </div>
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}
+              </div>
+              ${!isMe ? replyBtnHtml : ''}
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -15212,12 +15302,14 @@ async function shareToFriend(uid, name, postId) {
        const pDoc = await db.collection('posts').doc(postId).get();
        if (pDoc.exists) {
          const pd = pDoc.data();
+         const media = pd.videoURL || pd.imageURL || pd.mediaURL || (pd.imageURLs && pd.imageURLs[0]) || '';
+         const mType = pd.mediaType || (pd.videoURL ? 'video' : (pd.imageURL ? 'image' : ''));
          preview = {
-           content: (pd.content || '').slice(0, 80),
-           mediaURL: pd.mediaURL || '',
-           mediaType: pd.mediaType || '',
+           content: (pd.content || '').slice(0, 120),
+           mediaURL: media,
+           mediaType: mType,
            authorName: pd.authorName || '',
-           authorPhoto: pd.authorPhotoURL || ''
+           authorPhoto: pd.authorPhoto || pd.authorPhotoURL || ''
          };
        }
      } catch(_) {}

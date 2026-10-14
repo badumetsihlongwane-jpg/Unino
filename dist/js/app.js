@@ -2371,7 +2371,8 @@ function openMessageActionSheet(scope, primaryId, messageId, collection = '') {
       <div class="reaction-picker-row">
         ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToMessage('${scope}','${primaryId}','${messageId}','${emoji}','${collection}')">${emoji}</button>`).join('')}
       </div>
-      ${isMine ? `<button class="btn-primary btn-full" style="margin-top:12px;background:var(--red);border:none" onclick="deleteMessage('${scope}','${primaryId}','${messageId}','${collection}')">Delete Message</button>` : ''}
+      <button class="btn-outline btn-full" style="margin-top:12px;font-weight:600" onclick="closeModal();${scope === 'group' ? `setGroupReply('${messageId}')` : `setDmReply('${messageId}')`}">↩ Reply to Message</button>
+      ${isMine ? `<button class="btn-primary btn-full" style="margin-top:8px;background:var(--red);border:none" onclick="deleteMessage('${scope}','${primaryId}','${messageId}','${collection}')">Delete Message</button>` : ''}
       <button class="btn-secondary btn-full" style="margin-top:8px" onclick="closeModal()">Cancel</button>
     </div>
   `);
@@ -9741,26 +9742,45 @@ function labelPointsFromPolygons(geojson) {
   return {
     type: 'FeatureCollection',
     features: (geojson?.features || []).map((feature, index) => {
-      const polys = feature?.geometry?.coordinates || [];
+      const name = String(feature?.properties?.name || `Building ${index + 1}`).trim();
+      const geom = feature?.geometry;
+      let rings = [];
+      if (geom?.type === 'MultiPolygon') {
+        (geom.coordinates || []).forEach(poly => {
+          if (Array.isArray(poly) && poly.length && Array.isArray(poly[0])) rings.push(poly[0]);
+        });
+      } else if (geom?.type === 'Polygon') {
+        (geom.coordinates || []).forEach(ring => {
+          if (Array.isArray(ring) && ring.length >= 3) rings.push(ring);
+        });
+      }
       let bestRing = null;
       let bestSize = -Infinity;
-      polys.forEach(poly => {
-        const outerRing = poly?.[0];
-        if (!outerRing || outerRing.length < 4) return;
+      rings.forEach(ring => {
+        if (!ring || ring.length < 3) return;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        outerRing.forEach(([x, y]) => {
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
+        ring.forEach(pt => {
+          const [x, y] = pt || [];
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
         });
         const boxSize = (maxX - minX) * (maxY - minY);
-        if (boxSize > bestSize) { bestSize = boxSize; bestRing = outerRing; }
+        if (boxSize > bestSize) {
+          bestSize = boxSize;
+          bestRing = ring;
+        }
       });
-      const center = polygonCentroid(bestRing || []);
+      const center = bestRing ? polygonCentroid(bestRing) : [0, 0];
       return {
         type: 'Feature',
-        properties: { name: feature?.properties?.name || `Building ${index + 1}` },
+        properties: {
+          ...(feature?.properties || {}),
+          name: name
+        },
         geometry: { type: 'Point', coordinates: center }
       };
     })
@@ -9804,56 +9824,173 @@ async function mountCampusGeoJsonLayers(map) {
   if (!geojson || map.getSource('campus-geojson')) return;
   const extent = getCampusExtent(geojson);
   if (extent && !getUserCoords(state.profile)) {
-    map.fitBounds(extent.bounds, { padding: 48, maxZoom: 17.2, duration: 500 });
+    map.fitBounds(extent.bounds, { padding: 20, maxZoom: 17.0, duration: 500 });
   }
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
-  map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
+
+  // Transparent polygon fill so user sees building names and map tiles, not heavy geometry
   map.addLayer({
     id: 'campus-fill',
     type: 'fill',
     source: 'campus-geojson',
     paint: {
       'fill-color': '#8B5CF6',
-      'fill-opacity': 0.28,
-      'fill-outline-color': '#6D28D9'
+      'fill-opacity': 0.001,
+      'fill-outline-color': 'transparent'
     }
   });
+
+  // Very subtle building footprint outline
   map.addLayer({
     id: 'campus-outline',
     type: 'line',
     source: 'campus-geojson',
     paint: {
-      'line-color': '#6D28D9',
-      'line-opacity': 0.9,
-      'line-width': 1.8
+      'line-color': '#7C3AED',
+      'line-opacity': 0.15,
+      'line-width': 1.2,
+      'line-dasharray': [3, 2]
     }
   });
-  map.addLayer({
-    id: 'campus-name-labels',
-    type: 'symbol',
-    source: 'campus-label-points',
-    minzoom: 14,
-    layout: {
-      'text-field': ['get', 'name'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 13, 18, 15],
-      'text-anchor': 'center',
-      'text-allow-overlap': true,
-      'text-ignore-placement': true
-    },
-    paint: {
-      'text-color': '#2E1065',
-      'text-halo-color': '#FFFFFF',
-      'text-halo-width': 2.5
+
+  // Attach prominent HTML DOM markers for each building so the name is immediately visible
+  let activePopup = null;
+  const buildingBadges = [];
+
+  const BUILDING_PRIORITY = {
+    'A6': 100, // Top priority: explicitly requested landmark
+    'A1': 95,
+    'A14': 92,
+    'B1': 90,
+    'B3': 88,
+    'C1': 88,
+    'D3': 88,
+    'E1': 88,
+    'D1-Pool': 82,
+    'D2-Courts': 80,
+    'E6': 78,
+    'B7': 76,
+    'A4': 74,
+    'A8': 72,
+    'C2': 70,
+    'E2': 70,
+    'E5': 68,
+    'A10': 66,
+    'B5': 64,
+    'A2': 62,
+    'A3': 60,
+    'A5': 60,
+    'A7': 60,
+    'A9': 58,
+    'A11': 58,
+    'A12': 58,
+    'B2': 56,
+    'B4': 56,
+    'B6': 56,
+    'C3': 54,
+    'E4': 52,
+    'E3': 50
+  };
+
+  (labelPoints?.features || []).forEach(feat => {
+    const name = String(feat?.properties?.name || '').trim();
+    const coords = feat?.geometry?.coordinates || [];
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+    const encodedName = encodeURIComponent(name);
+    const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
+    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`;
+
+    const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
+      if (activePopup) {
+        try { activePopup.remove(); } catch (_) {}
+        activePopup = null;
+      }
+      activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
+        .setLngLat([lng, lat])
+        .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+        .addTo(map);
+      _mapLibrePopups.push(activePopup);
+    });
+
+    if (marker && marker.getElement()) {
+      buildingBadges.push({
+        el: marker.getElement(),
+        name,
+        priority: BUILDING_PRIORITY[name] || 50
+      });
     }
   });
+
+  let _declutterRaf = null;
+  const declutterBuildingBadges = () => {
+    if (!map) return;
+    const zoom = map.getZoom();
+    if (zoom < 14.0) {
+      buildingBadges.forEach(item => {
+        if (item.el) {
+          item.el.style.opacity = '0';
+          item.el.style.pointerEvents = 'none';
+        }
+      });
+      return;
+    }
+
+    const sorted = [...buildingBadges].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    const placedBoxes = [];
+    const buffer = zoom >= 17.5 ? 1 : (zoom >= 16.5 ? 3 : 5);
+
+    sorted.forEach(item => {
+      const el = item.el;
+      if (!el) return;
+      el.style.display = '';
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      let collides = false;
+      for (let i = 0; i < placedBoxes.length; i++) {
+        const p = placedBoxes[i];
+        if (!(rect.right + buffer < p.left ||
+              rect.left - buffer > p.right ||
+              rect.bottom + buffer < p.top ||
+              rect.top - buffer > p.bottom)) {
+          collides = true;
+          break;
+        }
+      }
+
+      if (collides) {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      } else {
+        placedBoxes.push(rect);
+        el.style.opacity = '1';
+        el.style.pointerEvents = 'auto';
+      }
+    });
+  };
+
+  const scheduleDeclutter = () => {
+    if (_declutterRaf) cancelAnimationFrame(_declutterRaf);
+    _declutterRaf = requestAnimationFrame(declutterBuildingBadges);
+  };
+
+  map.on('zoom', scheduleDeclutter);
+  map.on('move', scheduleDeclutter);
+  map.on('render', scheduleDeclutter);
+  setTimeout(scheduleDeclutter, 150);
+  setTimeout(scheduleDeclutter, 600);
 
   const handleBuildingClick = e => {
     const feature = e.features && e.features[0];
     if (!feature) return;
-    let [lng, lat] = (feature.geometry && feature.geometry.type === 'Point')
-      ? (feature.geometry.coordinates || [])
-      : [];
+    const name = feature.properties?.name || 'Campus Building';
+    const matchingPoint = (labelPoints?.features || []).find(p => p.properties?.name === name);
+    let lng = matchingPoint?.geometry?.coordinates?.[0];
+    let lat = matchingPoint?.geometry?.coordinates?.[1];
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       if (e.lngLat) {
         lng = e.lngLat.lng;
@@ -9861,18 +9998,19 @@ async function mountCampusGeoJsonLayers(map) {
       }
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const name = feature.properties?.name || 'Campus Building';
     const encodedName = encodeURIComponent(name);
-    new maplibregl.Popup({ closeButton: true, offset: 18 })
+    if (activePopup) {
+      try { activePopup.remove(); } catch (_) {}
+      activePopup = null;
+    }
+    activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
       .setLngLat([lng, lat])
       .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
       .addTo(map);
+    _mapLibrePopups.push(activePopup);
   };
 
-  map.on('click', 'campus-name-labels', handleBuildingClick);
   map.on('click', 'campus-fill', handleBuildingClick);
-  map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'campus-name-labels', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'campus-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'campus-fill', () => { map.getCanvas().style.cursor = ''; });
 }
@@ -10424,28 +10562,41 @@ function initLeafletMap(eventsByLoc) {
   loadCampusGeoJson().then(geojson => {
     if (!geojson || !_leafletMap || typeof L === 'undefined') return;
     try {
+      const labelPoints = labelPointsFromPolygons(geojson);
+      (labelPoints?.features || []).forEach(feat => {
+        const name = String(feat?.properties?.name || '').trim();
+        const coords = feat?.geometry?.coordinates || [];
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+        const encodedName = encodeURIComponent(name);
+        const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
+        const icon = L.divIcon({
+          className: 'building-map-badge-wrap',
+          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`,
+          iconSize: null
+        });
+        const popupHtml = `<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`;
+        const marker = L.marker([lat, lng], { icon, zIndexOffset: 200 }).addTo(_leafletMap);
+        marker.bindPopup(popupHtml);
+      });
+
       L.geoJSON(geojson, {
         style: {
-          color: '#6D28D9',
-          weight: 2,
-          opacity: 0.9,
+          color: '#7C3AED',
+          weight: 1.2,
+          opacity: 0.15,
+          dashArray: '3, 2',
           fillColor: '#8B5CF6',
-          fillOpacity: 0.28
+          fillOpacity: 0
         },
         onEachFeature: (feature, layer) => {
           const name = feature?.properties?.name || '';
-          if (name) {
-            layer.bindTooltip(name, {
-              permanent: true,
-              direction: 'center',
-              className: 'building-map-label'
-            });
-          }
-          layer.on('click', e => {
-            const center = layer.getBounds ? layer.getBounds().getCenter() : (e.latlng || { lat: -25.827, lng: 25.609 });
+          const center = layer.getBounds ? layer.getBounds().getCenter() : null;
+          if (name && center) {
             const encodedName = encodeURIComponent(name);
-            layer.bindPopup(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Create event</button></div></div>`).openPopup();
-          });
+            layer.bindPopup(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Create event</button></div></div>`);
+          }
         }
       }).addTo(_leafletMap);
     } catch (_) {}
@@ -11496,24 +11647,35 @@ async function openGroupChat(groupId, collection = 'groups') {
             if (!m.deleted && m.text) content += esc(m.text);
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _gMsgLookup.get(m.replyToId || '')?.senderId;
-            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
-            const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
-              : '';
+            let replyDisplayName = 'Message';
+            if (replyToSenderId === uid) {
+              replyDisplayName = 'You';
+            } else if (replyToSenderId) {
+              const originalMsg = _gMsgLookup.get(m.replyToId || '');
+              const targetIdent = getResolvedUserIdentity(replyToSenderId, originalMsg?.senderName || m.replyToName || 'User');
+              replyDisplayName = (targetIdent.name || 'User').split(' ')[0] || 'User';
+            } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
+              replyDisplayName = m.replyToName.split(' ')[0];
+            }
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             const senderIdentity = getResolvedUserIdentity(m.senderId, m.senderName || '?', m.senderPhoto || null);
+            const allowReply = !m.deleted && m.type !== 'deleted';
+            const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
             return `<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatar(senderIdentity.name || '?', senderIdentity.photo, 'avatar-xs')}</div>` : ''}
+              ${isMe ? replyBtnHtml : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
-              <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
-              ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
-              ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
-              ${content}
-              ${m.deleted ? '' : `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setGroupReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>`}
-              <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
-            </div>
-            ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}</div></div>`;
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">
+                  ${!isMe ? `<div class="gchat-sender">${esc((senderIdentity.name || '?').split(' ')[0] || '?')}</div>` : ''}
+                  ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','gchat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
+                  ${content}
+                  <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
+                </div>
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
+              </div>
+              ${!isMe ? replyBtnHtml : ''}
+            </div>`;
           }).join('');
           bindMessageLongPress(msgs, 'group', groupId, collection);
           scrollToLatest(msgs);
@@ -11631,16 +11793,23 @@ async function openGroupChat(groupId, collection = 'groups') {
 function setGroupReply(messageId) {
   const m = _gMsgLookup.get(messageId);
   if (!m) return;
+  let senderFirstName = 'User';
+  if (m.senderId === state.user?.uid) {
+    senderFirstName = 'You';
+  } else {
+    const ident = getResolvedUserIdentity(m.senderId, m.senderName || 'User', null);
+    senderFirstName = (ident.name || m.senderName || 'User').split(' ')[0] || 'User';
+  }
   const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
   _gReplyTo = {
     id: m.id,
     text: replyText,
-    name: m.senderName || 'User',
+    name: senderFirstName,
     senderId: m.senderId
   };
   const ind = $('#gchat-reply-indicator');
   if (!ind) return;
-  ind.innerHTML = `<span>↩ Replying to <strong>${esc(_gReplyTo.name)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearGroupReply()">&times;</button>`;
+  ind.innerHTML = `<span>↩ Replying to <strong>${esc(senderFirstName)}</strong>: ${esc(clampText(replyText, 42))}</span><button class="chat-reply-close" onclick="clearGroupReply()">&times;</button>`;
   ind.style.display = 'flex';
   $('#gchat-input')?.focus();
 }
@@ -11654,8 +11823,17 @@ function clearGroupReply() {
 function setDmReply(messageId) {
   const m = _dmMsgLookup.get(messageId);
   if (!m) return;
-  const otherName = m.senderId === state.user?.uid ? 'You' : 'Them';
-  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : '[message]'));
+  let otherName = 'User';
+  if (m.senderId === state.user?.uid) {
+    otherName = 'You';
+  } else if (m.senderAnon) {
+    otherName = 'Anonymous';
+  } else {
+    const fallbackName = window._activeChatPartner?.name || 'User';
+    const ident = getResolvedUserIdentity(m.senderId, fallbackName, null);
+    otherName = (ident.name || fallbackName || 'User').split(' ')[0] || 'User';
+  }
+  const replyText = m.text || (m.audioURL ? '[voice message]' : (m.imageURL ? '[image]' : (m.type === 'share_post' ? '[shared post]' : '[message]')));
   _dmReplyTo = { id: m.id, text: replyText, name: otherName, senderId: m.senderId };
   const ind = $('#dm-reply-indicator');
   if (!ind) return;
@@ -13125,10 +13303,11 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
   const otherPhoto = resolvedIdentity.photo;
   const otherStatus = (convo.participantStatuses || {})[otherUid] || 'offline';
   const anonName = getAnonDisplayName(convo, uid, otherUid);
+  const isPermanentlyRevealed = convo.revealed || convo.mutuallyRevealed || (!convo.isAnonymous && !meAnon && !themAnon);
 
   // Update header display
   const hdrInfo = $('#chat-hdr-info');
-  if (themAnon) {
+  if (themAnon && !isPermanentlyRevealed) {
     hdrInfo.innerHTML = `
       <div class="avatar-sm anon-avatar">👻</div>
       <div><div style="display:flex;align-items:center;gap:8px"><h3 style="font-size:15px;font-weight:700">${esc(anonName)}</h3><button class="anon-name-edit" onclick="editAnonNickname('${convo._id}')">✎</button></div>
@@ -13141,29 +13320,39 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     `;
   }
 
-  // Update toggle button visual
+  // Update toggle button visual (hide permanently once revealed)
   const toggleBtn = $('#chat-anon-toggle');
   if (toggleBtn) {
-    toggleBtn.querySelector('.anon-icon-off').style.display = meAnon ? 'none' : 'block';
-    toggleBtn.querySelector('.anon-icon-on').style.display = meAnon ? 'block' : 'none';
-    toggleBtn.classList.toggle('anon-active', meAnon);
+    if (isPermanentlyRevealed) {
+      toggleBtn.style.display = 'none';
+    } else {
+      toggleBtn.style.display = '';
+      toggleBtn.querySelector('.anon-icon-off').style.display = meAnon ? 'none' : 'block';
+      toggleBtn.querySelector('.anon-icon-on').style.display = meAnon ? 'block' : 'none';
+      toggleBtn.classList.toggle('anon-active', meAnon);
+    }
   }
 
   // Update reveal banner
   const banner = $('#anon-reveal-banner');
   if (banner) {
-    if (meAnon && themAnon) {
+    if (isPermanentlyRevealed) {
+      banner.style.display = 'none';
+    } else if (meAnon && themAnon) {
       const iRequested = !!revealRequests[uid];
       const theyRequested = !!revealRequests[otherUid];
       if (iRequested && theyRequested) {
         // Mutual reveal! Both requested
-        banner.innerHTML = `<span>🎉 Both revealed! You can now see each other.</span>`;
+        banner.innerHTML = `<span>🎉 Both revealed! Identities permanently unlocked.</span>`;
         banner.className = 'anon-reveal-banner reveal-success';
         banner.style.display = 'flex';
-        // Auto-remove anonymous for both
+        // Auto-remove anonymous for both permanently
         db.collection('conversations').doc(convo._id).update({
           [`anonymous.${uid}`]: false,
           [`anonymous.${otherUid}`]: false,
+          isAnonymous: false,
+          revealed: true,
+          mutuallyRevealed: true,
           revealRequests: {}
         }).then(() => syncConversationIdentities(convo._id)).catch(() => {});
       } else if (iRequested) {
@@ -13188,7 +13377,7 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     }
 
     // Show accept button for anon chat recipient
-    if (convo.isAnonymous && !convo.anonAccepted && convo.anonStartedBy && convo.anonStartedBy !== uid) {
+    if (convo.isAnonymous && !convo.anonAccepted && convo.anonStartedBy && convo.anonStartedBy !== uid && !isPermanentlyRevealed) {
       const acceptHtml = `<button class="btn-primary btn-sm" style="margin-left:8px" onclick="acceptAnonChat('${convo._id}')">Accept Chat</button>`;
       banner.innerHTML += acceptHtml;
       banner.style.display = 'flex';
@@ -13209,14 +13398,20 @@ async function toggleAnonymous(convoId) {
     const doc = await db.collection('conversations').doc(convoId).get();
     if (!doc.exists) return;
     const convo = doc.data();
+    if (convo.revealed || convo.mutuallyRevealed || !convo.isAnonymous) {
+      return toast('Reveal is permanent — cannot return to anonymous in this chat');
+    }
     const currentAnon = (convo.anonymous || {})[uid] || false;
+    if (currentAnon === false) {
+      return toast('Once revealed, you cannot return to anonymous mode');
+    }
+    // Cannot toggle back to anon once revealed; can only reveal
     await db.collection('conversations').doc(convoId).update({
-      [`anonymous.${uid}`]: !currentAnon,
-      // Clear reveal requests when toggling
+      [`anonymous.${uid}`]: false,
       revealRequests: {}
     });
-    if (currentAnon) await syncConversationIdentities(convoId);
-    toast(!currentAnon ? `You are now ${getUserAnonIdentity(state.profile || {})}` : 'Identity revealed');
+    await syncConversationIdentities(convoId);
+    toast('Identity revealed');
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -13226,8 +13421,25 @@ async function requestReveal(convoId) {
     const snap = await db.collection('conversations').doc(convoId).get();
     if (!snap.exists) return;
     const convo = snap.data();
-    const otherUid = convo.participants.find(p => p !== uid);
+    if (convo.revealed || convo.mutuallyRevealed) return toast('Already revealed');
+    const otherUid = (convo.participants || []).find(p => p !== uid);
     if (!otherUid) return;
+
+    // Check if they already requested: complete mutual reveal atomically!
+    const theyRequested = !!(convo.revealRequests || {})[otherUid];
+    if (theyRequested) {
+      await db.collection('conversations').doc(convoId).update({
+        [`anonymous.${uid}`]: false,
+        [`anonymous.${otherUid}`]: false,
+        isAnonymous: false,
+        revealed: true,
+        mutuallyRevealed: true,
+        revealRequests: {}
+      });
+      await syncConversationIdentities(convoId);
+      toast('🎉 Both agreed! Identities permanently revealed.');
+      return;
+    }
     
     // Mark my reveal request
     await db.collection('conversations').doc(convoId).update({
@@ -13244,9 +13456,20 @@ async function requestReveal(convoId) {
 async function mutualReveal(convoId) {
   const uid = state.user.uid;
   try {
+    const snap = await db.collection('conversations').doc(convoId).get();
+    if (!snap.exists) return;
+    const convo = snap.data();
+    const otherUid = (convo.participants || []).find(p => p !== uid);
     await db.collection('conversations').doc(convoId).update({
-      [`revealRequests.${uid}`]: true
+      [`anonymous.${uid}`]: false,
+      [`anonymous.${otherUid}`]: false,
+      isAnonymous: false,
+      revealed: true,
+      mutuallyRevealed: true,
+      revealRequests: {}
     });
+    await syncConversationIdentities(convoId);
+    toast('🎉 Mutual reveal complete! Identities permanently revealed.');
   } catch (e) { toast('Failed'); console.error(e); }
 }
 
@@ -13337,6 +13560,7 @@ async function openChat(convoId) {
     const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
     const name = resolvedIdentity.name;
     const photo = resolvedIdentity.photo;
+    window._activeChatPartner = { uid: otherUid, name, photo };
 
     // Set initial header (will be updated by anon listener)
     updateAnonUI(convo, uid, name, photo);
@@ -13347,6 +13571,7 @@ async function openChat(convoId) {
       if (!snap.exists) return;
       const liveConvo = snap.data();
       liveConvo._id = convoId;
+      Object.assign(convo, liveConvo);
       updateAnonUI(liveConvo, uid, name, photo);
     });
 
@@ -13433,29 +13658,33 @@ async function openChat(convoId) {
               else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
             }
             // Handle shared post messages
-            if (!m.deleted && m.type === 'share_post' && m.payload?.postId) {
-              const pl = m.payload;
+            const isSharedPost = (!m.deleted && m.type === 'share_post' && m.payload?.postId) || (!m.deleted && m.text && m.text.startsWith('shared post::'));
+            if (isSharedPost) {
+              const pl = m.payload || {};
+              const postId = pl.postId || (m.text ? m.text.replace('shared post::','').trim() : '');
               let mediaPreview = '';
-              if (pl.mediaURL && pl.mediaType === 'video') {
-                mediaPreview = `<div style="position:relative;border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px">
-                  <video class="inline-video-preview" src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
-                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              const mediaUrl = pl.mediaURL || '';
+              const isVid = pl.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(mediaUrl);
+              if (mediaUrl && isVid) {
+                mediaPreview = `<div style="position:relative;border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px;background:#000">
+                  <video class="inline-video-preview" src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
+                  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3)">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
                 </div>`;
-              } else if (pl.mediaURL && (pl.mediaType === 'image' || !pl.mediaType)) {
-                mediaPreview = `<div style="border-radius:8px;overflow:hidden;margin-bottom:6px;max-height:140px"><img src="${pl.mediaURL}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
+              } else if (mediaUrl) {
+                mediaPreview = `<div style="border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px"><img src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
               }
-              let snippetHTML = pl.content ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(pl.content)}</div>` : '';
-              content = `<div class="shared-post-card" onclick="viewPost('${pl.postId}')">
+              const snippetText = pl.content ? `<div class="shared-post-body">${esc(pl.content)}</div>` : '';
+              const authorLabel = pl.authorName ? `<span class="shared-post-author">by ${esc(pl.authorName)}</span>` : '';
+              content = `<div class="shared-post-card" onclick="viewPost('${postId}')">
                 ${mediaPreview}
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
-                  ${pl.authorName ? `<span style="font-size:11px;color:var(--text-tertiary)">by ${esc(pl.authorName)}</span>` : ''}
+                <div class="shared-post-header">
+                  <span class="shared-post-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Shared Post</span>
+                  ${authorLabel}
                 </div>
-                ${snippetHTML}
-                <div style="font-size:11px;color:var(--text-tertiary)">Tap to view</div>
+                ${snippetText}
+                <div class="shared-post-footer"><span>Tap to view post</span> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></div>
               </div>`;
             } else if (!m.deleted && m.type === 'story_reply' && m.payload) {
               const sp = m.payload;
@@ -13515,15 +13744,6 @@ async function openChat(convoId) {
               content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
             } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
               content += esc(m.text);
-            } else if (!m.deleted && m.text && m.text.startsWith('shared post::')) {
-              const spId = m.text.replace('shared post::','');
-              content = `<div class="shared-post-card" onclick="viewPost('${spId}')">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                  <span style="font-size:12px;font-weight:600;color:var(--accent)">Shared Post</span>
-                </div>
-                <div style="font-size:13px;color:var(--text-secondary)">Tap to view post</div>
-              </div>`;
             }
             const ts = m.createdAt || m.timestamp;
 
@@ -13555,16 +13775,36 @@ async function openChat(convoId) {
 
             // Support both new and legacy replies: infer original sender from replyToId when needed.
             const replyToSenderId = m.replyToSenderId || _dmMsgLookup.get(m.replyToId || '')?.senderId;
-            const replyDisplayName = replyToSenderId === uid ? 'me' : (m.replyToName || 'Message');
-            const replyMeta = m.replyToText
-              ? `<div class="msg-reply-snippet">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>`
-              : '';
+            let replyDisplayName = 'Message';
+            if (replyToSenderId === uid) {
+              replyDisplayName = 'You';
+            } else if (replyToSenderId) {
+              const targetIdent = getResolvedUserIdentity(replyToSenderId, (name || 'User'));
+              const fName = (targetIdent.name || 'User').split(' ')[0] || 'User';
+              replyDisplayName = m.senderAnon ? 'Anonymous' : fName;
+            } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
+              replyDisplayName = m.replyToName.split(' ')[0];
+            } else {
+              replyDisplayName = (name || 'User').split(' ')[0] || 'User';
+            }
+            const bubbleSpecialCls = isSharedPost ? 'msg-bubble-shared-post' : (m.locationPin ? 'msg-bubble-pin' : '');
             const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
             const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
             const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
+            const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
+
             return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
-              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}"><div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${m.locationPin ? 'msg-bubble-pin' : ''}" data-message-id="${m.id}">${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}${content}${allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : ''}<div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div></div>${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}</div>
+              ${isMe ? replyBtnHtml : ''}
+              <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} ${newCls} ${bubbleSpecialCls}" data-message-id="${m.id}">
+                  ${m.replyToId && m.replyToText ? `<div class="msg-reply-snippet" onclick="jumpToMessage('${m.replyToId}','chat-msgs')">↩ ${esc(replyDisplayName)}: ${esc(clampText(m.replyToText, 50))}</div>` : ''}
+                  ${content}
+                  <div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div>
+                </div>
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}
+              </div>
+              ${!isMe ? replyBtnHtml : ''}
             </div>`;
           }).join('');
           primeInlineVideoPreviews(msgs);
@@ -15062,12 +15302,14 @@ async function shareToFriend(uid, name, postId) {
        const pDoc = await db.collection('posts').doc(postId).get();
        if (pDoc.exists) {
          const pd = pDoc.data();
+         const media = pd.videoURL || pd.imageURL || pd.mediaURL || (pd.imageURLs && pd.imageURLs[0]) || '';
+         const mType = pd.mediaType || (pd.videoURL ? 'video' : (pd.imageURL ? 'image' : ''));
          preview = {
-           content: (pd.content || '').slice(0, 80),
-           mediaURL: pd.mediaURL || '',
-           mediaType: pd.mediaType || '',
+           content: (pd.content || '').slice(0, 120),
+           mediaURL: media,
+           mediaType: mType,
            authorName: pd.authorName || '',
-           authorPhoto: pd.authorPhotoURL || ''
+           authorPhoto: pd.authorPhoto || pd.authorPhotoURL || ''
          };
        }
      } catch(_) {}
