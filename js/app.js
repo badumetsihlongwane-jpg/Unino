@@ -4082,6 +4082,283 @@ function initAuth() {
     catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Log In'; }
   });
 
+  // ─── NWU Celcat Courses & Dynamic Modules Autocomplete ───
+  let _nwuCoursesCatalogue = null;
+  let _loadingCoursesPromise = null;
+  let _signupModules = [];
+
+  const POPULAR_CAMPUS_MODULES = [
+    'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
+    'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
+    'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
+    'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
+  ];
+
+  async function loadCoursesCatalogue() {
+    if (_nwuCoursesCatalogue && Object.keys(_nwuCoursesCatalogue).length) return _nwuCoursesCatalogue;
+    if (_loadingCoursesPromise) return _loadingCoursesPromise;
+    _loadingCoursesPromise = (async () => {
+      try {
+        let res = await fetch('data/nwu_courses_quick_suggest.json');
+        if (!res.ok) res = await fetch('celcat_capture/nwu_courses_quick_suggest.json');
+        if (res.ok) {
+          _nwuCoursesCatalogue = await res.json();
+          populateCoursesDatalist(_nwuCoursesCatalogue);
+          return _nwuCoursesCatalogue;
+        }
+      } catch (err) {
+        console.warn('Could not load course suggestions catalogue', err);
+      }
+      _nwuCoursesCatalogue = {};
+      return _nwuCoursesCatalogue;
+    })();
+    return _loadingCoursesPromise;
+  }
+
+  function populateCoursesDatalist(catalogue) {
+    const datalist = document.getElementById('courses-datalist');
+    if (!datalist || !catalogue) return;
+    datalist.innerHTML = Object.keys(catalogue).sort().map(courseName => `<option value="${esc(courseName)}">`).join('');
+  }
+
+  function mapYearToDatasetKey(yearStr = '') {
+    if (!yearStr) return 'Year 1';
+    const match = String(yearStr).match(/(\d)/);
+    if (match) return `Year ${match[1]}`;
+    if (/honours/i.test(yearStr)) return 'Year 4';
+    if (/postgrad/i.test(yearStr)) return 'Year 4';
+    return 'Year 1';
+  }
+
+  function getCourseCurriculumModules(courseName, yearStr = '') {
+    if (!_nwuCoursesCatalogue || !courseName) return [];
+    const courseData = _nwuCoursesCatalogue[courseName];
+    if (!courseData) {
+      const lower = courseName.trim().toLowerCase();
+      const exactKey = Object.keys(_nwuCoursesCatalogue).find(k => k.toLowerCase() === lower);
+      if (exactKey) return getCourseCurriculumModules(exactKey, yearStr);
+      return [];
+    }
+    const yearKey = mapYearToDatasetKey(yearStr);
+    if (courseData[yearKey] && courseData[yearKey].length) {
+      return courseData[yearKey];
+    }
+    if (courseData['Year 1'] && courseData['Year 1'].length) {
+      return courseData['Year 1'];
+    }
+    const allMods = [];
+    for (const yr of Object.keys(courseData)) {
+      if (Array.isArray(courseData[yr])) allMods.push(...courseData[yr]);
+    }
+    return Array.from(new Set(allMods));
+  }
+
+  function setupSignupCourseAndModuleFlow() {
+    const majorInput = $('#s-major');
+    const majorDropdown = $('#s-major-suggestions');
+    const yearSelect = $('#s-year');
+    const bubblesWrap = $('#s-mod-bubbles-wrap');
+    const counterEl = $('#s-modules-counter');
+    const pillsWrap = $('#s-mod-pills-wrap');
+    const suggestionsTitle = $('#s-mod-suggestions-title');
+    const addAllBtn = $('#s-mod-add-all-btn');
+    const modInput = $('#s-mod-input');
+    const modAddBtn = $('#s-mod-add-btn');
+    const hiddenModulesInput = $('#s-modules');
+
+    if (!majorInput) return;
+
+    const triggerLoad = () => loadCoursesCatalogue();
+    majorInput.addEventListener('focus', triggerLoad, { passive: true });
+    $('#to-signup')?.addEventListener('click', triggerLoad, { passive: true });
+
+    const syncModulesValue = () => {
+      if (hiddenModulesInput) hiddenModulesInput.value = _signupModules.join(',');
+    };
+
+    const renderBubbles = () => {
+      if (counterEl) counterEl.textContent = `${_signupModules.length} enrolled`;
+      syncModulesValue();
+      if (!bubblesWrap) return;
+      if (!_signupModules.length) {
+        bubblesWrap.innerHTML = '<div class="edit-mod-empty">No modules added yet. Tap suggestions below or type a code.</div>';
+        return;
+      }
+      bubblesWrap.innerHTML = _signupModules.map(mod => `
+        <div class="edit-mod-bubble" data-mod="${esc(mod)}">
+          <span class="edit-mod-bubble-code">${esc(mod)}</span>
+          <button type="button" class="edit-mod-bubble-del" data-mod="${esc(mod)}" title="Remove ${esc(mod)}" aria-label="Remove ${esc(mod)}">&times;</button>
+        </div>
+      `).join('');
+
+      bubblesWrap.querySelectorAll('.edit-mod-bubble-del').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const code = btn.dataset.mod;
+          _signupModules = _signupModules.filter(m => m !== code);
+          renderBubbles();
+          renderSuggestions();
+        };
+      });
+    };
+
+    const renderSuggestions = () => {
+      if (!pillsWrap) return;
+      const majorVal = (majorInput.value || '').trim();
+      const yearVal = (yearSelect?.value || '').trim();
+      const curriculum = getCourseCurriculumModules(majorVal, yearVal);
+      const hasCurriculum = curriculum && curriculum.length > 0;
+      const listToRender = hasCurriculum ? curriculum : POPULAR_CAMPUS_MODULES;
+
+      if (suggestionsTitle) {
+        if (hasCurriculum) {
+          const yrLabel = yearVal || 'Year 1';
+          const displayMajor = majorVal.length > 28 ? majorVal.slice(0, 26) + '…' : majorVal;
+          suggestionsTitle.textContent = `Suggested for ${displayMajor} (${yrLabel})`;
+        } else {
+          suggestionsTitle.textContent = 'Popular NWU Modules';
+        }
+      }
+
+      if (addAllBtn) {
+        if (hasCurriculum) {
+          addAllBtn.style.display = 'inline-block';
+          const unaddedCount = listToRender.filter(m => !_signupModules.includes(m)).length;
+          addAllBtn.textContent = unaddedCount === 0 ? 'All Added ✓' : `+ Add All (${unaddedCount})`;
+          addAllBtn.disabled = unaddedCount === 0;
+          addAllBtn.onclick = () => {
+            listToRender.forEach(m => {
+              if (!_signupModules.includes(m)) _signupModules.push(m);
+            });
+            renderBubbles();
+            renderSuggestions();
+          };
+        } else {
+          addAllBtn.style.display = 'none';
+        }
+      }
+
+      pillsWrap.innerHTML = listToRender.map(mod => {
+        const isEnrolled = _signupModules.includes(mod);
+        return `
+          <button type="button" class="edit-mod-pill ${isEnrolled ? 'active' : ''}" data-mod="${esc(mod)}">
+            ${isEnrolled ? '✓ ' : '+ '}${esc(mod)}
+          </button>
+        `;
+      }).join('');
+
+      pillsWrap.querySelectorAll('.edit-mod-pill').forEach(pill => {
+        pill.onclick = (e) => {
+          e.stopPropagation();
+          const mod = pill.dataset.mod;
+          if (_signupModules.includes(mod)) {
+            _signupModules = _signupModules.filter(m => m !== mod);
+          } else {
+            _signupModules.push(mod);
+          }
+          renderBubbles();
+          renderSuggestions();
+        };
+      });
+    };
+
+    const addModuleFromInput = () => {
+      if (!modInput) return;
+      const raw = modInput.value.trim().toUpperCase();
+      if (!raw) return;
+      const parts = raw.split(/[\s,]+/).map(p => p.trim()).filter(Boolean);
+      let added = 0;
+      parts.forEach(part => {
+        const clean = part.replace(/[^A-Z0-9]/g, '');
+        if (clean.length < 3) return;
+        if (_signupModules.includes(clean)) {
+          toast(`${clean} is already added`);
+          return;
+        }
+        _signupModules.push(clean);
+        added++;
+      });
+      if (added > 0) {
+        modInput.value = '';
+        renderBubbles();
+        renderSuggestions();
+      }
+    };
+
+    modAddBtn?.addEventListener('click', addModuleFromInput);
+    modInput?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        addModuleFromInput();
+      }
+    });
+
+    const renderCourseSuggestions = async (query = '') => {
+      if (!majorDropdown) return;
+      const catalogue = await loadCoursesCatalogue();
+      const q = query.trim().toLowerCase();
+      if (!q || q.length < 2) {
+        majorDropdown.style.display = 'none';
+        majorDropdown.innerHTML = '';
+        return;
+      }
+      const courses = Object.keys(catalogue || {});
+      const hits = courses.filter(name => name.toLowerCase().includes(q)).slice(0, 8);
+      if (!hits.length) {
+        majorDropdown.style.display = 'none';
+        majorDropdown.innerHTML = '';
+        return;
+      }
+
+      majorDropdown.innerHTML = hits.map(courseName => {
+        const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        const highlighted = esc(courseName).replace(regex, '<mark>$1</mark>');
+        const numYears = Object.keys(catalogue[courseName] || {}).length;
+        return `
+          <button type="button" class="signup-autocomplete-item" data-course="${esc(courseName)}">
+            <span class="course-match-title">${highlighted}</span>
+            <span class="course-match-sub">🏛️ NWU Degree · ${numYears} Academic Year${numYears > 1 ? 's' : ''}</span>
+          </button>
+        `;
+      }).join('');
+
+      majorDropdown.style.display = 'block';
+
+      majorDropdown.querySelectorAll('.signup-autocomplete-item').forEach(item => {
+        item.onclick = () => {
+          const chosen = item.getAttribute('data-course');
+          majorInput.value = chosen;
+          majorDropdown.style.display = 'none';
+          if (yearSelect && !yearSelect.value) {
+            yearSelect.value = '1st Year';
+          }
+          renderSuggestions();
+        };
+      });
+    };
+
+    majorInput.addEventListener('input', e => {
+      renderCourseSuggestions(e.target.value);
+      renderSuggestions();
+    });
+    majorInput.addEventListener('focus', e => {
+      if (e.target.value) renderCourseSuggestions(e.target.value);
+    });
+
+    document.addEventListener('pointerdown', e => {
+      if (majorDropdown && !majorDropdown.contains(e.target) && e.target !== majorInput) {
+        majorDropdown.style.display = 'none';
+      }
+    }, { passive: true });
+
+    yearSelect?.addEventListener('change', () => {
+      renderSuggestions();
+    });
+
+    renderBubbles();
+    renderSuggestions();
+  }
+
   // SIGNUP
   $('#signup-form')?.addEventListener('submit', async e => {
     e.preventDefault();
@@ -4090,7 +4367,7 @@ function initAuth() {
     const email = $('#s-email').value.trim(), pass = $('#s-pass').value;
     const uni = $('#s-uni').value, major = $('#s-major').value, year = $('#s-year')?.value || '';
     const modulesRaw = $('#s-modules')?.value || '';
-    const modules = normalizeModules(modulesRaw.split(','));
+    const modules = normalizeModules(_signupModules.length ? _signupModules : modulesRaw.split(','));
     const gender = ($('#s-gender')?.value || '').trim();
     const orientation = ($('#s-orientation')?.value || '').trim();
     const address = $('#s-address')?.value.trim() || '';
@@ -4121,6 +4398,7 @@ function initAuth() {
       shadowSyncUserProfile(uid, { displayName, email, photoURL: '', major, university: uni });
       await cred.user.updateProfile({ displayName });
       toast('Account created.');
+      _signupModules = [];
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
       btn.disabled = false; btn.textContent = 'Create Account';
     } catch (err) { toast(friendlyErr(err.code)); btn.disabled = false; btn.textContent = 'Create Account'; }
@@ -4167,6 +4445,8 @@ function initAuth() {
       signupAddressSuggestions.style.display = 'none';
     }, 120));
   }
+
+  setupSignupCourseAndModuleFlow();
 
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
@@ -14806,12 +15086,10 @@ function editProfile() {
     ? `GPS saved: ${Number(p.geoLat).toFixed(5)}, ${Number(p.geoLng).toFixed(5)}`
     : 'No GPS location saved yet';
 
-  const POPULAR_CAMPUS_MODULES = [
-    'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
-    'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
-    'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
-    'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
-  ];
+  loadCoursesCatalogue().then(() => {
+    const pillsWrap = $('#edit-mod-pills-wrap');
+    if (pillsWrap && p.major) updateModulesUI();
+  });
 
   openModal(`
     <div class="modal-header edit-profile-header">
@@ -14859,9 +15137,9 @@ function editProfile() {
           <button type="button" class="btn-primary" id="edit-mod-add-btn">+ Add</button>
         </div>
 
-        <!-- Filter Options / Popular NWU Suggestions -->
+        <!-- Filter Options / Course Curriculum Suggestions -->
         <div class="edit-mod-suggestions-header">
-          <span>Popular NWU Modules</span>
+          <span id="edit-mod-suggestions-title">${(p.major && getCourseCurriculumModules(p.major, p.year).length) ? `Suggested for ${esc(p.major.length > 28 ? p.major.slice(0, 26) + '…' : p.major)} (${esc(p.year || 'Year 1')})` : 'Popular NWU Modules'}</span>
           <span style="font-weight:400;color:var(--text-tertiary);font-size:11px">Tap to add / remove</span>
         </div>
         <div class="edit-mod-pills-wrap" id="edit-mod-pills-wrap"></div>
@@ -14991,7 +15269,15 @@ function editProfile() {
     }
 
     if (pillsWrap) {
-      pillsWrap.innerHTML = POPULAR_CAMPUS_MODULES.map(mod => {
+      const curriculum = getCourseCurriculumModules(p.major || '', p.year || '');
+      const listToRender = (curriculum && curriculum.length) ? curriculum : POPULAR_CAMPUS_MODULES;
+      const titleEl = $('#edit-mod-suggestions-title');
+      if (titleEl) {
+        titleEl.textContent = (curriculum && curriculum.length)
+          ? `Suggested for ${p.major.length > 28 ? p.major.slice(0, 26) + '…' : p.major} (${p.year || 'Year 1'})`
+          : 'Popular NWU Modules';
+      }
+      pillsWrap.innerHTML = listToRender.map(mod => {
         const isEnrolled = currentModules.includes(mod);
         return `
           <button type="button" class="edit-mod-pill ${isEnrolled ? 'active' : ''}" data-mod="${esc(mod)}">

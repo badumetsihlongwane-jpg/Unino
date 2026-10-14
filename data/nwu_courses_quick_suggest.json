@@ -1,0 +1,4907 @@
+{
+  "BA Hons in communication with Journalism & Media Studies (phased out)": {
+    "Year 1": [
+      "COMS311",
+      "KCMJ612",
+      "KCMJ674",
+      "KCMK614",
+      "KCMK615",
+      "KCMN611",
+      "KCMN671"
+    ]
+  },
+  "BA in Communication": {
+    "Year 1": [
+      "ALDE111",
+      "COMS113",
+      "COMS114",
+      "COMS123",
+      "COMS124",
+      "ENLL111",
+      "ENLS112",
+      "ENLS122",
+      "KCOM111",
+      "KCOM112",
+      "KCOM121"
+    ],
+    "Year 2": [
+      "COMS212",
+      "COMS213",
+      "COMS214",
+      "COMS215",
+      "COMS221",
+      "COMS222",
+      "COMS224",
+      "KCOM211",
+      "WVCS223"
+    ],
+    "Year 3": [
+      "COMS311",
+      "COMS313",
+      "COMS314",
+      "COMS321",
+      "COMS322",
+      "COMS323",
+      "KCOM318",
+      "KCOM328",
+      "WVLS317"
+    ]
+  },
+  "BA in Humanities with English (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with French (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Geography (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Geography and Society (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with History (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with History and Society (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Philosophy (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Psychology (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Psychology and Society (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Setswana (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "POLI313",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Humanities with Sociology (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "BYBV113",
+      "ENLL111",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "IOPS111",
+      "LARM112",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "ENLL211",
+      "FREN211",
+      "GEOG211",
+      "HIST213",
+      "IOPS211",
+      "LARM212",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "PHIL312",
+      "PHIL317",
+      "PSYC311",
+      "PSYC314",
+      "SETM311"
+    ]
+  },
+  "BA in Language and Literary Studies": {
+    "Year 1": [
+      "ALDE111",
+      "ENLL111",
+      "ENLS112",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "LPRA111",
+      "PHIL112",
+      "POLI112",
+      "SETM111",
+      "SOCY111"
+    ]
+  },
+  "BA in Language and Literary Studies (phasing in 2021)": {
+    "Year 1": [
+      "ALDE111",
+      "ENLL111",
+      "ENLS112",
+      "FREN111",
+      "GEOG111",
+      "HIST112",
+      "LPRA111",
+      "PHIL112",
+      "POLI112",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "ENLL211",
+      "ENLL311",
+      "FREN211",
+      "FREN311",
+      "GEOG211",
+      "HIST213",
+      "LPRA211",
+      "LPRA311",
+      "LPRA312",
+      "POLI213",
+      "SETM211",
+      "SETM311",
+      "SOCY211",
+      "WVLS317"
+    ],
+    "Year 3": [
+      "ENLL311",
+      "FREN311",
+      "LPRA311",
+      "LPRA312",
+      "SETM311",
+      "WVLS317"
+    ]
+  },
+  "BA in Pastoral Psychology (phasing in 2023)": {
+    "Year 1": [
+      "BYBV113",
+      "ENLL111",
+      "ENLS112",
+      "HIST112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BYBV211",
+      "BYBV312",
+      "ENLL211",
+      "ENLL311",
+      "HIST213",
+      "HIST312",
+      "PSYC211",
+      "PSYC311",
+      "SETM211",
+      "SETM311",
+      "WVRG311"
+    ],
+    "Year 3": [
+      "BYBV312",
+      "ENLL311",
+      "HIST312",
+      "PSYC311",
+      "SETM311",
+      "WVRG311"
+    ]
+  },
+  "BA in Tourism Mng": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "HRMA111",
+      "KCOM112",
+      "TMBP111"
+    ],
+    "Year 2": [
+      "COMS213",
+      "HRMA211",
+      "TMDH213",
+      "TMDH214"
+    ],
+    "Year 3": [
+      "COMS311",
+      "HRMA311",
+      "HTOD318",
+      "TMDH314",
+      "WVLS317"
+    ]
+  },
+  "BACHELOR OF ARTS HONOURS IN TOURISM MANAGEMENT": {
+    "Year 1": [
+      "TMBP676",
+      "TMBP678",
+      "TMBP679",
+      "TMBP680"
+    ]
+  },
+  "BACHELOR OF COMMERCE HONOURS IN ECONOMICS": {
+    "Year 1": [
+      "ECOH611",
+      "ECOH612",
+      "ECOH617",
+      "ECOH618"
+    ]
+  },
+  "BACHELOR OF COMMERCE HONOURS IN OPERATIONS RESEARCH": {
+    "Year 1": [
+      "STFM611",
+      "STFM613",
+      "STFM614",
+      "STFM616",
+      "STFM671",
+      "STOM611",
+      "STOM613",
+      "STOM614"
+    ]
+  },
+  "BACHELOR OF SCIENCE HONOURS IN APPLIED MATHEMATICS": {
+    "Year 1": [
+      "APPM611",
+      "APPM612",
+      "APPM613",
+      "APPM615",
+      "APPM618",
+      "MTHS619"
+    ]
+  },
+  "BACHELOR OF SCIENCE HONOURS IN MATHEMATICS": {
+    "Year 1": [
+      "APPM612",
+      "MTHS612",
+      "MTHS614",
+      "MTHS615"
+    ]
+  },
+  "BAdmin in Development and Mng with Local Government": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "ECON112",
+      "INFS111",
+      "LGAM115",
+      "PMAN111"
+    ],
+    "Year 2": [
+      "LGAM211",
+      "LGAM212",
+      "LGAM216",
+      "PMAN214"
+    ],
+    "Year 3": [
+      "LGAM312",
+      "LGAM318",
+      "PMAN313",
+      "WVES312"
+    ]
+  },
+  "BAdmin in Development and Mng with Local Government Mng extended program": {
+    "Year 1": [
+      "ACFS111",
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ECON112",
+      "ICAT111",
+      "INFS111",
+      "LGAM115",
+      "PMAN111"
+    ],
+    "Year 3": [
+      "LGAM211",
+      "LGAM212",
+      "LGAM216",
+      "PMAN214"
+    ],
+    "Year 4": [
+      "LGAM312",
+      "LGAM318",
+      "PMAN313",
+      "WVES312"
+    ]
+  },
+  "BAdmin in Human Resource Mng": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "HRMA111",
+      "IOPS111",
+      "PMAN111"
+    ],
+    "Year 2": [
+      "HRMA211",
+      "IOPS212",
+      "PADM211",
+      "STFM111"
+    ],
+    "Year 3": [
+      "HRMA311",
+      "IOPS311",
+      "PADM311",
+      "WVES312"
+    ]
+  },
+  "BAdmin in Human Resource Mng extended program": {
+    "Year 1": [
+      "ALDE111",
+      "HRMA111",
+      "ICOM111",
+      "MTHS119",
+      "PMAN111"
+    ],
+    "Year 2": [
+      "BMAN111",
+      "ICAT111",
+      "IOPS111"
+    ],
+    "Year 3": [
+      "HRMA211",
+      "IOPS212",
+      "PADM211",
+      "STFM111"
+    ],
+    "Year 4": [
+      "HRMA311",
+      "IOPS311",
+      "PADM311",
+      "WVES312"
+    ]
+  },
+  "BAdmin in Public Administration (phasing out 2022)": {
+    "Year 3": [
+      "BMAN312",
+      "LARM311",
+      "PADM311",
+      "WVES312"
+    ]
+  },
+  "BAdmin with Industrial and Organisational Psychology": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "HRMA111",
+      "INFS111",
+      "IOPS111",
+      "PMAN111"
+    ],
+    "Year 2": [
+      "HRMA211",
+      "IOPS212",
+      "PADM211",
+      "STFM111"
+    ],
+    "Year 3": [
+      "HRMA311",
+      "IOPS311",
+      "PADM311",
+      "WVES312"
+    ]
+  },
+  "BAdmin with Industrial and Organisational Psychology EXT": {
+    "Year 1": [
+      "ALDE111",
+      "ICOM111",
+      "IOPS111",
+      "MTHS119",
+      "PMAN111"
+    ],
+    "Year 2": [
+      "BMAN111",
+      "HRMA111",
+      "ICAT111",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 3": [
+      "HRMA211",
+      "IOPS212",
+      "PADM211"
+    ],
+    "Year 4": [
+      "HRMA311",
+      "IOPS311",
+      "PADM311",
+      "WVES312"
+    ]
+  },
+  "BCom Economic Science with Econmetrics": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "BMAN213",
+      "BMAR213",
+      "ECON211",
+      "ECON213"
+    ],
+    "Year 3": [
+      "BMAN312",
+      "BMAN321",
+      "ECAM311",
+      "ECAM321",
+      "ECON313",
+      "ECON314",
+      "ECON315",
+      "ECON316",
+      "ECON324",
+      "ECON326",
+      "WVES312"
+    ]
+  },
+  "BCom HONOURS IN MANAGEMENT SCIENCES WITH BUSINESS MANAGEMENT": {
+    "Year 1": []
+  },
+  "BCom in Business Operations Logistics Mng EXT": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "INFS111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "STFM111",
+      "TECM111"
+    ],
+    "Year 3": [
+      "BMAN213",
+      "BMAR213",
+      "ECON211",
+      "ECON221",
+      "LMNM211",
+      "LMNM221",
+      "STFM216",
+      "TECM211",
+      "TECM212",
+      "TECM221",
+      "TECM222"
+    ],
+    "Year 4": [
+      "BMAN311",
+      "BMAN312",
+      "BMAN321",
+      "BMAN329",
+      "LMNM311",
+      "LMNM312",
+      "LMNM321",
+      "LMNM322",
+      "TECM313",
+      "TECM323",
+      "WVES312"
+    ]
+  },
+  "BCom in Business Operations with Logistics Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111",
+      "TECM111"
+    ],
+    "Year 2": [
+      "BMAN213",
+      "BMAR213",
+      "ECON211",
+      "ECON221",
+      "LMNM211",
+      "LMNM221",
+      "STFM216",
+      "TECM211",
+      "TECM212",
+      "TECM221",
+      "TECM222",
+      "WVES222"
+    ],
+    "Year 3": [
+      "BMAN311",
+      "BMAN312",
+      "BMAN321",
+      "BMAN329",
+      "LMNM311",
+      "LMNM312",
+      "LMNM321",
+      "LMNM322",
+      "TECM313",
+      "TECM323",
+      "WVES312"
+    ]
+  },
+  "BCom in Business Operations with Transport Economics": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111",
+      "TECM111"
+    ],
+    "Year 2": [
+      "BMAR213",
+      "ECON211",
+      "ECON221",
+      "LMNM211",
+      "STFM216",
+      "STOM222",
+      "TECM211",
+      "TECM212",
+      "TECM221",
+      "TECM222",
+      "WVES222"
+    ],
+    "Year 3": [
+      "ECON314",
+      "LMNM311",
+      "LMNM312",
+      "TECM313",
+      "WVES312"
+    ]
+  },
+  "BCom in Business Operations with Transport Economics EXT": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "INFS111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "STFM111",
+      "TECM111"
+    ],
+    "Year 3": [
+      "BMAR213",
+      "ECON211",
+      "LMNM211",
+      "STFM216",
+      "TECM211",
+      "TECM212"
+    ],
+    "Year 4": [
+      "ECON314",
+      "LMNM311",
+      "LMNM312",
+      "TECM313",
+      "WVES312"
+    ]
+  },
+  "BCom in Chartered Accountancy": {
+    "Year 1": [
+      "ACCC112",
+      "ALDE111",
+      "BSCI111",
+      "ECON112",
+      "GEAR111",
+      "MTHS112"
+    ],
+    "Year 2": [
+      "ACCC272",
+      "BSCI271",
+      "FMAN272",
+      "GEAR271",
+      "MDAC272",
+      "TAXC272"
+    ],
+    "Year 3": [
+      "ACCC372",
+      "BSCI371",
+      "FMAN372",
+      "GEAR371",
+      "MDAC372",
+      "TAXC372"
+    ]
+  },
+  "BCom in Chartered Accountancy extended program (phasing in 2022)": {
+    "Year 1": [
+      "ACFS112",
+      "ALDE111",
+      "BSCI111",
+      "ECON112",
+      "ICOM111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACCC112",
+      "GEAR111",
+      "ICAT111",
+      "MTHS112",
+      "STTF112"
+    ],
+    "Year 3": [
+      "ACCC272",
+      "BSCI271",
+      "FMAN272",
+      "GEAR271",
+      "MDAC272",
+      "TAXC272"
+    ],
+    "Year 4": [
+      "ACCC372",
+      "BSCI371",
+      "FMAN372",
+      "GEAR371",
+      "MDAC372",
+      "TAXC372"
+    ]
+  },
+  "BCom in Economic Sciences with Econometrics EXT": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "INFS111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "STFM111"
+    ],
+    "Year 3": [
+      "BMAN213",
+      "BMAR213",
+      "ECON211",
+      "ECON213"
+    ],
+    "Year 4": [
+      "BMAN312",
+      "BMAN321",
+      "ECAM311",
+      "ECAM321",
+      "ECON313",
+      "ECON314",
+      "ECON315",
+      "ECON316",
+      "ECON324",
+      "ECON326",
+      "WVES312"
+    ]
+  },
+  "BCom in Financial Accountancy": {
+    "Year 1": [
+      "ACCF111",
+      "ALDE111",
+      "BSCI111",
+      "ECON112",
+      "GEAR111",
+      "MTHS112"
+    ],
+    "Year 2": [
+      "ACCF211",
+      "BSCI271",
+      "EAGR271",
+      "FINM272",
+      "MACC272",
+      "TAXF211"
+    ],
+    "Year 3": [
+      "ACCF372",
+      "BSCI371",
+      "EAGR371",
+      "FINM372",
+      "MACC372",
+      "TAXF372"
+    ]
+  },
+  "BCom in Financial Accountancy EXT (Saipa) (phasing in 2022)": {
+    "Year 1": [
+      "ACFS111",
+      "ALDE111",
+      "BSCI111",
+      "ECON112",
+      "ICOM111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACCF111",
+      "GEAR111",
+      "ICAT111",
+      "MTHS112",
+      "STTF112"
+    ],
+    "Year 3": [
+      "ACCF211",
+      "BSCI271",
+      "EAGR271",
+      "FINM272",
+      "MACC272",
+      "TAXF211"
+    ],
+    "Year 4": [
+      "ACCF372",
+      "BSCI371",
+      "EAGR371",
+      "FINM372",
+      "MACC372",
+      "TAXF372"
+    ]
+  },
+  "BCom in Human Resorce Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "IOPS111",
+      "LARM112"
+    ],
+    "Year 2": [
+      "BMAR213",
+      "HRMA211",
+      "LARM212"
+    ],
+    "Year 3": [
+      "BMAR316",
+      "IOPS311",
+      "LARM311",
+      "WVES312"
+    ]
+  },
+  "BCom in Industrial and Organisational Psychology with Labour Relations Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "IOPS111",
+      "LARM112"
+    ],
+    "Year 2": [
+      "IOPS211",
+      "LARM212",
+      "PSYC211",
+      "PSYC214"
+    ],
+    "Year 3": [
+      "BMAR316",
+      "IOPS311",
+      "LARM311",
+      "PSYC311",
+      "WVES312"
+    ]
+  },
+  "BCom in Information Systems": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS113",
+      "STFM111"
+    ],
+    "Year 2": [
+      "INFS211",
+      "INFS212",
+      "INFS213",
+      "INFS214"
+    ],
+    "Year 3": [
+      "INFS311",
+      "INFS312",
+      "INFS313",
+      "WVES312"
+    ]
+  },
+  "BCom in Information Systems extended program": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "INFS113",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ECON112",
+      "ICAT111",
+      "INFS211",
+      "INFS212",
+      "STFM111"
+    ],
+    "Year 3": [
+      "ACFS111",
+      "INFS213",
+      "INFS214"
+    ],
+    "Year 4": [
+      "INFS311",
+      "INFS312",
+      "INFS313",
+      "WVES312"
+    ]
+  },
+  "BCom in Law": {
+    "Year 1": [
+      "ACCF111",
+      "ACCF121",
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "BMAN121",
+      "ECON112",
+      "ECON122",
+      "IURI171",
+      "IURI174",
+      "MTHS112",
+      "STTN122"
+    ],
+    "Year 2": [
+      "ACCF211",
+      "BMAR213",
+      "ECON211",
+      "IURI111",
+      "IURI213",
+      "IURI272",
+      "IURI274",
+      "IURI275",
+      "MTHS112"
+    ],
+    "Year 3": [
+      "ACCF372",
+      "BMAN311",
+      "BMAN321",
+      "ECON313",
+      "IURI222",
+      "IURI273",
+      "IURI311",
+      "IURI313",
+      "IURI322",
+      "IURI373",
+      "IURI377",
+      "IURI412"
+    ]
+  },
+  "BCom in Mng Science with Business Mng EXT": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 3": [
+      "BMAN213",
+      "BMAN214",
+      "BMAR213",
+      "LARM212"
+    ],
+    "Year 4": [
+      "BMAN311",
+      "BMAN312",
+      "BMAR316",
+      "LARM311",
+      "WVES312"
+    ]
+  },
+  "BCom in Mng Science with Marketing Mng EXT": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 3": [
+      "BMAN213",
+      "BMAN214",
+      "BMAR211",
+      "BMAR213",
+      "ECON211"
+    ],
+    "Year 4": [
+      "BMAN311",
+      "BMAR314",
+      "BMAR315",
+      "BMAR316",
+      "WVES312"
+    ]
+  },
+  "BCom in Mng Sciences with Business Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "CMPG112",
+      "ECON112",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "BMAN213",
+      "BMAN214",
+      "BMAR213",
+      "LARM212"
+    ],
+    "Year 3": [
+      "BMAN311",
+      "BMAN312",
+      "BMAR316",
+      "LARM311",
+      "WVES312"
+    ]
+  },
+  "BCom in Mng Sciences with Communication Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "CMPG112",
+      "ECON112",
+      "KCOM112"
+    ],
+    "Year 2": [
+      "BMAN311",
+      "BMAR211",
+      "BMAR213",
+      "COMS213",
+      "KCOM211"
+    ],
+    "Year 3": [
+      "BMAN311",
+      "BMAR315",
+      "BMAR316",
+      "COMS311",
+      "WVES312"
+    ]
+  },
+  "BCom in Mng Sciences with Marketing Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "BMAN213",
+      "BMAN214",
+      "BMAR211",
+      "BMAR213",
+      "ECON211"
+    ],
+    "Year 3": [
+      "BMAN311",
+      "BMAR314",
+      "BMAR315",
+      "BMAR316",
+      "WVES312"
+    ]
+  },
+  "BCom in Mng Sciences with Marketing and Tourism Mng": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111",
+      "TMBP111"
+    ],
+    "Year 2": [
+      "BMAN213",
+      "BMAR211",
+      "BMAR213",
+      "TMBP211"
+    ],
+    "Year 3": [
+      "BMAN311",
+      "BMAR316",
+      "HTOD316",
+      "HTOD317",
+      "WVES312"
+    ]
+  },
+  "BCom in Operations Research": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "BMAR213",
+      "STFM214",
+      "STFM216",
+      "STOM211"
+    ],
+    "Year 3": [
+      "BMAN213",
+      "BMAN311",
+      "STOM311",
+      "STOM312",
+      "WVES312"
+    ]
+  },
+  "BCom with Statistics": {
+    "Year 1": [
+      "ACCS111",
+      "ALDE111",
+      "BMAN111",
+      "ECON112",
+      "INFS111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "ECON211",
+      "STFM214",
+      "STFM216",
+      "STOM211"
+    ],
+    "Year 3": [
+      "ECON313",
+      "ECON314",
+      "STFM311",
+      "STFM312",
+      "WVES312"
+    ]
+  },
+  "BCom with Statistics extended program": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "ICOM111",
+      "INFS111",
+      "MTHS119"
+    ],
+    "Year 2": [
+      "ACFS111",
+      "ECON112",
+      "ICAT111",
+      "STFM111"
+    ],
+    "Year 3": [
+      "ECON211",
+      "STFM214",
+      "STFM216",
+      "STOM211",
+      "WVES312"
+    ],
+    "Year 4": [
+      "ECON313",
+      "ECON314",
+      "STFM311",
+      "STFM312"
+    ]
+  },
+  "BEd FET Phase Economics for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "BSTG111",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "HISE112",
+      "LESE112",
+      "MATF111",
+      "SEFV111"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "ACCG211",
+      "BSTE212",
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "HISE212",
+      "LESE212",
+      "SEFV211"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "ECOE312",
+      "EDTM312",
+      "HISE312",
+      "LESE312",
+      "SEFV311"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "ECOE412",
+      "EDCA411",
+      "EDCC413",
+      "HISE411",
+      "LESE411",
+      "SEFV411"
+    ]
+  },
+  "BEd FET Phase in Accounting for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "BSTG111",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "HISE112",
+      "LESE112",
+      "MATF111",
+      "PHSE112"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "BSTE212",
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOS212",
+      "HISE212",
+      "LESE212",
+      "NSSP211",
+      "PHSE212"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "ECOE312",
+      "EDTM312",
+      "ENGV311",
+      "HISE312",
+      "LESE312",
+      "PHSE312"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "ECOE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "HISE411",
+      "LESE411",
+      "PHSE412"
+    ]
+  },
+  "BEd FET Phase in Business Studies for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "GEOE112",
+      "MATF111",
+      "NSSP111",
+      "PHSE112"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "ACCG211",
+      "BSTE212",
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOE212",
+      "PHSE212"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "ECOE312",
+      "EDTM312",
+      "ENGV311",
+      "GEOE312",
+      "PHSE312"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "ECOE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "GEOE411",
+      "PHSE412"
+    ]
+  },
+  "BEd FET Phase in English for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "BSTG111",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "HISE112",
+      "LESE112",
+      "LIFE112",
+      "MATF111",
+      "MATH111",
+      "MATV111",
+      "NSSP112",
+      "SEFV111"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "ACCG211",
+      "BSTE212",
+      "CULV211",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOS212",
+      "HISE212",
+      "LESE212",
+      "LIFE212",
+      "MATH211",
+      "NSSP211",
+      "SEFV211"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "EDTM312",
+      "ENGV311",
+      "HISE312",
+      "LESE312",
+      "LIFE312",
+      "MATH311",
+      "SEFV311",
+      "UTEW311"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "HISE411",
+      "LESE411",
+      "LIFE411",
+      "MATH411",
+      "SEFV411"
+    ]
+  },
+  "BEd FET Phase in Geography for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "BSTG111",
+      "EDCA111",
+      "EDTC112",
+      "ENAC271",
+      "GEOE112",
+      "HISE112",
+      "LESE112",
+      "LIFE112",
+      "MATH111",
+      "MATV111",
+      "NSSP111",
+      "NSSP112",
+      "SEFV111"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "BSTE212",
+      "EDCC214",
+      "EDCC215",
+      "GEOE212",
+      "HISE212",
+      "HISV211",
+      "LESE212",
+      "LIFE212",
+      "MATH211",
+      "SEFV211"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "EDTM312",
+      "GEOE312",
+      "HISE312",
+      "LESE312",
+      "LIFE312",
+      "MATH311",
+      "SEFV311",
+      "UTEW311"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "EDCA411",
+      "EDCC413",
+      "GEOE411",
+      "HISE411",
+      "LESE411",
+      "LIFE411",
+      "MATH411",
+      "SEFV411"
+    ]
+  },
+  "BEd FET Phase in History for Education": {
+    "Year 1": [
+      "ALDE111",
+      "BSTG111",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "GEOE112",
+      "HISE112",
+      "LIFE112",
+      "MATF111",
+      "NSSP111",
+      "NSSP112"
+    ],
+    "Year 2": [
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOE212",
+      "GEOS212",
+      "HISE212",
+      "LIFE212"
+    ],
+    "Year 3": [
+      "ECOE312",
+      "EDTM312",
+      "ENGV311",
+      "GEOE312",
+      "HISE312",
+      "LIFE312"
+    ],
+    "Year 4": [
+      "ECOE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "GEOE411",
+      "HISE411",
+      "LIFE411"
+    ]
+  },
+  "BEd FET Phase in Maths Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "GEOE112",
+      "LIFE112",
+      "MATH111",
+      "MATV111",
+      "PHSE112"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "ACCG211",
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOE212",
+      "HISV211",
+      "LIFE212",
+      "MATH211",
+      "NSSP211",
+      "PHSE212"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "ECOE312",
+      "EDTM312",
+      "ENGV311",
+      "GEOE312",
+      "LIFE312",
+      "MATH311",
+      "PHSE312"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "GEOE411",
+      "LIFE411",
+      "MATH411",
+      "PHSE412"
+    ]
+  },
+  "BEd FET Phase in Physical Sciences for Education": {
+    "Year 1": [
+      "ACCE112",
+      "ALDE111",
+      "BSTE112",
+      "EDCA111",
+      "EDTC112",
+      "HISE112",
+      "LESE112",
+      "LIFE112",
+      "MATV111",
+      "NSSP111",
+      "PHSE112"
+    ],
+    "Year 2": [
+      "ACCE212",
+      "BSTE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "HISE212",
+      "LESE212",
+      "LIFE212",
+      "NSSP211",
+      "PHSE212"
+    ],
+    "Year 3": [
+      "ACCE312",
+      "BSTE312",
+      "EDTM312",
+      "HISE312",
+      "LESE312",
+      "LIFE312",
+      "PHSE312",
+      "UTEW311"
+    ],
+    "Year 4": [
+      "ACCE412",
+      "BSTE412",
+      "EDCA411",
+      "EDCC413",
+      "HISE411",
+      "LESE411",
+      "LIFE411",
+      "PHSE412"
+    ]
+  },
+  "BEd FET Phase in Setswana for Education": {
+    "Year 1": [
+      "ALDE111",
+      "BSTG111",
+      "ECOE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "GEOE112",
+      "LIFE112",
+      "MATF111",
+      "NSSP111",
+      "NSSP112",
+      "SEFV111"
+    ],
+    "Year 2": [
+      "ACCG211",
+      "CULV211",
+      "ECOE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOE212",
+      "HISV211",
+      "LIFE212",
+      "NSSP211",
+      "SEFV211"
+    ],
+    "Year 3": [
+      "ECOE312",
+      "EDTM312",
+      "ENGV311",
+      "GEOE312",
+      "LIFE312",
+      "SEFV311"
+    ],
+    "Year 4": [
+      "ECOE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "GEOE411",
+      "LIFE411",
+      "SEFV411"
+    ]
+  },
+  "BEd FET Phase: Life Science for Education": {
+    "Year 1": [
+      "ALDE111",
+      "BSTE112",
+      "EDCA111",
+      "EDTC112",
+      "ENGV111",
+      "GEOE112",
+      "LIFE112",
+      "MATV111",
+      "NSSP112",
+      "PHSE112",
+      "SEFV111"
+    ],
+    "Year 2": [
+      "BSTE212",
+      "EDCC214",
+      "EDCC215",
+      "ENAC271",
+      "ENGV211",
+      "GEOE212",
+      "HISV211",
+      "LIFE212",
+      "NSSP211",
+      "PHSE212",
+      "SEFV211"
+    ],
+    "Year 3": [
+      "BSTE312",
+      "EDTM312",
+      "ENGV311",
+      "GEOE312",
+      "LIFE312",
+      "PHSE312",
+      "SEFV311",
+      "UTEW311"
+    ],
+    "Year 4": [
+      "BSTE412",
+      "EDCA411",
+      "EDCC413",
+      "ENGV411",
+      "GEOE411",
+      "LIFE411",
+      "PHSE412",
+      "SEFV411"
+    ]
+  },
+  "BEd Foundation Phase": {
+    "Year 1": [
+      "ALDE111",
+      "EDCA111",
+      "EDCC115",
+      "EDTC112",
+      "ENFF111",
+      "LSKS111",
+      "MFPC111",
+      "SEFF111"
+    ],
+    "Year 2": [
+      "EDCC214",
+      "EDCC215",
+      "ENAF211",
+      "ENFF211",
+      "LSKA211",
+      "MTLS212",
+      "SEAF211",
+      "SEFF211"
+    ],
+    "Year 3": [
+      "EDTM312",
+      "ENAF311",
+      "ENFF311",
+      "LSKP312",
+      "MFPC311",
+      "SEAF311",
+      "SEFF311"
+    ],
+    "Year 4": [
+      "EDCA411",
+      "EDCC413",
+      "ENAF411",
+      "ENFF411",
+      "LSPP411",
+      "MFPC411",
+      "SEAF411",
+      "SEFF411"
+    ]
+  },
+  "BHSc with Sport Coaching and Human Movement Sciences": {
+    "Year 1": [
+      "ALDE111",
+      "BMAN111",
+      "FLGX114",
+      "HMSA111",
+      "HMSC112",
+      "PSYC111"
+    ],
+    "Year 2": [
+      "BMAN221",
+      "ECON221",
+      "HMSC222",
+      "HMXR221",
+      "PSYC221",
+      "WVGW222"
+    ],
+    "Year 3": [
+      "HMDC212",
+      "HMSC211",
+      "HMSC312",
+      "HMXA211",
+      "WVES312"
+    ]
+  },
+  "BHSc with Sport Coaching and Human Movement Sciences (phasing in 2026)": {
+    "Year 1": []
+  },
+  "BHSc with Sport Coaching and Human Movement Sciences (phasing out from 2026)": {
+    "Year 2": [],
+    "Year 3": [
+      "HMDC212",
+      "HMSC211",
+      "HMSC312",
+      "HMXA211",
+      "HMXT211",
+      "WVES312"
+    ]
+  },
+  "BSc in Agriculture with Agricultural Economics": {
+    "Year 1": [
+      "AECM111",
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111"
+    ],
+    "Year 2": [
+      "AEXM211",
+      "AEXM212",
+      "ANSM211",
+      "CSPM211",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "AECM311",
+      "AECM313",
+      "AECM314",
+      "AECM315",
+      "AECM316",
+      "CSPM313"
+    ],
+    "Year 4": [
+      "AECM411",
+      "AECM412",
+      "AECM413",
+      "AECM414",
+      "AECM415"
+    ]
+  },
+  "BSc in Agriculture with Agronomy and Horticulure": {
+    "Year 1": [
+      "AECM111",
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111"
+    ],
+    "Year 2": [
+      "AEXM211",
+      "ANSM211",
+      "CSPM211",
+      "CSPM212",
+      "CSPM213",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "AECM314",
+      "ANSM312",
+      "CSPM311",
+      "CSPM313",
+      "CSPM317",
+      "CSPM319"
+    ],
+    "Year 4": [
+      "CSPM411",
+      "CSPM415",
+      "CSPM416",
+      "CSPM419",
+      "CSPM474",
+      "CSPM479",
+      "CSPS411",
+      "CSPS412"
+    ]
+  },
+  "BSc in Agriculture with Animal Health (phasing in 2021)": {
+    "Year 1": [
+      "AECM111",
+      "AHDR111",
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111"
+    ],
+    "Year 2": [
+      "AEXM211",
+      "AHDR211",
+      "AHDR212",
+      "AHDR213",
+      "ANSM214",
+      "BCHN214",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "AHDR311",
+      "AHDR312",
+      "AHDR313",
+      "AHDR314",
+      "AHDR315",
+      "AHDR317"
+    ]
+  },
+  "BSc in Animal Science": {
+    "Year 1": [
+      "AECM111",
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111"
+    ],
+    "Year 2": [
+      "AHPM211",
+      "AHPM212",
+      "ANSM211",
+      "CSPM211",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "AECM314",
+      "ANSM311",
+      "ANSM312",
+      "ANSM313",
+      "ANSM314"
+    ],
+    "Year 4": [
+      "ANSM412",
+      "ANSM415",
+      "ANSM416",
+      "ANSM479"
+    ]
+  },
+  "BSc in Biological Science with Microbiology and Botany": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG111",
+      "MCBN111",
+      "MCBN121",
+      "NCHE111",
+      "NCHE121",
+      "NPHY111",
+      "NPHY121",
+      "PLKS111",
+      "PLKS122"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "BCHN222",
+      "GEOG211",
+      "MKBN211",
+      "MKBS221",
+      "PLKS211",
+      "PLKS223",
+      "WVNS211",
+      "WVNS221"
+    ],
+    "Year 3": [
+      "MKBS316",
+      "MKBS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Biological Sciences with Microbiology and Biochemistry": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN111",
+      "MCBN121",
+      "MTHS114",
+      "MTHS124",
+      "NCHE111",
+      "NCHE121",
+      "NPHY111",
+      "PLKS111",
+      "PLKS122"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "BCHS316",
+      "BCHS317",
+      "MKBS316",
+      "MKBS317"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Biochemistry EXT": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "PLKS171"
+    ],
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "BCHS316",
+      "BCHS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Biochemistry EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "PLKS171"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Biochemistry EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "BCHS316",
+      "BCHS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Microbiology EXT": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MCBN171",
+      "NCHE171",
+      "NPHY171",
+      "PLKS171"
+    ],
+    "Year 2": [
+      "GEOG172",
+      "MCBN172",
+      "NCHE172",
+      "NPHY172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN222",
+      "GEOG211",
+      "MKBN211",
+      "MKBS221",
+      "PLKS211",
+      "PLKS223",
+      "WVNS211",
+      "WVNS221"
+    ],
+    "Year 4": [
+      "MKBS316",
+      "MKBS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Microbiology EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MCBN171",
+      "NCHE171",
+      "NPHY171",
+      "PLKS171"
+    ]
+  },
+  "BSc in Biology Sciences with Botany and Microbiology EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "GEOG172",
+      "MCBN172",
+      "NCHE172",
+      "NPHY172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "GEOG211",
+      "MKBN211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MKBS316",
+      "MKBS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Botany and Biochemistry (phasing in 2017)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111",
+      "PLKS111"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "BCHS316",
+      "BCHS317",
+      "PLKS315"
+    ]
+  },
+  "BSc in Enviromental Sciences with Botany and Chemistry": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111",
+      "PLKS111"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "NCHE311",
+      "NCHE312",
+      "PLKS315"
+    ]
+  },
+  "BSc in Environmental Science with Chemistry and Geography": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "GEOG211",
+      "GEOG221",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NCHE221",
+      "NCHE222",
+      "NPHY211",
+      "NPHY212",
+      "NPHY221",
+      "NPHY222",
+      "WVNS211",
+      "WVNS221"
+    ],
+    "Year 3": [
+      "GEOG311",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Environmental Sciences with Botany and Chemistry EXT": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "PLKS171"
+    ],
+    "Year 2": [
+      "MCBN172",
+      "MTHS172",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "NCHE311",
+      "NCHE312",
+      "PLKS315"
+    ]
+  },
+  "BSc in Environmental Sciences with Botany and Chemistry EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "PLKS171"
+    ]
+  },
+  "BSc in Environmental Sciences with Botany and Chemistry EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "MCBN172",
+      "MTHS172",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "NCHE211",
+      "NCHE212",
+      "NCHE311",
+      "NCHE312",
+      "PLKS211",
+      "PLKS315",
+      "WVNS211"
+    ],
+    "Year 4": []
+  },
+  "BSc in Environmental Sciences with Botany and Geography EXT": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MCBN171",
+      "NCHE171",
+      "PLKS171"
+    ],
+    "Year 2": [
+      "GEOG172",
+      "MCBN172",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "GEOG211",
+      "MKBN211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "GEOG311",
+      "PLKS315"
+    ]
+  },
+  "BSc in Environmental Sciences with Botany and Geography EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MCBN171",
+      "NCHE171",
+      "PLKS171"
+    ]
+  },
+  "BSc in Environmental Sciences with Botany and Geography EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "GEOG172",
+      "MCBN172",
+      "NCHE172",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "GEOG211",
+      "MKBN211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "GEOG311",
+      "PLKS315"
+    ]
+  },
+  "BSc in Environmental Sciences with Chemistry and Geography EXT": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "GEOG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "GEOG211",
+      "GEOG221",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NCHE221",
+      "NCHE222",
+      "NPHY221",
+      "NPHY222",
+      "WVNS211",
+      "WVNS221"
+    ],
+    "Year 4": [
+      "GEOG311",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Environmental Sciences with Chemistry and Geography EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc in Environmental Sciences with Chemistry and Geography EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "GEOG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "GEOG211",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "GEOG311",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Environmental Sciences with Geography and Bontany (phasing in 218)": {
+    "Year 1": [
+      "ALDE111",
+      "GEOG111",
+      "MCBN111",
+      "NCHE111",
+      "PLKS111"
+    ],
+    "Year 2": [],
+    "Year 3": []
+  },
+  "BSc in Environmental Sciences with Geography and Computer Science": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "GEOG111",
+      "MTHS114",
+      "PLKS111"
+    ],
+    "Year 2": [
+      "CMPG211",
+      "GEOG211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "CMPG311",
+      "CMPG313",
+      "GEOG311"
+    ]
+  },
+  "BSc in Environmental Sciences with Geograpy and Computer Science EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "GEOG171",
+      "MTHS173",
+      "PLKS171"
+    ],
+    "Year 2": [
+      "CMPG172",
+      "GEOG172",
+      "MTHS174",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "GEOG211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "GEOG311"
+    ]
+  },
+  "BSc in Environmental Sciences with Geograpy and Computer Science EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "GEOG171",
+      "MTHS173",
+      "PLKS171"
+    ]
+  },
+  "BSc in Environmental Sciences with Geograpy and Computer Science EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "CMPG172",
+      "GEOG172",
+      "MTHS174",
+      "PLKS172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "GEOG211",
+      "PLKS211",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "GEOG311"
+    ]
+  },
+  "BSc in Environmental Sciences with Microbiology and Chemistry (phasingin 2018)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "MKBS316",
+      "MKBS317",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Environmental Sciences with Mircrobiology and Chemistry EXT": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MKBS316",
+      "MKBS317",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Environmental Sciences with Mircrobiology and Chemistry EXT ( phasing out from 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MKBS316",
+      "MKBS317",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc in Mathematical Science with Applied Maths and Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "APPM313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc in Mathematical Science with Applied Maths and Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ]
+  },
+  "BSc in Mathematical Science with Applied Maths and Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "APPM313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc in Mathematical Sciences with Applied Maths and Maths": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "APPM311",
+      "APPM313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Applied Maths and Chemistry": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "APPM311",
+      "APPM313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Applied Maths and Chemistry EXT": {
+    "Year 2": [
+      "APPM172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "APPM313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Applied Maths and Chemistry EXT (phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Applied Maths and Chemistry EXT (phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "APPM313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Applied Maths and Electronics": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "ELYM115",
+      "MTHS111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "APPM311",
+      "APPM313",
+      "ELYM315",
+      "ELYM316"
+    ]
+  },
+  "BSc with Applied Maths and Electronics EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "SFEM171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ]
+  },
+  "BSc with Applied Maths and Electronics EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "SFEM171"
+    ]
+  },
+  "BSc with Applied Maths and Electronics EXT ( phasing out frm 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "SFEM172"
+    ]
+  },
+  "BSc with Applied Maths and Electronics EXT (phasing out from 2024)": {
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ]
+  },
+  "BSc with Biochemistry and Chemistry": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN111",
+      "MTHS114",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "BCHS316",
+      "BCHS317",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Biochemistry and Chemistry EXT": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": []
+  },
+  "BSc with Biochemistry and Chemistry EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Biochemistry and Chemistry EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "BCHS316",
+      "BCHS317",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Computer Science": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "CMPG311",
+      "CMPG313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Computer Science EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Computer Science EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Chemistry and Computer Science EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Maths": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "MTHS311",
+      "MTHS312",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MTHS311",
+      "MTHS312",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Chemistry and Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MTHS311",
+      "MTHS312",
+      "NCHE311",
+      "NCHE312"
+    ]
+  },
+  "BSc with Chemistry and Physics": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "NCHE311",
+      "NCHE312",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Chemistry and Physics EXT": {
+    "Year 1": [],
+    "Year 2": [],
+    "Year 3": [],
+    "Year 4": []
+  },
+  "BSc with Chemistry and Physics EXT ( phasing in 2024)": {
+    "Year 1": []
+  },
+  "BSc with Chemistry and Physics EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "MTHS211",
+      "MTHS212",
+      "NCHE211",
+      "NCHE212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": []
+  },
+  "BSc with Computer Science and Electronics EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171",
+      "SFEM171"
+    ],
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NPHY172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "ELYM315",
+      "ELYM316"
+    ]
+  },
+  "BSc with Computer Science and Electronics EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171",
+      "SFEM171"
+    ]
+  },
+  "BSc with Computer Science and Electronics EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NPHY172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "ELYM315",
+      "ELYM316"
+    ]
+  },
+  "BSc with Computer Science and Maths": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "CMPG311",
+      "CMPG313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Computer Science and Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Computer Science and Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Computer Science and Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Electronics and Maths": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "ELYM115",
+      "MTHS111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "ELYM315",
+      "ELYM316",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Electronics and Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "SFEM171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "ELYM315",
+      "ELYM316",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Electronics and Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "SFEM171"
+    ]
+  },
+  "BSc with Electronics and Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "ELYM315",
+      "ELYM316",
+      "MTHS311",
+      "MTHS312"
+    ]
+  },
+  "BSc with Electronics and Physic EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171",
+      "SFEM171"
+    ],
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NPHY172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "ELYM315",
+      "ELYM316",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Electronics and Physic EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171",
+      "SFEM171"
+    ]
+  },
+  "BSc with Electronics and Physic EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "CMPG172",
+      "MTHS172",
+      "NPHY172",
+      "SFEM172"
+    ],
+    "Year 3": [
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "ELYM315",
+      "ELYM316",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Microbiology and Biochemistry EXT": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "BCHS316",
+      "BCHS317",
+      "MKBS316",
+      "MKBS317"
+    ]
+  },
+  "BSc with Microbiology and Biochemistry EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "MCBN171",
+      "MTHS173",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Microbiology and Biochemistry EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "MCBN172",
+      "MTHS174",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "BCHN213",
+      "MKBN211",
+      "NCHE211",
+      "NCHE212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "BCHS316",
+      "BCHS317",
+      "MKBS316",
+      "MKBS317"
+    ]
+  },
+  "BSc with Physic and Computer Science EXT": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physic and Computer Science EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Physic and Computer Science EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NCHE172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "CMPG311",
+      "CMPG313",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Applied Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Applied Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Physics and Applied Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "APPM311",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Applied Mathsn": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "APPM311",
+      "APPM313",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Computer Science": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "MTHS111",
+      "NCHE111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "CMPG211",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "CMPG311",
+      "CMPG313",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Maths": {
+    "Year 1": [
+      "ALDE111",
+      "APPM111",
+      "CMPG111",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "MTHS311",
+      "MTHS312",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Maths EXT": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ],
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MTHS311",
+      "MTHS312",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSc with Physics and Maths EXT ( phasing in 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "APPM171",
+      "CMPG171",
+      "MTHS171",
+      "NCHE171",
+      "NPHY171"
+    ]
+  },
+  "BSc with Physics and Maths EXT ( phasing out from 2024)": {
+    "Year 2": [
+      "APPM172",
+      "CMPG172",
+      "MTHS172",
+      "NPHY172"
+    ],
+    "Year 3": [
+      "APPM212",
+      "APPM213",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 4": [
+      "MTHS311",
+      "MTHS312",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "BSocSc with Development Studies (phasing in 2019)": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Economics (phasing in 2022)": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "ECON313",
+      "ECON314",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Geography": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PHIL213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "GEOG311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with History": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Political Studies and International Relations (phasing in 2021)": {
+    "Year 1": [
+      "ALDE111",
+      "HIRL115",
+      "HPEC111",
+      "POLI112",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "HIRL212",
+      "HPEC211",
+      "POLI213",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "HIRL314",
+      "POLI313",
+      "POLY311",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Population Studies": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111",
+      "STFM111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "HPOP213",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Psychology": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG112",
+      "DEVS111",
+      "ENLL111",
+      "HIST112",
+      "HPOP111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ENLL211",
+      "FREN211",
+      "HIST213",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HPOP311",
+      "HPOP312",
+      "PSYC311",
+      "PSYC314",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Psychology and  Social Sciences (phasing in 2019)": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "PHIL112",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Social Anthropology": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "BSocSc with Sociology": {
+    "Year 1": [
+      "ALDE111",
+      "DEVS111",
+      "ECON112",
+      "ENLL111",
+      "GEOG111",
+      "HIST112",
+      "HPOP111",
+      "IKSM111",
+      "POLI112",
+      "PSYC111",
+      "SETM111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "DEVS211",
+      "ECON211",
+      "ENLL211",
+      "GEOG211",
+      "HIST213",
+      "HPOP212",
+      "IKSM211",
+      "PADM211",
+      "POLI213",
+      "PSYC211",
+      "PSYC214",
+      "SETM211",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "DEVS311",
+      "HIST312",
+      "HPOP311",
+      "HPOP312",
+      "HPOP322",
+      "POLI313",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ]
+  },
+  "Bachelor Science with Electronics and Physics": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "ELYM115",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "NPHY211",
+      "NPHY212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "ELYM315",
+      "ELYM316",
+      "NPHY311",
+      "NPHY312"
+    ]
+  },
+  "Bachelor of Indigenous Knowledge Systems": {
+    "Year 1": [
+      "ALDE111",
+      "IKSM111",
+      "IKSM112",
+      "IKSM113",
+      "IKSM114",
+      "IKSM115"
+    ],
+    "Year 2": [
+      "IKSM211",
+      "IKSM212",
+      "IKSM213",
+      "IKSM214",
+      "IKSM215"
+    ],
+    "Year 3": [
+      "IKSA311",
+      "IKSH312",
+      "IKSM313",
+      "WVLS317"
+    ],
+    "Year 4": [
+      "IKSH411",
+      "IKSM411",
+      "IKSM412"
+    ]
+  },
+  "Bachelor of Laws EXT": {
+    "Year 1": [
+      "ALDE111",
+      "ENLS112",
+      "IURI173",
+      "IURX112",
+      "IURX171",
+      "MTHS176",
+      "PSDT111"
+    ],
+    "Year 2": [
+      "ACCX171",
+      "HIRL115",
+      "HIST112",
+      "HPOP111",
+      "IURX111",
+      "IURX113",
+      "IURX174",
+      "IURX211",
+      "POLI112",
+      "SOCY111"
+    ],
+    "Year 3": [
+      "IURI213",
+      "IURI271",
+      "IURI272",
+      "IURI273",
+      "IURI274",
+      "IURI275"
+    ],
+    "Year 4": [
+      "IURI311",
+      "IURI313",
+      "IURI371",
+      "IURI373",
+      "IURI376",
+      "IURI377"
+    ],
+    "Year 5": [
+      "ACCL111",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURE412",
+      "IURE414",
+      "IURE415",
+      "IURE416",
+      "IURE417",
+      "IURE418",
+      "IURI412",
+      "IURI413",
+      "IURI415",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "Bachelor of Nursing(phasing in 2026)": {
+    "Year 1": [
+      "ALDE111",
+      "ANAV112",
+      "NSCH111",
+      "NSFN111",
+      "NSFP171"
+    ]
+  },
+  "Bachelor of Nursing(phasing out 2026)": {
+    "Year 2": [],
+    "Year 3": [],
+    "Year 4": [
+      "HCME411",
+      "MIDN411",
+      "MIDP471",
+      "NSMH411",
+      "NSRM411",
+      "NSRP471",
+      "WVLS317"
+    ]
+  },
+  "Bachelor of Sciene with Computer Science and Electronics": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG111",
+      "ELYM115",
+      "MTHS111",
+      "NPHY111"
+    ],
+    "Year 2": [
+      "CMPG211",
+      "ELYM215",
+      "MTHS211",
+      "MTHS212",
+      "WVNS211"
+    ],
+    "Year 3": [
+      "CMPG311",
+      "CMPG313",
+      "ELYM315",
+      "ELYM316"
+    ]
+  },
+  "Bachelor of Social Sciences Honours in Population Studies": {
+    "Year 1": [
+      "HPOP611",
+      "HPOP612",
+      "HPOP615",
+      "HPOP617"
+    ]
+  },
+  "Bachelor of Social Work": {
+    "Year 1": [
+      "ALDE111",
+      "BSWG111",
+      "BSWG114",
+      "BSWI111",
+      "PSYC111",
+      "SOCY111"
+    ],
+    "Year 2": [
+      "BSWG214",
+      "BSWI211",
+      "BSWI212",
+      "PSYC211",
+      "PSYC214",
+      "SOCY211"
+    ],
+    "Year 3": [
+      "BSWG311",
+      "BSWI311",
+      "BSWI312",
+      "BSWI313",
+      "PSYC311",
+      "PSYC314",
+      "SOCY314",
+      "SOCY317",
+      "WVLS317"
+    ],
+    "Year 4": [
+      "BSWG412",
+      "BSWG414",
+      "BSWG416",
+      "BSWG418",
+      "BSWG419",
+      "BSWI411",
+      "BSWI471",
+      "BSWP471"
+    ]
+  },
+  "Bachelor of Theology in Christian Ministry (phasing in 2023)": {
+    "Year 1": [
+      "ALDE111",
+      "NTES112",
+      "OTES112",
+      "TEOL111"
+    ],
+    "Year 2": [
+      "DOGM211",
+      "DOGM221",
+      "HOML222",
+      "KATE213",
+      "MISS211",
+      "NTES212",
+      "NTES222",
+      "OTES212",
+      "OTES222",
+      "PAST213",
+      "SEMT272",
+      "WVWR221"
+    ],
+    "Year 3": [
+      "DOGM321",
+      "ETIE311",
+      "HERM311",
+      "KDSG311",
+      "KDSG321",
+      "LITK322",
+      "MISS311",
+      "MISS321",
+      "NTES313",
+      "NTES323",
+      "OTES313",
+      "OTES323",
+      "PAST311",
+      "PAST321",
+      "PAST323"
+    ]
+  },
+  "Bachelors of Law  (LLB)": {
+    "Year 1": [
+      "ALDE111",
+      "ENLL111",
+      "ENLS112",
+      "IURI111",
+      "IURI171",
+      "IURI173",
+      "IURI174",
+      "SETM111"
+    ],
+    "Year 2": [
+      "IURI211",
+      "IURI213",
+      "IURI271",
+      "IURI272",
+      "IURI273",
+      "IURI274",
+      "IURI275"
+    ],
+    "Year 3": [
+      "HIRL115",
+      "HIST112",
+      "HPOP111",
+      "IURI311",
+      "IURI313",
+      "IURI371",
+      "IURI373",
+      "IURI376",
+      "IURI377",
+      "POLI112",
+      "SOCY111"
+    ],
+    "Year 4": [
+      "ACCL111",
+      "ACCL221",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURA421",
+      "IURE412",
+      "IURE414",
+      "IURE415",
+      "IURE416",
+      "IURE417",
+      "IURE418",
+      "IURE421",
+      "IURE422",
+      "IURE424",
+      "IURE425",
+      "IURE426",
+      "IURE428",
+      "IURE429",
+      "IURI412",
+      "IURI413",
+      "IURI415",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "Diploma in Animal Science": {
+    "Year 1": [
+      "AEDM111",
+      "AHLH112",
+      "ALDE111",
+      "MCHE115",
+      "MTHS115"
+    ],
+    "Year 2": [
+      "AHVM211",
+      "ANDM211",
+      "ANDM212",
+      "AXDM211"
+    ],
+    "Year 3": [
+      "AEDM314",
+      "ANDM312",
+      "ANDM313",
+      "ANDM314",
+      "AXDM311"
+    ]
+  },
+  "Diploma in Coaching Science -Y1 (phasing in from 2024)": {
+    "Year 1": [
+      "ALDE111",
+      "CMPG112",
+      "HMDC111",
+      "HMDC112",
+      "HMPS111"
+    ]
+  },
+  "Diploma in Coaching Science -Y2 (phasing out from 2024)": {
+    "Year 2": [
+      "HMDC211",
+      "HMDC212",
+      "HMDC213",
+      "HMPS211",
+      "HMSC312",
+      "HMXT211"
+    ]
+  },
+  "Diploma in Coaching Science -Y2_S1 (phasing out from 2024)": {
+    "Year 2": []
+  },
+  "Diploma in Plant Science with Crop Production": {
+    "Year 1": [
+      "AEDM111",
+      "ALDE111",
+      "CSDM111",
+      "MCHE115",
+      "MTHS115"
+    ],
+    "Year 2": [
+      "AXDM211",
+      "CSDM211",
+      "CSDM212",
+      "CSDM213",
+      "CSDM215"
+    ],
+    "Year 3": [
+      "AEDM314",
+      "AXDM311",
+      "CSDM311",
+      "CSDM312",
+      "CSDM315",
+      "CSDM371"
+    ]
+  },
+  "LLB After B.Com in Law": {
+    "Year 3": [
+      "ENLL111",
+      "ENLS112",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURE414",
+      "IURE415",
+      "IURE417",
+      "IURE418",
+      "IURI173",
+      "IURI211",
+      "IURI271",
+      "IURI371",
+      "IURI376",
+      "SETM111"
+    ],
+    "Year 4": [
+      "ACCL221",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURA421",
+      "IURE412",
+      "IURE414",
+      "IURE415",
+      "IURE416",
+      "IURE417",
+      "IURE418",
+      "IURE421",
+      "IURE422",
+      "IURE424",
+      "IURE425",
+      "IURE427",
+      "IURE428",
+      "IURE429",
+      "IURI413",
+      "IURI415",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After B.Com in Law-Y4_S1_10": {
+    "Year 4": [
+      "IURA415",
+      "IURA416",
+      "IURE412",
+      "IURI413",
+      "IURI415",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After B.Com in Law-Y4_S1_11": {
+    "Year 4": []
+  },
+  "LLB After B.Com in Law-Y4_S2_10": {
+    "Year 4": [
+      "IURE427",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After B.Com in Law-Y4_S2_11": {
+    "Year 4": [
+      "IURE427",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After BA in Law": {
+    "Year 3": [
+      "ACCL111",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURE414",
+      "IURE415",
+      "IURE417",
+      "IURE418",
+      "IURI211",
+      "IURI271",
+      "IURI311",
+      "IURI371",
+      "IURI376"
+    ],
+    "Year 4": [
+      "ACCL111",
+      "ACCL221",
+      "IURA413",
+      "IURA415",
+      "IURA416",
+      "IURA421",
+      "IURE412",
+      "IURE414",
+      "IURE415",
+      "IURE416",
+      "IURE417",
+      "IURE418",
+      "IURE421",
+      "IURE422",
+      "IURE424",
+      "IURE425",
+      "IURE426",
+      "IURE428",
+      "IURE429",
+      "IURI413",
+      "IURI415",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After BA in Law-Y4_S1_10": {
+    "Year 4": [
+      "IURA416",
+      "IURE416",
+      "IURI413",
+      "IURI415",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After BA in Law-Y4_S1_11": {
+    "Year 4": [
+      "IURE416",
+      "IURE418",
+      "IURI413",
+      "IURI415",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After BA in Law-Y4_S2_10": {
+    "Year 4": [
+      "IURE426",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "LLB After BA in Law-Y4_S2_11": {
+    "Year 4": [
+      "IURE426",
+      "IURI423",
+      "IURI424",
+      "IURI471",
+      "IURI472"
+    ]
+  },
+  "Master of Social Sciences in Population Studies and Sustainable Development": {
+    "Year 1": [
+      "HPOP811",
+      "HPOP812"
+    ]
+  },
+  "POSTGRADUATE DIPLOMA IN HEALTH SERVICES MANAGEMENT": {
+    "Year 1": []
+  },
+  "POSTGRADUATE DIPLOMA IN NURSING EDUCATION": {
+    "Year 1": []
+  },
+  "Postgraduate Certificate in Education": {
+    "Year 1": [
+      "ACCD512",
+      "BSTD512",
+      "CATD513",
+      "CMPF512",
+      "ECOD512",
+      "EDCC514",
+      "EDCC519",
+      "ENGD512",
+      "ENTL511",
+      "GEOD512",
+      "HISD512",
+      "INTD513",
+      "LLOD512",
+      "MATD512",
+      "PESP511",
+      "PHSD512",
+      "SEMD512",
+      "TRVD512",
+      "TTED512"
+    ]
+  },
+  "Postgraduate Diploma in Population and Policy Analysis": {
+    "Year 1": [
+      "HPPA512",
+      "HPPA513",
+      "HPPA515"
+    ]
+  },
+  "University Diploma in Animal Health": {
+    "Year 1": [
+      "AEDM111",
+      "AHLH111",
+      "AHLH112",
+      "ALDE111",
+      "MCHE115",
+      "MTHS115"
+    ],
+    "Year 2": [
+      "AHLH211",
+      "AHLH212",
+      "AHLH213",
+      "ANDM211",
+      "ANDM212",
+      "ANDM213",
+      "AXDM211"
+    ],
+    "Year 3": []
+  },
+  "WEWWDiploma in Coaching Science -Y1_S1 (phasing in from 2024)": {
+    "Year 1": []
+  }
+}
