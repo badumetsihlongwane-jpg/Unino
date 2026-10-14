@@ -1793,6 +1793,26 @@ async function saveCurrentGpsLocation(options = {}) {
   }
 }
 
+async function recenterMapToUserLocation() {
+  const btns = document.querySelectorAll('.map-recenter-btn');
+  btns.forEach(b => b.classList.add('loading'));
+  try {
+    const coords = await saveCurrentGpsLocation({ silent: false });
+    const finalCoords = coords || getUserCoords(state.profile);
+    if (finalCoords && Number.isFinite(finalCoords.lat) && Number.isFinite(finalCoords.lng)) {
+      if (_mapLibreMap && typeof _mapLibreMap.flyTo === 'function') {
+        _mapLibreMap.flyTo({ center: [finalCoords.lng, finalCoords.lat], zoom: 17.5, speed: 1.2 });
+      } else if (_leafletMap && typeof _leafletMap.flyTo === 'function') {
+        _leafletMap.flyTo([finalCoords.lat, finalCoords.lng], 17);
+      }
+    }
+  } catch (e) {
+    console.warn('recenter error', e);
+  } finally {
+    btns.forEach(b => b.classList.remove('loading'));
+  }
+}
+
 function maybePromptForGpsLocation() {
   if (!state.user || !state.profile || getUserCoords(state.profile) || !navigator.geolocation) return;
   const promptKey = getLocationPromptKey(state.user.uid);
@@ -4649,6 +4669,13 @@ function navigate(page, options = {}) {
 
   // Keep map references in sync; stale handles can outlive screen transitions.
   destroyRadarMapInstance();
+  if (previousPage === 'explore' && page !== 'explore') {
+    _pendingMapDestination = null;
+    _pendingRadarPinnedPoint = null;
+    window._radarSearchQuery = '';
+    _exploreSearchQuery = '';
+    _pageViewCache.delete('explore');
+  }
   if (page === 'feed') {
     _pendingFeedScrollRestore = restoreFeed ? _feedScrollTop : 0;
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
@@ -8731,6 +8758,12 @@ function renderRadarView() {
         <div class="radar-ring r1"></div>
         <div class="radar-sweep-anim"></div>
       </div>
+      <button type="button" class="map-recenter-btn" onclick="recenterMapToUserLocation()" title="My Location" aria-label="Update location to current">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 2v3m0 14v3M2 12h3m14 0h3"></path>
+        </svg>
+      </button>
     </div>
     <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
     <div id="radar-dynamic"></div>
@@ -9781,50 +9814,67 @@ async function mountCampusGeoJsonLayers(map) {
     type: 'fill',
     source: 'campus-geojson',
     paint: {
-      'fill-color': 'rgba(108,92,231,0)',
-      'fill-opacity': 0,
-      'fill-outline-color': 'rgba(108,92,231,0)'
+      'fill-color': '#8B5CF6',
+      'fill-opacity': 0.28,
+      'fill-outline-color': '#6D28D9'
     }
   });
   map.addLayer({
     id: 'campus-outline',
     type: 'line',
     source: 'campus-geojson',
-    paint: { 'line-color': 'rgba(108,92,231,0)', 'line-opacity': 0, 'line-width': 1 }
+    paint: {
+      'line-color': '#6D28D9',
+      'line-opacity': 0.9,
+      'line-width': 1.8
+    }
   });
   map.addLayer({
     id: 'campus-name-labels',
     type: 'symbol',
     source: 'campus-label-points',
-    minzoom: 16,
+    minzoom: 14,
     layout: {
       'text-field': ['get', 'name'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 16, 11, 18.5, 16],
-      'text-font': ['Open Sans Bold'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 13, 18, 15],
       'text-anchor': 'center',
       'text-allow-overlap': true,
       'text-ignore-placement': true
     },
     paint: {
-      'text-color': '#171717',
-      'text-halo-color': 'rgba(255,255,255,0.96)',
-      'text-halo-width': 2.2
+      'text-color': '#2E1065',
+      'text-halo-color': '#FFFFFF',
+      'text-halo-width': 2.5
     }
   });
-  map.on('click', 'campus-name-labels', e => {
+
+  const handleBuildingClick = e => {
     const feature = e.features && e.features[0];
     if (!feature) return;
-    const [lng, lat] = feature.geometry.coordinates || [];
+    let [lng, lat] = (feature.geometry && feature.geometry.type === 'Point')
+      ? (feature.geometry.coordinates || [])
+      : [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (e.lngLat) {
+        lng = e.lngLat.lng;
+        lat = e.lngLat.lat;
+      }
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const name = feature.properties?.name || 'Building';
-    const encodedName = encodeURIComponent(name || 'Building');
-    new maplibregl.Popup({ closeButton: false, offset: 18 })
+    const name = feature.properties?.name || 'Campus Building';
+    const encodedName = encodeURIComponent(name);
+    new maplibregl.Popup({ closeButton: true, offset: 18 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">${esc(name)}</div><div class="campus-map-popup-sub">Choose an action</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event here</button></div></div>`)
+      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
       .addTo(map);
-  });
+  };
+
+  map.on('click', 'campus-name-labels', handleBuildingClick);
+  map.on('click', 'campus-fill', handleBuildingClick);
   map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'campus-name-labels', () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'campus-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'campus-fill', () => { map.getCanvas().style.cursor = ''; });
 }
 
 function setPendingMapRoute(target = {}, options = {}) {
@@ -10127,6 +10177,11 @@ function updateMapDestinationPanel(destination = null) {
 
 function clearMapDestination() {
   _pendingMapDestination = null;
+  _pendingRadarPinnedPoint = null;
+  window._radarSearchQuery = '';
+  _exploreSearchQuery = '';
+  const inp = $('#radar-search');
+  if (inp) inp.value = '';
   updateMapRoutePanel(null);
   renderExploreView();
 }
@@ -10299,7 +10354,15 @@ function renderCampusMapView() {
         <h3>NWU Campus Map</h3>
         <button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
-      <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
+      <div style="position:relative">
+        <div id="leaflet-map" style="width:100%;height:300px;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;z-index:0"></div>
+        <button type="button" class="map-recenter-btn" onclick="recenterMapToUserLocation()" title="My Location" aria-label="Update location to current">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M12 2v3m0 14v3M2 12h3m14 0h3"></path>
+          </svg>
+        </button>
+      </div>
       <div id="map-route-panel" class="map-route-panel" style="display:none"></div>
 
       <div class="campus-events-section">
@@ -10356,6 +10419,37 @@ function initLeafletMap(eventsByLoc) {
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
     maxZoom: 20, subdomains: 'abcd', pane: 'overlayPane'
   }).addTo(_leafletMap);
+
+  // NWU campus GeoJSON building polygons & labels
+  loadCampusGeoJson().then(geojson => {
+    if (!geojson || !_leafletMap || typeof L === 'undefined') return;
+    try {
+      L.geoJSON(geojson, {
+        style: {
+          color: '#6D28D9',
+          weight: 2,
+          opacity: 0.9,
+          fillColor: '#8B5CF6',
+          fillOpacity: 0.28
+        },
+        onEachFeature: (feature, layer) => {
+          const name = feature?.properties?.name || '';
+          if (name) {
+            layer.bindTooltip(name, {
+              permanent: true,
+              direction: 'center',
+              className: 'building-map-label'
+            });
+          }
+          layer.on('click', e => {
+            const center = layer.getBounds ? layer.getBounds().getCenter() : (e.latlng || { lat: -25.827, lng: 25.609 });
+            const encodedName = encodeURIComponent(name);
+            layer.bindPopup(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Create event</button></div></div>`).openPopup();
+          });
+        }
+      }).addTo(_leafletMap);
+    } catch (_) {}
+  });
 
   const myIcon = L.divIcon({
     className: 'leaflet-user-pin',
@@ -11427,11 +11521,17 @@ async function openGroupChat(groupId, collection = 'groups') {
       });
 
     const gInput = $('#gchat-input');
+    let prevGHeight = 40;
     const resizeGInput = () => {
       if (!gInput) return;
       gInput.style.height = '40px';
-      gInput.style.height = `${Math.min(gInput.scrollHeight, 84)}px`;
-      scrollToLatest(msgs);
+      const newHeight = Math.min(gInput.scrollHeight, 84);
+      gInput.style.height = `${newHeight}px`;
+      if (newHeight !== prevGHeight) {
+        prevGHeight = newHeight;
+        const wasNearBottom = msgs.scrollHeight - (msgs.scrollTop + msgs.clientHeight) < 120;
+        if (wasNearBottom) scrollToLatest(msgs);
+      }
     };
     if (gInput) {
       gInput.style.height = '40px';
@@ -12638,7 +12738,7 @@ function loadNotifications() {
     return;
   }
 
-  let html = '<div class="notif-header"><h3>Notifications</h3><button class="notif-mark-all-btn" onclick="markAllBellNotifsRead()">Mark all read</button></div><div class="notif-scroll" style="max-height:400px;overflow-y:auto">';
+  let html = '<div class="notif-header"><h3>Notifications</h3><button class="notif-mark-all-btn" onclick="markAllBellNotifsRead()">Mark all read</button></div><div class="notif-scroll">';
   
   // Show reveal requests FIRST (top priority)
   if (revealRequests.length) {
@@ -12646,7 +12746,7 @@ function loadNotifications() {
     html += revealRequests.map(n => {
       const convoId = n.payload?.convoId || '';
       return `
-      <div class="notif-item ${n.read ? '' : 'unread'}" onclick="closeNotifDropdown();openChat('${convoId}');markNotifRead('${n.id}')">
+      <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="closeNotifDropdown();openChat('${convoId}');markNotifRead('${n.id}')">
          <div style="position:relative">
            <div class="avatar-md anon-avatar">👻</div>
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">🎭</div>
@@ -12723,7 +12823,7 @@ function loadNotifications() {
                 : `closeNotifDropdown();markNotifRead('${n.id}')`;
       const from = n.from || { name: 'Unibo', photo: null };
       return `
-       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="${clickAction}">
+       <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="${clickAction}">
          <div style="position:relative">
            ${avatar(from.name, from.photo, 'avatar-md')}
            <div style="position:absolute;bottom:-2px;right:-2px;font-size:12px;background:var(--bg-secondary);border-radius:50%;padding:2px">${icon}</div>
@@ -12742,6 +12842,14 @@ function loadNotifications() {
 }
 
 async function markNotifRead(nid) {
+  if (!nid || !state.user?.uid) return;
+  _notifications = _notifications.map(n => n.id === nid ? { ...n, read: true } : n);
+  updateNotifBadge();
+  const el = document.querySelector(`.notif-item[data-nid="${nid}"]`);
+  if (el) {
+    el.classList.remove('unread');
+    el.querySelector('.notif-unread-dot')?.remove();
+  }
   try { await db.collection('users').doc(state.user.uid).collection('notifications').doc(nid).update({ read: true }); } catch (e) { }
 }
 
@@ -12752,6 +12860,10 @@ async function markAllBellNotifsRead() {
   const unreadSet = new Set(unreadIds);
   _notifications = _notifications.map(n => unreadSet.has(n.id) ? { ...n, read: true } : n);
   updateNotifBadge();
+  document.querySelectorAll('.notif-item.unread').forEach(el => {
+    el.classList.remove('unread');
+    el.querySelector('.notif-unread-dot')?.remove();
+  });
   await Promise.all(unreadIds.map(id =>
     db.collection('users').doc(state.user.uid).collection('notifications').doc(id).update({ read: true }).catch(() => {})
   ));
@@ -13259,7 +13371,52 @@ async function openChat(convoId) {
         if (!messages.length) {
           msgs.innerHTML = '<div style="text-align:center;padding:32px;opacity:0.5">Say hi! 👋</div>';
         } else {
-          let lastDateLabel = '';
+          const changes = snap.docChanges();
+          const hasExistingRows = msgs.children.length > 0 && !msgs.querySelector('.inline-spinner');
+          const isOnlyStatusOrReactionMods = hasExistingRows && changes.length > 0 && changes.every(ch => {
+            if (ch.type !== 'modified') return false;
+            return !!document.getElementById(`msg-${ch.doc.id}`);
+          });
+
+          if (isOnlyStatusOrReactionMods) {
+            changes.forEach(ch => {
+              const m = { id: ch.doc.id, ...ch.doc.data() };
+              _dmMsgLookup.set(m.id, m);
+              const row = document.getElementById(`msg-${m.id}`);
+              if (!row) return;
+              const statusEl = row.querySelector('.msg-status');
+              if (statusEl && m.senderId === uid) {
+                const st = m.status || 'sent';
+                statusEl.className = `msg-status ${st}`;
+                statusEl.title = st === 'read' ? 'Read' : (st === 'delivered' ? 'Delivered' : 'Sent');
+                statusEl.textContent = (st === 'read' || st === 'delivered') ? '✓✓' : '✓';
+              }
+              const reactionLine = row.querySelector('.msg-reaction-line');
+              const newReactionHTML = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+              if (reactionLine && newReactionHTML) {
+                reactionLine.innerHTML = newReactionHTML;
+              } else if (!reactionLine && newReactionHTML) {
+                const stack = row.querySelector('.msg-stack');
+                if (stack) {
+                  const rEl = document.createElement('div');
+                  rEl.className = 'msg-reaction-line';
+                  rEl.onclick = ev => { ev.stopPropagation(); openMessageActionSheet('dm', convoId, m.id); };
+                  rEl.innerHTML = newReactionHTML;
+                  stack.appendChild(rEl);
+                }
+              } else if (reactionLine && !newReactionHTML) {
+                reactionLine.remove();
+              }
+              if (m.deleted || m.type === 'deleted') {
+                const bubble = row.querySelector('.msg-bubble');
+                if (bubble && !bubble.querySelector('.msg-deleted')) {
+                  bubble.innerHTML = '<span class="msg-deleted">Message deleted</span>';
+                }
+              }
+            });
+            _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: previousScrollTop, atBottom: wasNearBottom });
+          } else {
+            let lastDateLabel = '';
           msgs.innerHTML = messages.map((m, idx) => {
             if (!m.deleted && m.type === 'message_reaction') return '';
             const isMe = m.senderId === uid;
@@ -13416,6 +13573,7 @@ async function openChat(convoId) {
           if (wasNearBottom) scrollToLatest(msgs);
           else msgs.scrollTop = previousScrollTop;
         }
+      }
 
         // Mark incoming as read and atomically reset conversation unread count
         const incoming = messages.filter(m => m.senderId !== uid && m.status !== 'read');
@@ -13432,11 +13590,17 @@ async function openChat(convoId) {
     // Send message + image
     const input = $('#chat-input');
     let chatPendingImg = null;
+    let prevDmHeight = 40;
     const resizeDmInput = () => {
       if (!input) return;
       input.style.height = '40px';
-      input.style.height = `${Math.min(input.scrollHeight, 84)}px`;
-      scrollToLatest(msgs);
+      const newHeight = Math.min(input.scrollHeight, 84);
+      input.style.height = `${newHeight}px`;
+      if (newHeight !== prevDmHeight) {
+        prevDmHeight = newHeight;
+        const wasNearBottom = msgs.scrollHeight - (msgs.scrollTop + msgs.clientHeight) < 120;
+        if (wasNearBottom) scrollToLatest(msgs);
+      }
     };
     if (input) {
       input.style.height = '40px';
@@ -15288,9 +15452,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dd.style.display === 'block') { closeNotifDropdown(); return; }
     loadNotifications();
     dd.style.display = 'block';
-    markAllBellNotifsRead().then(() => {
-      if (dd.style.display === 'block') loadNotifications();
-    }).catch(() => {});
     _notifDropdownCloseHandler = ev => {
       const trigger = $('#notif-btn');
       if (!dd.contains(ev.target) && ev.target !== trigger && !trigger?.contains(ev.target)) {
@@ -15299,6 +15460,13 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     setTimeout(() => document.addEventListener('click', _notifDropdownCloseHandler, true), 10);
   });
+
+  const ddEl = $('#notif-dropdown');
+  if (ddEl) {
+    ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach(evName => {
+      ddEl.addEventListener(evName, e => e.stopPropagation(), { passive: true });
+    });
+  }
 
   // Close notification dropdown only for real user scroll gestures, not auto scroll/restore.
   const contentEl = $('#content');
@@ -15330,7 +15498,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setDmReply, clearDmReply, setGroupReply, clearGroupReply,
     setCommentAnonChoice, editAnonNickname, editContactNickname,
     toggleCommentReplies,
-    saveCurrentGpsLocation, clearAppCache,
+    saveCurrentGpsLocation, recenterMapToUserLocation, clearAppCache,
     openCreateEvent, openEventDetail, openLocationDetail, toggleEventGoing, deleteEvent,
     switchToExploreList,
     startAnonChat, removeEventImage, showUserPreview, openModuleFeed, openTagFeed, openAnonPostActions,
