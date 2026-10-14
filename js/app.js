@@ -2835,10 +2835,13 @@ function renderPostContextTags(post = {}) {
     ? post.locationPing.expiresAt.toDate()
     : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
   const hasExplicitPing = !!post.locationPing?.enabled && (!pingExpiry || pingExpiry.getTime() > Date.now());
-  if (author && hasExplicitPing) {
-    chips.push({ text: '📍 Pin', className: 'clickable', onClick: `openPinnedPostOnRadar('${post.id}')` });
-    const addr = (author.address || '').toLowerCase();
-    if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
+  if (hasExplicitPing) {
+    const pinLabel = post.locationPing.label ? `📍 ${post.locationPing.label}` : '📍 View Location';
+    chips.push({ text: pinLabel, className: 'clickable post-pin-chip', onClick: `openPinnedPostOnRadar('${post.id}')` });
+    if (author) {
+      const addr = (author.address || '').toLowerCase();
+      if (/\bres\b|residence|hostel|hall/.test(addr)) chips.push({ text: '🏠 Res life' });
+    }
   }
   const sharedModule = normalizeModules(post.moduleTags || []).some(tag => normalizeModules(state.profile?.modules || []).includes(tag));
   if (sharedModule) chips.push({ text: '🎓 Same module' });
@@ -2866,15 +2869,18 @@ function openPinnedPostOnRadar(postId) {
     toast('Pinned location not available yet');
     return;
   }
-  const label = ping.label || post.authorName || 'Pinned';
-  _pendingRadarPinnedPoint = {
-    lat,
-    lng,
-    label
-  };
+  const label = ping.label || post.authorName || 'Pinned location';
+  _pendingRadarPinnedPoint = { lat, lng, label };
   setPendingMapRoute({ lat, lng }, { label, targetId: postId, source: 'post' });
   exploreView = 'radar';
-  navigate('explore');
+  closeModal();
+  if (!document.getElementById('app')?.classList.contains('active')) showScreen('app');
+  if (state.page !== 'explore') {
+    navigate('explore');
+  } else {
+    renderExploreView();
+  }
+  toast(`Viewing ${label} on map`);
 }
 
 function getAnonDisplayName(convo = {}, viewerUid, otherUid) {
@@ -8054,13 +8060,18 @@ function _renderGalleryFrame() {
 }
 
 // ─── Create Post ─────────────────────────────────
-function openCreateModal() {
+function openCreateModal(initialTab = 'post', presetData = {}) {
   let pendingFiles = [];
   let pendingIsVideo = false;
   let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
   let postPoll = null;
-  let createTab = 'post'; // 'post' or 'event'
+  let createTab = initialTab === 'event' ? 'event' : 'post';
   window._eventFiles = [];
+  if (presetData && presetData.location) {
+    const lat = Number.isFinite(Number(presetData.lat)) ? Number(presetData.lat) : null;
+    const lng = Number.isFinite(Number(presetData.lng)) ? Number(presetData.lng) : null;
+    window._pendingRadarPinnedPoint = { lat, lng, label: String(presetData.location).trim() };
+  }
 
   const renderCreateInner = () => {
     const mi = $('#modal-inner');
@@ -8441,8 +8452,12 @@ No</textarea></div>
   const wireEventTab = () => {
     const pendingPoint = window._pendingRadarPinnedPoint || null;
     const locationInput = $('#ev-location-text');
-    if (pendingPoint && locationInput && !String(locationInput.value || '').trim()) {
-      locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
+    if (locationInput) {
+      if (presetData && presetData.location) {
+        locationInput.value = String(presetData.location).trim();
+      } else if (pendingPoint && !String(locationInput.value || '').trim()) {
+        locationInput.value = String(pendingPoint.label || 'Pinned location').trim();
+      }
     }
 
     if ($('#ev-use-location')) $('#ev-use-location').onclick = () => {
@@ -9818,6 +9833,26 @@ function mountCampusLocationLabels(map) {
   });
 }
 
+let allCampusEvents = [];
+
+function getEventsForVenue(venueName = '', venueLat = null, venueLng = null) {
+  if (!Array.isArray(allCampusEvents) || !allCampusEvents.length) return [];
+  const cleanName = String(venueName || '').trim().toLowerCase();
+  return allCampusEvents.filter(ev => {
+    const evLoc = String(ev.location || '').trim().toLowerCase();
+    const evLabel = String(ev.locationLabel || '').trim().toLowerCase();
+    if (cleanName) {
+      if (evLoc === cleanName || normalizePlaceKey(evLoc) === normalizePlaceKey(cleanName)) return true;
+      if (evLabel === cleanName || normalizePlaceKey(evLabel) === normalizePlaceKey(cleanName)) return true;
+    }
+    if (Number.isFinite(venueLat) && Number.isFinite(venueLng) && Number.isFinite(ev.geoLat) && Number.isFinite(ev.geoLng)) {
+      const distKm = distanceKmBetween({ lat: venueLat, lng: venueLng }, { lat: ev.geoLat, lng: ev.geoLng });
+      if (distKm <= 0.05) return true;
+    }
+    return false;
+  });
+}
+
 async function mountCampusGeoJsonLayers(map) {
   if (!map || typeof map.getStyle !== 'function') return;
   const geojson = await loadCampusGeoJson();
@@ -9902,16 +9937,38 @@ async function mountCampusGeoJsonLayers(map) {
 
     const encodedName = encodeURIComponent(name);
     const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
-    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`;
+    const bEvents = getEventsForVenue(name, lat, lng);
+    const hasEvts = bEvents.length > 0;
+    const badgeHTML = `<div class="building-map-badge ${hasEvts ? 'has-events' : ''}" data-name="${esc(name)}">${esc(displayLabel)}${hasEvts ? ` <span class="badge-event-pill">🎉 ${bEvents.length}</span>` : ''}</div>`;
 
     const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
       if (activePopup) {
         try { activePopup.remove(); } catch (_) {}
         activePopup = null;
       }
+      const bEventsNow = getEventsForVenue(name, lat, lng);
+      const eventsHtml = bEventsNow.length ? `
+        <div class="campus-map-popup-events">
+          ${bEventsNow.slice(0, 3).map(e => `
+            <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+              <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+              <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
       activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
         .setLngLat([lng, lat])
-        .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+        .setHTML(`
+          <div class="campus-map-popup">
+            <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+            <div class="campus-map-popup-sub">${bEventsNow.length ? `🎉 ${bEventsNow.length} upcoming event${bEventsNow.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+            ${eventsHtml}
+            <div class="campus-map-popup-actions">
+              <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+              <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+            </div>
+          </div>`)
         .addTo(map);
       _mapLibrePopups.push(activePopup);
     });
@@ -10003,9 +10060,29 @@ async function mountCampusGeoJsonLayers(map) {
       try { activePopup.remove(); } catch (_) {}
       activePopup = null;
     }
+    const bEventsNow = getEventsForVenue(name, lat, lng);
+    const eventsHtml = bEventsNow.length ? `
+      <div class="campus-map-popup-events">
+        ${bEventsNow.slice(0, 3).map(e => `
+          <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+            <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+            <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
     activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
       .setLngLat([lng, lat])
-      .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+      .setHTML(`
+        <div class="campus-map-popup">
+          <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+          <div class="campus-map-popup-sub">${bEventsNow.length ? `🎉 ${bEventsNow.length} upcoming event${bEventsNow.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+          ${eventsHtml}
+          <div class="campus-map-popup-actions">
+            <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+            <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+          </div>
+        </div>`)
       .addTo(map);
     _mapLibrePopups.push(activePopup);
   };
@@ -10276,19 +10353,8 @@ function openCreateEventAtMapPoint(lat, lng, label = 'Pinned location') {
     return;
   }
   window._pendingRadarPinnedPoint = { lat: safeLat, lng: safeLng, label: name };
-  navigate('create');
-  setTimeout(() => {
-    const title = document.getElementById('ev-title')
-      || document.getElementById('create-event-title')
-      || document.getElementById('event-title')
-      || document.querySelector('input[placeholder*="event" i]');
-    const loc = document.getElementById('ev-location-text')
-      || document.getElementById('create-event-location')
-      || document.getElementById('event-location')
-      || document.querySelector('input[placeholder*="location" i]');
-    if (loc && !loc.value) loc.value = name;
-    if (title && !title.value) title.value = `${name} meetup`;
-  }, 120);
+  closeModal();
+  openCreateModal('event', { location: name, lat: safeLat, lng: safeLng });
 }
 
 function updateMapDestinationPanel(destination = null) {
@@ -10382,8 +10448,6 @@ function routeToCampusLocation(locationId = '') {
   closeChatPlusMenus();
   routeToMapPoint(loc.lat, loc.lng, loc.name || 'Destination');
 }
-
-let allCampusEvents = [];
 
 function eventStartTimeMs(eventDoc = {}) {
   const dateRaw = (eventDoc.date || '').trim();
@@ -10571,12 +10635,33 @@ function initLeafletMap(eventsByLoc) {
         if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
         const encodedName = encodeURIComponent(name);
         const displayLabel = name === 'D1-Pool' ? 'D1 · Pool' : (name === 'D2-Courts' ? 'D2 · Courts' : name);
+        const bEvents = getEventsForVenue(name, lat, lng);
+        const hasEvts = bEvents.length > 0;
         const icon = L.divIcon({
           className: 'building-map-badge-wrap',
-          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(displayLabel)}</div>`,
+          html: `<div class="building-map-badge ${hasEvts ? 'has-events' : ''}" data-name="${esc(name)}">${esc(displayLabel)}${hasEvts ? ` <span class="badge-event-pill">🎉 ${bEvents.length}</span>` : ''}</div>`,
           iconSize: null
         });
-        const popupHtml = `<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`;
+        const eventsHtml = bEvents.length ? `
+          <div class="campus-map-popup-events">
+            ${bEvents.slice(0, 3).map(e => `
+              <div class="popup-event-card" onclick="closeModal();openEventDetail('${e.id}')">
+                <div class="popup-event-card-title">🎉 ${esc(e.title)}</div>
+                <div class="popup-event-card-meta">🕐 ${esc(e.date || '')} ${esc(e.time || '')} · ${(e.going || []).length} going</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : '';
+        const popupHtml = `
+          <div class="campus-map-popup">
+            <div class="campus-map-popup-title">🏢 ${esc(name)}</div>
+            <div class="campus-map-popup-sub">${bEvents.length ? `🎉 ${bEvents.length} upcoming event${bEvents.length > 1 ? 's' : ''}` : 'Campus building'}</div>
+            ${eventsHtml}
+            <div class="campus-map-popup-actions">
+              <button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button>
+              <button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">+ Create event</button>
+            </div>
+          </div>`;
         const marker = L.marker([lat, lng], { icon, zIndexOffset: 200 }).addTo(_leafletMap);
         marker.bindPopup(popupHtml);
       });
@@ -10676,23 +10761,22 @@ function openLocationDetail(locationId) {
 }
 
 function openCreateEvent(presetLoc) {
+  let label = '';
+  let lat = null;
+  let lng = null;
   if (presetLoc) {
     const campusLoc = getCampusLocationById(presetLoc) || findCampusLocationByInput(presetLoc);
     if (campusLoc) {
-      window._pendingRadarPinnedPoint = {
-        lat: Number(campusLoc.lat),
-        lng: Number(campusLoc.lng),
-        label: campusLoc.name || 'Pinned location'
-      };
+      label = campusLoc.name || presetLoc;
+      lat = Number(campusLoc.lat);
+      lng = Number(campusLoc.lng);
+    } else {
+      label = String(presetLoc).trim();
     }
+    window._pendingRadarPinnedPoint = { lat, lng, label };
   }
-  // Open the create modal and switch to event tab
-  openCreateModal();
-  // Auto-switch to event tab after a tick (modal needs to render first)
-  setTimeout(() => {
-    const evTab = document.querySelector('.create-tab[data-ct="event"]');
-    if (evTab) evTab.click();
-  }, 50);
+  closeModal();
+  openCreateModal('event', { location: label, lat, lng });
 }
 
 function removeEventImage(idx) {
@@ -16027,6 +16111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadCurrentGalleryImage, downloadMediaUrl, downloadMediaUrlEncoded, openVideoDownloadPrompt, openStoryInsights,
     openMentionProfileByHandle,
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
-    toggleAppwriteMirror, setAppwriteMirrorEnabled
+    toggleAppwriteMirror, setAppwriteMirrorEnabled,
+    openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint
   });
 });

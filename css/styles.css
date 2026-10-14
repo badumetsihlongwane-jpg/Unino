@@ -9657,3 +9657,79 @@ body {
   padding: 12px 18px;
   border-radius: 12px;
 }
+
+/* ─── Building Event Badges & Popup Event List ───── */
+.building-map-badge.has-events {
+  border-color: #F59E0B !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35), 0 3px 10px rgba(0, 0, 0, 0.2) !important;
+  font-weight: 800 !important;
+}
+
+.building-map-badge .badge-event-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #F59E0B;
+  color: #FFFFFF;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 100px;
+  margin-left: 3px;
+  animation: badgePop 2.2s infinite ease-in-out;
+}
+
+@keyframes badgePop {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.campus-map-popup-events {
+  margin: 8px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.popup-event-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.popup-event-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-primary);
+  transform: translateY(-1px);
+}
+
+.popup-event-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.popup-event-card-meta {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.post-pin-chip {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent-glow) !important;
+  font-weight: 700 !important;
+}
+
+.post-pin-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
