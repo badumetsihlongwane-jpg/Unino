@@ -14715,52 +14715,270 @@ async function loadBlockedUsersList() {
 
 // ─── Edit Profile (with modules) ─────────────────
 function editProfile() {
-  const p = state.profile;
-  const mods = (p.modules || []).join(', ');
+  const p = state.profile || {};
+  let currentModules = [...normalizeModules(p.modules || [])];
   const currentAnonIdentity = getUserAnonIdentity(p);
   const gpsStatus = getUserCoords(p)
     ? `GPS saved: ${Number(p.geoLat).toFixed(5)}, ${Number(p.geoLng).toFixed(5)}`
     : 'No GPS location saved yet';
+
+  const POPULAR_CAMPUS_MODULES = [
+    'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
+    'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
+    'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
+    'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
+  ];
+
   openModal(`
-    <div class="modal-header"><h2>Edit Profile</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body">
-      <div class="form-group"><label>Display Name</label><input type="text" id="edit-name" value="${esc(p.displayName)}"></div>
-      <div class="form-group"><label>Bio</label><textarea id="edit-bio">${esc(p.bio || '')}</textarea></div>
-      <div class="form-group"><label>Location / Res</label><input type="text" id="edit-address" value="${esc(p.address || '')}" placeholder="e.g. Potch Main Campus"></div>
-      <div class="form-group" style="margin-top:-6px">
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn-outline" onclick="saveCurrentGpsLocation()">Use Current GPS</button>
+    <div class="modal-header edit-profile-header">
+      <div>
+        <h2>Edit Profile</h2>
+        <p class="edit-profile-sub">Update your info, academic modules, and persona</p>
+      </div>
+      <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body edit-profile-body">
+      <!-- 1. Avatar Preview & Upload -->
+      <div class="edit-avatar-section">
+        <div class="edit-avatar-wrap" id="edit-avatar-preview" onclick="$('#edit-photo')?.click()" title="Click to change photo">
+          ${p.photoURL
+            ? `<img src="${p.photoURL}" class="edit-avatar-img" alt="Avatar">`
+            : `<div class="edit-avatar-fallback">${initials(p.displayName || 'User')}</div>`}
+          <div class="edit-avatar-badge" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </div>
         </div>
-        <p id="gps-location-status" style="color:var(--text-secondary);font-size:12px;margin-top:8px">${esc(gpsStatus)}</p>
-        <p style="color:var(--text-tertiary);font-size:11px;margin-top:6px">Current GPS is saved once as your main radar location. Unibo does not track you continuously.</p>
+        <input type="file" accept="image/*" id="edit-photo" style="display:none">
+        <button type="button" class="btn-ghost edit-avatar-btn" id="edit-avatar-change-btn" onclick="$('#edit-photo')?.click()">Change Photo</button>
       </div>
-      <div class="form-group"><label>Modules (comma-separated)</label><input type="text" id="edit-modules" value="${esc(mods)}" placeholder="MAT101, COS132, PHY121"></div>
-      <div class="form-group"><label>Gender</label><input type="text" id="edit-gender" value="${esc(p.gender || '')}" placeholder="e.g. female, male, non-binary, prefer not to say"></div>
-      <div class="form-group"><label>Profile Photo</label><input type="file" accept="image/*" id="edit-photo"></div>
-      <div class="form-group" style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="edit-autofill" style="width:auto" ${p.allowAutoFill !== false ? 'checked' : ''}>
-        <label for="edit-autofill" style="margin:0;font-size:14px">Allow auto-fill into groups</label>
+
+      <!-- 2. Academic Modules Section (Bubbly Tag Chips & Instant Add) -->
+      <div class="edit-profile-card">
+        <div class="edit-card-header">
+          <div class="edit-card-title">
+            <span class="edit-card-icon">📚</span>
+            <span>Enrolled Modules</span>
+          </div>
+          <span class="edit-modules-count" id="edit-modules-counter">${currentModules.length} enrolled</span>
+        </div>
+        <p class="edit-card-hint">Modules link you with classmates, study sessions, and auto-join module groups. Tap &times; to remove passed or dropped modules.</p>
+
+        <!-- Active Module Bubbles -->
+        <div class="edit-mod-bubbles-tray" id="edit-mod-bubbles-wrap"></div>
+
+        <!-- Add Module Input Row -->
+        <div class="edit-mod-input-row">
+          <input type="text" id="edit-mod-input" placeholder="Enter module code (e.g. CMPG121, MTHS111)" autocomplete="off" autocapitalize="characters" maxlength="12">
+          <button type="button" class="btn-primary" id="edit-mod-add-btn">+ Add</button>
+        </div>
+
+        <!-- Filter Options / Popular NWU Suggestions -->
+        <div class="edit-mod-suggestions-header">
+          <span>Popular NWU Modules</span>
+          <span style="font-weight:400;color:var(--text-tertiary);font-size:11px">Tap to add / remove</span>
+        </div>
+        <div class="edit-mod-pills-wrap" id="edit-mod-pills-wrap"></div>
       </div>
-      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">When enabled, group hosts can auto-fill you into their groups for your modules.</p>
-      <div class="form-group" style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="edit-anon-dm" style="width:auto" ${allowAnonymousDMsFor(p) ? 'checked' : ''}>
-        <label for="edit-anon-dm" style="margin:0;font-size:14px">Allow anonymous messages from non-friends</label>
+
+      <!-- 3. Personal Information Card -->
+      <div class="edit-profile-card">
+        <div class="edit-card-header">
+          <div class="edit-card-title">
+            <span class="edit-card-icon">👤</span>
+            <span>Personal Info</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-name">Display Name</label>
+          <input type="text" id="edit-name" value="${esc(p.displayName || '')}" placeholder="Your display name">
+        </div>
+
+        <div class="form-group">
+          <label for="edit-bio">Bio</label>
+          <textarea id="edit-bio" rows="2" placeholder="Tell campus a little about yourself...">${esc(p.bio || '')}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-gender">Gender</label>
+          <input type="text" id="edit-gender" value="${esc(p.gender || '')}" placeholder="e.g. Female, Male, Non-binary, Prefer not to say">
+          <div class="edit-gender-chips">
+            <button type="button" class="edit-chip-sm" onclick="$('#edit-gender').value='Female'">Female</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#edit-gender').value='Male'">Male</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#edit-gender').value='Non-binary'">Non-binary</button>
+            <button type="button" class="edit-chip-sm" onclick="$('#edit-gender').value='Prefer not to say'">Prefer not to say</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-address">Location / Residence</label>
+          <input type="text" id="edit-address" value="${esc(p.address || '')}" placeholder="e.g. Patria Res, Frikkie du Preez, Potch Campus">
+        </div>
+
+        <div class="form-group edit-gps-box">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:600;color:var(--text-primary)">Radar GPS Position</span>
+            <button type="button" class="btn-outline btn-sm" onclick="saveCurrentGpsLocation()">📍 Use Current GPS</button>
+          </div>
+          <p id="gps-location-status" style="color:var(--text-secondary);font-size:12px;margin-top:6px">${esc(gpsStatus)}</p>
+          <p style="color:var(--text-tertiary);font-size:11px;margin-top:4px">Your GPS coordinates are saved once for campus radar and distance. You are never continuously tracked.</p>
+        </div>
       </div>
-      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">If turned off, only friends can start chats with you.</p>
-      <div class="form-group"><label>Anonymous Identity</label>
-        <input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23">
+
+      <!-- 4. Privacy & Anonymous Chat Card -->
+      <div class="edit-profile-card">
+        <div class="edit-card-header">
+          <div class="edit-card-title">
+            <span class="edit-card-icon">🔒</span>
+            <span>Privacy & Anonymous Chat</span>
+          </div>
+        </div>
+
+        <label class="edit-toggle-row">
+          <div class="edit-toggle-info">
+            <div class="edit-toggle-title">Auto-fill into study groups</div>
+            <div class="edit-toggle-desc">Allow group hosts to automatically add you to groups for your enrolled modules.</div>
+          </div>
+          <input type="checkbox" id="edit-autofill" class="edit-toggle-checkbox" ${p.allowAutoFill !== false ? 'checked' : ''}>
+        </label>
+
+        <label class="edit-toggle-row">
+          <div class="edit-toggle-info">
+            <div class="edit-toggle-title">Allow anonymous messages</div>
+            <div class="edit-toggle-desc">If disabled, only added friends can start chat conversations with you.</div>
+          </div>
+          <input type="checkbox" id="edit-anon-dm" class="edit-toggle-checkbox" ${allowAnonymousDMsFor(p) ? 'checked' : ''}>
+        </label>
+
+        <div class="form-group" style="margin-top:12px">
+          <label for="edit-anon-custom">Anonymous Identity</label>
+          <input type="text" id="edit-anon-custom" maxlength="32" value="${esc(currentAnonIdentity)}" placeholder="e.g. Campus Ghost #A23">
+        </div>
+
+        <div class="form-group">
+          <label for="edit-anon-identity-theme">Quick Persona Theme</label>
+          <select id="edit-anon-identity-theme">
+            <option value="__custom">Keep typed identity</option>
+            ${ANON_PERSONA_THEMES.map(theme => `<option value="${esc(theme)}">${esc(theme)}</option>`).join('')}
+          </select>
+          <p style="color:var(--text-tertiary);font-size:11px;margin-top:4px">Pick a fun campus persona theme or customize your own alias above.</p>
+        </div>
       </div>
-      <div class="form-group"><label>Quick Persona Theme</label>
-        <select id="edit-anon-identity-theme">
-          <option value="__custom">Keep typed identity</option>
-          ${ANON_PERSONA_THEMES.map(theme => `<option value="${esc(theme)}">${esc(theme)}</option>`).join('')}
-        </select>
+
+      <!-- 5. Actions Bar -->
+      <div class="edit-profile-actions">
+        <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user?.uid || ''}','${esc(p.displayName || '')}')" style="margin-bottom:8px">View Friends</button>
+        <button class="btn-primary btn-full edit-save-btn" id="edit-save">Save Profile Changes</button>
       </div>
-      <p style="color:var(--text-tertiary);font-size:11px;margin:-8px 0 12px">Use the text box above directly, or pick a quick persona to auto-fill it.</p>
-      <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user.uid}','${esc(p.displayName)}')" style="margin-bottom:12px">View Friends</button>
-      <button class="btn-primary btn-full" id="edit-save">Save</button>
     </div>
   `);
+
+  // Interactive Module Bubbles & Filter Options Logic
+  const updateModulesUI = () => {
+    const bubblesWrap = $('#edit-mod-bubbles-wrap');
+    const counterEl = $('#edit-modules-counter');
+    const pillsWrap = $('#edit-mod-pills-wrap');
+
+    if (counterEl) counterEl.textContent = `${currentModules.length} enrolled`;
+
+    if (bubblesWrap) {
+      if (!currentModules.length) {
+        bubblesWrap.innerHTML = '<div class="edit-mod-empty">No modules added yet. Type a module code above or tap the suggestions below.</div>';
+      } else {
+        bubblesWrap.innerHTML = currentModules.map(mod => `
+          <div class="edit-mod-bubble" data-mod="${esc(mod)}">
+            <span class="edit-mod-bubble-code">${esc(mod)}</span>
+            <button type="button" class="edit-mod-bubble-del" data-mod="${esc(mod)}" title="Remove ${esc(mod)}" aria-label="Remove ${esc(mod)}">&times;</button>
+          </div>
+        `).join('');
+
+        bubblesWrap.querySelectorAll('.edit-mod-bubble-del').forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            const modCode = btn.dataset.mod;
+            currentModules = currentModules.filter(m => m !== modCode);
+            updateModulesUI();
+          };
+        });
+      }
+    }
+
+    if (pillsWrap) {
+      pillsWrap.innerHTML = POPULAR_CAMPUS_MODULES.map(mod => {
+        const isEnrolled = currentModules.includes(mod);
+        return `
+          <button type="button" class="edit-mod-pill ${isEnrolled ? 'active' : ''}" data-mod="${esc(mod)}">
+            ${isEnrolled ? '✓ ' : '+ '}${esc(mod)}
+          </button>
+        `;
+      }).join('');
+
+      pillsWrap.querySelectorAll('.edit-mod-pill').forEach(pill => {
+        pill.onclick = (e) => {
+          e.stopPropagation();
+          const mod = pill.dataset.mod;
+          if (currentModules.includes(mod)) {
+            currentModules = currentModules.filter(m => m !== mod);
+          } else {
+            currentModules.push(mod);
+          }
+          updateModulesUI();
+        };
+      });
+    }
+  };
+
+  const addModuleFromInput = () => {
+    const input = $('#edit-mod-input');
+    if (!input) return;
+    const raw = input.value.trim();
+    if (!raw) return;
+
+    // Split by commas or spaces in case user pasted multiple
+    const tokens = raw.split(/[\s,]+/).filter(Boolean);
+    const cleanedList = normalizeModules(tokens);
+
+    if (!cleanedList.length) {
+      toast('Please enter a valid module code (e.g. CMPG121)');
+      return;
+    }
+
+    let addedCount = 0;
+    cleanedList.forEach(code => {
+      if (code.length < 3) return;
+      if (!currentModules.includes(code)) {
+        currentModules.push(code);
+        addedCount++;
+      }
+    });
+
+    if (addedCount === 0 && cleanedList.length === 1) {
+      toast(`${cleanedList[0]} is already added`);
+    } else if (addedCount > 0) {
+      input.value = '';
+      updateModulesUI();
+      input.focus();
+    }
+  };
+
+  $('#edit-mod-add-btn')?.addEventListener('click', addModuleFromInput);
+  $('#edit-mod-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addModuleFromInput();
+    } else if (e.key === ',') {
+      e.preventDefault();
+      addModuleFromInput();
+    }
+  });
+
+  // Initial render of module chips
+  updateModulesUI();
+
+  // Persona theme selection
   const themeSelect = $('#edit-anon-identity-theme');
   const customInput = $('#edit-anon-custom');
   const existingBase = ANON_PERSONA_THEMES.find(theme => currentAnonIdentity.toLowerCase().startsWith(theme.toLowerCase()));
@@ -14772,19 +14990,50 @@ function editProfile() {
       }
     };
   }
+
+  // Photo live preview
   let newPhoto = null; let newPhotoFile = null;
-  $('#edit-photo').onchange = async e => {
-    if (e.target.files[0]) { newPhotoFile = e.target.files[0]; newPhoto = 'pending'; toast('Photo selected'); }
-  };
+  const photoInput = $('#edit-photo');
+  if (photoInput) {
+    photoInput.onchange = e => {
+      const file = e.target.files?.[0];
+      if (file) {
+        newPhotoFile = file;
+        newPhoto = 'pending';
+        const previewUrl = URL.createObjectURL(file);
+        const previewWrap = $('#edit-avatar-preview');
+        if (previewWrap) {
+          previewWrap.innerHTML = `
+            <img src="${previewUrl}" class="edit-avatar-img" alt="Avatar">
+            <div class="edit-avatar-badge" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+              </svg>
+            </div>
+          `;
+        }
+        toast('Photo selected! Tap Save to apply.');
+      }
+    };
+  }
+
+  // Save handler
   $('#edit-save').onclick = async () => {
     const name = $('#edit-name').value.trim();
     const bio = $('#edit-bio').value.trim();
     const address = $('#edit-address')?.value.trim() || '';
-    const modulesRaw = $('#edit-modules').value || '';
-    const modules = normalizeModules(modulesRaw.split(','));
+    const modules = normalizeModules(currentModules);
     const gender = ($('#edit-gender')?.value || '').trim();
     if (!name) return toast('Name required');
-    closeModal(); toast('Saving...');
+
+    const saveBtn = $('#edit-save');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="inline-spinner" style="width:16px;height:16px;margin-right:8px"></span> Saving...';
+    }
+    toast('Saving profile...');
+
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
     const selectedTheme = $('#edit-anon-identity-theme')?.value || '__custom';
@@ -14794,8 +15043,11 @@ function editProfile() {
     anonIdentity = clampText(anonIdentity, 32);
     const identityChanged = normalizeIdentityValue(anonIdentity) !== normalizeIdentityValue(currentAnonIdentity);
     const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
-    if (newPhotoFile) { updates.photoURL = await uploadToR2(newPhotoFile, 'profile'); }
+
     try {
+      if (newPhotoFile) {
+        updates.photoURL = await uploadToR2(newPhotoFile, 'profile');
+      }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
       updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
@@ -14804,8 +15056,17 @@ function editProfile() {
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
       setupHeader();
       if (state.page === 'chat') { loadDMList().catch(() => {}); }
-      toast('Profile updated!'); openProfile(state.user.uid);
-    } catch (e) { toast('Failed'); console.error(e); }
+      closeModal();
+      toast('Profile updated!');
+      openProfile(state.user.uid);
+    } catch (e) {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Profile Changes';
+      }
+      toast('Failed to save profile');
+      console.error(e);
+    }
   };
 }
 
