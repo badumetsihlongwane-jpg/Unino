@@ -4031,11 +4031,37 @@ let _nwuCoursesCatalogue = null;
 let _loadingCoursesPromise = null;
 let _signupModules = [];
 
+function getCurrentCampusSemester() {
+  const m = new Date().getMonth() + 1; // 1 to 12
+  // Jan to June = Semester 1 (1); July to Dec = Semester 2 (2)
+  return (m >= 1 && m <= 6) ? 1 : 2;
+}
+
+function getCampusSemesterName(sem = null) {
+  const s = sem !== null ? sem : getCurrentCampusSemester();
+  return s === 1 ? 'Semester 1' : 'Semester 2';
+}
+
+function getPopularCampusModules(semesterFilter = null) {
+  const sem = semesterFilter !== null ? semesterFilter : getCurrentCampusSemester();
+  if (sem === 2 || sem === '2' || sem === 's2' || sem === 'Semester 2') {
+    return [
+      'CMPG121', 'BMAN121', 'MTHS121', 'STTN121',
+      'WVCS221', 'CMPG223', 'ENLS122', 'ECON122',
+      'PSYC121', 'IOPS121', 'ACCF121', 'ALDE122'
+    ];
+  }
+  return [
+    'CMPG111', 'BMAN111', 'MTHS111', 'STTN111',
+    'ACCF111', 'ECON112', 'PSYC111', 'IOPS111',
+    'ENLS112', 'ALDE111', 'CMPG211', 'MTHS211'
+  ];
+}
+
 const POPULAR_CAMPUS_MODULES = [
-  'CMPG111', 'CMPG121', 'CMPG211', 'CMPG223',
-  'MTHS111', 'MTHS121', 'STTN111', 'STTN121',
-  'BMAN111', 'BMAN121', 'ACCF111', 'ECON112',
-  'WVCS221', 'ENLS112', 'PSYC111', 'IOPS111'
+  'CMPG121', 'BMAN121', 'MTHS121', 'STTN121',
+  'WVCS221', 'CMPG223', 'ENLS122', 'ECON122',
+  'PSYC121', 'IOPS121', 'ACCF121', 'ALDE122'
 ];
 
 const POPULAR_NWU_DEGREES = [
@@ -4082,33 +4108,56 @@ function mapYearToDatasetKey(yearStr = '') {
   return 'Year 1';
 }
 
-function getCourseCurriculumModules(courseName, yearStr = '') {
+function getCourseCurriculumModules(courseName, yearStr = '', semesterFilter = null) {
   if (!_nwuCoursesCatalogue || !courseName) return [];
   const courseData = _nwuCoursesCatalogue[courseName];
   if (!courseData) {
     const lower = courseName.trim().toLowerCase();
     const exactKey = Object.keys(_nwuCoursesCatalogue).find(k => k.toLowerCase() === lower);
-    if (exactKey) return getCourseCurriculumModules(exactKey, yearStr);
+    if (exactKey) return getCourseCurriculumModules(exactKey, yearStr, semesterFilter);
     return [];
   }
   const yearKey = mapYearToDatasetKey(yearStr);
-  if (courseData[yearKey] && courseData[yearKey].length) {
-    return courseData[yearKey];
+  const yrObj = courseData[yearKey] || courseData['Year 1'] || {};
+
+  const sem = semesterFilter !== null ? semesterFilter : getCurrentCampusSemester();
+
+  let list = [];
+  if (Array.isArray(yrObj)) {
+    list = yrObj;
+  } else if (yrObj && typeof yrObj === 'object') {
+    if (sem === 1 || sem === '1' || sem === 's1' || sem === 'Semester 1') {
+      list = (yrObj.s1 && yrObj.s1.length) ? yrObj.s1 : (yrObj.all || yrObj.modules || []);
+    } else if (sem === 2 || sem === '2' || sem === 's2' || sem === 'Semester 2') {
+      list = (yrObj.s2 && yrObj.s2.length) ? yrObj.s2 : (yrObj.all || yrObj.modules || []);
+    } else {
+      list = yrObj.all || yrObj.modules || [];
+    }
   }
-  if (courseData['Year 1'] && courseData['Year 1'].length) {
-    return courseData['Year 1'];
+
+  if (!list.length) {
+    for (const yr of Object.keys(courseData)) {
+      const v = courseData[yr];
+      if (Array.isArray(v)) list.push(...v);
+      else if (v && typeof v === 'object') {
+        if ((sem === 1 || sem === '1' || sem === 's1') && v.s1) list.push(...v.s1);
+        else if ((sem === 2 || sem === '2' || sem === 's2') && v.s2) list.push(...v.s2);
+        else if (v.all) list.push(...v.all);
+      }
+    }
+    list = Array.from(new Set(list));
   }
-  const allMods = [];
-  for (const yr of Object.keys(courseData)) {
-    if (Array.isArray(courseData[yr])) allMods.push(...courseData[yr]);
-  }
-  return Array.from(new Set(allMods));
+
+  return list;
 }
 
 // Global exposure for editProfile() and console debugging
 if (typeof window !== 'undefined') {
   window.loadCoursesCatalogue = loadCoursesCatalogue;
   window.getCourseCurriculumModules = getCourseCurriculumModules;
+  window.getCurrentCampusSemester = getCurrentCampusSemester;
+  window.getCampusSemesterName = getCampusSemesterName;
+  window.getPopularCampusModules = getPopularCampusModules;
   window.POPULAR_CAMPUS_MODULES = POPULAR_CAMPUS_MODULES;
   window.POPULAR_NWU_DEGREES = POPULAR_NWU_DEGREES;
   if ('requestIdleCallback' in window) {
@@ -4425,21 +4474,46 @@ function initAuth() {
       });
     };
 
+    let signupSemesterFilter = getCurrentCampusSemester();
+
+    const sem2Btn = $('#s-sem-2-btn');
+    const sem1Btn = $('#s-sem-1-btn');
+    const semAllBtn = $('#s-sem-all-btn');
+
+    const updateSemFilterUI = () => {
+      [sem2Btn, sem1Btn, semAllBtn].forEach(b => b?.classList.remove('active'));
+      if (signupSemesterFilter === 2) sem2Btn?.classList.add('active');
+      else if (signupSemesterFilter === 1) sem1Btn?.classList.add('active');
+      else semAllBtn?.classList.add('active');
+    };
+    updateSemFilterUI();
+
+    const switchSem = (semVal) => {
+      signupSemesterFilter = semVal;
+      updateSemFilterUI();
+      renderSuggestions();
+    };
+
+    sem2Btn?.addEventListener('click', (e) => { e.preventDefault(); switchSem(2); });
+    sem1Btn?.addEventListener('click', (e) => { e.preventDefault(); switchSem(1); });
+    semAllBtn?.addEventListener('click', (e) => { e.preventDefault(); switchSem('all'); });
+
     const renderSuggestions = () => {
       if (!pillsWrap) return;
       const majorVal = (majorInput.value || '').trim();
       const yearVal = (yearSelect?.value || '').trim();
-      const curriculum = getCourseCurriculumModules(majorVal, yearVal);
+      const curriculum = getCourseCurriculumModules(majorVal, yearVal, signupSemesterFilter);
       const hasCurriculum = curriculum && curriculum.length > 0;
-      const listToRender = hasCurriculum ? curriculum : POPULAR_CAMPUS_MODULES;
+      const listToRender = hasCurriculum ? curriculum : getPopularCampusModules(signupSemesterFilter);
 
       if (suggestionsTitle) {
+        const semTag = signupSemesterFilter === 'all' ? 'All Sem' : `Sem ${signupSemesterFilter}`;
         if (hasCurriculum) {
           const yrLabel = yearVal || 'Year 1';
-          const displayMajor = majorVal.length > 28 ? majorVal.slice(0, 26) + '…' : majorVal;
-          suggestionsTitle.textContent = `Suggested for ${displayMajor} (${yrLabel})`;
+          const displayMajor = majorVal.length > 24 ? majorVal.slice(0, 22) + '…' : majorVal;
+          suggestionsTitle.textContent = `Suggested for ${displayMajor} (${yrLabel} · ${semTag})`;
         } else {
-          suggestionsTitle.textContent = 'Popular NWU Modules';
+          suggestionsTitle.textContent = `Popular NWU Modules (${semTag})`;
         }
       }
 
@@ -9886,7 +9960,7 @@ async function showUserPreview(uid) {
     const isFriend = (state.profile.friends || []).includes(uid);
     const isPending = (state.profile.sentRequests || []).includes(uid);
     const allowsAnon = allowAnonymousDMsFor(user);
-    const modules = (user.modules || []).slice(0, 3);
+    const modules = normalizeModules(user.modules || []);
     const myCoords = getUserCoords(state.profile);
     const theirCoords = getUserCoords(user);
     const distanceText = !isMe && myCoords && theirCoords ? formatDistanceText(distanceKmBetween(myCoords, theirCoords)) : '';
@@ -9895,22 +9969,34 @@ async function showUserPreview(uid) {
       distanceText ? `🧭 ${esc(distanceText)}` : ''
     ].filter(Boolean);
     openModal(`
-      <div class="modal-body" style="text-align:center;padding:24px">
-        <div style="margin-bottom:12px">${avatar(user.displayName, user.photoURL, 'avatar-xl')}</div>
-        <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(user.displayName)}</div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px">${esc(user.major || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}${user.gender ? ' · ' + esc(user.gender) : ''}</div>
-        ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
-        ${user.bio ? `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.4">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:16px">${modules.map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${esc(m)}')" title="View ${esc(m)} schedule">📅 ${esc(m)}</span>`).join('')}</div>` : ''}
-        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          ${isMe ? '' : isFriend
-            ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>`
-            : `${allowsAnon ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anon Off</button>`}
-               ${isPending
-                 ? `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`
-                 : `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>`}`}
+      <div class="modal-header" style="border-bottom:none;padding:16px 20px 0;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.6px">Student Preview</span>
+        <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:10px 22px 24px">
+        <div style="margin-bottom:12px;cursor:pointer;display:inline-block;position:relative" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')" title="Click to view full photo"` : ''}>
+          ${avatar(user.displayName, user.photoURL, 'avatar-xl')}
+          ${user.photoURL ? `<span style="position:absolute;bottom:0;right:0;background:var(--primary);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid var(--bg-card);box-shadow:0 2px 4px rgba(0,0,0,0.25)" title="View photo">🔍</span>` : ''}
+        </div>
+        <div style="font-size:19px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;justify-content:center;gap:6px">${esc(user.displayName)}${verifiedBadge(uid)}</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">${esc(user.major || user.course || 'Student')}${user.university ? ' · ' + esc(user.university) : ''}${user.gender ? ' · ' + esc(user.gender) : ''}</div>
+        ${detailChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0 12px">${detailChips.map(label => `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)">${label}</span>`).join('')}</div>` : ''}
+        ${user.bio ? `<div style="background:var(--bg-tertiary);border-radius:14px;padding:12px 14px;margin-bottom:14px;text-align:left"><p style="font-size:13px;color:var(--text-primary);line-height:1.45;margin:0">${esc(user.bio)}</p></div>` : ''}
+        ${modules.length ? `
+          <div style="text-align:left;margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Enrolled Modules (${modules.length})</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              ${modules.slice(0, 12).map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${esc(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`).join('')}
+              ${modules.length > 12 ? `<span class="module-chip" style="opacity:0.6">+${modules.length - 12} more</span>` : ''}
+            </div>
+          </div>
+        ` : ''}
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+          ${isMe ? '' : (state.page !== 'chat' && isFriend ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>` : '')}
+          ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>` : '')}
+          ${isMe ? '' : (!isFriend && !isPending ? `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>` : '')}
           <button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>
-          <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Profile</button>
+          <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Full Profile & Posts →</button>
         </div>
       </div>
     `);
@@ -13481,10 +13567,11 @@ function getStoredModuleGroups(targetUser) {
   return groups;
 }
 
-function saveModuleGroup(mod, group) {
-  if (!mod || !group) return;
+function saveModuleGroups(mod, groups) {
+  if (!mod) return;
   const current = getStoredModuleGroups(state.profile);
-  current[mod] = group;
+  const clean = Array.isArray(groups) ? groups.filter(Boolean) : (groups ? [groups] : []);
+  current[mod] = clean;
   try {
     localStorage.setItem('unino-tt-groups', JSON.stringify(current));
   } catch (_) {}
@@ -13498,20 +13585,28 @@ function saveModuleGroup(mod, group) {
   }
 }
 
-function resolveEffectiveGroup(mod, availableGroups = [], targetUser = state.profile) {
-  if (!availableGroups || !availableGroups.length) return '';
+function saveModuleGroup(mod, group) {
+  if (!mod || !group) return;
+  saveModuleGroups(mod, [group]);
+}
+
+function getSelectedGroupsForModule(mod, availableGroups = [], targetUser = state.profile) {
+  if (!availableGroups || !availableGroups.length) return [];
   const stored = getStoredModuleGroups(targetUser);
-  if (stored[mod] && availableGroups.includes(stored[mod])) {
-    return stored[mod];
+  const val = stored[mod];
+  if (val) {
+    const list = Array.isArray(val) ? val : [val];
+    const valid = list.filter(g => availableGroups.includes(g));
+    if (valid.length > 0) return valid;
   }
-  const userFac = inferFacultyFromMajor(targetUser?.major);
-  if (userFac) {
-    const facGroup = availableGroups.find(g => g.startsWith(userFac + '_') || g === userFac);
-    if (facGroup) return facGroup;
-  }
-  const sme1 = availableGroups.find(g => g === 'SME_001');
-  if (sme1) return sme1;
-  return availableGroups[0] || '';
+  // "dont assme default": If user has not chosen yet, default to all available streams
+  // so no class sessions are hidden by an assumed default!
+  return [...availableGroups];
+}
+
+function resolveEffectiveGroup(mod, availableGroups = [], targetUser = state.profile) {
+  const sel = getSelectedGroupsForModule(mod, availableGroups, targetUser);
+  return sel[0] || availableGroups[0] || '';
 }
 
 async function checkUpcomingLectureAlerts() {
@@ -13538,11 +13633,11 @@ async function checkUpcomingLectureAlerts() {
   enrolledModules.forEach(mod => {
     const allSlots = timetable[mod] || [];
     const availableGroups = Array.from(new Set(allSlots.map(s => s.group).filter(Boolean)));
-    const activeGroup = resolveEffectiveGroup(mod, availableGroups, state.profile);
+    const activeGroups = getSelectedGroupsForModule(mod, availableGroups, state.profile);
 
     allSlots.forEach(slot => {
       if (slot.day !== todayDay) return;
-      if (activeGroup && slot.group && slot.group !== activeGroup) return;
+      if (slot.group && availableGroups.length > 0 && !activeGroups.includes(slot.group)) return;
 
       const [sh, sm] = (slot.start || '00:00').split(':').map(Number);
       const startMin = (sh || 0) * 60 + (sm || 0);
@@ -13636,21 +13731,14 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     modulesToShow.forEach(mod => {
       const slots = allTimetable[mod] || [];
       const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
-      const effectiveGroup = resolveEffectiveGroup(mod, availableGroups, targetUser);
+      const activeGroups = getSelectedGroupsForModule(mod, availableGroups, targetUser);
 
       slots.forEach(slot => {
         if (currentSelectedDay !== 'ALL' && slot.day !== currentSelectedDay) return;
 
-        // Group filtering:
-        if (currentFilterModule === 'ALL') {
-          if (filterMyGroupsOnly && effectiveGroup && slot.group && slot.group !== effectiveGroup) {
-            return;
-          }
-        } else if (currentFilterModule === mod) {
-          if (currentSelectedGroup !== 'ALL') {
-            const targetGroup = currentSelectedGroup === 'AUTO' ? effectiveGroup : currentSelectedGroup;
-            if (targetGroup && slot.group && slot.group !== targetGroup) return;
-          }
+        // Group / stream filtering:
+        if (slot.group && availableGroups.length > 1) {
+          if (!activeGroups.includes(slot.group)) return;
         }
         daySlots.push({ ...slot, module: mod });
       });
@@ -13663,59 +13751,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       return (a.start || '').localeCompare(b.start || '');
     });
 
-    // Accurate pairwise clash detection (ONLY across student's attended groups)
-    const clashes = [];
-    if (enrolledModules.length > 1) {
-      const studentActiveSlots = [];
-      enrolledModules.forEach(mod => {
-        const slots = allTimetable[mod] || [];
-        const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
-        const activeGroup = resolveEffectiveGroup(mod, availableGroups, targetUser);
-        slots.forEach(s => {
-          if (!activeGroup || !s.group || s.group === activeGroup) {
-            studentActiveSlots.push({ ...s, module: mod });
-          }
-        });
-      });
-
-      for (let i = 0; i < studentActiveSlots.length; i++) {
-        for (let j = i + 1; j < studentActiveSlots.length; j++) {
-          const s1 = studentActiveSlots[i];
-          const s2 = studentActiveSlots[j];
-          if (s1.module !== s2.module && s1.day === s2.day) {
-            const s1Start = parseMinutes(s1.start);
-            const s1End = parseMinutes(s1.end);
-            const s2Start = parseMinutes(s2.start);
-            const s2End = parseMinutes(s2.end);
-            if (s1Start < s2End && s2Start < s1End) {
-              clashes.push({ s1, s2 });
-            }
-          }
-        }
-      }
-    }
-
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
     const todayName = currentWeekDays[now.getDay()];
-
-    let clashBannerHtml = '';
-    if (clashes.length > 0 && !dismissedClashes && !currentSearchQuery) {
-      const firstClash = clashes[0];
-      const desc = `${firstClash.s1.module} (${firstClash.s1.group || 'Grp 1'}) and ${firstClash.s2.module} (${firstClash.s2.group || 'Grp 1'}) overlap on ${firstClash.s1.day} ${firstClash.s1.start}–${firstClash.s1.end}`;
-      clashBannerHtml = `
-        <div class="timetable-clash-warning">
-          <div class="timetable-clash-warning-content">
-            <span style="font-size:16px;line-height:1">⚠️</span>
-            <div>
-              <strong>Timetable Conflict:</strong> ${esc(desc)}.${clashes.length > 1 ? ` (+${clashes.length - 1} more)` : ''}
-              <div style="font-size:11px;opacity:0.9;margin-top:2px">💡 Tip: Tap the module chip above to switch class groups (e.g. SME_002) to resolve.</div>
-            </div>
-          </div>
-          <button type="button" class="timetable-clash-dismiss-btn" data-action="dismiss-clash" title="Dismiss alert">✕</button>
-        </div>
-      `;
-    }
 
     const daysList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'ALL'];
     const tabsHtml = `
@@ -13737,34 +13775,39 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       </div>
     ` : '';
 
-    // Group selector row
+    // Stream selector row
     let groupsBarHtml = '';
     if (currentFilterModule !== 'ALL' && allTimetable[currentFilterModule]) {
       const modSlots = allTimetable[currentFilterModule] || [];
       const availGroups = Array.from(new Set(modSlots.map(s => s.group).filter(Boolean)));
       if (availGroups.length > 1) {
-        const effectiveGrp = resolveEffectiveGroup(currentFilterModule, availGroups, targetUser);
-        const activeGrp = currentSelectedGroup === 'AUTO' ? effectiveGrp : currentSelectedGroup;
+        const activeGroups = getSelectedGroupsForModule(currentFilterModule, availGroups, targetUser);
+        const allSelected = activeGroups.length === availGroups.length;
         groupsBarHtml = `
           <div class="timetable-groups-row">
-            <span class="timetable-group-label">${esc(currentFilterModule)} Groups:</span>
-            ${availGroups.map(grp => `
-              <button type="button" class="timetable-group-pill ${activeGrp === grp ? 'active' : ''}" data-modgroup="${esc(grp)}">
-                ${esc(grp)} ${effectiveGrp === grp ? '✓' : ''}
-              </button>
-            `).join('')}
-            <button type="button" class="timetable-group-pill ${activeGrp === 'ALL' ? 'active' : ''}" data-modgroup="ALL">All Groups</button>
+            <span class="timetable-group-label">${esc(currentFilterModule)} Streams:</span>
+            ${availGroups.map(grp => {
+              const isSel = activeGroups.includes(grp);
+              return `
+                <button type="button" class="timetable-group-pill ${isSel ? 'active' : ''}" data-modgroup="${esc(grp)}" title="Toggle stream ${esc(grp)}">
+                  ${isSel ? '✓ ' : ''}${esc(grp)}
+                </button>
+              `;
+            }).join('')}
+            <button type="button" class="timetable-group-pill ${allSelected ? 'active' : ''}" data-modgroup="__ALL__">All Streams</button>
           </div>
         `;
       }
     } else if (enrolledModules.length > 0 && !currentSearchQuery) {
-      groupsBarHtml = `
-        <div class="timetable-groups-row">
-          <span class="timetable-group-label">Stream:</span>
-          <button type="button" class="timetable-group-pill ${filterMyGroupsOnly ? 'active' : ''}" data-grouptoggle="mine">✓ My Groups Only</button>
-          <button type="button" class="timetable-group-pill ${!filterMyGroupsOnly ? 'active' : ''}" data-grouptoggle="all">Show All Groups</button>
-        </div>
-      `;
+      const multiStreamCount = enrolledModules.filter(m => (allTimetable[m] || []).some(s => s.group)).length;
+      if (multiStreamCount > 0) {
+        groupsBarHtml = `
+          <div class="timetable-groups-row">
+            <span class="timetable-group-label">Streams:</span>
+            <span style="font-size:11px;color:var(--text-tertiary);line-height:1.3">Filtered by your last-used stream choices. Tap a module chip above or card stream tag to edit.</span>
+          </div>
+        `;
+      }
     }
 
     let cardsHtml = '';
@@ -13832,11 +13875,11 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                     </button>
                     ${s.group ? `
                       ${hasMultipleGroups ? `
-                        <button type="button" class="timetable-group-tag clickable" data-cardgroup-mod="${esc(s.module)}" title="Tap to switch group for ${esc(s.module)}">
-                          Grp: ${esc(s.group)} ▾
+                        <button type="button" class="timetable-group-tag clickable" data-cardgroup-mod="${esc(s.module)}" title="Tap to select streams for ${esc(s.module)}">
+                          Stream: ${esc(s.group)} ▾
                         </button>
                       ` : `
-                        <span class="timetable-group-tag">Grp: ${esc(s.group)}</span>
+                        <span class="timetable-group-tag">Stream: ${esc(s.group)}</span>
                       `}
                     ` : ''}
                   </div>
@@ -13893,7 +13936,6 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           ${tabsHtml}
         </div>
         <div class="timetable-modal-body">
-          ${clashBannerHtml}
           ${cardsHtml}
           ${alertsHtml}
         </div>
@@ -13937,62 +13979,54 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     modal.querySelectorAll('.timetable-mod-chip').forEach(chip => {
       chip.onclick = () => {
         currentFilterModule = chip.dataset.mod;
-        currentSelectedGroup = 'AUTO';
         currentSearchQuery = '';
         modal.innerHTML = buildModalHtml();
         wireEvents();
       };
     });
 
-    // Group toggle buttons
-    modal.querySelectorAll('[data-grouptoggle]').forEach(btn => {
-      btn.onclick = () => {
-        filterMyGroupsOnly = btn.dataset.grouptoggle === 'mine';
-        modal.innerHTML = buildModalHtml();
-        wireEvents();
-      };
-    });
-
-    // Module group selector pills
+    // Module stream multi-select pills
     modal.querySelectorAll('[data-modgroup]').forEach(btn => {
       btn.onclick = () => {
-        const selectedGrp = btn.dataset.modgroup;
-        currentSelectedGroup = selectedGrp;
-        if (isMe && selectedGrp !== 'ALL' && currentFilterModule !== 'ALL') {
-          saveModuleGroup(currentFilterModule, selectedGrp);
-          toast(`${currentFilterModule} group set to ${selectedGrp} ✓`);
+        const grp = btn.dataset.modgroup;
+        const modSlots = allTimetable[currentFilterModule] || [];
+        const availGroups = Array.from(new Set(modSlots.map(s => s.group).filter(Boolean)));
+        let activeGroups = getSelectedGroupsForModule(currentFilterModule, availGroups, targetUser);
+
+        if (grp === '__ALL__') {
+          if (activeGroups.length === availGroups.length) {
+            activeGroups = [availGroups[0]];
+          } else {
+            activeGroups = [...availGroups];
+          }
+        } else {
+          if (activeGroups.includes(grp)) {
+            if (activeGroups.length > 1) {
+              activeGroups = activeGroups.filter(g => g !== grp);
+            } else {
+              activeGroups = [...availGroups];
+            }
+          } else {
+            activeGroups = [...activeGroups, grp];
+          }
+        }
+        if (isMe) {
+          saveModuleGroups(currentFilterModule, activeGroups);
+          toast(`${currentFilterModule} streams updated ✓`);
         }
         modal.innerHTML = buildModalHtml();
         wireEvents();
       };
     });
 
-    // Card-level group switcher
+    // Card-level stream switcher
     modal.querySelectorAll('[data-cardgroup-mod]').forEach(btn => {
       btn.onclick = () => {
         const mod = btn.dataset.cardgroupMod;
-        const availGroups = Array.from(new Set((allTimetable[mod] || []).map(item => item.group).filter(Boolean)));
-        if (availGroups.length > 1) {
-          currentFilterModule = mod;
-          const currentGrp = resolveEffectiveGroup(mod, availGroups, targetUser);
-          const nextIdx = (availGroups.indexOf(currentGrp) + 1) % availGroups.length;
-          const nextGrp = availGroups[nextIdx];
-          currentSelectedGroup = nextGrp;
-          if (isMe) {
-            saveModuleGroup(mod, nextGrp);
-            toast(`${mod} group changed to ${nextGrp} ✓`);
-          }
-          modal.innerHTML = buildModalHtml();
-          wireEvents();
-        }
+        currentFilterModule = mod;
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
       };
-    });
-
-    // Dismiss clash alert
-    modal.querySelector('[data-action="dismiss-clash"]')?.addEventListener('click', () => {
-      dismissedClashes = true;
-      modal.innerHTML = buildModalHtml();
-      wireEvents();
     });
 
     const alertSelect = modal.querySelector('#timetable-alert-select');
@@ -14000,6 +14034,14 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       alertSelect.onchange = () => {
         updateTimetableAlertPreference(alertSelect.value);
       };
+    }
+
+    // Always jump / auto-scroll to current (Now) or upcoming (Next) lecture
+    const activeCard = modal.querySelector('.timetable-card.is-now') || modal.querySelector('.timetable-card.is-next');
+    if (activeCard) {
+      setTimeout(() => {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 70);
     }
   };
 
@@ -14563,8 +14605,8 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
     `;
   } else {
     hdrInfo.innerHTML = `
-      <div onclick="openProfile('${otherUid}')" style="cursor:pointer">${avatar(otherName, otherPhoto, 'avatar-sm')}</div>
-      <div onclick="openProfile('${otherUid}')" style="cursor:pointer"><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3><span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'}</span></div>
+      <div onclick="showUserPreview('${otherUid}')" style="cursor:pointer" title="View profile preview">${avatar(otherName, otherPhoto, 'avatar-sm')}</div>
+      <div onclick="showUserPreview('${otherUid}')" style="cursor:pointer" title="View profile preview"><h3 style="font-size:15px;font-weight:700">${esc(otherName)}</h3><span style="font-size:11px;color:var(--text-tertiary)">${otherStatus === 'online' ? 'Online' : otherStatus === 'study' ? 'Studying' : 'Offline'}</span></div>
     `;
   }
 
@@ -15535,7 +15577,7 @@ async function openProfile(uid) {
           ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openTimetableModal('${uid}','${esc(m)}')" title="View ${esc(m)} schedule">📅 ${esc(m)}</span>`).join('')}</div>` : ''}
+        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${esc(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
@@ -15546,7 +15588,6 @@ async function openProfile(uid) {
         <div class="profile-actions">
           ${isMe
             ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
-               <button class="btn-outline" onclick="openTimetableModal('${uid}')">📅 Timetable</button>
                <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
             : (() => {
                 const isFriend = (state.profile.friends || []).includes(uid);
@@ -15566,10 +15607,7 @@ async function openProfile(uid) {
                 const msgBtn = isFriendForChat
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
-                const timetableBtn = (user.modules && user.modules.length)
-                  ? `<button class="btn-outline" onclick="openTimetableModal('${uid}')">📅 Timetable</button>`
-                  : '';
-                return `${msgBtn}\n               ${friendBtn}${timetableBtn ? `\n               ${timetableBtn}` : ''}`;
+                return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>
       </div>
@@ -15965,10 +16003,13 @@ async function loadBlockedUsersList() {
   }
 }
 
-// ─── Edit Profile (with modules) ─────────────────
+// ─── Edit Profile (with modules & course autocomplete) ─────────────────
 function editProfile() {
   const p = state.profile || {};
   let currentModules = [...normalizeModules(p.modules || [])];
+  let currentMajor = (p.major || p.course || '').trim();
+  let currentYear = p.year || 'Year 1';
+  let currentSemesterFilter = getCurrentCampusSemester();
   const currentAnonIdentity = getUserAnonIdentity(p);
   const gpsStatus = getUserCoords(p)
     ? `GPS saved: ${Number(p.geoLat).toFixed(5)}, ${Number(p.geoLng).toFixed(5)}`
@@ -15976,14 +16017,14 @@ function editProfile() {
 
   loadCoursesCatalogue().then(() => {
     const pillsWrap = $('#edit-mod-pills-wrap');
-    if (pillsWrap && p.major) updateModulesUI();
+    if (pillsWrap) updateModulesUI();
   });
 
   openModal(`
     <div class="modal-header edit-profile-header">
       <div>
         <h2>Edit Profile</h2>
-        <p class="edit-profile-sub">Update your info, academic modules, and persona</p>
+        <p class="edit-profile-sub">Update your info, degree, academic modules, and persona</p>
       </div>
       <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
     </div>
@@ -16005,7 +16046,35 @@ function editProfile() {
         <button type="button" class="btn-ghost edit-avatar-btn" id="edit-avatar-change-btn" onclick="$('#edit-photo')?.click()">Change Photo</button>
       </div>
 
-      <!-- 2. Academic Modules Section (Bubbly Tag Chips & Instant Add) -->
+      <!-- 2. Academic & Degree Programme -->
+      <div class="edit-profile-card">
+        <div class="edit-card-header">
+          <div class="edit-card-title">
+            <span class="edit-card-icon">🎓</span>
+            <span>Degree & Academic Programme</span>
+          </div>
+        </div>
+        <p class="edit-card-hint">Choose your NWU degree/programme and year of study to unlock automated module suggestions and campus study cohorts.</p>
+
+        <div class="form-group signup-field-wrap">
+          <label for="edit-major">Degree / Programme / Course</label>
+          <input type="text" id="edit-major" value="${esc(currentMajor)}" placeholder="Search degree (e.g. BSc in Computer Science, BCom...)" autocomplete="off">
+          <div class="signup-autocomplete-dropdown" id="edit-major-dropdown" style="display:none"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-year">Year of Study</label>
+          <select id="edit-year">
+            <option value="Year 1" ${(!currentYear || currentYear === 'Year 1' || currentYear === '1st Year') ? 'selected' : ''}>Year 1 (1st Year)</option>
+            <option value="Year 2" ${(currentYear === 'Year 2' || currentYear === '2nd Year') ? 'selected' : ''}>Year 2 (2nd Year)</option>
+            <option value="Year 3" ${(currentYear === 'Year 3' || currentYear === '3rd Year') ? 'selected' : ''}>Year 3 (3rd Year)</option>
+            <option value="Year 4" ${(currentYear === 'Year 4' || currentYear === '4th Year' || /honour/i.test(currentYear)) ? 'selected' : ''}>Year 4 / Honours</option>
+            <option value="Postgraduate" ${(/master|phd|postgrad/i.test(currentYear)) ? 'selected' : ''}>Postgraduate / Masters</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 3. Academic Modules Section (Bubbly Tag Chips & Instant Add) -->
       <div class="edit-profile-card">
         <div class="edit-card-header">
           <div class="edit-card-title">
@@ -16014,7 +16083,7 @@ function editProfile() {
           </div>
           <span class="edit-modules-count" id="edit-modules-counter">${currentModules.length} enrolled</span>
         </div>
-        <p class="edit-card-hint">Modules link you with classmates, study sessions, and auto-join module groups. Tap &times; to remove passed or dropped modules.</p>
+        <p class="edit-card-hint">Modules link you with classmates, study sessions, and your personal timetable. Tap &times; to remove modules.</p>
 
         <!-- Active Module Bubbles -->
         <div class="edit-mod-bubbles-tray" id="edit-mod-bubbles-wrap"></div>
@@ -16026,14 +16095,19 @@ function editProfile() {
         </div>
 
         <!-- Filter Options / Course Curriculum Suggestions -->
-        <div class="edit-mod-suggestions-header">
-          <span id="edit-mod-suggestions-title">${(p.major && getCourseCurriculumModules(p.major, p.year).length) ? `Suggested for ${esc(p.major.length > 28 ? p.major.slice(0, 26) + '…' : p.major)} (${esc(p.year || 'Year 1')})` : 'Popular NWU Modules'}</span>
-          <span style="font-weight:400;color:var(--text-tertiary);font-size:11px">Tap to add / remove</span>
+        <div class="edit-mod-suggestions-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <span id="edit-mod-suggestions-title"></span>
+          <div style="display:flex;align-items:center;gap:4px">
+            <button type="button" class="edit-chip-sm ${currentSemesterFilter === 2 ? 'active' : ''}" id="edit-sem-2-btn" data-sem="2">Sem 2</button>
+            <button type="button" class="edit-chip-sm ${currentSemesterFilter === 1 ? 'active' : ''}" id="edit-sem-1-btn" data-sem="1">Sem 1</button>
+            <button type="button" class="edit-chip-sm ${currentSemesterFilter === 'all' ? 'active' : ''}" id="edit-sem-all-btn" data-sem="all">All</button>
+            <button type="button" class="signup-mod-add-all-btn" id="edit-mod-add-all-btn" style="display:none">+ Add All</button>
+          </div>
         </div>
         <div class="edit-mod-pills-wrap" id="edit-mod-pills-wrap"></div>
       </div>
 
-      <!-- 3. Personal Information Card -->
+      <!-- 4. Personal Information Card -->
       <div class="edit-profile-card">
         <div class="edit-card-header">
           <div class="edit-card-title">
@@ -16078,7 +16152,7 @@ function editProfile() {
         </div>
       </div>
 
-      <!-- 4. Privacy & Anonymous Chat Card -->
+      <!-- 5. Privacy & Anonymous Chat Card -->
       <div class="edit-profile-card">
         <div class="edit-card-header">
           <div class="edit-card-title">
@@ -16118,7 +16192,7 @@ function editProfile() {
         </div>
       </div>
 
-      <!-- 5. Actions Bar -->
+      <!-- 6. Actions Bar -->
       <div class="edit-profile-actions">
         <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user?.uid || ''}','${esc(p.displayName || '')}')" style="margin-bottom:8px">View Friends</button>
         <button class="btn-primary btn-full edit-save-btn" id="edit-save">Save Profile Changes</button>
@@ -16157,14 +16231,41 @@ function editProfile() {
     }
 
     if (pillsWrap) {
-      const curriculum = getCourseCurriculumModules(p.major || '', p.year || '');
-      const listToRender = (curriculum && curriculum.length) ? curriculum : POPULAR_CAMPUS_MODULES;
+      const curriculum = getCourseCurriculumModules(currentMajor || '', currentYear || '', currentSemesterFilter);
+      const hasCurriculum = curriculum && curriculum.length > 0;
+      const listToRender = hasCurriculum ? curriculum : getPopularCampusModules(currentSemesterFilter);
       const titleEl = $('#edit-mod-suggestions-title');
+      const addAllBtn = $('#edit-mod-add-all-btn');
+
       if (titleEl) {
-        titleEl.textContent = (curriculum && curriculum.length)
-          ? `Suggested for ${p.major.length > 28 ? p.major.slice(0, 26) + '…' : p.major} (${p.year || 'Year 1'})`
-          : 'Popular NWU Modules';
+        const semTag = currentSemesterFilter === 'all' ? 'All Sem' : `Sem ${currentSemesterFilter}`;
+        if (hasCurriculum) {
+          const yrLabel = currentYear || 'Year 1';
+          const displayMajor = currentMajor.length > 24 ? currentMajor.slice(0, 22) + '…' : currentMajor;
+          titleEl.textContent = `Suggested for ${displayMajor} (${yrLabel} · ${semTag})`;
+        } else {
+          titleEl.textContent = `Popular NWU Modules (${semTag})`;
+        }
       }
+
+      if (addAllBtn) {
+        if (hasCurriculum) {
+          addAllBtn.style.display = 'inline-block';
+          const unaddedCount = listToRender.filter(m => !currentModules.includes(m)).length;
+          addAllBtn.textContent = unaddedCount === 0 ? 'All Added ✓' : `+ Add All (${unaddedCount})`;
+          addAllBtn.disabled = unaddedCount === 0;
+          addAllBtn.onclick = (e) => {
+            e.preventDefault();
+            listToRender.forEach(m => {
+              if (!currentModules.includes(m)) currentModules.push(m);
+            });
+            updateModulesUI();
+          };
+        } else {
+          addAllBtn.style.display = 'none';
+        }
+      }
+
       pillsWrap.innerHTML = listToRender.map(mod => {
         const isEnrolled = currentModules.includes(mod);
         return `
@@ -16188,6 +16289,106 @@ function editProfile() {
       });
     }
   };
+
+  // Wire Course Autocomplete Dropdown
+  const majorInput = $('#edit-major');
+  const majorDropdown = $('#edit-major-dropdown');
+  const yearSelect = $('#edit-year');
+
+  const renderCourseSuggestions = async (query = '') => {
+    if (!majorDropdown) return;
+    const catalogue = await loadCoursesCatalogue();
+    const q = query.trim().toLowerCase();
+    let hits = [];
+
+    if (!q) {
+      hits = POPULAR_NWU_DEGREES.filter(name => catalogue && catalogue[name]);
+      if (!hits.length && catalogue) hits = Object.keys(catalogue).slice(0, 6);
+    } else {
+      const courses = Object.keys(catalogue || {});
+      const startsWithMatches = courses.filter(name => name.toLowerCase().startsWith(q));
+      const containsMatches = courses.filter(name => !name.toLowerCase().startsWith(q) && name.toLowerCase().includes(q));
+      hits = [...startsWithMatches, ...containsMatches].slice(0, 8);
+    }
+
+    if (!hits.length) {
+      majorDropdown.style.display = 'none';
+      majorDropdown.innerHTML = '';
+      return;
+    }
+
+    majorDropdown.innerHTML = hits.map(courseName => {
+      let highlighted = esc(courseName);
+      if (q) {
+        const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        highlighted = esc(courseName).replace(regex, '<mark>$1</mark>');
+      }
+      return `
+        <button type="button" class="signup-autocomplete-item" data-course="${esc(courseName)}">
+          <span class="course-match-title">${highlighted}</span>
+          <span class="course-match-sub">North-West University Degree</span>
+        </button>
+      `;
+    }).join('');
+    majorDropdown.style.display = 'block';
+
+    majorDropdown.querySelectorAll('.signup-autocomplete-item').forEach(btn => {
+      btn.onmousedown = (e) => {
+        e.preventDefault();
+        const selected = btn.dataset.course;
+        if (majorInput) majorInput.value = selected;
+        currentMajor = selected;
+        majorDropdown.style.display = 'none';
+        updateModulesUI();
+      };
+    });
+  };
+
+  majorInput?.addEventListener('focus', () => renderCourseSuggestions(majorInput.value));
+  majorInput?.addEventListener('input', () => {
+    currentMajor = majorInput.value;
+    renderCourseSuggestions(majorInput.value);
+    updateModulesUI();
+  });
+  majorInput?.addEventListener('blur', () => {
+    setTimeout(() => { if (majorDropdown) majorDropdown.style.display = 'none'; }, 200);
+  });
+
+  yearSelect?.addEventListener('change', () => {
+    currentYear = yearSelect.value;
+    updateModulesUI();
+  });
+
+  // Wire Semester Buttons
+  const sem2Btn = $('#edit-sem-2-btn');
+  const sem1Btn = $('#edit-sem-1-btn');
+  const semAllBtn = $('#edit-sem-all-btn');
+
+  const updateEditSemButtons = () => {
+    [sem2Btn, sem1Btn, semAllBtn].forEach(b => b?.classList.remove('active'));
+    if (currentSemesterFilter === 2) sem2Btn?.classList.add('active');
+    else if (currentSemesterFilter === 1) sem1Btn?.classList.add('active');
+    else semAllBtn?.classList.add('active');
+  };
+
+  sem2Btn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentSemesterFilter = 2;
+    updateEditSemButtons();
+    updateModulesUI();
+  });
+  sem1Btn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentSemesterFilter = 1;
+    updateEditSemButtons();
+    updateModulesUI();
+  });
+  semAllBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentSemesterFilter = 'all';
+    updateEditSemButtons();
+    updateModulesUI();
+  });
 
   const addModuleFromInput = () => {
     const input = $('#edit-mod-input');
@@ -16283,6 +16484,8 @@ function editProfile() {
     const address = $('#edit-address')?.value.trim() || '';
     const modules = normalizeModules(currentModules);
     const gender = ($('#edit-gender')?.value || '').trim();
+    const major = ($('#edit-major')?.value || currentMajor || '').trim();
+    const year = $('#edit-year')?.value || currentYear || 'Year 1';
     if (!name) return toast('Name required');
 
     const saveBtn = $('#edit-save');
@@ -16300,7 +16503,7 @@ function editProfile() {
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
     const identityChanged = normalizeIdentityValue(anonIdentity) !== normalizeIdentityValue(currentAnonIdentity);
-    const updates = { displayName: name, bio, modules, address, gender, allowAutoFill, allowAnonymousMessages, anonIdentity };
+    const updates = { displayName: name, bio, modules, address, gender, major, course: major, year, allowAutoFill, allowAnonymousMessages, anonIdentity };
 
     try {
       if (newPhotoFile) {

@@ -9625,6 +9625,12 @@ body {
   color: var(--accent);
 }
 
+.edit-chip-sm.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* GPS Box */
 .edit-gps-box {
   background: var(--bg-secondary);

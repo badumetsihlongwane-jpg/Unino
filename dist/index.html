@@ -160,10 +160,14 @@
           </div>
 
           <!-- Suggested Modules Tray -->
-          <div class="signup-mod-suggestions" id="s-mod-suggestions-wrap">
-            <div class="edit-mod-suggestions-header">
+            <div class="edit-mod-suggestions-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
               <span id="s-mod-suggestions-title">Popular NWU Modules</span>
-              <button type="button" class="signup-mod-add-all-btn" id="s-mod-add-all-btn" style="display:none">+ Add All</button>
+              <div style="display:flex;align-items:center;gap:4px">
+                <button type="button" class="edit-chip-sm active" id="s-sem-2-btn" data-sem="2">Sem 2</button>
+                <button type="button" class="edit-chip-sm" id="s-sem-1-btn" data-sem="1">Sem 1</button>
+                <button type="button" class="edit-chip-sm" id="s-sem-all-btn" data-sem="all">All</button>
+                <button type="button" class="signup-mod-add-all-btn" id="s-mod-add-all-btn" style="display:none">+ Add All</button>
+              </div>
             </div>
             <div class="edit-mod-pills-wrap signup-pills-wrap" id="s-mod-pills-wrap"></div>
           </div>
