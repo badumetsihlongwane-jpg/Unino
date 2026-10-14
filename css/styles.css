@@ -9063,7 +9063,49 @@ body {
   100% { transform: translateY(0) scale(1); }
 }
 
-/* Campus Map Building Labels & Recenter Button */
+/* Campus Map Building Badges & Recenter Button */
+.building-map-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1.5px solid #7C3AED;
+  color: #2E1065;
+  font-weight: 800;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 7px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(109, 40, 217, 0.15);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  letter-spacing: 0.3px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  pointer-events: auto;
+}
+.building-map-badge:hover {
+  transform: scale(1.12);
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.3);
+  background: #ffffff;
+}
+.building-map-badge:active {
+  transform: scale(0.95);
+}
+[data-theme="dark"] .building-map-badge {
+  background: rgba(26, 20, 48, 0.95);
+  border-color: #A78BFA;
+  color: #EDE9FE;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(167, 139, 250, 0.25);
+}
+[data-theme="dark"] .building-map-badge:hover {
+  background: #2E1065;
+  border-color: #C4B5FD;
+}
+.building-map-badge-wrap {
+  background: transparent !important;
+  border: none !important;
+}
 .building-map-label {
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid rgba(109, 40, 217, 0.45);

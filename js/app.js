@@ -9741,26 +9741,45 @@ function labelPointsFromPolygons(geojson) {
   return {
     type: 'FeatureCollection',
     features: (geojson?.features || []).map((feature, index) => {
-      const polys = feature?.geometry?.coordinates || [];
+      const name = String(feature?.properties?.name || `Building ${index + 1}`).trim();
+      const geom = feature?.geometry;
+      let rings = [];
+      if (geom?.type === 'MultiPolygon') {
+        (geom.coordinates || []).forEach(poly => {
+          if (Array.isArray(poly) && poly.length && Array.isArray(poly[0])) rings.push(poly[0]);
+        });
+      } else if (geom?.type === 'Polygon') {
+        (geom.coordinates || []).forEach(ring => {
+          if (Array.isArray(ring) && ring.length >= 3) rings.push(ring);
+        });
+      }
       let bestRing = null;
       let bestSize = -Infinity;
-      polys.forEach(poly => {
-        const outerRing = poly?.[0];
-        if (!outerRing || outerRing.length < 4) return;
+      rings.forEach(ring => {
+        if (!ring || ring.length < 3) return;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        outerRing.forEach(([x, y]) => {
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
+        ring.forEach(pt => {
+          const [x, y] = pt || [];
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
         });
         const boxSize = (maxX - minX) * (maxY - minY);
-        if (boxSize > bestSize) { bestSize = boxSize; bestRing = outerRing; }
+        if (boxSize > bestSize) {
+          bestSize = boxSize;
+          bestRing = ring;
+        }
       });
-      const center = polygonCentroid(bestRing || []);
+      const center = bestRing ? polygonCentroid(bestRing) : [0, 0];
       return {
         type: 'Feature',
-        properties: { name: feature?.properties?.name || `Building ${index + 1}` },
+        properties: {
+          ...(feature?.properties || {}),
+          name: name
+        },
         geometry: { type: 'Point', coordinates: center }
       };
     })
@@ -9808,52 +9827,82 @@ async function mountCampusGeoJsonLayers(map) {
   }
   const labelPoints = labelPointsFromPolygons(geojson);
   map.addSource('campus-geojson', { type: 'geojson', data: geojson });
-  map.addSource('campus-label-points', { type: 'geojson', data: labelPoints });
+
+  // Transparent polygon fill so user sees building names and map tiles, not heavy geometry
   map.addLayer({
     id: 'campus-fill',
     type: 'fill',
     source: 'campus-geojson',
     paint: {
       'fill-color': '#8B5CF6',
-      'fill-opacity': 0.28,
-      'fill-outline-color': '#6D28D9'
+      'fill-opacity': 0.001,
+      'fill-outline-color': 'transparent'
     }
   });
+
+  // Very subtle building footprint outline
   map.addLayer({
     id: 'campus-outline',
     type: 'line',
     source: 'campus-geojson',
     paint: {
-      'line-color': '#6D28D9',
-      'line-opacity': 0.9,
-      'line-width': 1.8
+      'line-color': '#7C3AED',
+      'line-opacity': 0.15,
+      'line-width': 1.2,
+      'line-dasharray': [3, 2]
     }
   });
-  map.addLayer({
-    id: 'campus-name-labels',
-    type: 'symbol',
-    source: 'campus-label-points',
-    minzoom: 14,
-    layout: {
-      'text-field': ['get', 'name'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 13, 18, 15],
-      'text-anchor': 'center',
-      'text-allow-overlap': true,
-      'text-ignore-placement': true
-    },
-    paint: {
-      'text-color': '#2E1065',
-      'text-halo-color': '#FFFFFF',
-      'text-halo-width': 2.5
+
+  // Attach prominent HTML DOM markers for each building so the name is immediately visible
+  let activePopup = null;
+  const buildingBadges = [];
+
+  (labelPoints?.features || []).forEach(feat => {
+    const name = String(feat?.properties?.name || '').trim();
+    const coords = feat?.geometry?.coordinates || [];
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+    const encodedName = encodeURIComponent(name);
+    const badgeHTML = `<div class="building-map-badge" data-name="${esc(name)}">${esc(name)}</div>`;
+
+    const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
+      if (activePopup) {
+        try { activePopup.remove(); } catch (_) {}
+        activePopup = null;
+      }
+      activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
+        .setLngLat([lng, lat])
+        .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
+        .addTo(map);
+      _mapLibrePopups.push(activePopup);
+    });
+
+    if (marker && marker.getElement()) {
+      buildingBadges.push(marker.getElement());
     }
   });
+
+  const updateBadgeVisibility = () => {
+    if (!map) return;
+    const zoom = map.getZoom();
+    const show = zoom >= 14.0;
+    buildingBadges.forEach(el => {
+      if (el) el.style.display = show ? '' : 'none';
+    });
+  };
+
+  map.on('zoom', updateBadgeVisibility);
+  updateBadgeVisibility();
 
   const handleBuildingClick = e => {
     const feature = e.features && e.features[0];
     if (!feature) return;
-    let [lng, lat] = (feature.geometry && feature.geometry.type === 'Point')
-      ? (feature.geometry.coordinates || [])
-      : [];
+    const name = feature.properties?.name || 'Campus Building';
+    const matchingPoint = (labelPoints?.features || []).find(p => p.properties?.name === name);
+    let lng = matchingPoint?.geometry?.coordinates?.[0];
+    let lat = matchingPoint?.geometry?.coordinates?.[1];
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       if (e.lngLat) {
         lng = e.lngLat.lng;
@@ -9861,18 +9910,19 @@ async function mountCampusGeoJsonLayers(map) {
       }
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const name = feature.properties?.name || 'Campus Building';
     const encodedName = encodeURIComponent(name);
-    new maplibregl.Popup({ closeButton: true, offset: 18 })
+    if (activePopup) {
+      try { activePopup.remove(); } catch (_) {}
+      activePopup = null;
+    }
+    activePopup = new maplibregl.Popup({ closeButton: true, offset: 14 })
       .setLngLat([lng, lat])
       .setHTML(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`)
       .addTo(map);
+    _mapLibrePopups.push(activePopup);
   };
 
-  map.on('click', 'campus-name-labels', handleBuildingClick);
   map.on('click', 'campus-fill', handleBuildingClick);
-  map.on('mouseenter', 'campus-name-labels', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'campus-name-labels', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'campus-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'campus-fill', () => { map.getCanvas().style.cursor = ''; });
 }
@@ -10424,28 +10474,40 @@ function initLeafletMap(eventsByLoc) {
   loadCampusGeoJson().then(geojson => {
     if (!geojson || !_leafletMap || typeof L === 'undefined') return;
     try {
+      const labelPoints = labelPointsFromPolygons(geojson);
+      (labelPoints?.features || []).forEach(feat => {
+        const name = String(feat?.properties?.name || '').trim();
+        const coords = feat?.geometry?.coordinates || [];
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+        const encodedName = encodeURIComponent(name);
+        const icon = L.divIcon({
+          className: 'building-map-badge-wrap',
+          html: `<div class="building-map-badge" data-name="${esc(name)}">${esc(name)}</div>`,
+          iconSize: null
+        });
+        const popupHtml = `<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${lat},${lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${lat},${lng}, '${encodedName}')">Create event</button></div></div>`;
+        const marker = L.marker([lat, lng], { icon, zIndexOffset: 200 }).addTo(_leafletMap);
+        marker.bindPopup(popupHtml);
+      });
+
       L.geoJSON(geojson, {
         style: {
-          color: '#6D28D9',
-          weight: 2,
-          opacity: 0.9,
+          color: '#7C3AED',
+          weight: 1.2,
+          opacity: 0.15,
+          dashArray: '3, 2',
           fillColor: '#8B5CF6',
-          fillOpacity: 0.28
+          fillOpacity: 0
         },
         onEachFeature: (feature, layer) => {
           const name = feature?.properties?.name || '';
-          if (name) {
-            layer.bindTooltip(name, {
-              permanent: true,
-              direction: 'center',
-              className: 'building-map-label'
-            });
-          }
-          layer.on('click', e => {
-            const center = layer.getBounds ? layer.getBounds().getCenter() : (e.latlng || { lat: -25.827, lng: 25.609 });
+          const center = layer.getBounds ? layer.getBounds().getCenter() : null;
+          if (name && center) {
             const encodedName = encodeURIComponent(name);
-            layer.bindPopup(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Create event</button></div></div>`).openPopup();
-          });
+            layer.bindPopup(`<div class="campus-map-popup"><div class="campus-map-popup-title">🏢 ${esc(name)}</div><div class="campus-map-popup-sub">Campus building</div><div class="campus-map-popup-actions"><button class="map-popup-btn" onclick="routeToMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Route here</button><button class="map-popup-btn secondary" onclick="closeModal();openCreateEventAtMapPointEncoded(${center.lat},${center.lng}, '${encodedName}')">Create event</button></div></div>`);
+          }
         }
       }).addTo(_leafletMap);
     } catch (_) {}
