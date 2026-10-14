@@ -13457,6 +13457,63 @@ function locateTimetableVenue(venueStr = '') {
 
 let _lastLectureNotifiedKey = {};
 
+function inferFacultyFromMajor(major = '') {
+  const m = (major || '').toLowerCase();
+  if (/(health|nurs|pharm|diet|hygiene|human movement|biokinetics|bhsc|occupat)/.test(m)) return 'HSC';
+  if (/(bcom|economic|management|accounting|finance|badmin|business|marketing|logistics)/.test(m)) return 'EMS';
+  if (/(law|llb)/.test(m)) return 'LAW';
+  if (/(bed|education|teaching)/.test(m)) return 'EDU';
+  if (/(theol|pastoral)/.test(m)) return 'THE';
+  if (/(bsc|comput|information technology|math|chem|phys|agric|geolog|biolog|data science)/.test(m)) return 'NAS';
+  if (/(ba in|humanities|arts|communication|journalism|language|setswana|french|history|sociology|philosophy|politics|social)/.test(m)) return 'HUM';
+  return '';
+}
+
+function getStoredModuleGroups(targetUser) {
+  let groups = {};
+  try {
+    const local = localStorage.getItem('unino-tt-groups');
+    if (local) groups = JSON.parse(local) || {};
+  } catch (_) {}
+  if (targetUser?.moduleGroups && typeof targetUser.moduleGroups === 'object') {
+    groups = { ...groups, ...targetUser.moduleGroups };
+  }
+  return groups;
+}
+
+function saveModuleGroup(mod, group) {
+  if (!mod || !group) return;
+  const current = getStoredModuleGroups(state.profile);
+  current[mod] = group;
+  try {
+    localStorage.setItem('unino-tt-groups', JSON.stringify(current));
+  } catch (_) {}
+  if (state.profile) {
+    state.profile.moduleGroups = current;
+    if (state.user?.uid) {
+      db.collection('users').doc(state.user.uid).set({
+        moduleGroups: current
+      }, { merge: true }).catch(() => {});
+    }
+  }
+}
+
+function resolveEffectiveGroup(mod, availableGroups = [], targetUser = state.profile) {
+  if (!availableGroups || !availableGroups.length) return '';
+  const stored = getStoredModuleGroups(targetUser);
+  if (stored[mod] && availableGroups.includes(stored[mod])) {
+    return stored[mod];
+  }
+  const userFac = inferFacultyFromMajor(targetUser?.major);
+  if (userFac) {
+    const facGroup = availableGroups.find(g => g.startsWith(userFac + '_') || g === userFac);
+    if (facGroup) return facGroup;
+  }
+  const sme1 = availableGroups.find(g => g === 'SME_001');
+  if (sme1) return sme1;
+  return availableGroups[0] || '';
+}
+
 async function checkUpcomingLectureAlerts() {
   if (!state.user || !state.profile) return;
   const pref = (state.profile.timetableAlerts) || localStorage.getItem('unino-tt-alert-pref') || 'off';
@@ -13479,9 +13536,14 @@ async function checkUpcomingLectureAlerts() {
   const dateKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 
   enrolledModules.forEach(mod => {
-    const slots = timetable[mod] || [];
-    slots.forEach(slot => {
+    const allSlots = timetable[mod] || [];
+    const availableGroups = Array.from(new Set(allSlots.map(s => s.group).filter(Boolean)));
+    const activeGroup = resolveEffectiveGroup(mod, availableGroups, state.profile);
+
+    allSlots.forEach(slot => {
       if (slot.day !== todayDay) return;
+      if (activeGroup && slot.group && slot.group !== activeGroup) return;
+
       const [sh, sm] = (slot.start || '00:00').split(':').map(Number);
       const startMin = (sh || 0) * 60 + (sm || 0);
       const diff = startMin - nowMin;
@@ -13492,7 +13554,8 @@ async function checkUpcomingLectureAlerts() {
         if (!_lastLectureNotifiedKey[notifId]) {
           _lastLectureNotifiedKey[notifId] = true;
           const venueText = slot.venue ? ` at ${slot.venue}` : '';
-          const msg = `${mod} lecture starts in ${diff}m (${slot.start})${venueText}`;
+          const grpText = slot.group ? ` (${slot.group})` : '';
+          const msg = `${mod}${grpText} starts in ${diff}m (${slot.start})${venueText}`;
           const numericId = Math.abs(String(notifId).split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0) | 0, 0)) || 99991;
           scheduleLocalNotification({
             id: numericId,
@@ -13547,6 +13610,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
   let currentSelectedDay = defaultDay;
   let currentFilterModule = initialModule ? initialModule.toUpperCase() : 'ALL';
   let currentSearchQuery = '';
+  let filterMyGroupsOnly = true;
+  let currentSelectedGroup = 'AUTO';
+  let dismissedClashes = false;
 
   const parseMinutes = (timeStr = '') => {
     const [h, m] = (timeStr || '00:00').split(':').map(Number);
@@ -13569,10 +13635,24 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     const daySlots = [];
     modulesToShow.forEach(mod => {
       const slots = allTimetable[mod] || [];
+      const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
+      const effectiveGroup = resolveEffectiveGroup(mod, availableGroups, targetUser);
+
       slots.forEach(slot => {
-        if (currentSelectedDay === 'ALL' || slot.day === currentSelectedDay) {
-          daySlots.push({ ...slot, module: mod });
+        if (currentSelectedDay !== 'ALL' && slot.day !== currentSelectedDay) return;
+
+        // Group filtering:
+        if (currentFilterModule === 'ALL') {
+          if (filterMyGroupsOnly && effectiveGroup && slot.group && slot.group !== effectiveGroup) {
+            return;
+          }
+        } else if (currentFilterModule === mod) {
+          if (currentSelectedGroup !== 'ALL') {
+            const targetGroup = currentSelectedGroup === 'AUTO' ? effectiveGroup : currentSelectedGroup;
+            if (targetGroup && slot.group && slot.group !== targetGroup) return;
+          }
         }
+        daySlots.push({ ...slot, module: mod });
       });
     });
 
@@ -13583,20 +13663,36 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       return (a.start || '').localeCompare(b.start || '');
     });
 
+    // Accurate pairwise clash detection (ONLY across student's attended groups)
     const clashes = [];
     if (enrolledModules.length > 1) {
-      const timeMap = {};
+      const studentActiveSlots = [];
       enrolledModules.forEach(mod => {
         const slots = allTimetable[mod] || [];
+        const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
+        const activeGroup = resolveEffectiveGroup(mod, availableGroups, targetUser);
         slots.forEach(s => {
-          const key = `${s.day}_${s.start}`;
-          timeMap[key] = timeMap[key] || [];
-          timeMap[key].push({ ...s, module: mod });
+          if (!activeGroup || !s.group || s.group === activeGroup) {
+            studentActiveSlots.push({ ...s, module: mod });
+          }
         });
       });
-      Object.entries(timeMap).forEach(([_, list]) => {
-        if (list.length > 1) clashes.push(list);
-      });
+
+      for (let i = 0; i < studentActiveSlots.length; i++) {
+        for (let j = i + 1; j < studentActiveSlots.length; j++) {
+          const s1 = studentActiveSlots[i];
+          const s2 = studentActiveSlots[j];
+          if (s1.module !== s2.module && s1.day === s2.day) {
+            const s1Start = parseMinutes(s1.start);
+            const s1End = parseMinutes(s1.end);
+            const s2Start = parseMinutes(s2.start);
+            const s2End = parseMinutes(s2.end);
+            if (s1Start < s2End && s2Start < s1End) {
+              clashes.push({ s1, s2 });
+            }
+          }
+        }
+      }
     }
 
     const now = new Date();
@@ -13604,17 +13700,19 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     const todayName = currentWeekDays[now.getDay()];
 
     let clashBannerHtml = '';
-    if (clashes.length > 0 && currentFilterModule === 'ALL' && !currentSearchQuery) {
-      const clashDescriptions = clashes.slice(0, 2).map(c => {
-        const mods = Array.from(new Set(c.map(item => item.module))).join(' & ');
-        return `${c[0].day} ${c[0].start} (${mods})`;
-      }).join('; ');
+    if (clashes.length > 0 && !dismissedClashes && !currentSearchQuery) {
+      const firstClash = clashes[0];
+      const desc = `${firstClash.s1.module} (${firstClash.s1.group || 'Grp 1'}) and ${firstClash.s2.module} (${firstClash.s2.group || 'Grp 1'}) overlap on ${firstClash.s1.day} ${firstClash.s1.start}–${firstClash.s1.end}`;
       clashBannerHtml = `
         <div class="timetable-clash-warning">
-          <span style="font-size:16px">⚠️</span>
-          <div>
-            <strong>Timetable Clash Detected:</strong> Overlapping lectures on ${esc(clashDescriptions)}. Verify your group with your faculty department.
+          <div class="timetable-clash-warning-content">
+            <span style="font-size:16px;line-height:1">⚠️</span>
+            <div>
+              <strong>Timetable Conflict:</strong> ${esc(desc)}.${clashes.length > 1 ? ` (+${clashes.length - 1} more)` : ''}
+              <div style="font-size:11px;opacity:0.9;margin-top:2px">💡 Tip: Tap the module chip above to switch class groups (e.g. SME_002) to resolve.</div>
+            </div>
           </div>
+          <button type="button" class="timetable-clash-dismiss-btn" data-action="dismiss-clash" title="Dismiss alert">✕</button>
         </div>
       `;
     }
@@ -13638,6 +13736,36 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
         `).join('')}
       </div>
     ` : '';
+
+    // Group selector row
+    let groupsBarHtml = '';
+    if (currentFilterModule !== 'ALL' && allTimetable[currentFilterModule]) {
+      const modSlots = allTimetable[currentFilterModule] || [];
+      const availGroups = Array.from(new Set(modSlots.map(s => s.group).filter(Boolean)));
+      if (availGroups.length > 1) {
+        const effectiveGrp = resolveEffectiveGroup(currentFilterModule, availGroups, targetUser);
+        const activeGrp = currentSelectedGroup === 'AUTO' ? effectiveGrp : currentSelectedGroup;
+        groupsBarHtml = `
+          <div class="timetable-groups-row">
+            <span class="timetable-group-label">${esc(currentFilterModule)} Groups:</span>
+            ${availGroups.map(grp => `
+              <button type="button" class="timetable-group-pill ${activeGrp === grp ? 'active' : ''}" data-modgroup="${esc(grp)}">
+                ${esc(grp)} ${effectiveGrp === grp ? '✓' : ''}
+              </button>
+            `).join('')}
+            <button type="button" class="timetable-group-pill ${activeGrp === 'ALL' ? 'active' : ''}" data-modgroup="ALL">All Groups</button>
+          </div>
+        `;
+      }
+    } else if (enrolledModules.length > 0 && !currentSearchQuery) {
+      groupsBarHtml = `
+        <div class="timetable-groups-row">
+          <span class="timetable-group-label">Stream:</span>
+          <button type="button" class="timetable-group-pill ${filterMyGroupsOnly ? 'active' : ''}" data-grouptoggle="mine">✓ My Groups Only</button>
+          <button type="button" class="timetable-group-pill ${!filterMyGroupsOnly ? 'active' : ''}" data-grouptoggle="all">Show All Groups</button>
+        </div>
+      `;
+    }
 
     let cardsHtml = '';
     if (!daySlots.length) {
@@ -13683,6 +13811,8 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
             const durHours = ((endMin - startMin) / 60).toFixed(1).replace('.0', '');
             const durText = `${durHours}h`;
+            const modAvailGroups = Array.from(new Set((allTimetable[s.module] || []).map(item => item.group).filter(Boolean)));
+            const hasMultipleGroups = modAvailGroups.length > 1;
 
             return `
               <div class="timetable-card ${cardClass}">
@@ -13700,10 +13830,18 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                     <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${esc(s.venue)}')">
                       📍 ${esc(s.venue || 'TBA')}
                     </button>
-                    ${s.group ? `<span class="timetable-group-tag">Grp: ${esc(s.group)}</span>` : ''}
+                    ${s.group ? `
+                      ${hasMultipleGroups ? `
+                        <button type="button" class="timetable-group-tag clickable" data-cardgroup-mod="${esc(s.module)}" title="Tap to switch group for ${esc(s.module)}">
+                          Grp: ${esc(s.group)} ▾
+                        </button>
+                      ` : `
+                        <span class="timetable-group-tag">Grp: ${esc(s.group)}</span>
+                      `}
+                    ` : ''}
                   </div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-                    <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} weeks active</span>
+                    <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} wks</span>
                     <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${esc(s.module)}')">💬 Discuss</button>
                   </div>
                 </div>
@@ -13735,24 +13873,30 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     ` : '';
 
     return `
-      <div class="timetable-modal-header">
-        <div class="timetable-title-area">
-          <h2>📅 Academic Timetable</h2>
-          <div class="timetable-sub">
-            ${isMe ? 'Your enrolled lecture schedule' : `${esc(targetUser.displayName || 'Student')}'s schedule`} · NWU 2026
+      <div class="timetable-modal-wrapper">
+        <div class="timetable-modal-header">
+          <div class="timetable-title-area">
+            <h2>📅 Academic Timetable</h2>
+            <div class="timetable-sub">
+              ${isMe ? 'Your enrolled lecture schedule' : `${esc(targetUser.displayName || 'Student')}'s schedule`} · NWU 2026
+            </div>
           </div>
+          <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
         </div>
-        <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
-      </div>
-      <div class="timetable-modal-body">
-        <div class="timetable-search-bar">
-          <input type="text" id="tt-search-input" placeholder="Search any module (e.g. CMPG121, ALDE111, BMAN111)..." autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
+        <div class="timetable-sticky-controls">
+          <div class="timetable-search-bar">
+            <input type="text" id="tt-search-input" placeholder="Search any module (e.g. CMPG121, ALDE111, BMAN111)..." autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
+            ${currentSearchQuery ? `<button type="button" id="tt-clear-search-btn" style="border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary);padding:0 6px" title="Clear search">✕</button>` : ''}
+          </div>
+          ${moduleChipsHtml}
+          ${groupsBarHtml}
+          ${tabsHtml}
         </div>
-        ${moduleChipsHtml}
-        ${tabsHtml}
-        ${clashBannerHtml}
-        ${cardsHtml}
-        ${alertsHtml}
+        <div class="timetable-modal-body">
+          ${clashBannerHtml}
+          ${cardsHtml}
+          ${alertsHtml}
+        </div>
       </div>
     `;
   };
@@ -13760,6 +13904,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
   const wireEvents = () => {
     const modal = $('#modal-inner');
     if (!modal) return;
+
+    // Apply modal-sheet-timetable class to prevent sheet-level scrolling
+    $('#modal-bg')?.querySelector('.modal-sheet')?.classList.add('modal-sheet-timetable');
 
     const searchInput = modal.querySelector('#tt-search-input');
     searchInput?.addEventListener('input', e => {
@@ -13773,6 +13920,12 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       }
     });
 
+    modal.querySelector('#tt-clear-search-btn')?.addEventListener('click', () => {
+      currentSearchQuery = '';
+      modal.innerHTML = buildModalHtml();
+      wireEvents();
+    });
+
     modal.querySelectorAll('.timetable-day-tab').forEach(tab => {
       tab.onclick = () => {
         currentSelectedDay = tab.dataset.day;
@@ -13784,10 +13937,62 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     modal.querySelectorAll('.timetable-mod-chip').forEach(chip => {
       chip.onclick = () => {
         currentFilterModule = chip.dataset.mod;
+        currentSelectedGroup = 'AUTO';
         currentSearchQuery = '';
         modal.innerHTML = buildModalHtml();
         wireEvents();
       };
+    });
+
+    // Group toggle buttons
+    modal.querySelectorAll('[data-grouptoggle]').forEach(btn => {
+      btn.onclick = () => {
+        filterMyGroupsOnly = btn.dataset.grouptoggle === 'mine';
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
+      };
+    });
+
+    // Module group selector pills
+    modal.querySelectorAll('[data-modgroup]').forEach(btn => {
+      btn.onclick = () => {
+        const selectedGrp = btn.dataset.modgroup;
+        currentSelectedGroup = selectedGrp;
+        if (isMe && selectedGrp !== 'ALL' && currentFilterModule !== 'ALL') {
+          saveModuleGroup(currentFilterModule, selectedGrp);
+          toast(`${currentFilterModule} group set to ${selectedGrp} ✓`);
+        }
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
+      };
+    });
+
+    // Card-level group switcher
+    modal.querySelectorAll('[data-cardgroup-mod]').forEach(btn => {
+      btn.onclick = () => {
+        const mod = btn.dataset.cardgroupMod;
+        const availGroups = Array.from(new Set((allTimetable[mod] || []).map(item => item.group).filter(Boolean)));
+        if (availGroups.length > 1) {
+          currentFilterModule = mod;
+          const currentGrp = resolveEffectiveGroup(mod, availGroups, targetUser);
+          const nextIdx = (availGroups.indexOf(currentGrp) + 1) % availGroups.length;
+          const nextGrp = availGroups[nextIdx];
+          currentSelectedGroup = nextGrp;
+          if (isMe) {
+            saveModuleGroup(mod, nextGrp);
+            toast(`${mod} group changed to ${nextGrp} ✓`);
+          }
+          modal.innerHTML = buildModalHtml();
+          wireEvents();
+        }
+      };
+    });
+
+    // Dismiss clash alert
+    modal.querySelector('[data-action="dismiss-clash"]')?.addEventListener('click', () => {
+      dismissedClashes = true;
+      modal.innerHTML = buildModalHtml();
+      wireEvents();
     });
 
     const alertSelect = modal.querySelector('#timetable-alert-select');
@@ -16240,6 +16445,8 @@ function closeModal() {
   resetModalSheetPosition();
   const bg = $('#modal-bg');
   const inner = $('#modal-inner');
+  const sheet = bg?.querySelector('.modal-sheet');
+  if (sheet) sheet.classList.remove('modal-sheet-timetable');
   if (bg) bg.style.display = 'none';
   if (inner) inner.innerHTML = '';
 }
@@ -17099,6 +17306,6 @@ document.addEventListener('DOMContentLoaded', () => {
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
-    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts
+    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, resolveEffectiveGroup, inferFacultyFromMajor
   });
 });
