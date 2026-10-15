@@ -7180,12 +7180,109 @@ body.image-view-open .modal-bg {
   border: 1px solid var(--border);
 }
 
-/* Share Friends List */
+/* ══════════════════════════════════════════════════
+   SHARE MODAL & ACTIONS
+   ══════════════════════════════════════════════════ */
+.share-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.share-action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.share-action-card:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.share-action-card:active {
+  transform: scale(0.97);
+}
+.share-action-icon {
+  font-size: 20px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.share-action-label {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.share-action-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.share-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+.share-search-icon {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.share-search-box input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+.share-friends-scroll {
+  max-height: 260px;
+  min-height: 70px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+.share-send-btn {
+  min-width: 62px;
+  transition: all 0.2s ease;
+}
+.share-send-btn.sent {
+  background: #10B981 !important;
+  color: #ffffff !important;
+  border-color: #10B981 !important;
+}
+
 .share-friend-item {
   transition: background 0.2s;
 }
 .share-friend-item:active {
   transform: scale(0.98);
+}
+.share-friend-item:hover {
+  background: var(--bg-secondary) !important;
 }
 
 .share-external-btn[disabled] {

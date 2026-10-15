@@ -13808,6 +13808,21 @@ function inferFacultyFromMajor(major = '') {
   return '';
 }
 
+function getStoredTimetableStream(targetUser = state.profile) {
+  return String(targetUser?.timetableStream || localStorage.getItem('unino-tt-stream') || '').trim();
+}
+
+function matchStreamCode(group = '', queryCode = '') {
+  if (!group || !queryCode) return false;
+  const gUpper = String(group).trim().toUpperCase();
+  const qUpper = String(queryCode).trim().toUpperCase();
+  if (gUpper === qUpper) return true;
+  if (qUpper.length >= 2 && gUpper.endsWith(qUpper)) return true;
+  if (qUpper.length >= 3 && gUpper.startsWith(qUpper)) return true;
+  if (qUpper.length >= 2 && gUpper.includes(qUpper)) return true;
+  return false;
+}
+
 function getStoredModuleGroups(targetUser) {
   let groups = {};
   try {
@@ -13843,6 +13858,48 @@ function saveModuleGroup(mod, group) {
   saveModuleGroups(mod, [group]);
 }
 
+async function saveUserTimetableStream(streamCode, enrolledModules = [], allTimetable = {}) {
+  const norm = String(streamCode || '').trim().toUpperCase();
+  const isClearing = !norm || norm === '__ALL__';
+  const effectiveCode = isClearing ? '' : norm;
+
+  if (state.profile) state.profile.timetableStream = effectiveCode;
+  if (effectiveCode) {
+    localStorage.setItem('unino-tt-stream', effectiveCode);
+  } else {
+    localStorage.removeItem('unino-tt-stream');
+  }
+
+  const current = getStoredModuleGroups(state.profile);
+  if (effectiveCode && enrolledModules.length && allTimetable) {
+    enrolledModules.forEach(mod => {
+      const slots = allTimetable[mod] || [];
+      const avail = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
+      if (!avail.length) return;
+      const matches = avail.filter(g => matchStreamCode(g, effectiveCode));
+      if (matches.length > 0) {
+        current[mod] = matches;
+      }
+    });
+    state.profile.moduleGroups = current;
+    try {
+      localStorage.setItem('unino-tt-groups', JSON.stringify(current));
+    } catch (_) {}
+  } else if (isClearing) {
+    state.profile.moduleGroups = {};
+    try {
+      localStorage.removeItem('unino-tt-groups');
+    } catch (_) {}
+  }
+
+  if (state.user?.uid) {
+    await db.collection('users').doc(state.user.uid).set({
+      timetableStream: effectiveCode,
+      moduleGroups: state.profile?.moduleGroups || {}
+    }, { merge: true }).catch(() => {});
+  }
+}
+
 function getSelectedGroupsForModule(mod, availableGroups = [], targetUser = state.profile) {
   if (!availableGroups || !availableGroups.length) return [];
   const stored = getStoredModuleGroups(targetUser);
@@ -13852,8 +13909,15 @@ function getSelectedGroupsForModule(mod, availableGroups = [], targetUser = stat
     const valid = list.filter(g => availableGroups.includes(g));
     if (valid.length > 0) return valid;
   }
-  // "dont assme default": If user has not chosen yet, default to all available streams
-  // so no class sessions are hidden by an assumed default!
+
+  // If no per-module preference stored, check if user has a global default stream
+  const defaultStream = getStoredTimetableStream(targetUser);
+  if (defaultStream) {
+    const matches = availableGroups.filter(g => matchStreamCode(g, defaultStream));
+    if (matches.length > 0) return matches;
+  }
+
+  // Default to all available streams so no class sessions are hidden
   return [...availableGroups];
 }
 
@@ -14061,12 +14125,46 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
         `;
       }
     } else if (enrolledModules.length > 0 && !currentSearchQuery) {
-      const multiStreamCount = enrolledModules.filter(m => (allTimetable[m] || []).some(s => s.group)).length;
-      if (multiStreamCount > 0) {
+      const allDetectedGroups = new Set();
+      const detectedNumbers = new Set();
+      enrolledModules.forEach(mod => {
+        (allTimetable[mod] || []).forEach(s => {
+          if (s.group) {
+            allDetectedGroups.add(s.group);
+            const m = s.group.match(/(\d+)/);
+            if (m) detectedNumbers.add(m[1]);
+          }
+        });
+      });
+      const activeStream = getStoredTimetableStream(targetUser);
+      const streamOptions = Array.from(new Set([
+        ...Array.from(detectedNumbers).sort(),
+        ...Array.from(allDetectedGroups).sort()
+      ])).slice(0, 5);
+      if (activeStream && !streamOptions.includes(activeStream)) {
+        streamOptions.unshift(activeStream);
+      }
+
+      if (allDetectedGroups.size > 0) {
         groupsBarHtml = `
           <div class="timetable-groups-row">
-            <span class="timetable-group-label">Streams:</span>
-            <span style="font-size:11px;color:var(--text-tertiary);line-height:1.3">Filtered by your last-used stream choices. Tap a module chip above or card stream tag to edit.</span>
+            <span class="timetable-group-label">Streams (All):</span>
+            <button type="button" class="timetable-group-pill ${!activeStream ? 'active' : ''}" data-globalstream="__ALL__" title="Show all class streams across modules">
+              ${!activeStream ? '✓ ' : ''}All
+            </button>
+            ${streamOptions.map(str => {
+              const isSel = activeStream && (activeStream === str || matchStreamCode(str, activeStream) || matchStreamCode(activeStream, str));
+              return `
+                <button type="button" class="timetable-group-pill ${isSel ? 'active' : ''}" data-globalstream="${esc(str)}" title="Apply stream code ${esc(str)} across all modules">
+                  ${isSel ? '✓ ' : ''}${esc(str)}
+                </button>
+              `;
+            }).join('')}
+            ${isMe ? `
+              <button type="button" class="timetable-group-pill" id="tt-set-custom-stream-btn" title="Set a common stream code for all modules (e.g. 001, SME_00, 01)">
+                ✏️ ${activeStream ? esc(activeStream) : 'Set Code'}
+              </button>
+            ` : ''}
           </div>
         `;
       }
@@ -14246,6 +14344,35 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
         wireEvents();
       };
     });
+
+    // Global stream selector pills
+    modal.querySelectorAll('[data-globalstream]').forEach(btn => {
+      btn.onclick = async () => {
+        const str = btn.dataset.globalstream;
+        if (isMe) {
+          await saveUserTimetableStream(str, enrolledModules, allTimetable);
+          if (str === '__ALL__') toast('Showing all module streams');
+          else toast(`Applied stream "${str}" to all modules ✓`);
+        }
+        modal.innerHTML = buildModalHtml();
+        wireEvents();
+      };
+    });
+
+    const setCustomStreamBtn = modal.querySelector('#tt-set-custom-stream-btn');
+    if (setCustomStreamBtn && isMe) {
+      setCustomStreamBtn.onclick = async () => {
+        const current = getStoredTimetableStream(targetUser);
+        const code = prompt('Enter common stream / group code for all modules (e.g. 001, SME_00, 01):', current);
+        if (code !== null) {
+          await saveUserTimetableStream(code.trim(), enrolledModules, allTimetable);
+          if (!code.trim() || code.trim() === '__ALL__') toast('Showing all module streams');
+          else toast(`Applied stream "${code.trim().toUpperCase()}" to all modules ✓`);
+          modal.innerHTML = buildModalHtml();
+          wireEvents();
+        }
+      };
+    }
 
     // Module stream multi-select pills
     modal.querySelectorAll('[data-modgroup]').forEach(btn => {
@@ -17227,7 +17354,7 @@ async function sharePostAsImageCard(postId, triggerButton = null) {
     const shared = await shareBlobExternally(blob, fallbackName, {
       title: `${post.authorName || 'Unibo'} on Unibo`,
       text: clampText(post.content || 'Shared from Unibo', 120),
-      dialogTitle: 'Share post card'
+      dialogTitle: 'Share Post Snapshot'
     });
     if (shared) {
       toast('Share sheet opened');
@@ -17242,7 +17369,7 @@ async function sharePostAsImageCard(postId, triggerButton = null) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
-    toast('Share card downloaded');
+    toast('Post snapshot downloaded ✓');
   } catch (e) {
     console.error('Share card creation failed:', e);
     toast('Could not create share card');
@@ -17252,109 +17379,219 @@ async function sharePostAsImageCard(postId, triggerButton = null) {
   }
 }
 
-// ─── Share System ────────────────────────────────
-async function openShareModal(postId) {
-  openModal(`
-    <div class="modal-header"><h2>Share Post</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body" style="padding:16px">
-       <button class="btn-primary btn-full" style="margin-bottom:12px;background:var(--accent);color:white;border:none;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="openQuoteRepost('${postId}')">🔄 Repost</button>
-     <button class="btn-outline btn-full share-external-btn" style="margin-bottom:8px;padding:12px;border-radius:12px;font-weight:600;width:100%" onclick="sharePostAsImageCard('${postId}', this)">📸 Share Card to Apps</button>
-     <div style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Creates an image of this post and opens your app share sheet.</div>
-     <div style="height:1px;background:var(--border);margin:14px 0"></div>
-       <h3 style="margin-bottom:12px;font-size:16px">Send to Friend</h3>
-       <div id="share-friends-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
-          <div class="inline-spinner" style="margin:20px auto"></div>
-       </div>
-    </div>
-  `);
-  
-  const friends = state.profile.friends || [];
-  const list = $('#share-friends-list');
-  if(!friends.length) {
-     list.innerHTML = '<p style="color:var(--text-tertiary);text-align:center">Add friends to share directly.</p>';
-     return;
+async function copyPostLink(postId, btn = null) {
+  const url = `${window.location.origin}${window.location.pathname}?post=${encodeURIComponent(postId)}`;
+  const done = () => {
+    toast('Post link copied to clipboard! 🔗');
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<div class="share-action-icon">✓</div><div class="share-action-label">Copied!</div><div class="share-action-sub">Link in clipboard</div>';
+      setTimeout(() => { if (btn) btn.innerHTML = origHtml; }, 2000);
+    }
+  };
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(url);
+      done();
+      return;
+    } catch (_) {}
   }
-  
+  const input = document.createElement('input');
+  input.value = url;
+  document.body.appendChild(input);
+  input.select();
   try {
-     const chunks = [];
-     for(let i=0; i<friends.length; i+=10) {
-        const batch = friends.slice(i, i+10);
-        if(batch.length) {
-           const s = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
-           chunks.push(...s.docs.map(d=>({id:d.id, ...d.data()})));
-        }
-     }
-     list.innerHTML = chunks.map(f => `
-       <div class="share-friend-item" onclick="shareToFriend('${f.id}','${esc(f.displayName)}','${postId}')" style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:12px;cursor:pointer;transition:background 0.2s">
-          ${avatar(f.displayName, f.photoURL, 'avatar-sm')}
-          <div style="flex:1;display:flex;flex-direction:column">
-             <span style="font-weight:600;font-size:14px">${esc(f.displayName)}</span>
-             <span style="font-size:12px;color:var(--text-secondary)">${esc(f.university||'Student')}</span>
-          </div>
-          <button class="btn-sm btn-secondary" style="pointer-events:none">Send</button>
-       </div>
-     `).join('');
-     $$('.share-friend-item').forEach(el => {
-        el.onmouseenter = () => el.style.background = 'var(--bg-secondary)';
-        el.onmouseleave = () => el.style.background = 'transparent';
-     });
-  } catch(e) { console.error(e); list.innerHTML='Error loading friends'; }
+    document.execCommand('copy');
+    done();
+  } catch (e) {
+    toast('Could not copy link');
+  }
+  input.remove();
 }
 
-async function shareToFriend(uid, name, postId) {
-   try {
-     const myId = state.user.uid;
+// ─── Share System ────────────────────────────────
+async function openShareModal(postId) {
+  const friends = state.profile.friends || [];
+  openModal(`
+    <div class="modal-header">
+      <h2>Share Post</h2>
+      <button class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body share-modal-body" style="padding:16px">
+      <!-- Quick Action Cards Grid -->
+      <div class="share-actions-grid">
+        <button type="button" class="share-action-card" onclick="openQuoteRepost('${postId}')">
+          <div class="share-action-icon">🔄</div>
+          <div class="share-action-label">Repost</div>
+          <div class="share-action-sub">Share to feed</div>
+        </button>
+        <button type="button" class="share-action-card share-external-btn" onclick="sharePostAsImageCard('${postId}', this)">
+          <div class="share-action-icon">📸</div>
+          <div class="share-action-label">Post Snapshot</div>
+          <div class="share-action-sub">Card for apps & stories</div>
+        </button>
+        <button type="button" class="share-action-card" onclick="copyPostLink('${postId}', this)">
+          <div class="share-action-icon">🔗</div>
+          <div class="share-action-label">Copy Link</div>
+          <div class="share-action-sub">To clipboard</div>
+        </button>
+      </div>
 
-     // Fetch post preview data for rich chat card
-     let preview = {};
-     try {
-       const pDoc = await db.collection('posts').doc(postId).get();
-       if (pDoc.exists) {
-         const pd = pDoc.data();
-         const media = pd.videoURL || pd.imageURL || pd.mediaURL || (pd.imageURLs && pd.imageURLs[0]) || '';
-         const mType = pd.mediaType || (pd.videoURL ? 'video' : (pd.imageURL ? 'image' : ''));
-         preview = {
-           content: (pd.content || '').slice(0, 120),
-           mediaURL: media,
-           mediaType: mType,
-           authorName: pd.authorName || '',
-           authorPhoto: pd.authorPhoto || pd.authorPhotoURL || ''
-         };
-       }
-     } catch(_) {}
+      <div style="height:1px;background:var(--border);margin:14px 0 12px"></div>
 
-     const snap = await db.collection('conversations').where('participants','array-contains',myId).get();
-     let convo = snap.docs.find(d => d.data().participants.includes(uid));
-     
-     if(!convo) {
-         const ref = await db.collection('conversations').add({
-             participants: [myId, uid],
-             participantNames: [state.profile.displayName, name],
-             participantPhotos: [state.profile.photoURL||null, null],
-             updatedAt: FieldVal.serverTimestamp(),
-             lastMessage: 'Shared a post',
-             unread: { [uid]: 1, [myId]: 0 }
-         });
-         convo = { id: ref.id };
-     } else {
-         await db.collection('conversations').doc(convo.id).update({
-             lastMessage: 'Shared a post',
-             updatedAt: FieldVal.serverTimestamp(),
-             [`unread.${uid}`]: FieldVal.increment(1)
-         });
-     }
-     
-     await db.collection('conversations').doc(convo.id).collection('messages').add({
-         text: `shared post::${postId}`, 
-         type: 'share_post',
-         payload: { postId, ...preview },
-         senderId: myId,
-         createdAt: FieldVal.serverTimestamp()
-     });
-     
-     toast(`Sent to ${name}`);
-     closeModal();
-   } catch(e) { console.error(e); toast('Failed to send'); }
+      <!-- Send in Chat / Friends Section -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0;font-size:15px;font-weight:700">Send in Chat</h3>
+        <span style="font-size:12px;color:var(--text-secondary)">${friends.length} friend${friends.length === 1 ? '' : 's'}</span>
+      </div>
+
+      ${friends.length > 2 ? `
+        <div class="share-search-box">
+          <span class="share-search-icon">🔍</span>
+          <input type="text" id="share-friend-search" placeholder="Search friends by name or major..." autocomplete="off">
+          <button type="button" id="share-clear-search" style="display:none;border:none;background:none;cursor:pointer;color:var(--text-tertiary);padding:0 4px">&times;</button>
+        </div>
+      ` : ''}
+
+      <div id="share-friends-list" class="share-friends-scroll">
+        <div class="inline-spinner" style="margin:24px auto"></div>
+      </div>
+    </div>
+  `);
+
+  const list = $('#share-friends-list');
+  if (!friends.length) {
+    if (list) list.innerHTML = '<p style="color:var(--text-tertiary);text-align:center;padding:20px 0;font-size:13px">Add friends to share posts directly in chat.</p>';
+    return;
+  }
+
+  let loadedFriends = [];
+  try {
+    const chunks = [];
+    for (let i = 0; i < friends.length; i += 10) {
+      const batch = friends.slice(i, i + 10);
+      if (batch.length) {
+        const s = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
+        chunks.push(...s.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
+    }
+    loadedFriends = chunks;
+
+    const renderFriends = (items) => {
+      if (!items.length) {
+        return '<p style="color:var(--text-tertiary);text-align:center;padding:24px 0;font-size:13px">No friends found</p>';
+      }
+      return items.map(f => `
+        <div class="share-friend-item" data-uid="${f.id}" style="display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:12px;transition:background 0.2s">
+          <div onclick="closeModal();openProfile('${f.id}')" style="cursor:pointer">
+            ${avatar(f.displayName, f.photoURL, 'avatar-sm')}
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+            <span style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.displayName)}${verifiedBadge(f.id)}</span>
+            <span style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.major || f.university || 'Student')}</span>
+          </div>
+          <button type="button" class="btn-sm btn-primary share-send-btn" onclick="shareToFriend('${f.id}','${escJs(f.displayName)}','${postId}', this)">Send</button>
+        </div>
+      `).join('');
+    };
+
+    if (list) list.innerHTML = renderFriends(loadedFriends);
+
+    const searchInput = $('#share-friend-search');
+    const clearBtn = $('#share-clear-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', e => {
+        const q = (e.target.value || '').trim().toLowerCase();
+        if (clearBtn) clearBtn.style.display = q ? 'block' : 'none';
+        const filtered = loadedFriends.filter(f =>
+          (f.displayName || '').toLowerCase().includes(q) ||
+          (f.major || '').toLowerCase().includes(q) ||
+          (f.university || '').toLowerCase().includes(q)
+        );
+        if (list) list.innerHTML = renderFriends(filtered);
+      });
+      clearBtn?.addEventListener('click', () => {
+        searchInput.value = '';
+        clearBtn.style.display = 'none';
+        if (list) list.innerHTML = renderFriends(loadedFriends);
+        searchInput.focus();
+      });
+    }
+  } catch (e) {
+    console.error('Error loading friends for share:', e);
+    if (list) list.innerHTML = '<p style="color:var(--text-danger);text-align:center;padding:12px 0">Error loading friends</p>';
+  }
+}
+
+async function shareToFriend(uid, name, postId, btn = null) {
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+  }
+  try {
+    const myId = state.user.uid;
+
+    // Fetch post preview data for rich chat card
+    let preview = {};
+    try {
+      const pDoc = await db.collection('posts').doc(postId).get();
+      if (pDoc.exists) {
+        const pd = pDoc.data();
+        const media = pd.videoURL || pd.imageURL || pd.mediaURL || (pd.imageURLs && pd.imageURLs[0]) || '';
+        const mType = pd.mediaType || (pd.videoURL ? 'video' : (pd.imageURL ? 'image' : ''));
+        preview = {
+          content: (pd.content || '').slice(0, 120),
+          mediaURL: media,
+          mediaType: mType,
+          authorName: pd.authorName || '',
+          authorPhoto: pd.authorPhoto || pd.authorPhotoURL || ''
+        };
+      }
+    } catch (_) {}
+
+    const snap = await db.collection('conversations').where('participants', 'array-contains', myId).get();
+    let convo = snap.docs.find(d => (d.data().participants || []).includes(uid));
+
+    if (!convo) {
+      const ref = await db.collection('conversations').add({
+        participants: [myId, uid],
+        participantNames: [state.profile.displayName, name],
+        participantPhotos: [state.profile.photoURL || null, null],
+        updatedAt: FieldVal.serverTimestamp(),
+        lastMessage: 'Shared a post',
+        unread: { [uid]: 1, [myId]: 0 }
+      });
+      convo = { id: ref.id };
+    } else {
+      await db.collection('conversations').doc(convo.id).update({
+        lastMessage: 'Shared a post',
+        updatedAt: FieldVal.serverTimestamp(),
+        [`unread.${uid}`]: FieldVal.increment(1)
+      });
+    }
+
+    await db.collection('conversations').doc(convo.id).collection('messages').add({
+      text: `shared post::${postId}`,
+      type: 'share_post',
+      payload: { postId, ...preview },
+      senderId: myId,
+      createdAt: FieldVal.serverTimestamp()
+    });
+
+    toast(`Sent to ${name} ✓`);
+    if (btn) {
+      btn.textContent = '✓ Sent';
+      btn.classList.add('sent');
+      btn.disabled = true;
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Failed to send');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Send';
+    }
+  }
 }
 
 async function openQuoteRepost(postId) {
@@ -17774,7 +18011,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startVoiceRecord, cancelVoiceRecord, stopVoiceAndSend, openReelsViewer,
     openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
     joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView, switchLiveCamera,
-    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, sharePostAsImageCard, viewPost, markNotifRead,
+    toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, sharePostAsImageCard, copyPostLink, viewPost, markNotifRead,
     clearFeedSearch,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
@@ -17794,7 +18031,7 @@ document.addEventListener('DOMContentLoaded', () => {
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
-    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, resolveEffectiveGroup, inferFacultyFromMajor,
+    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
     voteOnPollEncoded, voteOnPoll
   });
 });
