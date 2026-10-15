@@ -1,0 +1,2042 @@
+{
+  "Mmabatho": [
+    -25.840275,
+    25.609165
+  ],
+  "Mahikeng": [
+    -25.863611,
+    25.658611
+  ],
+  "Lanric": [
+    -25.848442,
+    25.681696
+  ],
+  "Motsoseng": [
+    -25.863333,
+    25.566667
+  ],
+  "Top Village": [
+    -25.847778,
+    25.670833
+  ],
+  "Bokone": [
+    -25.874347,
+    25.633669
+  ],
+  "Danville": [
+    -25.877776,
+    25.66111
+  ],
+  "Dibate": [
+    -25.848776,
+    25.612055
+  ],
+  "Golf View": [
+    -25.853857,
+    25.657174
+  ],
+  "Imperial Reserve": [
+    -25.86279,
+    25.630033
+  ],
+  "Lorwaneng": [
+    -25.881795,
+    25.632621
+  ],
+  "Magogoe": [
+    -25.886942,
+    25.611105
+  ],
+  "Mazezuru": [
+    -25.885686,
+    25.586206
+  ],
+  "Montshioa": [
+    -25.850273,
+    25.623366
+  ],
+  "Motlhabeng": [
+    -25.852776,
+    25.606384
+  ],
+  "Ramosadi": [
+    -25.865272,
+    25.616941
+  ],
+  "Riviera Park": [
+    -25.86111,
+    25.663049
+  ],
+  "Seweding": [
+    -25.8625,
+    25.583611
+  ],
+  "Tlhabologo": [
+    -25.888332,
+    25.623052
+  ],
+  "Tloung": [
+    -25.881382,
+    25.619439
+  ],
+  "Libertas": [
+    -25.849881,
+    25.6434
+  ],
+  "Signal Hill": [
+    -25.821376,
+    25.653654
+  ],
+  "Car Switchover": [
+    -25.865426,
+    25.647561
+  ],
+  "Montshiwa": [
+    -25.841236,
+    25.564398
+  ],
+  "Airportview": [
+    -25.83661,
+    25.542335
+  ],
+  "Moletsamongwe": [
+    -25.830981,
+    25.51427
+  ],
+  "Molelwane": [
+    -25.801677,
+    25.634643
+  ],
+  "Shippard Street": [
+    -25.852862,
+    25.673711
+  ],
+  "Nelson Mandela Drive": [
+    -25.863966,
+    25.646523
+  ],
+  "Vryburg Road": [
+    -25.868075,
+    25.639708
+  ],
+  "Station Road": [
+    -25.863341,
+    25.639683
+  ],
+  "Main Street": [
+    -25.864758,
+    25.643775
+  ],
+  "Bray Road": [
+    -25.853042,
+    25.572129
+  ],
+  "Doctor James Moroka Drive": [
+    -25.836633,
+    25.614335
+  ],
+  "Modimola Road": [
+    -25.86748,
+    25.581873
+  ],
+  "Sekame Street": [
+    -25.838841,
+    25.609399
+  ],
+  "Setlopo Road": [
+    -25.897136,
+    25.649082
+  ],
+  "Lichtenburg Road": [
+    -25.877733,
+    25.662615
+  ],
+  "Mareetsane Road": [
+    -25.918728,
+    25.657294
+  ],
+  "Khoikhoi Road": [
+    -25.897174,
+    25.612759
+  ],
+  "Montshioa Road": [
+    -25.890351,
+    25.639576
+  ],
+  "Rus Street": [
+    -25.877087,
+    25.655145
+  ],
+  "Twist Street": [
+    -25.876848,
+    25.65637
+  ],
+  "End Street": [
+    -25.86831,
+    25.646138
+  ],
+  "Barolong Road": [
+    -25.872787,
+    25.62981
+  ],
+  "Aster Street": [
+    -25.87228,
+    25.648893
+  ],
+  "Hatchard Street": [
+    -25.859852,
+    25.646272
+  ],
+  "North Street": [
+    -25.858953,
+    25.64115
+  ],
+  "Tillard Street": [
+    -25.855433,
+    25.658343
+  ],
+  "Zeerust Road": [
+    -25.845682,
+    25.67694
+  ],
+  "Aerodrome Road": [
+    -25.842438,
+    25.638447
+  ],
+  "Quigley Street": [
+    -25.826625,
+    25.654622
+  ],
+  "Magnolia Avenue": [
+    -25.86355,
+    25.655227
+  ],
+  "Totius Avenue": [
+    -25.860888,
+    25.666401
+  ],
+  "Langenhoven Drive": [
+    -25.861865,
+    25.667016
+  ],
+  "Kirstenbosch Boulevard": [
+    -25.858335,
+    25.667783
+  ],
+  "Mompati Street": [
+    -25.890238,
+    25.656255
+  ],
+  "Morubane Street": [
+    -25.890978,
+    25.657325
+  ],
+  "Tsala Street": [
+    -25.891751,
+    25.6585
+  ],
+  "Koper Street": [
+    -25.890451,
+    25.658868
+  ],
+  "Twentieth Street": [
+    -25.863052,
+    25.628017
+  ],
+  "Mckenzie Street": [
+    -25.864318,
+    25.631468
+  ],
+  "Carrington Street": [
+    -25.85928,
+    25.638921
+  ],
+  "Makhene Road": [
+    -25.817991,
+    25.627237
+  ],
+  "Thekisho Road": [
+    -25.815513,
+    25.631578
+  ],
+  "Remainder Street": [
+    -25.847821,
+    25.636194
+  ],
+  "Gazania Street": [
+    -25.874451,
+    25.651626
+  ],
+  "Rose Street": [
+    -25.87622,
+    25.654413
+  ],
+  "Stokroos Street": [
+    -25.875027,
+    25.652012
+  ],
+  "Carnation Street": [
+    -25.875609,
+    25.652414
+  ],
+  "Primula Street": [
+    -25.875683,
+    25.64885
+  ],
+  "Kopper Street": [
+    -25.881681,
+    25.660537
+  ],
+  "Klip Street": [
+    -25.876969,
+    25.659835
+  ],
+  "Tambotie Street": [
+    -25.877769,
+    25.661137
+  ],
+  "Connaught Street": [
+    -25.859973,
+    25.645884
+  ],
+  "Syringa Crescent": [
+    -25.879416,
+    25.660747
+  ],
+  "School Street": [
+    -25.880798,
+    25.661244
+  ],
+  "Baden Powell Avenue": [
+    -25.855013,
+    25.644197
+  ],
+  "Montgomery Street": [
+    -25.856689,
+    25.650074
+  ],
+  "River Crescent": [
+    -25.869419,
+    25.643748
+  ],
+  "Kruis Street": [
+    -25.877372,
+    25.657357
+  ],
+  "Churchill Avenue": [
+    -25.854456,
+    25.647987
+  ],
+  "Proctor Street": [
+    -25.859994,
+    25.648583
+  ],
+  "Kiaat Street": [
+    -25.878492,
+    25.659298
+  ],
+  "Butten Street": [
+    -25.875923,
+    25.659126
+  ],
+  "Gemsbok Street": [
+    -25.859084,
+    25.656602
+  ],
+  "Mopani Street": [
+    -25.877792,
+    25.661234
+  ],
+  "Indus Avenue": [
+    -25.869858,
+    25.648755
+  ],
+  "Wildevy Street": [
+    -25.877391,
+    25.658897
+  ],
+  "Molopo Road": [
+    -25.864767,
+    25.64928
+  ],
+  "Lantana Avenue": [
+    -25.863402,
+    25.661951
+  ],
+  "Fleming Avenue": [
+    -25.861512,
+    25.665734
+  ],
+  "Minerva Avenue": [
+    -25.863236,
+    25.663189
+  ],
+  "Gordon Street": [
+    -25.860422,
+    25.656844
+  ],
+  "Elizabeth Avenue": [
+    -25.862804,
+    25.663961
+  ],
+  "Clarendon Street": [
+    -25.855635,
+    25.647352
+  ],
+  "Irene Avenue": [
+    -25.862924,
+    25.665316
+  ],
+  "Reitz Avenue": [
+    -25.863235,
+    25.656407
+  ],
+  "Churchhill Street": [
+    -25.862662,
+    25.653127
+  ],
+  "Andesiet Drive": [
+    -25.855318,
+    25.667059
+  ],
+  "Havenga Street": [
+    -25.855533,
+    25.64314
+  ],
+  "Duiker Street": [
+    -25.853747,
+    25.655508
+  ],
+  "Knoppiesdoring Road": [
+    -25.852745,
+    25.663233
+  ],
+  "Suurpruim Road": [
+    -25.850537,
+    25.665696
+  ],
+  "Dolerite Avenue": [
+    -25.856341,
+    25.668437
+  ],
+  "Swarthaak Road": [
+    -25.853088,
+    25.662485
+  ],
+  "Bontbok Road": [
+    -25.851055,
+    25.659498
+  ],
+  "Thomas Street": [
+    -25.852814,
+    25.6491
+  ],
+  "Rugby Street": [
+    -25.859916,
+    25.660662
+  ],
+  "Olienhout Street": [
+    -25.855197,
+    25.653889
+  ],
+  "Carney Street": [
+    -25.857125,
+    25.64242
+  ],
+  "Quartz Avenue": [
+    -25.855611,
+    25.667722
+  ],
+  "Jakaranda Avenue": [
+    -25.858745,
+    25.669421
+  ],
+  "Mimosa Street": [
+    -25.852879,
+    25.655891
+  ],
+  "Akasia Street": [
+    -25.852872,
+    25.658135
+  ],
+  "Constantia Drive": [
+    -25.859579,
+    25.663983
+  ],
+  "Agaat Avenue": [
+    -25.856169,
+    25.666942
+  ],
+  "Jupiter Avenue": [
+    -25.856842,
+    25.663328
+  ],
+  "Killarney Avenue": [
+    -25.859801,
+    25.667363
+  ],
+  "Kameeldoring Road": [
+    -25.854323,
+    25.659113
+  ],
+  "Visser Street": [
+    -25.852925,
+    25.645518
+  ],
+  "Dadford Street": [
+    -25.854103,
+    25.64414
+  ],
+  "Pearl Street": [
+    -25.861646,
+    25.661005
+  ],
+  "Impala Street": [
+    -25.854627,
+    25.656042
+  ],
+  "William Rosenberg Street": [
+    -25.850284,
+    25.640042
+  ],
+  "Bernard Street": [
+    -25.851746,
+    25.641156
+  ],
+  "2nd Street": [
+    -25.854282,
+    25.636336
+  ],
+  "Motshe Close": [
+    -25.854741,
+    25.619939
+  ],
+  "Robert Sobukwe Street": [
+    -25.857194,
+    25.62244
+  ],
+  "Kgadiete Street": [
+    -25.849556,
+    25.622193
+  ],
+  "Kgotleng Street": [
+    -25.849968,
+    25.629609
+  ],
+  "Hendrick Tlou Street": [
+    -25.853489,
+    25.620804
+  ],
+  "Direko Avenue": [
+    -25.852144,
+    25.624105
+  ],
+  "Ditaole Street": [
+    -25.854294,
+    25.61893
+  ],
+  "Ramatong Street": [
+    -25.848322,
+    25.620773
+  ],
+  "Thelesho Tawana Street": [
+    -25.842657,
+    25.622978
+  ],
+  "Manyapelo Street": [
+    -25.850052,
+    25.623997
+  ],
+  "James Cindi Street": [
+    -25.855464,
+    25.623386
+  ],
+  "Katlego Avenue": [
+    -25.848846,
+    25.628606
+  ],
+  "Tebogo Teu Street": [
+    -25.851244,
+    25.626992
+  ],
+  "Mashuga Street": [
+    -25.852501,
+    25.621297
+  ],
+  "Thosi Setiloane Street": [
+    -25.842187,
+    25.617002
+  ],
+  "Seitshiro Modisane Street": [
+    -25.842861,
+    25.61709
+  ],
+  "Masibi Street": [
+    -25.844976,
+    25.617395
+  ],
+  "Molebatsi Lane": [
+    -25.840907,
+    25.617108
+  ],
+  "Ramushu Tawana Street": [
+    -25.84801,
+    25.616634
+  ],
+  "Moroeng Street": [
+    -25.846361,
+    25.618244
+  ],
+  "Molale Street": [
+    -25.838216,
+    25.621718
+  ],
+  "Tsheko Moloko Street": [
+    -25.842383,
+    25.621215
+  ],
+  "Kgalegi Crescent": [
+    -25.839419,
+    25.616788
+  ],
+  "Jerry Reid Street": [
+    -25.838884,
+    25.6219
+  ],
+  "Monoane Zebediele Street": [
+    -25.84221,
+    25.62197
+  ],
+  "Morobatsi Tlatsana Street": [
+    -25.844143,
+    25.621897
+  ],
+  "Molamu Street": [
+    -25.848031,
+    25.58637
+  ],
+  "George Modise Street": [
+    -25.844821,
+    25.622101
+  ],
+  "Tamenti Street": [
+    -25.847282,
+    25.616547
+  ],
+  "Petso Street": [
+    -25.848848,
+    25.622102
+  ],
+  "Ngaka Tsatsi Street": [
+    -25.851134,
+    25.618119
+  ],
+  "Tlhoaele Street": [
+    -25.843445,
+    25.618944
+  ],
+  "Kgatelopele Street": [
+    -25.839166,
+    25.623452
+  ],
+  "Nkau Street": [
+    -25.849414,
+    25.616854
+  ],
+  "Kole Street": [
+    -25.85045,
+    25.61806
+  ],
+  "Eric lkgopoleng Street": [
+    -25.845706,
+    25.617458
+  ],
+  "Joe Mahila Street": [
+    -25.843549,
+    25.617167
+  ],
+  "Maloisane Street": [
+    -25.848728,
+    25.616703
+  ],
+  "Neo Moagi Street": [
+    -25.847444,
+    25.628254
+  ],
+  "Seremane Street": [
+    -25.846804,
+    25.620987
+  ],
+  "Seroko Street": [
+    -25.851775,
+    25.618217
+  ],
+  "Mosiane Crescent": [
+    -25.838455,
+    25.621915
+  ],
+  "Kgoleng Close": [
+    -25.81806,
+    25.625537
+  ],
+  "Phala Close": [
+    -25.815956,
+    25.627914
+  ],
+  "Moratiwa Close": [
+    -25.816709,
+    25.627134
+  ],
+  "Setshedi Close": [
+    -25.822838,
+    25.623217
+  ],
+  "Lekhela Close": [
+    -25.817229,
+    25.626261
+  ],
+  "Kubu Street": [
+    -25.822516,
+    25.622544
+  ],
+  "Mosetlhi Close": [
+    -25.819359,
+    25.626536
+  ],
+  "Safari Close": [
+    -25.816603,
+    25.63101
+  ],
+  "Molehe Close": [
+    -25.815584,
+    25.629881
+  ],
+  "Mokale Drive": [
+    -25.84186,
+    25.591551
+  ],
+  "Bathoeng Moiloa Street": [
+    -25.816899,
+    25.627802
+  ],
+  "Moroka Close": [
+    -25.817721,
+    25.62861
+  ],
+  "Boikanyo Street": [
+    -25.82343,
+    25.625824
+  ],
+  "Bob Leshoai Street": [
+    -25.818825,
+    25.627982
+  ],
+  "Amalia Crescent": [
+    -25.847916,
+    25.590832
+  ],
+  "Locos Street": [
+    -25.849981,
+    25.588211
+  ],
+  "Elna Street": [
+    -25.846199,
+    25.591975
+  ],
+  "Lobelia Street": [
+    -25.851616,
+    25.586567
+  ],
+  "Azalea Street": [
+    -25.8509,
+    25.585333
+  ],
+  "Boet Joubert Close": [
+    -25.847262,
+    25.584924
+  ],
+  "Modisaotsile Seodi Boulevard": [
+    -25.847893,
+    25.585824
+  ],
+  "Antonia Street": [
+    -25.848902,
+    25.590888
+  ],
+  "Cocktall Crescent": [
+    -25.850156,
+    25.589441
+  ],
+  "Dorothy Street": [
+    -25.848226,
+    25.592001
+  ],
+  "Tetlano Road": [
+    -25.845818,
+    25.601119
+  ],
+  "Barolong Street": [
+    -25.840153,
+    25.60042
+  ],
+  "Buttery Street": [
+    -25.85027,
+    25.588564
+  ],
+  "Gerrit van den Brink Drive": [
+    -25.852479,
+    25.584963
+  ],
+  "Camelia Street": [
+    -25.852794,
+    25.586906
+  ],
+  "Acorus Street": [
+    -25.852346,
+    25.587243
+  ],
+  "Soiomon Mpedi Close": [
+    -25.846526,
+    25.587927
+  ],
+  "Gopane Street": [
+    -25.891713,
+    25.670817
+  ],
+  "John Bosigo Crescent": [
+    -25.847354,
+    25.587164
+  ],
+  "Sello Thooe Street": [
+    -25.842809,
+    25.589307
+  ],
+  "Motsatsi Drive": [
+    -25.840898,
+    25.593752
+  ],
+  "Malotle Street": [
+    -25.843795,
+    25.589977
+  ],
+  "Phuti Street": [
+    -25.841074,
+    25.592678
+  ],
+  "Seleke Street": [
+    -25.843906,
+    25.587381
+  ],
+  "Thagale Street": [
+    -25.843758,
+    25.586409
+  ],
+  "Mookana Street": [
+    -25.841607,
+    25.58927
+  ],
+  "Kwena Street": [
+    -25.844609,
+    25.586534
+  ],
+  "Kgokong Street": [
+    -25.886537,
+    25.676152
+  ],
+  "Mothamme Crescent": [
+    -25.840678,
+    25.588708
+  ],
+  "Thutlwa Street": [
+    -25.844067,
+    25.586921
+  ],
+  "Tawana Crescent": [
+    -25.831767,
+    25.605232
+  ],
+  "Mosii Street": [
+    -25.830469,
+    25.604337
+  ],
+  "8 Cul-de-Sac": [
+    -25.836624,
+    25.597315
+  ],
+  "Bophirima Cul-de-Sac West": [
+    -25.830751,
+    25.601975
+  ],
+  "Motshegare Street": [
+    -25.830334,
+    25.605359
+  ],
+  "6 Cul-de-Sac": [
+    -25.835871,
+    25.598881
+  ],
+  "1 Cul-de-Sac": [
+    -25.832637,
+    25.600873
+  ],
+  "Leah Mangope Avenue": [
+    -25.837197,
+    25.59822
+  ],
+  "Molathwa Drive": [
+    -25.83793,
+    25.604196
+  ],
+  "Botlhaba Cul-de-Sac East": [
+    -25.830917,
+    25.608089
+  ],
+  "9 Cul-de-Sac": [
+    -25.838764,
+    25.596507
+  ],
+  "18 Cul-de-Sac": [
+    -25.833077,
+    25.594861
+  ],
+  "13 Cul-de-Sac": [
+    -25.83809,
+    25.590753
+  ],
+  "15 Cul-de-Sac": [
+    -25.835947,
+    25.592469
+  ],
+  "14 Cul-de-Sac": [
+    -25.837946,
+    25.591253
+  ],
+  "16 Cul-de-Sac": [
+    -25.83458,
+    25.593459
+  ],
+  "Moraka Close": [
+    -25.839362,
+    25.592206
+  ],
+  "20 Cul-de-Sac": [
+    -25.831592,
+    25.597261
+  ],
+  "21 Cul-de-Sac": [
+    -25.831501,
+    25.598287
+  ],
+  "19 Cul-de-Sac": [
+    -25.832027,
+    25.595678
+  ],
+  "Setlogelo Drive": [
+    -25.829603,
+    25.607748
+  ],
+  "Doctor Albert Luthuli Road": [
+    -25.829662,
+    25.606917
+  ],
+  "University Drive": [
+    -25.838821,
+    25.60983
+  ],
+  "Doctor Mokgobo Avenue": [
+    -25.831965,
+    25.613138
+  ],
+  "Kagisho Lane": [
+    -25.841154,
+    25.621028
+  ],
+  "Modiri Molema Street": [
+    -25.871791,
+    25.639177
+  ],
+  "Tshite Street": [
+    -25.839444,
+    25.616774
+  ],
+  "Seroke Street": [
+    -25.848733,
+    25.626506
+  ],
+  "Modisaotsile Street": [
+    -25.853206,
+    25.624032
+  ],
+  "Maiphetlho Street": [
+    -25.850944,
+    25.622
+  ],
+  "Ngaka Mokgoro Street": [
+    -25.85007,
+    25.626867
+  ],
+  "Lekgetha Street": [
+    -25.851525,
+    25.62785
+  ],
+  "Mothibi Street": [
+    -25.851003,
+    25.628545
+  ],
+  "Masupha Street": [
+    -25.853834,
+    25.621986
+  ],
+  "Moukangoa Street": [
+    -25.852322,
+    25.626171
+  ],
+  "Tire Street": [
+    -25.840746,
+    25.590993
+  ],
+  "Ditlhage Street": [
+    -25.842169,
+    25.593741
+  ],
+  "Mothusi Street": [
+    -25.842476,
+    25.590668
+  ],
+  "More Street": [
+    -25.844451,
+    25.588635
+  ],
+  "Podlle Street": [
+    -25.843719,
+    25.589528
+  ],
+  "Acer Street": [
+    -25.851946,
+    25.587711
+  ],
+  "Andries Bloem Close": [
+    -25.850102,
+    25.583632
+  ],
+  "Zwell Ntuli Drive": [
+    -25.849659,
+    25.583607
+  ],
+  "Sapium Close": [
+    -25.84305,
+    25.578472
+  ],
+  "Dombeya Street": [
+    -25.841319,
+    25.578995
+  ],
+  "Bonica Street": [
+    -25.844358,
+    25.582259
+  ],
+  "Bethula Close": [
+    -25.843395,
+    25.581443
+  ],
+  "Salix Close": [
+    -25.843597,
+    25.578169
+  ],
+  "Callicarpa Crescent": [
+    -25.845642,
+    25.582883
+  ],
+  "Daphne Crescent": [
+    -25.84595,
+    25.578898
+  ],
+  "Cydonia Street": [
+    -25.842515,
+    25.579787
+  ],
+  "Sophora Street": [
+    -25.842785,
+    25.581284
+  ],
+  "Abelia Close": [
+    -25.84415,
+    25.578585
+  ],
+  "Viola Street": [
+    -25.847081,
+    25.580974
+  ],
+  "Mentha Close": [
+    -25.850166,
+    25.573827
+  ],
+  "Cistus Street": [
+    -25.849498,
+    25.579297
+  ],
+  "Ilex Crescent": [
+    -25.848157,
+    25.581333
+  ],
+  "Duranta Close": [
+    -25.849983,
+    25.574888
+  ],
+  "Monstera Street": [
+    -25.85152,
+    25.575957
+  ],
+  "Nerium Crescent": [
+    -25.850413,
+    25.57835
+  ],
+  "Ulmas Close": [
+    -25.851097,
+    25.576805
+  ],
+  "Prunus Crescent": [
+    -25.849384,
+    25.579544
+  ],
+  "Muscari Close": [
+    -25.846549,
+    25.577097
+  ],
+  "Petrea Close": [
+    -25.846998,
+    25.576529
+  ],
+  "Lunaria Close": [
+    -25.850363,
+    25.574408
+  ],
+  "Pentas Street": [
+    -25.851659,
+    25.577678
+  ],
+  "Pandoria Close": [
+    -25.847977,
+    25.575869
+  ],
+  "Felicia Close": [
+    -25.850298,
+    25.572442
+  ],
+  "Solanum Close": [
+    -25.847502,
+    25.576276
+  ],
+  "Salvia Close": [
+    -25.843334,
+    25.579742
+  ],
+  "Hedera Close": [
+    -25.848378,
+    25.575495
+  ],
+  "Gardenia Close": [
+    -25.849757,
+    25.57269
+  ],
+  "Lolium Close": [
+    -25.850308,
+    25.575086
+  ],
+  "Lavandula Street": [
+    -25.849004,
+    25.580033
+  ],
+  "Phage Street": [
+    -25.852911,
+    25.569521
+  ],
+  "Motswetswejane Crescent": [
+    -25.85427,
+    25.577178
+  ],
+  "Sekhi Close": [
+    -25.85392,
+    25.575782
+  ],
+  "Mokhasi Street": [
+    -25.853783,
+    25.572576
+  ],
+  "Maretlwa Street": [
+    -25.855302,
+    25.570502
+  ],
+  "Lobese Close": [
+    -25.854348,
+    25.570626
+  ],
+  "Lotlhaka Close": [
+    -25.853282,
+    25.572831
+  ],
+  "Lofeelo Close": [
+    -25.85231,
+    25.571789
+  ],
+  "Tshikitshane Street": [
+    -25.85183,
+    25.572057
+  ],
+  "Mokala Street": [
+    -25.860496,
+    25.570836
+  ],
+  "Maokana Close": [
+    -25.854835,
+    25.575109
+  ],
+  "Koko Street": [
+    -25.855342,
+    25.566229
+  ],
+  "Mamagwaile Cul": [
+    -25.85582,
+    25.56605
+  ],
+  "Kgaka Close": [
+    -25.851668,
+    25.568554
+  ],
+  "Tswere Close": [
+    -25.852099,
+    25.568196
+  ],
+  "Katse Close": [
+    -25.852528,
+    25.567814
+  ],
+  "Lephoi Close": [
+    -25.850817,
+    25.56944
+  ],
+  "Letshotlo Crescent": [
+    -25.858074,
+    25.568136
+  ],
+  "Mmamasilanoke Street": [
+    -25.851276,
+    25.568344
+  ],
+  "Kgantlapane Crescent": [
+    -25.855772,
+    25.566226
+  ],
+  "Kokolofitwe Street": [
+    -25.854294,
+    25.567174
+  ],
+  "Mabele Crescent": [
+    -25.850733,
+    25.570663
+  ],
+  "Ting Street": [
+    -25.85825,
+    25.565834
+  ],
+  "Tsintsihloane Close": [
+    -25.851279,
+    25.569101
+  ],
+  "Motlhaje Close": [
+    -25.86295,
+    25.569309
+  ],
+  "Tshetlo Close": [
+    -25.858705,
+    25.565575
+  ],
+  "Sebaga Street": [
+    -25.856643,
+    25.56718
+  ],
+  "Segwapa Close": [
+    -25.857271,
+    25.568884
+  ],
+  "Tsamai Close": [
+    -25.861277,
+    25.569149
+  ],
+  "Dikhutlana Street": [
+    -25.85695,
+    25.569227
+  ],
+  "Logala Close": [
+    -25.856838,
+    25.569228
+  ],
+  "Sethemi Street": [
+    -25.858715,
+    25.565551
+  ],
+  "Mokhure Close": [
+    -25.860521,
+    25.569267
+  ],
+  "Ockie Ackerman Crescent": [
+    -25.851999,
+    25.582053
+  ],
+  "Cuplake Crescent": [
+    -25.854531,
+    25.585073
+  ],
+  "Lorwana Close": [
+    -25.856873,
+    25.573716
+  ],
+  "Chris Lewis Street": [
+    -25.851049,
+    25.581916
+  ],
+  "Segwagwa Street": [
+    -25.857363,
+    25.572812
+  ],
+  "Motlhotlho Street": [
+    -25.857762,
+    25.572393
+  ],
+  "Tsitlwane Street": [
+    -25.855262,
+    25.577868
+  ],
+  "Veronica Crescent": [
+    -25.854026,
+    25.5844
+  ],
+  "Arthur Lilly Street": [
+    -25.853886,
+    25.583087
+  ],
+  "Wynand Van Graan Street": [
+    -25.852477,
+    25.581147
+  ],
+  "De Villiers Tekana Street": [
+    -25.851495,
+    25.581597
+  ],
+  "Mokitime Street": [
+    -25.864325,
+    25.588741
+  ],
+  "Sebopela Street": [
+    -25.862369,
+    25.585833
+  ],
+  "Phefeni Road": [
+    -25.883512,
+    25.587476
+  ],
+  "Da Gama Avenue": [
+    -25.857659,
+    25.663351
+  ],
+  "De Kock Street": [
+    -25.866024,
+    25.650041
+  ],
+  "Caledon Avenue": [
+    -25.859313,
+    25.662905
+  ],
+  "Cooke Street": [
+    -25.8608,
+    25.657261
+  ],
+  "Apollo Drive": [
+    -25.858374,
+    25.664205
+  ],
+  "Winter Street": [
+    -25.865926,
+    25.648771
+  ],
+  "Jan Smuts Avenue": [
+    -25.85557,
+    25.650165
+  ],
+  "Martin Street": [
+    -25.86044,
+    25.64812
+  ],
+  "Everest Drive": [
+    -25.864795,
+    25.659656
+  ],
+  "Interlaken Avenue": [
+    -25.864317,
+    25.661215
+  ],
+  "Soutbos Road": [
+    -25.852846,
+    25.661395
+  ],
+  "Dan Pienaar Avenue": [
+    -25.855052,
+    25.651209
+  ],
+  "Emerald Street": [
+    -25.860896,
+    25.660633
+  ],
+  "Geranium Drive": [
+    -25.864733,
+    25.658306
+  ],
+  "Karee Street": [
+    -25.865665,
+    25.631201
+  ],
+  "South Street": [
+    -25.867839,
+    25.645677
+  ],
+  "Robinson Street": [
+    -25.866391,
+    25.64455
+  ],
+  "Ganges Avenue": [
+    -25.870343,
+    25.644822
+  ],
+  "Canna Street": [
+    -25.874092,
+    25.646052
+  ],
+  "Petunia Street": [
+    -25.874351,
+    25.648028
+  ],
+  "Athlone Street": [
+    -25.858787,
+    25.640221
+  ],
+  "Dahlia Street": [
+    -25.876302,
+    25.652521
+  ],
+  "Delphinium Street": [
+    -25.875074,
+    25.64515
+  ],
+  "Boundary Street": [
+    -25.882369,
+    25.659638
+  ],
+  "Lang Street": [
+    -25.87391,
+    25.649833
+  ],
+  "Dianthus Stret": [
+    -25.874226,
+    25.648916
+  ],
+  "Zinnia Street": [
+    -25.874945,
+    25.648823
+  ],
+  "Park Street": [
+    -25.87696,
+    25.653005
+  ],
+  "New Street": [
+    -25.868773,
+    25.64468
+  ],
+  "Daisy Street": [
+    -25.873866,
+    25.651235
+  ],
+  "Mysore Street": [
+    -25.870254,
+    25.644059
+  ],
+  "Lupin Street": [
+    -25.875517,
+    25.647855
+  ],
+  "Middle Street": [
+    -25.874491,
+    25.65577
+  ],
+  "Warren Street": [
+    -25.860507,
+    25.642714
+  ],
+  "Rockey Street": [
+    -25.877811,
+    25.657977
+  ],
+  "Sarel Eloff Street": [
+    -25.850197,
+    25.64722
+  ],
+  "William Dick Avenue": [
+    -25.849026,
+    25.643291
+  ],
+  "Cecil Rhodes Avenue": [
+    -25.850876,
+    25.645513
+  ],
+  "Loop Street": [
+    -25.874992,
+    25.65347
+  ],
+  "Warren Goodyear Street": [
+    -25.850511,
+    25.643713
+  ],
+  "Hertzog Street": [
+    -25.850617,
+    25.642595
+  ],
+  "D.F. Malan Avenue": [
+    -25.849869,
+    25.645398
+  ],
+  "Yster Street": [
+    -25.881211,
+    25.659509
+  ],
+  "Jan Viljoen Avenue": [
+    -25.852005,
+    25.643692
+  ],
+  "Aerodrome Crescent": [
+    -25.844852,
+    25.637442
+  ],
+  "James Watt Crescent": [
+    -25.840171,
+    25.631497
+  ],
+  "Agro Road": [
+    -25.843743,
+    25.631433
+  ],
+  "1st Avenue": [
+    -25.857689,
+    25.62245
+  ],
+  "Zobo Road": [
+    -25.846291,
+    25.610043
+  ],
+  "Silas Molema Street": [
+    -25.859095,
+    25.612448
+  ],
+  "Sebokolodi Street": [
+    -25.863425,
+    25.613055
+  ],
+  "Lerothodi Road": [
+    -25.860086,
+    25.615191
+  ],
+  "Ramosadi Road": [
+    -25.858871,
+    25.611931
+  ],
+  "Lisa Street": [
+    -25.844478,
+    25.595122
+  ],
+  "Laura Street": [
+    -25.84407,
+    25.59557
+  ],
+  "Peace Crescent": [
+    -25.844745,
+    25.594465
+  ],
+  "Monica Crescent": [
+    -25.845083,
+    25.594254
+  ],
+  "Molema Memorial Street": [
+    -25.863984,
+    25.610332
+  ],
+  "Melatswana Street": [
+    -25.865516,
+    25.619201
+  ],
+  "Magano Street": [
+    -25.864382,
+    25.61182
+  ],
+  "Legapu Close": [
+    -25.860889,
+    25.571742
+  ],
+  "Khibitswane Street": [
+    -25.864074,
+    25.569847
+  ],
+  "Moonyana Close": [
+    -25.859945,
+    25.568396
+  ],
+  "Lephutse Close": [
+    -25.860058,
+    25.572194
+  ],
+  "Sepodisi Close": [
+    -25.862617,
+    25.570569
+  ],
+  "Thotse Street": [
+    -25.863519,
+    25.568798
+  ],
+  "Mokawa Street": [
+    -25.862443,
+    25.567288
+  ],
+  "Mutiwa Close": [
+    -25.862284,
+    25.568933
+  ],
+  "Lekatan Close": [
+    -25.860704,
+    25.570366
+  ],
+  "Ditloo Street": [
+    -25.860474,
+    25.572047
+  ],
+  "Pansy Street": [
+    -25.848996,
+    25.580241
+  ],
+  "Dinawa Street": [
+    -25.860604,
+    25.566429
+  ],
+  "Tamarix Street": [
+    -25.843793,
+    25.580031
+  ],
+  "Letlhodi Street": [
+    -25.860913,
+    25.565575
+  ],
+  "Tecoma Close": [
+    -25.85193,
+    25.577234
+  ],
+  "Big Street": [
+    -25.874797,
+    25.586946
+  ],
+  "Ngqobe Street": [
+    -25.863375,
+    25.613365
+  ],
+  "Mocoseng Road": [
+    -25.884431,
+    25.578025
+  ],
+  "Mokoto Road": [
+    -25.880829,
+    25.629079
+  ],
+  "Victoria Street": [
+    -25.859382,
+    25.642745
+  ],
+  "Peba Street": [
+    -25.851501,
+    25.570508
+  ],
+  "Ngwedi Street": [
+    -25.852642,
+    25.566806
+  ],
+  "Crocodile Street": [
+    -25.854594,
+    25.663327
+  ],
+  "Shark Street": [
+    -25.855836,
+    25.662773
+  ],
+  "Hippo Street": [
+    -25.856239,
+    25.661528
+  ],
+  "Extension 39 Drive": [
+    -25.833606,
+    25.58038
+  ],
+  "Maruping Street": [
+    -25.836534,
+    25.577613
+  ],
+  "Bathlaping Street": [
+    -25.837166,
+    25.606779
+  ],
+  "Kebalephile Street": [
+    -25.838334,
+    25.597281
+  ],
+  "7 Cul-de-Sac": [
+    -25.835312,
+    25.59637
+  ],
+  "Jameson Avenue": [
+    -25.864079,
+    25.630145
+  ],
+  "Bokone Road": [
+    -25.880117,
+    25.635304
+  ],
+  "Maroela Street": [
+    -25.878933,
+    25.659266
+  ],
+  "Mogosane Road": [
+    -25.803787,
+    25.582216
+  ],
+  "Mokgantitswane Street": [
+    -25.85633,
+    25.565822
+  ],
+  "Rhodes Crescent": [
+    -25.866366,
+    25.631063
+  ],
+  "Makgabe Street": [
+    -25.857965,
+    25.574378
+  ],
+  "Seope Street": [
+    -25.859022,
+    25.573192
+  ],
+  "Moshu Street": [
+    -25.85437,
+    25.575024
+  ],
+  "Madila Close": [
+    -25.855659,
+    25.574368
+  ],
+  "Mohatlha Close": [
+    -25.854387,
+    25.575461
+  ],
+  "Bojang Close": [
+    -25.855385,
+    25.574972
+  ],
+  "Begonia Close": [
+    -25.844467,
+    25.577669
+  ],
+  "Seditse Street": [
+    -25.856363,
+    25.56957
+  ],
+  "Mokha Close": [
+    -25.853323,
+    25.576081
+  ],
+  "Leselo Cul-de-Sac": [
+    -25.858579,
+    25.571536
+  ],
+  "Weigela Close": [
+    -25.851346,
+    25.578483
+  ],
+  "Sebera Street": [
+    -25.8542,
+    25.570069
+  ],
+  "Edward Road": [
+    -25.828268,
+    25.658445
+  ],
+  "Mmutla Road": [
+    -25.891918,
+    25.674729
+  ],
+  "Phuduhudu Road": [
+    -25.884154,
+    25.673534
+  ],
+  "Lengau Street": [
+    -25.893273,
+    25.676919
+  ],
+  "Tlhware Street": [
+    -25.89261,
+    25.671149
+  ],
+  "Molelwane Road": [
+    -25.793105,
+    25.652404
+  ],
+  "Letlhabu Road": [
+    -25.824008,
+    25.607855
+  ],
+  "Tshesebe Close": [
+    -25.820642,
+    25.622434
+  ],
+  "Magonare Close": [
+    -25.821662,
+    25.622163
+  ],
+  "Venus Street": [
+    -25.859132,
+    25.666204
+  ],
+  "Clivia Close": [
+    -25.845855,
+    25.583382
+  ],
+  "Phola Road": [
+    -25.854591,
+    25.6068
+  ],
+  "Dave Kelly Street": [
+    -25.851927,
+    25.581321
+  ],
+  "Gypsy Street": [
+    -25.845783,
+    25.592375
+  ],
+  "Blaze Street": [
+    -25.85167,
+    25.588581
+  ],
+  "Amanda Street": [
+    -25.848397,
+    25.591341
+  ],
+  "Bavaria Street": [
+    -25.849375,
+    25.590493
+  ],
+  "Albizia Street": [
+    -25.841419,
+    25.579643
+  ],
+  "Olea Street": [
+    -25.842504,
+    25.578597
+  ],
+  "5 Cul-de-Sac": [
+    -25.836228,
+    25.600847
+  ],
+  "10 Cul-de-Sac": [
+    -25.8403,
+    25.594255
+  ],
+  "12 Cul-de-Sac": [
+    -25.839587,
+    25.593334
+  ],
+  "12 Cul-de-sac": [
+    -25.839973,
+    25.592964
+  ],
+  "Bataung Street": [
+    -25.841716,
+    25.596595
+  ],
+  "Mokale Road": [
+    -25.84016,
+    25.597998
+  ],
+  "Bahurutshe Close": [
+    -25.842312,
+    25.597718
+  ],
+  "Banogeng Street": [
+    -25.841587,
+    25.598385
+  ],
+  "Batlheko Street": [
+    -25.840095,
+    25.5998
+  ],
+  "11 Cul-de-Sac": [
+    -25.839143,
+    25.594473
+  ],
+  "17 Cul-de-Sac": [
+    -25.834142,
+    25.596533
+  ],
+  "3 Cul-de-Sac": [
+    -25.834651,
+    25.602498
+  ],
+  "Batlokwa Close": [
+    -25.837493,
+    25.602412
+  ],
+  "Provident Street": [
+    -25.836471,
+    25.608857
+  ],
+  "Caroline Close": [
+    -25.85055,
+    25.65235
+  ],
+  "Jessie Close": [
+    -25.850921,
+    25.652022
+  ],
+  "Hector Peterson Street": [
+    -25.833652,
+    25.605619
+  ],
+  "4 Cul-de-Sac": [
+    -25.835828,
+    25.602051
+  ],
+  "Short Street": [
+    -25.858226,
+    25.641406
+  ],
+  "Plumeria Close": [
+    -25.851304,
+    25.577537
+  ],
+  "Wisteria Street": [
+    -25.848908,
+    25.576717
+  ],
+  "River Road": [
+    -25.847816,
+    25.639068
+  ],
+  "Kgobo Street": [
+    -25.853446,
+    25.618817
+  ],
+  "Whale Street": [
+    -25.855208,
+    25.663058
+  ],
+  "Dolphin Street": [
+    -25.854413,
+    25.664915
+  ],
+  "Mars Avenue": [
+    -25.863402,
+    25.657152
+  ],
+  "Allium Street": [
+    -25.846827,
+    25.578842
+  ],
+  "Vitex Street": [
+    -25.848271,
+    25.57995
+  ],
+  "Iris Street": [
+    -25.847607,
+    25.576857
+  ],
+  "Sol Plaatje Drive": [
+    -25.82106,
+    25.628583
+  ],
+  "Duitlwileng Street": [
+    -25.821222,
+    25.623689
+  ],
+  "Lerito Street": [
+    -25.858261,
+    25.566807
+  ],
+  "Mmamolongwana Street": [
+    -25.854176,
+    25.568849
+  ],
+  "Thaga Cul": [
+    -25.853081,
+    25.567186
+  ],
+  "2 Cul-de-Sac": [
+    -25.832394,
+    25.602497
+  ],
+  "Desiree Street": [
+    -25.843567,
+    25.595736
+  ],
+  "Abelia Street": [
+    -25.853192,
+    25.586782
+  ],
+  "Balsam Close": [
+    -25.844439,
+    25.577335
+  ],
+  "Tilia Close": [
+    -25.851721,
+    25.57653
+  ],
+  "Letlametlo Street": [
+    -25.858175,
+    25.571966
+  ],
+  "Thepe Street": [
+    -25.863223,
+    25.568246
+  ],
+  "Manyena Street": [
+    -25.855627,
+    25.56774
+  ],
+  "Podile Street": [
+    -25.863029,
+    25.622219
+  ],
+  "Motlhabeng Road": [
+    -25.853009,
+    25.600888
+  ],
+  "Lekalakala Street": [
+    -25.865371,
+    25.613153
+  ],
+  "Steven Biko Avenue": [
+    -25.835169,
+    25.595758
+  ],
+  "Lokaleng Road": [
+    -25.819698,
+    25.613501
+  ],
+  "Dreamland Street": [
+    -25.854402,
+    25.58617
+  ],
+  "Setumo Montshiwa Street": [
+    -25.852943,
+    25.580879
+  ]
+}

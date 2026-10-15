@@ -19021,7 +19021,7 @@ let _selectedResidence = null;
 async function loadResidencesData() {
   if (_residencesData && _residencesData.length) return _residencesData;
   try {
-    const res = await fetch('data/approved_residences.json?v=68');
+    const res = await fetch('data/approved_residences.json?v=70');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     _residencesData = data.residences || [];
@@ -19096,29 +19096,25 @@ function renderResidencesShell() {
   if (!body) return;
   body.innerHTML = `
     <div class="res-controls">
-      <div class="res-search-box">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="res-search-input" placeholder="Search residences, landlords, suburbs, or 2026/M..." autocomplete="off" value="${esc(_resSearchQuery)}">
-        <button type="button" class="res-search-clear" id="res-search-clear" style="display:${_resSearchQuery ? 'block' : 'none'}">&times;</button>
+      <div class="res-search-row">
+        <div class="res-search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="res-search-input" placeholder="Search residences, streets, 2026/M..." autocomplete="off" value="${esc(_resSearchQuery)}">
+          <button type="button" class="res-search-clear" id="res-search-clear" style="display:${_resSearchQuery ? 'block' : 'none'}">&times;</button>
+        </div>
+        <select class="res-select" id="res-suburb-select">
+          <option value="ALL">All Areas</option>
+          <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
+        </select>
       </div>
 
       <div class="res-category-row">
         <button type="button" class="res-category-pill ${_resFilterCategory === 'ALL' ? 'active' : ''}" data-cat="ALL">All (650)</button>
-        <button type="button" class="res-category-pill ${_resFilterCategory === 'on_campus' ? 'active' : ''}" data-cat="on_campus">🏛️ On-Campus (19)</button>
-        <button type="button" class="res-category-pill ${_resFilterCategory === 'private_accredited' ? 'active' : ''}" data-cat="private_accredited">🏢 Private Accredited (631)</button>
-      </div>
-
-      <div class="res-filters-row">
-        <select class="res-select" id="res-suburb-select">
-          <option value="ALL">All Areas / Suburbs</option>
-          <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
-        </select>
-        <select class="res-select" id="res-room-select">
-          <option value="ALL" ${_resFilterRoom === 'ALL' ? 'selected' : ''}>All Room Types</option>
-          <option value="single" ${_resFilterRoom === 'single' ? 'selected' : ''}>Single Rooms</option>
-          <option value="sharing" ${_resFilterRoom === 'sharing' ? 'selected' : ''}>Sharing Rooms</option>
-        </select>
-        <span class="res-count-badge" id="res-count-badge">Loading...</span>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'on_campus' ? 'active' : ''}" data-cat="on_campus">🏛️ Campus (19)</button>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'private_accredited' ? 'active' : ''}" data-cat="private_accredited">🏢 Private (631)</button>
+        <button type="button" class="res-category-pill ${_resFilterRoom === 'single' ? 'active' : ''}" data-room="single">🚪 Single</button>
+        <button type="button" class="res-category-pill ${_resFilterRoom === 'sharing' ? 'active' : ''}" data-room="sharing">👥 Sharing</button>
+        <span class="res-count-badge" id="res-count-badge">650</span>
       </div>
     </div>
 
@@ -19164,9 +19160,22 @@ function renderResidencesShell() {
 
   $$('.res-category-pill').forEach(btn => {
     btn.onclick = () => {
-      $$('.res-category-pill').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      _resFilterCategory = btn.dataset.cat || 'ALL';
+      const cat = btn.dataset.cat;
+      const room = btn.dataset.room;
+      if (cat) {
+        $$('.res-category-pill[data-cat]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _resFilterCategory = cat;
+      } else if (room) {
+        if (_resFilterRoom === room) {
+          _resFilterRoom = 'ALL';
+          btn.classList.remove('active');
+        } else {
+          $$('.res-category-pill[data-room]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          _resFilterRoom = room;
+        }
+      }
       _resListLimit = 40;
       applyResidencesFilters();
     };
@@ -19176,15 +19185,6 @@ function renderResidencesShell() {
   if (suburbSelect) {
     suburbSelect.onchange = () => {
       _resFilterSuburb = suburbSelect.value;
-      _resListLimit = 40;
-      applyResidencesFilters();
-    };
-  }
-
-  const roomSelect = $('#res-room-select');
-  if (roomSelect) {
-    roomSelect.onchange = () => {
-      _resFilterRoom = roomSelect.value;
       _resListLimit = 40;
       applyResidencesFilters();
     };
@@ -19217,7 +19217,7 @@ function populateResidencesSuburbs(list) {
   });
   const sorted = Array.from(suburbs).sort();
   select.innerHTML = `
-    <option value="ALL">All Areas / Suburbs</option>
+    <option value="ALL">All Areas</option>
     <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
     ${sorted.map(s => `<option value="${esc(s)}" ${_resFilterSuburb === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
   `;
@@ -19316,18 +19316,11 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           <span>${esc(res.address)}</span>
         </div>
         <div class="res-card-stats">
-          <div class="res-stat-pill-box">
-            <div class="res-stat-pill-val">${res.beds || 0}</div>
-            <div class="res-stat-pill-lbl">Beds</div>
-          </div>
-          <div class="res-stat-pill-box">
-            <div class="res-stat-pill-val">${res.singleRooms || 0}</div>
-            <div class="res-stat-pill-lbl">Single</div>
-          </div>
-          <div class="res-stat-pill-box">
-            <div class="res-stat-pill-val">${res.sharingRooms || 0}</div>
-            <div class="res-stat-pill-lbl">Sharing</div>
-          </div>
+          <span class="res-stat-item">🛏️ <strong>${res.beds || 0}</strong> Beds</span>
+          <span class="res-stat-sep">·</span>
+          <span class="res-stat-item">🚪 <strong>${res.singleRooms || 0}</strong> Single</span>
+          <span class="res-stat-sep">·</span>
+          <span class="res-stat-item">👥 <strong>${res.sharingRooms || 0}</strong> Sharing</span>
         </div>
         <div class="res-card-actions">
           ${callBtn}
@@ -19503,7 +19496,7 @@ function showResidenceMapPreview(res) {
       <span style="flex-shrink:0">📍</span>
       <span>${esc(res.address)}</span>
     </div>
-    <div class="res-card-stats" style="margin:4px 0 2px">
+    <div class="res-modal-stats-grid" style="grid-template-columns: repeat(3, 1fr); margin: 6px 0 4px">
       <div class="res-stat-pill-box" style="padding:4px 6px">
         <div class="res-stat-pill-val" style="font-size:13px">${res.beds || 0}</div>
         <div class="res-stat-pill-lbl" style="font-size:9.5px">Total Beds</div>
@@ -19606,7 +19599,7 @@ function openResidenceDetail(id) {
       </div>
 
       <!-- Quick 4-box Metrics Grid -->
-      <div class="res-card-stats" style="grid-template-columns: repeat(4, 1fr); gap: 6px;">
+      <div class="res-modal-stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: 6px;">
         <div class="res-stat-pill-box">
           <div class="res-stat-pill-val">${res.beds || 0}</div>
           <div class="res-stat-pill-lbl">Beds</div>
