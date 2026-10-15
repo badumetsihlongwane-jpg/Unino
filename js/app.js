@@ -19021,7 +19021,7 @@ let _selectedResidence = null;
 async function loadResidencesData() {
   if (_residencesData && _residencesData.length) return _residencesData;
   try {
-    const res = await fetch('data/approved_residences.json?v=67');
+    const res = await fetch('data/approved_residences.json?v=68');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     _residencesData = data.residences || [];
@@ -19303,7 +19303,11 @@ function renderResidencesList(filtered = getFilteredResidences()) {
     return `
       <div class="res-card" onclick="openResidenceDetail('${escJs(res.id)}')">
         <div class="res-card-top">
-          ${badgeHtml}
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${badgeHtml}
+            ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
+            ${res.gender ? `<span class="res-dist-pill" style="opacity:0.85">${esc(res.gender)}</span>` : ''}
+          </div>
           <span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>
         </div>
         <div class="res-card-name">${esc(res.name)}</div>
@@ -19312,9 +19316,18 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           <span>${esc(res.address)}</span>
         </div>
         <div class="res-card-stats">
-          <div class="res-stat-item">🛏️ <strong>${res.beds}</strong> Beds</div>
-          <div class="res-stat-item">🚪 <strong>${res.singleRooms}</strong> Single</div>
-          <div class="res-stat-item">👥 <strong>${res.sharingRooms}</strong> Sharing</div>
+          <div class="res-stat-pill-box">
+            <div class="res-stat-pill-val">${res.beds || 0}</div>
+            <div class="res-stat-pill-lbl">Beds</div>
+          </div>
+          <div class="res-stat-pill-box">
+            <div class="res-stat-pill-val">${res.singleRooms || 0}</div>
+            <div class="res-stat-pill-lbl">Single</div>
+          </div>
+          <div class="res-stat-pill-box">
+            <div class="res-stat-pill-val">${res.sharingRooms || 0}</div>
+            <div class="res-stat-pill-lbl">Sharing</div>
+          </div>
         </div>
         <div class="res-card-actions">
           ${callBtn}
@@ -19411,12 +19424,18 @@ function renderResidencesMapMarkers(filtered = getFilteredResidences()) {
   _resMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
   _resMarkers = [];
 
-  const pinsToShow = filtered.slice(0, 200);
+  // Limit active pins to 75 for peak rendering performance, ensuring selected res is included
+  const maxPins = 75;
+  let pinsToShow = filtered.slice(0, maxPins);
+  if (_selectedResidence && !pinsToShow.some(r => r.id === _selectedResidence.id)) {
+    pinsToShow.unshift(_selectedResidence);
+  }
 
   pinsToShow.forEach(res => {
     const el = document.createElement('div');
     const isOnCampus = res.type === 'on_campus';
-    el.className = `res-marker-pin ${isOnCampus ? 'nwu' : 'private'}`;
+    const isSelected = _selectedResidence && _selectedResidence.id === res.id;
+    el.className = `res-marker-pin ${isOnCampus ? 'nwu' : 'private'} ${isSelected ? 'active' : ''}`;
     el.innerHTML = isOnCampus ? '🏛️' : '🏢';
     el.title = `${res.name} (${res.distanceText})`;
 
@@ -19440,6 +19459,7 @@ function selectResidenceOnMap(res) {
     _resMapInstance.flyTo({
       center: [res.lng, res.lat],
       zoom: 16.5,
+      offset: [0, -70], // Shifts center slightly so pin is clearly visible above bottom sheet
       essential: true
     });
   }
@@ -19470,24 +19490,41 @@ function showResidenceMapPreview(res) {
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
 
   sheet.innerHTML = `
-    <button type="button" class="res-preview-close" onclick="hideResidenceMapPreview()">&times;</button>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div class="res-preview-handle"></div>
+    <button type="button" class="res-preview-close" onclick="hideResidenceMapPreview()" aria-label="Close preview">&times;</button>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-right:24px">
       ${badgeHtml}
+      ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
       <span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>
+      ${res.gender ? `<span class="res-dist-pill" style="opacity:0.85">${esc(res.gender)}</span>` : ''}
     </div>
-    <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-top:4px">${esc(res.name)}</div>
-    <div style="font-size:12px;color:var(--text-secondary)">📍 ${esc(res.address)}</div>
-    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
-      🛏️ <strong>${res.beds}</strong> Total Beds · ${res.singleRooms} Single · ${res.sharingRooms} Sharing
+    <div style="font-size:16px;font-weight:800;color:var(--text-primary);line-height:1.25;margin-top:2px">${esc(res.name)}</div>
+    <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:4px;line-height:1.35">
+      <span style="flex-shrink:0">📍</span>
+      <span>${esc(res.address)}</span>
     </div>
-    <div class="res-card-actions" style="margin-top:8px">
+    <div class="res-card-stats" style="margin:4px 0 2px">
+      <div class="res-stat-pill-box" style="padding:4px 6px">
+        <div class="res-stat-pill-val" style="font-size:13px">${res.beds || 0}</div>
+        <div class="res-stat-pill-lbl" style="font-size:9.5px">Total Beds</div>
+      </div>
+      <div class="res-stat-pill-box" style="padding:4px 6px">
+        <div class="res-stat-pill-val" style="font-size:13px">${res.singleRooms || 0}</div>
+        <div class="res-stat-pill-lbl" style="font-size:9.5px">Single</div>
+      </div>
+      <div class="res-stat-pill-box" style="padding:4px 6px">
+        <div class="res-stat-pill-val" style="font-size:13px">${res.sharingRooms || 0}</div>
+        <div class="res-stat-pill-lbl" style="font-size:9.5px">Sharing</div>
+      </div>
+    </div>
+    <div class="res-card-actions" style="margin-top:4px">
       ${callBtn}
       ${waBtn}
       <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener">
         🗺️ Directions
       </a>
-      <button type="button" class="btn-sm btn-accent" style="margin-left:auto" onclick="openResidenceDetail('${escJs(res.id)}')">
-        Full Details →
+      <button type="button" class="btn-sm btn-accent" style="margin-left:auto;padding:6px 12px;font-size:11.5px;font-weight:700;border-radius:8px" onclick="openResidenceDetail('${escJs(res.id)}')">
+        Details →
       </button>
     </div>
   `;
@@ -19521,77 +19558,124 @@ function openResidenceDetail(id) {
     : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
 
   const waBtn = res.whatsapp ? `
-    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" style="flex:1;justify-content:center;height:40px;font-size:13px">
+    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" style="flex:1;justify-content:center;height:42px;font-size:13.5px">
       💬 WhatsApp Landlord
     </a>
   ` : '';
 
   const callBtn = res.phone ? `
-    <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:40px;font-size:13px">
+    <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:42px;font-size:13.5px">
       📞 Call (${esc(res.phone)})
     </a>
   ` : '';
 
   const emailBtn = res.email ? `
-    <a class="res-btn" href="mailto:${res.email}?subject=Accommodation%20Inquiry%20-%20Unibo" style="width:100%;justify-content:center;height:38px;font-size:13px">
+    <a class="res-btn" href="mailto:${res.email}?subject=Accommodation%20Inquiry%20-%20Unibo%20(${encodeURIComponent(res.name)})" style="width:100%;justify-content:center;height:38px;font-size:13px">
       ✉️ Email: ${esc(res.email)}
     </a>
   ` : '';
 
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
 
-  const amenitiesHtml = (res.amenities || []).map(a => `
+  const amenitiesHtml = (res.amenities && res.amenities.length ? res.amenities : [
+    '24/7 Security', 'Study Facilities', 'Water & Electricity', 'Safe Student Environment'
+  ]).map(a => `
     <div class="res-amenity-chip">✓ ${esc(a)}</div>
   `).join('');
 
   const modalHtml = `
     <div class="res-detail-sheet-wrap">
-      <div class="res-detail-header">
-        <div>
-          ${badgeHtml}
+      <div class="res-detail-hero">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${badgeHtml}
+            ${res.gender ? `<span class="res-dist-pill">${esc(res.gender)}</span>` : ''}
+            ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
+          </div>
           <div class="res-detail-title">${esc(res.name)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Accreditation Code: <strong>${esc(res.accreditationNumber)}</strong></div>
+          <div style="font-size:12.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span>Accreditation Code:</span>
+            <span style="font-family:monospace;font-weight:700;background:var(--bg-tertiary);border:1px solid var(--border);padding:1px 6px;border-radius:5px;color:var(--text-primary)">${esc(res.accreditationNumber)}</span>
+          </div>
         </div>
-        <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+        <button type="button" class="icon-btn" onclick="closeModal()" aria-label="Close" style="align-self:flex-start">&times;</button>
       </div>
 
       <div class="res-detail-disclaimer">
         ℹ️ <strong>Official NWU 2026 Accreditation:</strong> Students are reminded that the physical address stated on your signed lease agreement must match the address at which you reside. Providing false information constitutes misrepresentation under university rules.
       </div>
 
-      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px">
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Location & Distance</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.4">
-          📍 <strong>${esc(res.address)}</strong><br>
-          <span style="color:var(--accent);font-weight:600">Suburb: ${esc(res.suburb)}</span> · ${esc(res.distanceText)}
+      <!-- Quick 4-box Metrics Grid -->
+      <div class="res-card-stats" style="grid-template-columns: repeat(4, 1fr); gap: 6px;">
+        <div class="res-stat-pill-box">
+          <div class="res-stat-pill-val">${res.beds || 0}</div>
+          <div class="res-stat-pill-lbl">Beds</div>
+        </div>
+        <div class="res-stat-pill-box">
+          <div class="res-stat-pill-val">${res.singleRooms || 0}</div>
+          <div class="res-stat-pill-lbl">Single</div>
+        </div>
+        <div class="res-stat-pill-box">
+          <div class="res-stat-pill-val">${res.sharingRooms || 0}</div>
+          <div class="res-stat-pill-lbl">Sharing</div>
+        </div>
+        <div class="res-stat-pill-box">
+          <div class="res-stat-pill-val" style="font-size:11.5px;color:var(--accent)">${esc(res.distanceKm ? res.distanceKm.toFixed(1) + ' km' : 'Campus')}</div>
+          <div class="res-stat-pill-lbl">From Gate</div>
         </div>
       </div>
 
-      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px">
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Capacity & Room Types</div>
-        <div style="display:flex;gap:12px;font-size:13px">
-          <div>🛏️ <strong>${res.beds}</strong> Total Beds</div>
-          <div>🚪 <strong>${res.singleRooms}</strong> Single Rooms</div>
-          <div>👥 <strong>${res.sharingRooms}</strong> Sharing Rooms</div>
+      <!-- Location Card -->
+      <div class="res-detail-card">
+        <div class="res-detail-card-title">📍 Location & Campus Proximity</div>
+        <div style="font-size:13px;color:var(--text-primary);line-height:1.4;margin-bottom:4px">
+          <strong>${esc(res.address)}</strong>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span>Suburb: <strong>${esc(res.suburb)}</strong></span>
+          <span>·</span>
+          <span>Coordinates: <code>${res.lat.toFixed(5)}, ${res.lng.toFixed(5)}</code></span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button type="button" class="res-btn" style="flex:1;justify-content:center;height:36px" onclick="closeModal(); locateResidenceOnMap('${escJs(res.id)}')">
+            🗺️ View on Map
+          </button>
+          <a class="res-btn" style="flex:1;justify-content:center;height:36px" href="${directionsUrl}" target="_blank" rel="noopener">
+            🧭 Turn-by-Turn GPS
+          </a>
         </div>
       </div>
 
-      <div>
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Key Facilities & Amenities</div>
+      ${res.description ? `
+        <div class="res-detail-card">
+          <div class="res-detail-card-title">📝 Overview</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">
+            ${esc(res.description)}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Key Facilities & Amenities -->
+      <div class="res-detail-card">
+        <div class="res-detail-card-title">✨ Key Facilities & Amenities</div>
         <div class="res-amenities-grid">
           ${amenitiesHtml}
         </div>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
-        <div style="display:flex;gap:8px">
-          ${callBtn}
-          ${waBtn}
+      <!-- Direct Contact Section -->
+      <div class="res-detail-card" style="border-color:var(--accent)">
+        <div class="res-detail-card-title">📞 Direct Landlord / Residence Contact</div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">
+          Inquire directly about available bed slots, lease agreements, NSFAS accreditation status, and viewing schedules.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:8px">
+            ${callBtn}
+            ${waBtn}
+          </div>
+          ${emailBtn}
         </div>
-        ${emailBtn}
-        <a class="btn-accent w100" href="${directionsUrl}" target="_blank" rel="noopener" style="height:42px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13.5px">
-          🧭 Open Turn-by-Turn Navigation
-        </a>
       </div>
     </div>
   `;
