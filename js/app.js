@@ -32,6 +32,7 @@ let _gReplyTo = null;
 let _dmMsgLookup = new Map();
 let _gMsgLookup = new Map();
 let _chatViewportCleanup = null;
+let _chatPeerStatusUnsub = null;
 let _gchatViewportCleanup = null;
 let _inAppBackInit = false;
 let _inAppBackListenerBound = false;
@@ -3000,16 +3001,34 @@ function dateSeparatorLabel(ts) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
-function escJsString(s = '') {
-  return String(s || '')
+function escAttr(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escJs(s = '') {
+  return String(s == null ? '' : s)
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
     .replace(/\u2028/g, ' ')
     .replace(/\u2029/g, ' ')
     .replace(/\r?\n/g, ' ');
 }
+const escJsString = escJs;
 
 function isStudentEmail(email = '') {
   const e = (email || '').trim().toLowerCase();
@@ -3516,20 +3535,25 @@ const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
 /**
  * Upload a file to R2. Returns the public URL.
  * Path: /Images/{userId}/{timestamp}_{random}_{filename}
- * This scopes files per user to prevent data leaks.
+ * Authenticates via Firebase ID token to prevent unauthorized uploads.
  */
 async function uploadToR2(file, folder = '') {
   const uid = state.user?.uid || 'anon';
   const ts = Date.now();
   const rand = Math.random().toString(36).slice(2, 8);
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = folder ? `${uid}/${folder}/${ts}_${rand}_${safeName}` : `${uid}/${ts}_${rand}_${safeName}`;
   const url = R2_BASE + path;
   try {
+    const token = state.user ? await state.user.getIdToken() : '';
+    const headers = { 'Content-Type': file.type || 'application/octet-stream' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const resp = await fetch(url, {
       method: 'PUT',
       body: file,
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      headers,
       mode: 'cors'
     });
     if (!resp.ok) {
@@ -3539,14 +3563,33 @@ async function uploadToR2(file, folder = '') {
     return url;
   } catch (e) {
     console.error('R2 upload failed:', e.message || e);
-    // Fallback to base64 for images only
-    if (file.type.startsWith('image/')) {
-      console.log('R2 blocked (CORS?), falling back to base64');
-      return await compress(file);
+    // Fallback to compressed base64 for images only (limited to 720px / 0.65 quality to prevent document explosion)
+    if (file.type && file.type.startsWith('image/')) {
+      console.warn('R2 unavailable, falling back to compressed base64 thumbnail');
+      return await compress(file, 720, 0.65);
     }
     // For video/audio — no base64 fallback possible
-    toast('Media upload failed — update your R2 worker (see worker/r2-worker.js)');
+    toast('Media upload failed — could not reach storage server.');
     return null;
+  }
+}
+
+/** Delete a file from R2 using authenticated DELETE */
+async function deleteFromR2(fileUrl) {
+  if (!fileUrl || !fileUrl.startsWith(R2_BASE)) return false;
+  try {
+    const token = state.user ? await state.user.getIdToken() : '';
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const resp = await fetch(fileUrl, {
+      method: 'DELETE',
+      headers,
+      mode: 'cors'
+    });
+    return resp.ok;
+  } catch (e) {
+    console.warn('R2 delete failed:', e.message || e);
+    return false;
   }
 }
 
@@ -5016,15 +5059,27 @@ function enterApp() {
 
 let _onlineCountSub = null;
 let _onlineCountTimer = null;
-function listenForOnlineCount() {
-  if (_onlineCountSub) _onlineCountSub();
-  if (_onlineCountTimer) clearInterval(_onlineCountTimer);
-  _onlineCountSub = db.collection('users').where('status', '==', 'online').onSnapshot(snap => {
-    const count = snap.size || 0;
+
+async function refreshOnlineCount() {
+  try {
+    const statsDoc = await db.collection('stats').doc('online').get().catch(() => null);
+    let count = statsDoc?.exists ? (statsDoc.data().count || 0) : 0;
+    if (!count) {
+      const snap = await db.collection('users').where('status', '==', 'online').limit(100).get();
+      count = snap.size || 1;
+    }
     const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
     const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
     const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
-  }, () => {});
+  } catch (_) {}
+}
+
+function listenForOnlineCount() {
+  if (_onlineCountSub) { _onlineCountSub(); _onlineCountSub = null; }
+  if (_onlineCountTimer) { clearInterval(_onlineCountTimer); _onlineCountTimer = null; }
+  refreshOnlineCount();
+  // Poll only once every 3 minutes instead of continuous expensive onSnapshot listener
+  _onlineCountTimer = setInterval(refreshOnlineCount, 3 * 60 * 1000);
 }
 
 let _unreadDMSub = null;
@@ -5274,17 +5329,6 @@ function updateStatusUI() {
 let _lastActivityAt = Date.now();
 let _presenceTimer = null;
 
-async function syncConversationPresence(status) {
-  if (!state.user?.uid) return;
-  try {
-    const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
-    await Promise.all(snap.docs.map(d => d.ref.set({ participantStatuses: { [state.user.uid]: status } }, { merge: true })));
-  } catch (e) {
-    if (await recoverInvalidSession(e, 'Conversation presence sync failed')) return;
-    console.error(e);
-  }
-}
-
 async function refreshPresence(force = false) {
   if (!state.user?.uid) return;
   const inactive = (Date.now() - _lastActivityAt) > 3 * 60 * 1000;
@@ -5293,8 +5337,11 @@ async function refreshPresence(force = false) {
   state.status = effective;
   updateStatusUI();
   try {
-    await db.collection('users').doc(state.user.uid).update({ status: effective, manualStatus: state.manualStatus, lastActiveAt: FieldVal.serverTimestamp() });
-    syncConversationPresence(effective);
+    await db.collection('users').doc(state.user.uid).update({
+      status: effective,
+      manualStatus: state.manualStatus,
+      lastActiveAt: FieldVal.serverTimestamp()
+    });
   } catch (e) {
     if (await recoverInvalidSession(e, 'Presence update failed')) return;
     console.error(e);
@@ -5899,10 +5946,10 @@ function loadDiscoverPeople() {
       const isFriend = (state.profile.friends || []).includes(u.id);
       const isPending = (state.profile.sentRequests || []).includes(u.id);
       const actionBtn = isFriend
-        ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}')">Message</button>`
+        ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${escJs(u.displayName)}','${escJs(u.photoURL || '')}')">Message</button>`
         : isPending
           ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${esc(u.displayName)}','${u.photoURL || ''}', this)">Add Friend</button>`;
+          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName)}','${escJs(u.photoURL || '')}', this)">Add Friend</button>`;
       return `
         <div class="discover-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
           <div class="discover-card-avatar">
@@ -6616,10 +6663,10 @@ function renderFeedInlineSuggestionCard(user = {}) {
   const isFriend = (state.profile?.friends || []).includes(user.id);
   const isPending = (state.profile?.sentRequests || []).includes(user.id);
   const action = isFriend
-    ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
+    ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${user.id}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
     : isPending
       ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add Friend</button>`;
+      : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${escJs(displayName)}','${escJs(user.photoURL || '')}', this)">Add Friend</button>`;
   return `
     <div class="post-card feed-inline-suggestion" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
       <div class="suggested-header" style="padding:14px 16px 6px;margin:0">
@@ -6744,10 +6791,10 @@ function renderFeedInlineSuggestionRail(users = []) {
         const isFriend = (state.profile?.friends || []).includes(user.id);
         const isPending = (state.profile?.sentRequests || []).includes(user.id);
         const action = isFriend
-          ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
+          ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
           : isPending
             ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${esc(displayName)}','${user.photoURL || ''}', this)">Add</button>`;
+            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${escJs(displayName)}','${escJs(user.photoURL || '')}', this)">Add</button>`;
           return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
           ${avatar(displayName, user.photoURL, 'avatar-lg')}
           <div class="suggested-card-name">${esc(displayName)}</div>
@@ -8019,7 +8066,7 @@ async function openReelComments(postId, options = {}) {
             <span class="comment-time">${timeAgo(c.createdAt)}</span>
             <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','reel')" onmousedown="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','reel','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
             <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','reel','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
-            <button class="c-act c-reply-btn" onclick="setReelCommentReply('${c.id}','${esc(c.authorName || 'User')}')">Reply</button>
+            <button class="c-act c-reply-btn" onclick="setReelCommentReply('${c.id}','${escJs(c.authorName || 'User')}')">Reply</button>
           </div>
           ${cReplies.length ? `
             <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -8315,7 +8362,7 @@ async function openComments(postId, options = {}) {
              <span class="comment-time">${timeAgo(c.createdAt)}</span>
              <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)" title="Like comment">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
              <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
-             <button class="c-act c-reply-btn" onclick="setCommentReply('${c.id}','${esc(displayName)}')">Reply</button>
+             <button class="c-act c-reply-btn" onclick="setCommentReply('${c.id}','${escJs(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `
              <button class="toggle-replies-btn" onclick="toggleCommentReplies(this)">
@@ -8521,7 +8568,7 @@ async function postComment(postId) {
             <span class="comment-time">Just now</span>
             <button class="c-act like-only" type="button" disabled title="Syncing...">${renderCommentLikeMarkup(false, 0, '')}</button>
             <button class="c-act c-react-btn" onclick="openCommentReactionPicker('${postId}','${tempId}','feed','', event)" title="React with emoji">😊 React</button>
-            <button class="c-act c-reply-btn" onclick="setCommentReply('${tempId}','${esc(displayName)}')">Reply</button>
+            <button class="c-act c-reply-btn" onclick="setCommentReply('${tempId}','${escJs(displayName)}')">Reply</button>
           </div>
         </div>
       `;
@@ -9628,12 +9675,12 @@ function renderRadarView() {
 
         ${moduleUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('module', '${esc(searchQuery)}')">View all</button></div>
+          <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('module', '${escJs(searchQuery)}')">View all</button></div>
           <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
         <div class="proximity-section">
-          <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${esc(searchQuery)}')">View all</button></div>
+          <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">View all</button></div>
           <div class="proximity-scroll">
             ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
               : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
@@ -9642,13 +9689,13 @@ function renderRadarView() {
 
         ${courseUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('course', '${esc(searchQuery)}')">View all</button></div>
+          <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('course', '${escJs(searchQuery)}')">View all</button></div>
           <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
         ${otherUsers.length ? `
         <div class="proximity-section">
-          <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('all', '${esc(searchQuery)}')">View all</button></div>
+          <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('all', '${escJs(searchQuery)}')">View all</button></div>
           <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
         </div>` : ''}
 
@@ -10154,15 +10201,15 @@ async function showUserPreview(uid) {
           <div style="text-align:left;margin-bottom:16px">
             <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Enrolled Modules (${modules.length})</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
-              ${modules.slice(0, 12).map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${esc(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`).join('')}
+              ${modules.slice(0, 12).map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${escJs(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`).join('')}
               ${modules.length > 12 ? `<span class="module-chip" style="opacity:0.6">+${modules.length - 12} more</span>` : ''}
             </div>
           </div>
         ` : ''}
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
-          ${isMe ? '' : (state.page !== 'chat' && isFriend ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Message</button>` : '')}
-          ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous</button>` : '')}
-          ${isMe ? '' : (!isFriend && !isPending ? `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}')">Add Friend</button>` : '')}
+          ${isMe ? '' : (state.page !== 'chat' && isFriend ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Message</button>` : '')}
+          ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous</button>` : '')}
+          ${isMe ? '' : (!isFriend && !isPending ? `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Add Friend</button>` : '')}
           <button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Full Profile & Posts →</button>
         </div>
@@ -11951,7 +11998,7 @@ function openHustleQuickActions(itemId) {
     <div class="modal-body" style="padding:16px">
       <div style="font-weight:700;margin-bottom:10px">${esc(item.title)}</div>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="saveListingToProfile('${itemId}')">❤️ Save</button>
-      ${isSelf ? '' : `<button class="btn-outline btn-full" style="margin-bottom:8px" onclick="closeModal();${isFriend ? `startChat('${item.sellerId}','${esc(item.sellerName)}','')` : `hustleBuyInterest('${itemId}')`}">💬 Chat</button>`}
+      ${isSelf ? '' : `<button class="btn-outline btn-full" style="margin-bottom:8px" onclick="closeModal();${isFriend ? `startChat('${item.sellerId}','${escJs(item.sellerName)}','')` : `hustleBuyInterest('${itemId}')`}">💬 Chat</button>`}
       <button class="btn-outline btn-full" onclick="shareListingCard('${itemId}')">📤 Share</button>
     </div>
   `);
@@ -13244,7 +13291,7 @@ async function openGroupDetail(groupId) {
         <div class="asg-member pending">
           <div class="asg-member-info"><div class="asg-member-name">${esc(r.name)}</div></div>
           <div style="display:flex;gap:6px">
-            <button class="btn-sm btn-primary" onclick="event.stopPropagation();approveAsgRequest('${groupId}','${r.uid}','${esc(r.name)}','${r.photo || ''}')">Accept</button>
+            <button class="btn-sm btn-primary" onclick="event.stopPropagation();approveAsgRequest('${groupId}','${r.uid}','${escJs(r.name)}','${escJs(r.photo || '')}')">Accept</button>
             <button class="btn-sm btn-ghost" onclick="event.stopPropagation();rejectAsgRequest('${groupId}','${r.uid}')">Decline</button>
           </div>
         </div>
@@ -14085,7 +14132,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                     ${statusPill}
                   </div>
                   <div class="timetable-venue-row">
-                    <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${esc(s.venue)}')">
+                    <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${escJs(s.venue)}')">
                       📍 ${esc(s.venue || 'TBA')}
                     </button>
                     ${s.group ? `
@@ -14100,7 +14147,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                   </div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
                     <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} wks</span>
-                    <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${esc(s.module)}')">💬 Discuss</button>
+                    <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${escJs(s.module)}')">💬 Discuss</button>
                   </div>
                 </div>
               </div>
@@ -14297,7 +14344,7 @@ async function openFriendsList(uid = state.user?.uid, name = state.profile?.disp
             <div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(friend.major || 'Student')}</div>
           </div>
           <button class="btn-outline btn-sm" onclick="closeModal();openProfile('${friend.id}')">View</button>
-          ${canMessage ? `<button class="btn-primary btn-sm" onclick="closeModal();startChat('${friend.id}','${esc(friend.displayName)}','${friend.photoURL || ''}')">Message</button>` : ''}
+          ${canMessage ? `<button class="btn-primary btn-sm" onclick="closeModal();startChat('${friend.id}','${escJs(friend.displayName)}','${escJs(friend.photoURL || '')}')">Message</button>` : ''}
         </div>`;
     }).join('') : '<div class="empty-state"><h3>No friends yet</h3></div>';
   } catch (e) {
@@ -14451,7 +14498,7 @@ function loadNotifications() {
         <div class="notif-content">
           <div class="notif-text"><strong>${esc(r.name)}</strong> sent you a friend request</div>
           <div class="notif-actions">
-            <button class="btn-primary btn-sm" onclick="event.stopPropagation();acceptFriendRequest('${r.uid}','${esc(r.name)}','${r.photo || ''}')">Accept</button>
+            <button class="btn-primary btn-sm" onclick="event.stopPropagation();acceptFriendRequest('${r.uid}','${escJs(r.name)}','${escJs(r.photo || '')}')">Accept</button>
             <button class="btn-outline btn-sm" onclick="event.stopPropagation();rejectFriendRequest('${r.uid}')">Decline</button>
           </div>
         </div>
@@ -14697,7 +14744,7 @@ function loadDMList() {
         const isArchived = (c.archived || []).includes(uid);
         if (isArchived) return '';
         return `
-          <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')" oncontextmenu="event.preventDefault();showConvoActions('${c.id}','${esc(displayName)}','${otherUid}')">
+          <div class="convo-item ${unread ? 'unread' : ''}" onclick="openChat('${c.id}')" oncontextmenu="event.preventDefault();showConvoActions('${c.id}','${escJs(displayName)}','${otherUid}')">
             <div class="convo-avatar">${avatarHtml}${otherStatus === 'online' ? '<span class="online-indicator"></span>' : ''}</div>
             <div class="convo-info">
               <div class="convo-name">${esc(displayName)}</div>
@@ -14706,7 +14753,7 @@ function loadDMList() {
             <div class="convo-right">
               <div class="convo-time">${timeAgo(c.updatedAt)}</div>
               ${unread ? `<div class="convo-unread-badge">${unread}</div>` : ''}
-              <button class="convo-menu-btn" onclick="event.stopPropagation();showConvoActions('${c.id}','${esc(displayName)}','${otherUid}')" style="margin-top:4px">⋯</button>
+              <button class="convo-menu-btn" onclick="event.stopPropagation();showConvoActions('${c.id}','${escJs(displayName)}','${otherUid}')" style="margin-top:4px">⋯</button>
             </div>
           </div>`;
       }).join('');
@@ -15076,6 +15123,20 @@ async function openChat(convoId) {
 
     // Set initial header (will be updated by anon listener)
     updateAnonUI(convo, uid, name, photo);
+
+    // Live peer presence listener (ephemeral for this chat session only)
+    if (_chatPeerStatusUnsub) { _chatPeerStatusUnsub(); _chatPeerStatusUnsub = null; }
+    if (otherUid) {
+      _chatPeerStatusUnsub = db.collection('users').doc(otherUid).onSnapshot(doc => {
+        if (!doc.exists) return;
+        const udata = doc.data() || {};
+        if (udata.status) {
+          convo.participantStatuses = convo.participantStatuses || {};
+          convo.participantStatuses[otherUid] = udata.status;
+          updateAnonUI(convo, uid, name, photo);
+        }
+      }, () => {});
+    }
 
     // Listen for anonymous state changes in real-time
     if (_anonUnsub) _anonUnsub();
@@ -15464,6 +15525,7 @@ async function openChat(convoId) {
     // Back button
     $('#chat-back').onclick = () => {
       _activeChatConvoId = '';
+      if (_chatPeerStatusUnsub) { _chatPeerStatusUnsub(); _chatPeerStatusUnsub = null; }
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
       if (_anonUnsub) { _anonUnsub(); _anonUnsub = null; }
       if (_chatViewportCleanup) { _chatViewportCleanup(); _chatViewportCleanup = null; }
@@ -15635,11 +15697,11 @@ function showConvoActions(convoId, displayName, otherUid) {
   openModal(`
     <div class="modal-header"><h2>Chat Actions</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body" style="padding:16px">
-      <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px">Manage conversation with <strong>${displayName}</strong></p>
+      <p style="margin-bottom:16px;color:var(--text-secondary);font-size:13px">Manage conversation with <strong>${esc(displayName)}</strong></p>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="editContactNickname('${otherUid}')">${hasContactAlias ? '✎ Edit Contact Name' : '✎ Set Contact Name'}</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="archiveConvo('${convoId}')">📦 Archive Chat</button>
       <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="deleteConvo('${convoId}')">🗑️ Delete Chat</button>
-      <button class="btn-danger btn-full" onclick="blockUserFromChat('${otherUid}','${displayName}','${convoId}')">🚫 Block User</button>
+      <button class="btn-danger btn-full" onclick="blockUserFromChat('${otherUid}','${escJs(displayName)}','${convoId}')">🚫 Block User</button>
     </div>
   `);
 }
@@ -15800,11 +15862,11 @@ async function openProfile(uid) {
           ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${esc(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
+        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${escJs(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
-          ${showFriendCount ? `<button class="profile-stat profile-stat-btn" onclick="openFriendsList('${uid}','${esc(user.displayName)}')"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></button>` : ''}
+          ${showFriendCount ? `<button class="profile-stat profile-stat-btn" onclick="openFriendsList('${uid}','${escJs(user.displayName)}')"><div class="stat-num">${(user.friends || []).length}</div><div class="stat-label">Friends</div></button>` : ''}
           ${modules.length ? `<div class="profile-stat"><div class="stat-num">${modules.length}</div><div class="stat-label">Modules</div></div>` : ''}
         </div>
 
@@ -15820,16 +15882,16 @@ async function openProfile(uid) {
                 if (isFriend) {
                   friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Add Friend';this.className='btn-outline'">✓ Friends</button>`;
                 } else if (theyRequested) {
-                  friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
+                  friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
                 } else if (isPending) {
                   friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
                 } else {
-                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', this)">Add Friend</button>`;
+                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', this)">Add Friend</button>`;
                 }
                 const isFriendForChat = isFriend;
                 const msgBtn = isFriendForChat
-                  ? `<button class="btn-primary" onclick="startChat('${uid}','${esc(user.displayName || 'User')}','${user.photoURL || ''}')">Message</button>`
-                  : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${esc(user.displayName)}','${user.photoURL || ''}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
+                  ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
+                  : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
                 return `${msgBtn}\n               ${friendBtn}`;
               })()}
         </div>

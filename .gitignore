@@ -1,6 +1,13 @@
 node_modules/
 dist/
 
+# Build artifacts & archives
+*.apk
+*.zip
+*.tar.gz
+timetable_viewer.html
+.firebase/
+
 # Android local machine files
 android/.gradle/
 android/local.properties

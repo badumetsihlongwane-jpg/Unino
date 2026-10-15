@@ -13,6 +13,7 @@ on:
       - 'scripts/**'
       - 'worker/**'
       - 'firebase.json'
+      - 'firestore.rules'
       - '.firebaserc'
 
 jobs:
@@ -54,4 +55,4 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         if: ${{ env.FIREBASE_TOKEN != '' }}
-        run: firebase deploy --only hosting --project unino-b215f --token "$FIREBASE_TOKEN"
+        run: firebase deploy --only hosting,firestore:rules --project unino-b215f --token "$FIREBASE_TOKEN"
