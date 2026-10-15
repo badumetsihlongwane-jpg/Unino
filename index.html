@@ -228,12 +228,44 @@
   </div>
 </div>
 
+<!-- ══ EMAIL VERIFICATION SCREEN ══ -->
+<div id="verify-screen" class="screen">
+  <div class="auth-wrap">
+    <div class="auth-hero">
+      <div class="auth-emoji brand-logo-shell"><img src="unino-icon-light.png?v=47" alt="Unibo" class="brand-logo-img brand-logo-lg" data-theme-logo></div>
+      <h1>Verify Email</h1>
+      <p>NWU Student Verification Required</p>
+    </div>
+    <div class="auth-form active" style="text-align:center;padding:24px 20px">
+      <div style="font-size:48px;margin-bottom:12px">📩</div>
+      <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">
+        We sent an activation link to your NWU student email:
+      </p>
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:16px">
+        <strong id="verify-user-email" style="color:var(--accent);font-size:15px;word-break:break-all"></strong>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:20px">
+        Open your NWU inbox, click the verification link, then tap below to enter Unibo.
+      </p>
+      <button type="button" class="btn-accent w100" id="verify-check-btn" style="margin-bottom:10px;height:46px;font-size:15px">
+        🔄 I've Verified / Refresh
+      </button>
+      <button type="button" class="btn-outline w100" id="verify-resend-btn" style="margin-bottom:16px;height:44px;font-size:14px">
+        ✉️ Resend Verification Email
+      </button>
+      <button type="button" class="text-link-btn" id="verify-logout-btn" style="color:var(--text-secondary);font-size:13px">
+        Log Out / Use Different Email
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ APP SHELL ══ -->
 <div id="app" class="screen">
   <!-- Header -->
   <header id="hdr">
     <div class="hdr-l">
-      <span class="hdr-logo hdr-wordmark" aria-label="Unino">Unino</span>
+      <span class="hdr-logo hdr-wordmark" aria-label="Unibo">Unibo</span>
     </div>
     <div class="hdr-r">
       <button class="icon-btn" id="theme-btn" aria-label="Theme">

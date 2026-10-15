@@ -3033,7 +3033,8 @@ const escJsString = escJs;
 function isStudentEmail(email = '') {
   const e = (email || '').trim().toLowerCase();
   if (e === ADMIN_EMAIL.toLowerCase()) return true;
-  return /@mynwu\.ac\.za$/i.test(e);
+  // Valid NWU student numbers are 7 or 8 digits followed by @mynwu.ac.za (e.g. 12345678@mynwu.ac.za)
+  return /^\d{7,8}@mynwu\.ac\.za$/i.test(e);
 }
 
 function scoreSeed(str = '') {
@@ -4337,7 +4338,7 @@ function initAuth() {
   $('#forgot-pass-btn')?.addEventListener('click', async () => {
     const email = loginEmailValue();
     if (!email) return toast('Enter your email first');
-    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Use your @mynwu.ac.za student email');
+    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
     const btn = $('#forgot-pass-btn');
     btn.disabled = true;
     try {
@@ -4349,6 +4350,56 @@ function initAuth() {
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // Verification Screen Handlers
+  $('#verify-check-btn')?.addEventListener('click', async () => {
+    const btn = $('#verify-check-btn');
+    if (!auth.currentUser) return;
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+    try {
+      await auth.currentUser.reload();
+      if (auth.currentUser.emailVerified) {
+        toast('Email verified! Welcome to Unibo.');
+        db.collection('users').doc(auth.currentUser.uid).update({
+          isVerified: true,
+          emailVerifiedAt: FieldVal.serverTimestamp()
+        }).catch(() => {});
+        state.user = auth.currentUser;
+        enterApp();
+      } else {
+        toast('Email not verified yet. Please check your inbox and click the link.');
+      }
+    } catch (e) {
+      toast('Could not verify status. Please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🔄 I've Verified / Refresh";
+    }
+  });
+
+  $('#verify-resend-btn')?.addEventListener('click', async () => {
+    const btn = $('#verify-resend-btn');
+    if (!auth.currentUser) return;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      await auth.currentUser.sendEmailVerification();
+      toast('Verification link resent! Check your student inbox.');
+    } catch (e) {
+      toast('Could not resend email right now. Please wait a moment.');
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '✉️ Resend Verification Email';
+      }, 4000);
+    }
+  });
+
+  $('#verify-logout-btn')?.addEventListener('click', async () => {
+    await auth.signOut().catch(() => {});
+    showScreen('auth-screen');
   });
 
   $('#to-signup')?.addEventListener('click', e => {
@@ -4367,7 +4418,7 @@ function initAuth() {
     e.preventDefault();
     const btn = $('#l-btn'), email = $('#l-email').value.trim(), pass = $('#l-pass').value;
     if (!email || !pass) return toast('Enter email and password');
-    if (!isStudentEmail(email)) return toast('Use your @mynwu.ac.za student email');
+    if (!isStudentEmail(email)) return toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try {
       await auth.signInWithEmailAndPassword(email, pass);
@@ -4435,7 +4486,7 @@ function initAuth() {
       return false;
     }
     if (!isStudentEmail(email)) {
-      toast('Only @mynwu.ac.za emails can sign up');
+      toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
       return false;
     }
     if (!pass || pass.length < 6) {
@@ -4834,7 +4885,7 @@ function initAuth() {
       return;
     }
     if (pass.length < 6) return toast('Password must be 6+ characters');
-    if (!isStudentEmail(email)) return toast('Only @mynwu.ac.za emails can sign up');
+    if (!isStudentEmail(email)) return toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
 
     btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span>';
     try {
@@ -4842,6 +4893,14 @@ function initAuth() {
       const uid = cred.user.uid;
       const displayName = `${fname} ${lname}`;
       const anonIdentity = buildDefaultAnonIdentity(uid, fname);
+
+      // Auto-send verification link to NWU student inbox
+      try {
+        await cred.user.sendEmailVerification();
+      } catch (verErr) {
+        console.warn('sendEmailVerification error:', verErr);
+      }
+
       await db.collection('users').doc(uid).set({
         displayName, firstName: fname, lastName: lname,
         email, university: uni, major, year, modules, address, gender,
@@ -4859,7 +4918,7 @@ function initAuth() {
       });
       shadowSyncUserProfile(uid, { displayName, email, photoURL: '', major, university: uni });
       await cred.user.updateProfile({ displayName });
-      toast('Account created.');
+      toast('Account created! A verification link was sent to your NWU email.');
       _signupModules = [];
       setSignupStep(1);
       db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
@@ -4932,7 +4991,7 @@ function initAuth() {
       }
       const isAdminUser = isAdminLoginEmail(user.email || '');
       if (!isStudentEmail(user.email || '')) {
-        toast('Only @mynwu.ac.za accounts are allowed');
+        toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
         await auth.signOut().catch(() => {});
         return;
       }
@@ -4957,6 +5016,14 @@ function initAuth() {
       // Admin detection
       _isAdmin = isAdminUser;
       if (_isAdmin || state.profile.manualVerified) VERIFIED_UIDS.add(user.uid);
+
+      // ── Email Verification Gate ──
+      const isEmailVerified = !!user.emailVerified || isAdminUser || !!state.profile.manualVerified;
+      if (!isEmailVerified) {
+        showEmailVerificationScreen(user);
+        return;
+      }
+
       enterApp();
     } else {
       if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
@@ -5019,6 +5086,16 @@ function checkForAppUpdate() {
       `<button onclick="this.parentElement.remove()">&times;</button>`;
     document.body.appendChild(banner);
   }).catch(() => {});
+}
+
+function showEmailVerificationScreen(user) {
+  stopAllVideos();
+  closeNotifDropdown();
+  $$('.screen').forEach(s => s.classList.remove('active'));
+  const scr = document.getElementById('verify-screen');
+  if (scr) scr.classList.add('active');
+  const emailEl = document.getElementById('verify-user-email');
+  if (emailEl) emailEl.textContent = user?.email || '';
 }
 
 // ══════════════════════════════════════════════════
