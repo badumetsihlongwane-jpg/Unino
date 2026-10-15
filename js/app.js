@@ -4472,16 +4472,18 @@ function initAuth() {
     if (step > 3) step = 3;
     _signupCurrentStep = step;
 
-    $$('#signup-form .signup-step-pane').forEach(pane => {
+    $$('.signup-step-pane').forEach(pane => {
       const paneStep = Number(pane.getAttribute('data-signup-step'));
       if (paneStep === step) {
         pane.classList.add('active');
+        pane.style.display = 'block';
       } else {
         pane.classList.remove('active');
+        pane.style.display = 'none';
       }
     });
 
-    $$('#signup-form .stepper-step').forEach(s => {
+    $$('.stepper-step').forEach(s => {
       const sNum = Number(s.getAttribute('data-step'));
       s.classList.remove('active', 'completed');
       if (sNum === step) {
@@ -4540,25 +4542,31 @@ function initAuth() {
     }
     if (!year) {
       toast('Please select your year of study');
+      $('#s-year')?.focus();
       return false;
     }
     if (!major) {
       toast('Please enter or select your degree / course');
+      $('#s-major')?.focus();
       return false;
     }
     return true;
   }
 
-  $('#s-next-1')?.addEventListener('click', () => {
+  $('#s-next-1')?.addEventListener('click', (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (validateSignupStep1()) setSignupStep(2);
   });
-  $('#s-prev-2')?.addEventListener('click', () => {
+  $('#s-prev-2')?.addEventListener('click', (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     setSignupStep(1);
   });
-  $('#s-next-2')?.addEventListener('click', () => {
+  $('#s-next-2')?.addEventListener('click', (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (validateSignupStep2()) setSignupStep(3);
   });
-  $('#s-prev-3')?.addEventListener('click', () => {
+  $('#s-prev-3')?.addEventListener('click', (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     setSignupStep(2);
   });
 
