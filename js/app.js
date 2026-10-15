@@ -1187,6 +1187,11 @@ function handleAppBackAction(options = {}) {
     return true;
   }
 
+  if ($('#residences-view')?.classList.contains('active')) {
+    $('#residences-back')?.click();
+    return true;
+  }
+
   if (state.page !== 'feed') {
     navigate('feed', { restoreFeed: true });
     return true;
@@ -5365,7 +5370,7 @@ function openHeaderProfileMenu() {
     <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
     <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
-    <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
+    <button type="button" data-action="residences"><span>🏢</span> NWU Residences</button>
     <button type="button" data-action="signout" class="profile-menu-danger"><span>↪</span> Sign out</button>
   `;
   host.appendChild(menu);
@@ -5383,7 +5388,7 @@ function openHeaderProfileMenu() {
     closeHeaderProfileMenu();
     toast(state.manualStatus === 'offline' ? 'You are offline' : 'You are online');
   });
-  menu.querySelector('[data-action="theme"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); $('#theme-btn')?.click(); });
+  menu.querySelector('[data-action="residences"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openResidencesView(); });
   menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); auth.signOut().then(() => window.location.reload()); });
   _headerProfileMenuClose = event => {
     if (!menu.contains(event.target) && event.target !== $('#hdr-avatar')) closeHeaderProfileMenu();
@@ -18999,6 +19004,601 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { passive: true, capture: true });
   }
 
+// ══════════════════════════════════════════════════════════
+// NWU Residences & Accredited Housing Directory Module
+// ══════════════════════════════════════════════════════════
+let _residencesData = null;
+let _resViewMode = 'list';
+let _resFilterCategory = 'ALL';
+let _resFilterSuburb = 'ALL';
+let _resFilterRoom = 'ALL';
+let _resSearchQuery = '';
+let _resListLimit = 40;
+let _resMapInstance = null;
+let _resMarkers = [];
+let _selectedResidence = null;
+
+async function loadResidencesData() {
+  if (_residencesData && _residencesData.length) return _residencesData;
+  try {
+    const res = await fetch('data/approved_residences.json?v=67');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    _residencesData = data.residences || [];
+    return _residencesData;
+  } catch (err) {
+    console.error('Failed to load residences data:', err);
+    toast('Could not load residences catalog');
+    return [];
+  }
+}
+
+async function openResidencesView() {
+  showScreen('residences-view');
+
+  const backBtn = $('#residences-back');
+  if (backBtn) backBtn.onclick = closeResidencesView;
+
+  const toggleBtn = $('#residences-view-toggle');
+  if (toggleBtn) toggleBtn.onclick = toggleResidencesViewMode;
+
+  renderResidencesShell();
+  const list = await loadResidencesData();
+  populateResidencesSuburbs(list);
+  applyResidencesFilters();
+}
+
+function closeResidencesView() {
+  destroyResidencesMap();
+  showScreen('app');
+}
+
+function destroyResidencesMap() {
+  if (_resMarkers && _resMarkers.length) {
+    _resMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
+    _resMarkers = [];
+  }
+  if (_resMapInstance) {
+    try { _resMapInstance.remove(); } catch (_) {}
+    _resMapInstance = null;
+  }
+}
+
+function toggleResidencesViewMode() {
+  _resViewMode = _resViewMode === 'list' ? 'map' : 'list';
+  updateResidencesToggleBtn();
+  const listView = $('#res-list-view');
+  const mapView = $('#res-map-view');
+  if (_resViewMode === 'map') {
+    if (listView) listView.style.display = 'none';
+    if (mapView) mapView.style.display = 'flex';
+    initResidencesMap();
+  } else {
+    if (listView) listView.style.display = 'flex';
+    if (mapView) mapView.style.display = 'none';
+  }
+}
+
+function updateResidencesToggleBtn() {
+  const iconEl = $('#residences-view-toggle-icon');
+  const textEl = $('#residences-view-toggle-text');
+  if (_resViewMode === 'list') {
+    if (iconEl) iconEl.textContent = '🗺️';
+    if (textEl) textEl.textContent = 'Map';
+  } else {
+    if (iconEl) iconEl.textContent = '📋';
+    if (textEl) textEl.textContent = 'List';
+  }
+}
+
+function renderResidencesShell() {
+  const body = $('#residences-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="res-controls">
+      <div class="res-search-box">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="res-search-input" placeholder="Search residences, landlords, suburbs, or 2026/M..." autocomplete="off" value="${esc(_resSearchQuery)}">
+        <button type="button" class="res-search-clear" id="res-search-clear" style="display:${_resSearchQuery ? 'block' : 'none'}">&times;</button>
+      </div>
+
+      <div class="res-category-row">
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'ALL' ? 'active' : ''}" data-cat="ALL">All (650)</button>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'on_campus' ? 'active' : ''}" data-cat="on_campus">🏛️ On-Campus (19)</button>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'private_accredited' ? 'active' : ''}" data-cat="private_accredited">🏢 Private Accredited (631)</button>
+      </div>
+
+      <div class="res-filters-row">
+        <select class="res-select" id="res-suburb-select">
+          <option value="ALL">All Areas / Suburbs</option>
+          <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
+        </select>
+        <select class="res-select" id="res-room-select">
+          <option value="ALL" ${_resFilterRoom === 'ALL' ? 'selected' : ''}>All Room Types</option>
+          <option value="single" ${_resFilterRoom === 'single' ? 'selected' : ''}>Single Rooms</option>
+          <option value="sharing" ${_resFilterRoom === 'sharing' ? 'selected' : ''}>Sharing Rooms</option>
+        </select>
+        <span class="res-count-badge" id="res-count-badge">Loading...</span>
+      </div>
+    </div>
+
+    <div class="res-content-area">
+      <!-- List Container -->
+      <div class="res-list-view" id="res-list-view" style="display:${_resViewMode === 'list' ? 'flex' : 'none'}"></div>
+
+      <!-- Map Container -->
+      <div class="res-map-view" id="res-map-view" style="display:${_resViewMode === 'map' ? 'flex' : 'none'}">
+        <div id="residences-map"></div>
+        <button type="button" class="res-map-recenter" id="res-map-recenter-btn">
+          📍 NWU Campus
+        </button>
+        <div class="res-map-legend">
+          <div class="res-legend-item"><span class="res-legend-dot nwu"></span> 🏛️ NWU On-Campus</div>
+          <div class="res-legend-item"><span class="res-legend-dot private"></span> 🏢 Accredited Private</div>
+        </div>
+        <div id="res-map-preview-sheet" class="res-map-preview-sheet" style="display:none"></div>
+      </div>
+    </div>
+  `;
+
+  // Bind controls
+  const searchInput = $('#res-search-input');
+  const searchClear = $('#res-search-clear');
+  if (searchInput) {
+    searchInput.oninput = () => {
+      _resSearchQuery = searchInput.value.trim();
+      if (searchClear) searchClear.style.display = _resSearchQuery ? 'block' : 'none';
+      _resListLimit = 40;
+      applyResidencesFilters();
+    };
+  }
+  if (searchClear) {
+    searchClear.onclick = () => {
+      _resSearchQuery = '';
+      if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+      searchClear.style.display = 'none';
+      _resListLimit = 40;
+      applyResidencesFilters();
+    };
+  }
+
+  $$('.res-category-pill').forEach(btn => {
+    btn.onclick = () => {
+      $$('.res-category-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _resFilterCategory = btn.dataset.cat || 'ALL';
+      _resListLimit = 40;
+      applyResidencesFilters();
+    };
+  });
+
+  const suburbSelect = $('#res-suburb-select');
+  if (suburbSelect) {
+    suburbSelect.onchange = () => {
+      _resFilterSuburb = suburbSelect.value;
+      _resListLimit = 40;
+      applyResidencesFilters();
+    };
+  }
+
+  const roomSelect = $('#res-room-select');
+  if (roomSelect) {
+    roomSelect.onchange = () => {
+      _resFilterRoom = roomSelect.value;
+      _resListLimit = 40;
+      applyResidencesFilters();
+    };
+  }
+
+  const recenterBtn = $('#res-map-recenter-btn');
+  if (recenterBtn) {
+    recenterBtn.onclick = () => {
+      if (_resMapInstance) {
+        _resMapInstance.flyTo({
+          center: [25.6080, -25.8275],
+          zoom: 15,
+          pitch: 45,
+          bearing: 0,
+          essential: true
+        });
+      }
+    };
+  }
+}
+
+function populateResidencesSuburbs(list) {
+  const select = $('#res-suburb-select');
+  if (!select) return;
+  const suburbs = new Set();
+  list.forEach(r => {
+    if (r.suburb && r.suburb !== 'NWU Mahikeng Campus') {
+      suburbs.add(r.suburb);
+    }
+  });
+  const sorted = Array.from(suburbs).sort();
+  select.innerHTML = `
+    <option value="ALL">All Areas / Suburbs</option>
+    <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
+    ${sorted.map(s => `<option value="${esc(s)}" ${_resFilterSuburb === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+  `;
+}
+
+function getFilteredResidences() {
+  if (!_residencesData) return [];
+  const query = _resSearchQuery.toLowerCase();
+  return _residencesData.filter(res => {
+    // Category filter
+    if (_resFilterCategory !== 'ALL' && res.type !== _resFilterCategory) return false;
+
+    // Suburb filter
+    if (_resFilterSuburb !== 'ALL' && res.suburb !== _resFilterSuburb) return false;
+
+    // Room type filter
+    if (_resFilterRoom === 'single' && (!res.singleRooms || res.singleRooms <= 0)) return false;
+    if (_resFilterRoom === 'sharing' && (!res.sharingRooms || res.sharingRooms <= 0)) return false;
+
+    // Search query
+    if (query) {
+      const matchName = (res.name || '').toLowerCase().includes(query);
+      const matchAddr = (res.address || '').toLowerCase().includes(query);
+      const matchSuburb = (res.suburb || '').toLowerCase().includes(query);
+      const matchAcc = (res.accreditationNumber || '').toLowerCase().includes(query);
+      const matchPhone = (res.phone || '').includes(query);
+      if (!matchName && !matchAddr && !matchSuburb && !matchAcc && !matchPhone) return false;
+    }
+    return true;
+  });
+}
+
+function applyResidencesFilters() {
+  const filtered = getFilteredResidences();
+  const countBadge = $('#res-count-badge');
+  if (countBadge) {
+    countBadge.textContent = `${filtered.length} residence${filtered.length === 1 ? '' : 's'}`;
+  }
+
+  renderResidencesList(filtered);
+
+  if (_resViewMode === 'map') {
+    renderResidencesMapMarkers(filtered);
+  }
+}
+
+function renderResidencesList(filtered = getFilteredResidences()) {
+  const listEl = $('#res-list-view');
+  if (!listEl) return;
+
+  if (!filtered.length) {
+    listEl.innerHTML = `
+      <div style="text-align:center;padding:48px 16px;color:var(--text-secondary)">
+        <div style="font-size:42px;margin-bottom:10px">🏢</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px">No residences found</div>
+        <p style="font-size:13px;max-width:320px;margin:0 auto">Try adjusting your filters, suburb selection, or search keywords.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const itemsToShow = filtered.slice(0, _resListLimit);
+  let html = itemsToShow.map(res => {
+    const isOnCampus = res.type === 'on_campus';
+    const badgeHtml = isOnCampus
+      ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
+      : `<span class="res-badge-private">✓ Accredited 2026</span>`;
+
+    const waBtn = res.whatsapp ? `
+      <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
+        💬 WhatsApp
+      </a>
+    ` : '';
+
+    const callBtn = res.phone ? `
+      <a class="res-btn res-btn-call" href="tel:${res.phone}" onclick="event.stopPropagation()">
+        📞 Call
+      </a>
+    ` : '';
+
+    const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+
+    return `
+      <div class="res-card" onclick="openResidenceDetail('${escJs(res.id)}')">
+        <div class="res-card-top">
+          ${badgeHtml}
+          <span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>
+        </div>
+        <div class="res-card-name">${esc(res.name)}</div>
+        <div class="res-card-addr">
+          <span>📍</span>
+          <span>${esc(res.address)}</span>
+        </div>
+        <div class="res-card-stats">
+          <div class="res-stat-item">🛏️ <strong>${res.beds}</strong> Beds</div>
+          <div class="res-stat-item">🚪 <strong>${res.singleRooms}</strong> Single</div>
+          <div class="res-stat-item">👥 <strong>${res.sharingRooms}</strong> Sharing</div>
+        </div>
+        <div class="res-card-actions">
+          ${callBtn}
+          ${waBtn}
+          <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+            🗺️ Directions
+          </a>
+          <button type="button" class="res-btn" onclick="event.stopPropagation();locateResidenceOnMap('${escJs(res.id)}')" title="Locate on map">
+            🔍 Map
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (filtered.length > _resListLimit) {
+    const remaining = filtered.length - _resListLimit;
+    html += `
+      <button type="button" class="btn-outline w100" id="res-load-more-btn" style="margin:8px 0 24px;height:44px;font-size:13.5px;font-weight:600">
+        Load More Residences (${remaining} remaining)
+      </button>
+    `;
+  }
+
+  listEl.innerHTML = html;
+
+  const loadMoreBtn = $('#res-load-more-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.onclick = () => {
+      _resListLimit += 40;
+      renderResidencesList(filtered);
+    };
+  }
+}
+
+function initResidencesMap() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('residences-map');
+    if (!el) return;
+
+    if (!_resMapInstance && typeof maplibregl !== 'undefined') {
+      _resMapInstance = new maplibregl.Map({
+        container: 'residences-map',
+        style: 'https://tiles.openfreemap.org/styles/bright',
+        center: [25.6080, -25.8275],
+        zoom: 14.5,
+        pitch: 40,
+        bearing: 0,
+        attributionControl: false
+      });
+
+      _resMapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+
+      _resMapInstance.on('load', () => {
+        try {
+          if (!_resMapInstance.getSource('openfreemap')) {
+            _resMapInstance.addSource('openfreemap', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          }
+          if (!_resMapInstance.getLayer('3d-buildings')) {
+            _resMapInstance.addLayer({
+              id: '3d-buildings',
+              source: 'openfreemap',
+              'source-layer': 'building',
+              type: 'fill-extrusion',
+              minzoom: 15,
+              paint: {
+                'fill-extrusion-color': '#d9d3c9',
+                'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_height'], 0]],
+                'fill-extrusion-opacity': 0.6
+              }
+            });
+          }
+        } catch (_) {}
+      });
+
+      _resMapInstance.on('click', () => {
+        hideResidenceMapPreview();
+      });
+    }
+
+    if (_resMapInstance) {
+      setTimeout(() => {
+        try { _resMapInstance.resize(); } catch (_) {}
+      }, 100);
+    }
+
+    renderResidencesMapMarkers(getFilteredResidences());
+  });
+}
+
+function renderResidencesMapMarkers(filtered = getFilteredResidences()) {
+  if (!_resMapInstance || typeof maplibregl === 'undefined') return;
+
+  _resMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
+  _resMarkers = [];
+
+  const pinsToShow = filtered.slice(0, 200);
+
+  pinsToShow.forEach(res => {
+    const el = document.createElement('div');
+    const isOnCampus = res.type === 'on_campus';
+    el.className = `res-marker-pin ${isOnCampus ? 'nwu' : 'private'}`;
+    el.innerHTML = isOnCampus ? '🏛️' : '🏢';
+    el.title = `${res.name} (${res.distanceText})`;
+
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      selectResidenceOnMap(res);
+    });
+
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([res.lng, res.lat])
+      .addTo(_resMapInstance);
+    _resMarkers.push(marker);
+  });
+}
+
+function selectResidenceOnMap(res) {
+  _selectedResidence = res;
+  if (_resMapInstance) {
+    _resMapInstance.flyTo({
+      center: [res.lng, res.lat],
+      zoom: 16.5,
+      essential: true
+    });
+  }
+  showResidenceMapPreview(res);
+}
+
+function showResidenceMapPreview(res) {
+  const sheet = $('#res-map-preview-sheet');
+  if (!sheet) return;
+
+  const isOnCampus = res.type === 'on_campus';
+  const badgeHtml = isOnCampus
+    ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
+    : `<span class="res-badge-private">✓ Accredited 2026</span>`;
+
+  const waBtn = res.whatsapp ? `
+    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener">
+      💬 WhatsApp
+    </a>
+  ` : '';
+
+  const callBtn = res.phone ? `
+    <a class="res-btn res-btn-call" href="tel:${res.phone}">
+      📞 Call
+    </a>
+  ` : '';
+
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+
+  sheet.innerHTML = `
+    <button type="button" class="res-preview-close" onclick="hideResidenceMapPreview()">&times;</button>
+    <div style="display:flex;align-items:center;gap:8px">
+      ${badgeHtml}
+      <span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>
+    </div>
+    <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-top:4px">${esc(res.name)}</div>
+    <div style="font-size:12px;color:var(--text-secondary)">📍 ${esc(res.address)}</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+      🛏️ <strong>${res.beds}</strong> Total Beds · ${res.singleRooms} Single · ${res.sharingRooms} Sharing
+    </div>
+    <div class="res-card-actions" style="margin-top:8px">
+      ${callBtn}
+      ${waBtn}
+      <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener">
+        🗺️ Directions
+      </a>
+      <button type="button" class="btn-sm btn-accent" style="margin-left:auto" onclick="openResidenceDetail('${escJs(res.id)}')">
+        Full Details →
+      </button>
+    </div>
+  `;
+  sheet.style.display = 'flex';
+}
+
+function hideResidenceMapPreview() {
+  const sheet = $('#res-map-preview-sheet');
+  if (sheet) sheet.style.display = 'none';
+  $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
+}
+
+function locateResidenceOnMap(id) {
+  const res = (_residencesData || []).find(r => r.id === id);
+  if (!res) return;
+  if (_resViewMode !== 'map') {
+    toggleResidencesViewMode();
+  }
+  setTimeout(() => {
+    selectResidenceOnMap(res);
+  }, 150);
+}
+
+function openResidenceDetail(id) {
+  const res = (_residencesData || []).find(r => r.id === id);
+  if (!res) return;
+
+  const isOnCampus = res.type === 'on_campus';
+  const badgeHtml = isOnCampus
+    ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus Residence</span>`
+    : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
+
+  const waBtn = res.whatsapp ? `
+    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" style="flex:1;justify-content:center;height:40px;font-size:13px">
+      💬 WhatsApp Landlord
+    </a>
+  ` : '';
+
+  const callBtn = res.phone ? `
+    <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:40px;font-size:13px">
+      📞 Call (${esc(res.phone)})
+    </a>
+  ` : '';
+
+  const emailBtn = res.email ? `
+    <a class="res-btn" href="mailto:${res.email}?subject=Accommodation%20Inquiry%20-%20Unibo" style="width:100%;justify-content:center;height:38px;font-size:13px">
+      ✉️ Email: ${esc(res.email)}
+    </a>
+  ` : '';
+
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+
+  const amenitiesHtml = (res.amenities || []).map(a => `
+    <div class="res-amenity-chip">✓ ${esc(a)}</div>
+  `).join('');
+
+  const modalHtml = `
+    <div class="res-detail-sheet-wrap">
+      <div class="res-detail-header">
+        <div>
+          ${badgeHtml}
+          <div class="res-detail-title">${esc(res.name)}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Accreditation Code: <strong>${esc(res.accreditationNumber)}</strong></div>
+        </div>
+        <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+      </div>
+
+      <div class="res-detail-disclaimer">
+        ℹ️ <strong>Official NWU 2026 Accreditation:</strong> Students are reminded that the physical address stated on your signed lease agreement must match the address at which you reside. Providing false information constitutes misrepresentation under university rules.
+      </div>
+
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Location & Distance</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.4">
+          📍 <strong>${esc(res.address)}</strong><br>
+          <span style="color:var(--accent);font-weight:600">Suburb: ${esc(res.suburb)}</span> · ${esc(res.distanceText)}
+        </div>
+      </div>
+
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Capacity & Room Types</div>
+        <div style="display:flex;gap:12px;font-size:13px">
+          <div>🛏️ <strong>${res.beds}</strong> Total Beds</div>
+          <div>🚪 <strong>${res.singleRooms}</strong> Single Rooms</div>
+          <div>👥 <strong>${res.sharingRooms}</strong> Sharing Rooms</div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Key Facilities & Amenities</div>
+        <div class="res-amenities-grid">
+          ${amenitiesHtml}
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        <div style="display:flex;gap:8px">
+          ${callBtn}
+          ${waBtn}
+        </div>
+        ${emailBtn}
+        <a class="btn-accent w100" href="${directionsUrl}" target="_blank" rel="noopener" style="height:42px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13.5px">
+          🧭 Open Turn-by-Turn Navigation
+        </a>
+      </div>
+    </div>
+  `;
+
+  openModal(modalHtml);
+}
+
   // Expose globals for inline onclick
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
@@ -19046,6 +19646,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
     openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
     getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
-    voteOnPollEncoded, voteOnPoll
+    voteOnPollEncoded, voteOnPoll,
+    openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview
   });
 });

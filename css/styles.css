@@ -11230,3 +11230,486 @@ body {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+/* ══════════════════════════════════════════════════════════
+   NWU Residences & Accredited Housing Styles
+   ══════════════════════════════════════════════════════════ */
+.residences-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+.residences-hdr-info {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.residences-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.residences-view-toggle:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.residences-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.res-controls {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+.res-search-box {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 10px;
+  height: 38px;
+  gap: 8px;
+  transition: border-color 0.15s ease;
+}
+.res-search-box:focus-within {
+  border-color: var(--accent);
+}
+.res-search-box input {
+  border: none;
+  background: transparent;
+  font-size: 13.5px;
+  width: 100%;
+  color: var(--text-primary);
+  outline: none;
+}
+.res-search-box input::placeholder {
+  color: var(--text-tertiary);
+}
+.res-search-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 14px;
+}
+
+.res-category-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.res-category-row::-webkit-scrollbar {
+  display: none;
+}
+.res-category-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.res-category-pill.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.res-filters-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.res-select {
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 8px;
+  outline: none;
+  cursor: pointer;
+  max-width: 160px;
+}
+.res-count-badge {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.res-content-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* ── List View ── */
+.res-list-view {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.res-card {
+  background: var(--bg-card, var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.res-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+
+.res-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.res-badge-on-campus {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.res-badge-private {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.res-dist-pill {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.res-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 8px 0 4px;
+  line-height: 1.3;
+}
+.res-card-addr {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.res-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.res-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.res-stat-item strong {
+  color: var(--text-primary);
+}
+
+.res-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.res-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.res-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent);
+}
+.res-btn-whatsapp {
+  background: rgba(37, 211, 102, 0.12);
+  color: #128c7e;
+  border-color: rgba(37, 211, 102, 0.3);
+}
+.res-btn-whatsapp:hover {
+  background: rgba(37, 211, 102, 0.22);
+}
+.res-btn-call {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+.res-btn-call:hover {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+/* ── Map View ── */
+.res-map-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+#residences-map {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+.res-map-recenter {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  cursor: pointer;
+  z-index: 3;
+  transition: transform 0.15s ease;
+}
+.res-map-recenter:active {
+  transform: scale(0.96);
+}
+
+.res-map-legend {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+  z-index: 3;
+}
+.res-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.res-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.res-legend-dot.nwu {
+  background: #8b5cf6;
+}
+.res-legend-dot.private {
+  background: #10b981;
+}
+
+/* ── Custom Map Markers ── */
+.res-marker-pin {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  border: 2px solid #ffffff;
+}
+.res-marker-pin:hover, .res-marker-pin.active {
+  transform: scale(1.25);
+  z-index: 100 !important;
+}
+.res-marker-pin.nwu {
+  background: #8b5cf6;
+}
+.res-marker-pin.private {
+  background: #10b981;
+}
+
+/* ── Floating Preview Sheet on Map ── */
+.res-map-preview-sheet {
+  position: absolute;
+  bottom: 16px;
+  left: 14px;
+  right: 14px;
+  max-width: 520px;
+  margin: 0 auto;
+  background: var(--bg-card, var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.22);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: resSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes resSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.res-preview-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* ── Detail Modal Sheet ── */
+.res-detail-sheet-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+.res-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.res-detail-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 4px 0 2px;
+}
+.res-detail-disclaimer {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.res-amenities-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.res-amenity-chip {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+

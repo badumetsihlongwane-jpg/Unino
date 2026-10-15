@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=66">
+  <link rel="stylesheet" href="css/styles.css?v=67">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -387,6 +387,21 @@
   <div id="settings-body"></div>
 </div>
 
+<!-- ══ RESIDENCES VIEW ══ -->
+<div id="residences-view" class="screen">
+  <header class="sub-hdr residences-hdr">
+    <button class="icon-btn" id="residences-back" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <div class="sub-hdr-info residences-hdr-info">
+      <h3 style="margin:0;font-size:15px;font-weight:700">NWU Residences</h3>
+      <span style="font-size:11px;color:var(--text-secondary);font-weight:500">Mahikeng Campus & Accredited 2026</span>
+    </div>
+    <button type="button" class="btn-sm btn-outline residences-view-toggle" id="residences-view-toggle" title="Switch between Map and List view">
+      <span id="residences-view-toggle-icon">🗺️</span> <span id="residences-view-toggle-text">Map</span>
+    </button>
+  </header>
+  <div id="residences-body" class="residences-container"></div>
+</div>
+
 <!-- ══ STORY VIEWER ══ -->
 <div id="story-viewer" class="story-viewer-overlay" style="display:none">
   <div class="story-progress-bar" id="story-progress-bar"></div>
@@ -436,7 +451,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script src="js/firebase-config.js?v=66"></script>
-<script src="js/app.js?v=66"></script>
+<script src="js/firebase-config.js?v=67"></script>
+<script src="js/app.js?v=67"></script>
 </body>
 </html>
