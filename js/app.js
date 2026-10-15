@@ -14003,6 +14003,197 @@ function resolveEffectiveGroup(mod, availableGroups = [], targetUser = state.pro
   return sel[0] || availableGroups[0] || '';
 }
 
+// ══════════════════════════════════════════════════
+//  TIMETABLE CUSTOMIZATION & EDITING HELPERS
+// ══════════════════════════════════════════════════
+function getStoredTimetableCustomizations(targetUser = state.profile) {
+  let custom = { removedSlotIds: [], editedSlots: {}, customSlots: [] };
+  try {
+    const raw = localStorage.getItem('unino-tt-customizations');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        custom.removedSlotIds = Array.isArray(parsed.removedSlotIds) ? parsed.removedSlotIds : [];
+        custom.editedSlots = (parsed.editedSlots && typeof parsed.editedSlots === 'object') ? parsed.editedSlots : {};
+        custom.customSlots = Array.isArray(parsed.customSlots) ? parsed.customSlots : [];
+      }
+    }
+  } catch (_) {}
+
+  if (targetUser?.timetableCustomizations && typeof targetUser.timetableCustomizations === 'object') {
+    const remote = targetUser.timetableCustomizations;
+    if (Array.isArray(remote.removedSlotIds)) {
+      custom.removedSlotIds = Array.from(new Set([...custom.removedSlotIds, ...remote.removedSlotIds]));
+    }
+    if (remote.editedSlots && typeof remote.editedSlots === 'object') {
+      custom.editedSlots = { ...custom.editedSlots, ...remote.editedSlots };
+    }
+    if (Array.isArray(remote.customSlots)) {
+      const existingIds = new Set(custom.customSlots.map(s => s.id));
+      remote.customSlots.forEach(cs => {
+        if (!existingIds.has(cs.id)) custom.customSlots.push(cs);
+      });
+    }
+  }
+  return custom;
+}
+
+async function saveTimetableCustomizations(customizations) {
+  if (!customizations || typeof customizations !== 'object') return;
+  const clean = {
+    removedSlotIds: Array.isArray(customizations.removedSlotIds) ? Array.from(new Set(customizations.removedSlotIds)) : [],
+    editedSlots: (customizations.editedSlots && typeof customizations.editedSlots === 'object') ? customizations.editedSlots : {},
+    customSlots: Array.isArray(customizations.customSlots) ? customizations.customSlots : []
+  };
+
+  try {
+    localStorage.setItem('unino-tt-customizations', JSON.stringify(clean));
+  } catch (_) {}
+
+  if (state.profile) {
+    state.profile.timetableCustomizations = clean;
+  }
+
+  if (state.user?.uid) {
+    await db.collection('users').doc(state.user.uid).set({
+      timetableCustomizations: clean
+    }, { merge: true }).catch(() => {});
+  }
+}
+
+function getTimetableSlotId(slot) {
+  if (!slot) return '';
+  if (slot.id && String(slot.id).startsWith('custom_')) return String(slot.id);
+  const mod = String(slot.module || '').trim().toUpperCase();
+  const day = String(slot.day || '').trim();
+  const start = String(slot.start || '').trim();
+  const end = String(slot.end || '').trim();
+  const group = String(slot.group || '').trim().toUpperCase().replace(/\s+/g, '_');
+  const venue = String(slot.venue || '').trim().toUpperCase().replace(/\s+/g, '_');
+  return `${mod}__${day}__${start}__${end}__${group}__${venue}`;
+}
+
+function getEffectiveUserSlots(targetUser = state.profile, allTimetable = {}, currentSelectedDay = 'ALL', currentFilterModule = 'ALL', currentSearchQuery = '') {
+  const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const enrolledModules = normalizeModules(targetUser?.modules || []);
+  const customizations = getStoredTimetableCustomizations(targetUser);
+  const removedSet = new Set(customizations.removedSlotIds || []);
+
+  let modulesToShow = [];
+  if (currentSearchQuery && currentSearchQuery.trim()) {
+    const q = currentSearchQuery.trim().toUpperCase();
+    modulesToShow = Object.keys(allTimetable).filter(m => m.includes(q)).slice(0, 10);
+  } else if (currentFilterModule && currentFilterModule !== 'ALL') {
+    modulesToShow = [currentFilterModule];
+  } else {
+    modulesToShow = [...enrolledModules];
+    (customizations.customSlots || []).forEach(cs => {
+      const cm = (cs.module || '').toUpperCase();
+      if (cm && !modulesToShow.includes(cm)) modulesToShow.push(cm);
+    });
+  }
+
+  const parseMinutes = (timeStr = '') => {
+    const [h, m] = (timeStr || '00:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const activeSlots = [];
+  const removedSlots = [];
+
+  modulesToShow.forEach(mod => {
+    const slots = allTimetable[mod] || [];
+    const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
+    const activeGroups = getSelectedGroupsForModule(mod, availableGroups, targetUser);
+
+    slots.forEach(slot => {
+      if (slot.group && availableGroups.length > 1 && !activeGroups.includes(slot.group)) {
+        return;
+      }
+
+      const slotWithMod = { ...slot, module: mod };
+      const slotId = getTimetableSlotId(slotWithMod);
+      const isRemoved = removedSet.has(slotId);
+
+      let effective = { ...slotWithMod, id: slotId };
+      if (customizations.editedSlots && customizations.editedSlots[slotId]) {
+        effective = {
+          ...effective,
+          ...customizations.editedSlots[slotId],
+          isEdited: true,
+          originalSlotId: slotId
+        };
+      }
+
+      if (isRemoved) {
+        removedSlots.push({ ...effective, isRemoved: true });
+        return;
+      }
+
+      if (currentSelectedDay !== 'ALL' && effective.day !== currentSelectedDay) return;
+      activeSlots.push(effective);
+    });
+  });
+
+  (customizations.customSlots || []).forEach(cs => {
+    const csId = cs.id || getTimetableSlotId(cs);
+    const mod = (cs.module || '').toUpperCase();
+    if (modulesToShow.length && !modulesToShow.includes(mod)) return;
+
+    const isRemoved = removedSet.has(csId);
+    const effective = { ...cs, module: mod, id: csId, isCustom: true };
+
+    if (isRemoved) {
+      removedSlots.push({ ...effective, isRemoved: true });
+      return;
+    }
+
+    if (currentSelectedDay !== 'ALL' && effective.day !== currentSelectedDay) return;
+    activeSlots.push(effective);
+  });
+
+  // Clash Detection
+  const slotsByDay = {};
+  activeSlots.forEach(s => {
+    if (!slotsByDay[s.day]) slotsByDay[s.day] = [];
+    slotsByDay[s.day].push(s);
+  });
+
+  let hasClashes = false;
+  const clashSummary = [];
+
+  Object.entries(slotsByDay).forEach(([day, dSlots]) => {
+    for (let i = 0; i < dSlots.length; i++) {
+      for (let j = i + 1; j < dSlots.length; j++) {
+        const a = dSlots[i];
+        const b = dSlots[j];
+        const aStart = parseMinutes(a.start);
+        const aEnd = parseMinutes(a.end);
+        const bStart = parseMinutes(b.start);
+        const bEnd = parseMinutes(b.end);
+
+        if (aStart < bEnd && bStart < aEnd) {
+          a.hasClash = true;
+          b.hasClash = true;
+          a.clashWith = a.clashWith ? `${a.clashWith}, ${b.module}` : b.module;
+          b.clashWith = b.clashWith ? `${b.clashWith}, ${a.module}` : a.module;
+          hasClashes = true;
+          clashSummary.push(`${day}: ${a.module} (${a.start}) clashes with ${b.module} (${b.start})`);
+        }
+      }
+    }
+  });
+
+  activeSlots.sort((a, b) => {
+    const da = DAYS_ORDER.indexOf(a.day);
+    const db = DAYS_ORDER.indexOf(b.day);
+    if (da !== db) return da - db;
+    return (a.start || '').localeCompare(b.start || '');
+  });
+
+  return { activeSlots, removedSlots, hasClashes, clashSummary, customizations };
+}
+
 async function checkUpcomingLectureAlerts() {
   if (!state.user || !state.profile) return;
   const pref = (state.profile.timetableAlerts) || localStorage.getItem('unino-tt-alert-pref') || 'off';
@@ -14024,48 +14215,43 @@ async function checkUpcomingLectureAlerts() {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const dateKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 
-  enrolledModules.forEach(mod => {
-    const allSlots = timetable[mod] || [];
-    const availableGroups = Array.from(new Set(allSlots.map(s => s.group).filter(Boolean)));
-    const activeGroups = getSelectedGroupsForModule(mod, availableGroups, state.profile);
+  // Use effective user slots so removed/hidden slots NEVER alert and edited slots alert at updated times
+  const { activeSlots } = getEffectiveUserSlots(state.profile, timetable, todayDay, 'ALL', '');
 
-    allSlots.forEach(slot => {
-      if (slot.day !== todayDay) return;
-      if (slot.group && availableGroups.length > 0 && !activeGroups.includes(slot.group)) return;
+  activeSlots.forEach(slot => {
+    const [sh, sm] = (slot.start || '00:00').split(':').map(Number);
+    const startMin = (sh || 0) * 60 + (sm || 0);
+    const diff = startMin - nowMin;
 
-      const [sh, sm] = (slot.start || '00:00').split(':').map(Number);
-      const startMin = (sh || 0) * 60 + (sm || 0);
-      const diff = startMin - nowMin;
-
-      // Trigger if class starts within alertMinutes window (and not already started)
-      if (diff > 0 && diff <= alertMinutes) {
-        const notifId = `${dateKey}_${mod}_${slot.start}`;
-        if (!_lastLectureNotifiedKey[notifId]) {
-          _lastLectureNotifiedKey[notifId] = true;
-          const venueText = slot.venue ? ` at ${slot.venue}` : '';
-          const grpText = slot.group ? ` (${slot.group})` : '';
-          const msg = `${mod}${grpText} starts in ${diff}m (${slot.start})${venueText}`;
-          const numericId = Math.abs(String(notifId).split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0) | 0, 0)) || 99991;
-          scheduleLocalNotification({
-            id: numericId,
-            title: `📚 Upcoming Class: ${mod}`,
-            body: msg,
-            channelId: 'unibo-general',
-            extra: { kind: 'timetable', module: mod }
-          });
-          // Dispatch in-app notification doc to users/{uid}/notifications
-          dispatchNotificationGateway(state.user.uid, {
-            type: 'timetable',
-            text: msg,
-            payload: { kind: 'timetable', module: mod, group: slot.group || '', venue: slot.venue || '', start: slot.start || '', day: todayDay },
-            read: false,
-            createdAt: FieldVal.serverTimestamp(),
-            from: { uid: 'timetable', name: 'Class Reminder', photo: null }
-          }, { allowSelf: true, docId: `tt_${notifId}` }).catch(e => console.error('TT notif error:', e));
-          toast(`⏰ Upcoming: ${msg}`);
-        }
+    // Trigger if class starts within alertMinutes window (and not already started)
+    if (diff > 0 && diff <= alertMinutes) {
+      const notifId = `${dateKey}_${slot.module}_${slot.start}`;
+      if (!_lastLectureNotifiedKey[notifId]) {
+        _lastLectureNotifiedKey[notifId] = true;
+        const venueText = slot.venue ? ` at ${slot.venue}` : '';
+        const grpText = slot.group ? ` (${slot.group})` : '';
+        const noteText = slot.note ? ` [${slot.note}]` : '';
+        const msg = `${slot.module}${grpText} starts in ${diff}m (${slot.start})${venueText}${noteText}`;
+        const numericId = Math.abs(String(notifId).split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0) | 0, 0)) || 99991;
+        scheduleLocalNotification({
+          id: numericId,
+          title: `📚 Upcoming Class: ${slot.module}`,
+          body: msg,
+          channelId: 'unibo-general',
+          extra: { kind: 'timetable', module: slot.module }
+        });
+        // Dispatch in-app notification doc to users/{uid}/notifications
+        dispatchNotificationGateway(state.user.uid, {
+          type: 'timetable',
+          text: msg,
+          payload: { kind: 'timetable', module: slot.module, group: slot.group || '', venue: slot.venue || '', start: slot.start || '', day: todayDay },
+          read: false,
+          createdAt: FieldVal.serverTimestamp(),
+          from: { uid: 'timetable', name: 'Class Reminder', photo: null }
+        }, { allowSelf: true, docId: `tt_${notifId}` }).catch(e => console.error('TT notif error:', e));
+        toast(`⏰ Upcoming: ${msg}`);
       }
-    });
+    }
   });
 }
 
@@ -14108,8 +14294,6 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
   let currentSelectedDay = defaultDay;
   let currentFilterModule = initialModule ? initialModule.toUpperCase() : 'ALL';
   let currentSearchQuery = '';
-  let filterMyGroupsOnly = true;
-  let currentSelectedGroup = 'AUTO';
   let dismissedClashes = false;
 
   const parseMinutes = (timeStr = '') => {
@@ -14120,39 +14304,13 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
   const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   const buildModalHtml = () => {
-    let modulesToShow = [];
-    if (currentSearchQuery.trim()) {
-      const q = currentSearchQuery.trim().toUpperCase();
-      modulesToShow = Object.keys(allTimetable).filter(m => m.includes(q)).slice(0, 10);
-    } else if (currentFilterModule !== 'ALL') {
-      modulesToShow = [currentFilterModule];
-    } else {
-      modulesToShow = enrolledModules;
-    }
-
-    const daySlots = [];
-    modulesToShow.forEach(mod => {
-      const slots = allTimetable[mod] || [];
-      const availableGroups = Array.from(new Set(slots.map(s => s.group).filter(Boolean)));
-      const activeGroups = getSelectedGroupsForModule(mod, availableGroups, targetUser);
-
-      slots.forEach(slot => {
-        if (currentSelectedDay !== 'ALL' && slot.day !== currentSelectedDay) return;
-
-        // Group / stream filtering:
-        if (slot.group && availableGroups.length > 1) {
-          if (!activeGroups.includes(slot.group)) return;
-        }
-        daySlots.push({ ...slot, module: mod });
-      });
-    });
-
-    daySlots.sort((a, b) => {
-      const da = DAYS_ORDER.indexOf(a.day);
-      const db = DAYS_ORDER.indexOf(b.day);
-      if (da !== db) return da - db;
-      return (a.start || '').localeCompare(b.start || '');
-    });
+    const { activeSlots: daySlots, removedSlots, hasClashes, customizations } = getEffectiveUserSlots(
+      targetUser,
+      allTimetable,
+      currentSelectedDay,
+      currentFilterModule,
+      currentSearchQuery
+    );
 
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -14169,12 +14327,37 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       </div>
     `;
 
-    const moduleChipsHtml = enrolledModules.length ? `
+    // Available module list includes enrolled modules and custom added modules
+    const allModuleKeys = Array.from(new Set([
+      ...enrolledModules,
+      ...(customizations.customSlots || []).map(cs => (cs.module || '').toUpperCase()).filter(Boolean)
+    ]));
+
+    const moduleChipsHtml = allModuleKeys.length ? `
       <div class="timetable-modules-tray">
-        <button type="button" class="timetable-mod-chip ${currentFilterModule === 'ALL' && !currentSearchQuery ? 'active' : ''}" data-mod="ALL">All Enrolled (${enrolledModules.length})</button>
-        ${enrolledModules.map(m => `
+        <button type="button" class="timetable-mod-chip ${currentFilterModule === 'ALL' && !currentSearchQuery ? 'active' : ''}" data-mod="ALL">All Enrolled (${allModuleKeys.length})</button>
+        ${allModuleKeys.map(m => `
           <button type="button" class="timetable-mod-chip ${currentFilterModule === m ? 'active' : ''}" data-mod="${esc(m)}">${esc(m)}</button>
         `).join('')}
+      </div>
+    ` : '';
+
+    // Actions bar: Add custom class, view hidden/removed classes, reset
+    const actionsBarHtml = isMe ? `
+      <div class="timetable-actions-bar">
+        <button type="button" class="timetable-action-pill" id="tt-add-class-btn" title="Add a custom class, tutorial, or lab session">
+          + Add Class
+        </button>
+        ${removedSlots.length > 0 ? `
+          <button type="button" class="timetable-action-pill has-removed" id="tt-view-removed-btn" title="View and restore removed classes">
+            👁️ Hidden (${removedSlots.length})
+          </button>
+        ` : ''}
+        ${(customizations.customSlots.length > 0 || Object.keys(customizations.editedSlots).length > 0 || removedSlots.length > 0) ? `
+          <button type="button" class="timetable-action-pill subtle" id="tt-reset-all-btn" title="Reset all custom edits and hidden classes back to NWU default">
+            ↩️ Reset NWU
+          </button>
+        ` : ''}
       </div>
     ` : '';
 
@@ -14201,10 +14384,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           </div>
         `;
       }
-    } else if (enrolledModules.length > 0 && !currentSearchQuery) {
+    } else if (allModuleKeys.length > 0 && !currentSearchQuery) {
       const allDetectedGroups = new Set();
       const detectedNumbers = new Set();
-      enrolledModules.forEach(mod => {
+      allModuleKeys.forEach(mod => {
         (allTimetable[mod] || []).forEach(s => {
           if (s.group) {
             allDetectedGroups.add(s.group);
@@ -14247,14 +14430,24 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       }
     }
 
+    // Clash Warning Banner
+    const clashBannerHtml = (hasClashes && !dismissedClashes) ? `
+      <div class="timetable-clash-warning" style="margin-bottom:10px">
+        <div class="timetable-clash-warning-content">
+          <span>⚠️ <strong>Schedule Clashes:</strong> You have overlapping classes scheduled. Long-press any card or tap ⋯ to remove sessions you don't attend.</span>
+        </div>
+        <button type="button" class="timetable-clash-dismiss-btn" id="tt-dismiss-clash-btn" title="Dismiss clash warning">&times;</button>
+      </div>
+    ` : '';
+
     let cardsHtml = '';
     if (!daySlots.length) {
-      if (!enrolledModules.length && !currentSearchQuery) {
+      if (!allModuleKeys.length && !currentSearchQuery) {
         cardsHtml = `
           <div style="text-align:center;padding:36px 16px;color:var(--text-secondary)">
             <div style="font-size:40px;margin-bottom:8px">📚</div>
             <div style="font-weight:700;font-size:15px;color:var(--text-primary)">No enrolled modules</div>
-            <p style="font-size:12px;margin:6px auto 14px;max-width:280px">Add your NWU modules in Edit Profile or type any module code in the search bar above.</p>
+            <p style="font-size:12px;margin:6px auto 14px;max-width:280px">Add your NWU modules in Edit Profile, add a custom class, or search any module above.</p>
             ${isMe ? `<button type="button" class="btn-primary btn-sm" onclick="closeModal();editProfile()">✏️ Add Enrolled Modules</button>` : ''}
           </div>
         `;
@@ -14263,7 +14456,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           <div style="text-align:center;padding:32px 16px;color:var(--text-tertiary)">
             <div style="font-size:32px;margin-bottom:6px">☕</div>
             <div style="font-weight:700;font-size:14px;color:var(--text-primary)">No classes scheduled ${currentSelectedDay !== 'ALL' ? `for ${currentSelectedDay}` : ''}</div>
-            <p style="font-size:12px;margin-top:4px">Enjoy your free time or prepare for upcoming sessions!</p>
+            <p style="font-size:12px;margin-top:4px">Enjoy your free time or tap "+ Add Class" to schedule a study session.</p>
           </div>
         `;
       }
@@ -14289,13 +14482,17 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
               }
             }
 
+            if (s.hasClash) {
+              cardClass += (cardClass ? ' ' : '') + 'has-clash';
+            }
+
             const durHours = ((endMin - startMin) / 60).toFixed(1).replace('.0', '');
             const durText = `${durHours}h`;
             const modAvailGroups = Array.from(new Set((allTimetable[s.module] || []).map(item => item.group).filter(Boolean)));
             const hasMultipleGroups = modAvailGroups.length > 1;
 
             return `
-              <div class="timetable-card ${cardClass}">
+              <div class="timetable-card ${cardClass}" data-slot-id="${esc(s.id)}">
                 <div class="timetable-time-col">
                   <div class="timetable-time-start">${esc(s.start)}</div>
                   <div class="timetable-time-end">${esc(s.end)}</div>
@@ -14304,7 +14501,15 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                 <div class="timetable-info-col">
                   <div class="timetable-card-head">
                     <span class="timetable-mod-badge">📖 ${esc(s.module)}</span>
-                    ${statusPill}
+                    <div style="display:flex;align-items:center;gap:6px">
+                      ${s.hasClash ? `<span class="timetable-clash-badge" title="Conflicts with ${esc(s.clashWith || 'another class')}">⚠️ Clash</span>` : ''}
+                      ${s.isEdited ? `<span class="timetable-edited-badge" title="Schedule customized by you">✏️ Edited</span>` : ''}
+                      ${s.isCustom ? `<span class="timetable-custom-badge" title="Custom class added by you">✨ Custom</span>` : ''}
+                      ${statusPill}
+                      ${isMe ? `
+                        <button type="button" class="timetable-card-opt-btn" data-opt-id="${esc(s.id)}" title="Class options (Long-press or tap ⋯)">⋯</button>
+                      ` : ''}
+                    </div>
                   </div>
                   <div class="timetable-venue-row">
                     <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${escJs(s.venue)}')">
@@ -14320,6 +14525,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                       `}
                     ` : ''}
                   </div>
+                  ${s.note ? `<div style="font-size:11.5px;color:var(--text-secondary);font-weight:600;margin-top:2px">📝 ${esc(s.note)}</div>` : ''}
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
                     <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} wks</span>
                     <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${escJs(s.module)}')">💬 Discuss</button>
@@ -14368,14 +14574,17 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             <input type="text" id="tt-search-input" placeholder="Search any module (e.g. CMPG121, ALDE111, BMAN111)..." autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
             ${currentSearchQuery ? `<button type="button" id="tt-clear-search-btn" style="border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary);padding:0 6px" title="Clear search">✕</button>` : ''}
           </div>
+          ${actionsBarHtml}
           ${moduleChipsHtml}
           ${groupsBarHtml}
           ${tabsHtml}
         </div>
         <div class="timetable-modal-body">
+          ${clashBannerHtml}
           ${cardsHtml}
           ${alertsHtml}
         </div>
+        <div id="tt-sheet-overlay" class="tt-sheet-overlay" style="display:none"></div>
       </div>
     `;
   };
@@ -14386,6 +14595,487 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
     // Apply modal-sheet-timetable class to prevent sheet-level scrolling
     $('#modal-bg')?.querySelector('.modal-sheet')?.classList.add('modal-sheet-timetable');
+
+    const renderModal = () => {
+      modal.innerHTML = buildModalHtml();
+      wireEvents();
+    };
+
+    // Overlay display helpers
+    const showOverlay = (contentHtml, onBound) => {
+      const overlay = modal.querySelector('#tt-sheet-overlay');
+      if (!overlay) return;
+      overlay.innerHTML = `<div class="tt-sheet-content">${contentHtml}</div>`;
+      overlay.style.display = 'flex';
+
+      const dismiss = () => {
+        overlay.style.display = 'none';
+        overlay.innerHTML = '';
+      };
+
+      overlay.onclick = e => {
+        if (e.target === overlay) dismiss();
+      };
+      overlay.querySelector('#tt-sheet-close-btn')?.addEventListener('click', dismiss);
+      if (onBound) onBound(overlay, dismiss);
+    };
+
+    // 1. Slot Action Sheet
+    const openSlotActions = (slot) => {
+      const clashNote = slot.hasClash ? `
+        <div class="tt-sheet-clash-note">
+          ⚠️ Time conflict with ${esc(slot.clashWith || 'another class')}
+        </div>
+      ` : '';
+      const badge = slot.isCustom
+        ? '<span class="tt-sheet-badge">✨ Custom Class</span>'
+        : (slot.isEdited ? '<span class="tt-sheet-badge">✏️ Customized</span>' : '');
+
+      const html = `
+        <div class="tt-action-sheet-header">
+          <div class="tt-action-sheet-title">
+            <span>📖 ${esc(slot.module)}</span>
+            <button type="button" class="icon-btn" id="tt-sheet-close-btn">&times;</button>
+          </div>
+          <div class="tt-action-sheet-sub">
+            ${esc(slot.day)} · ${esc(slot.start)} – ${esc(slot.end)}
+            ${slot.venue ? `· 📍 ${esc(slot.venue)}` : ''}
+            ${slot.group ? `· Stream: ${esc(slot.group)}` : ''}
+          </div>
+          ${slot.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">📝 ${esc(slot.note)}</div>` : ''}
+          ${clashNote}
+          ${badge}
+        </div>
+        <div class="tt-action-sheet-body">
+          ${isMe ? `
+            <button type="button" class="tt-action-item danger" id="tt-act-remove">
+              <span class="tt-action-item-icon">🗑️</span>
+              <div class="tt-action-item-text">
+                <div>Remove from Timetable</div>
+                <div class="tt-action-item-desc">Hides this class and disables its reminder alerts</div>
+              </div>
+            </button>
+            <button type="button" class="tt-action-item" id="tt-act-edit">
+              <span class="tt-action-item-icon">✏️</span>
+              <div class="tt-action-item-text">
+                <div>Edit Actual Schedule</div>
+                <div class="tt-action-item-desc">Change time, venue, stream, or add custom notes</div>
+              </div>
+            </button>
+            ${slot.isEdited ? `
+              <button type="button" class="tt-action-item" id="tt-act-reset-slot">
+                <span class="tt-action-item-icon">↩️</span>
+                <div class="tt-action-item-text">
+                  <div>Reset to NWU Default</div>
+                  <div class="tt-action-item-desc">Restore official university time and venue</div>
+                </div>
+              </button>
+            ` : ''}
+          ` : ''}
+          <button type="button" class="tt-action-item" id="tt-act-locate">
+            <span class="tt-action-item-icon">📍</span>
+            <div class="tt-action-item-text">
+              <div>Locate Venue on Campus</div>
+              <div class="tt-action-item-desc">Find ${esc(slot.venue || 'venue')} on campus radar</div>
+            </div>
+          </button>
+          <button type="button" class="tt-action-item" id="tt-act-discuss">
+            <span class="tt-action-item-icon">💬</span>
+            <div class="tt-action-item-text">
+              <div>Discuss ${esc(slot.module)}</div>
+              <div class="tt-action-item-desc">Open module study feed and student chats</div>
+            </div>
+          </button>
+        </div>
+      `;
+
+      showOverlay(html, (overlay, dismiss) => {
+        overlay.querySelector('#tt-act-remove')?.addEventListener('click', async () => {
+          dismiss();
+          const cur = getStoredTimetableCustomizations(targetUser);
+          if (!cur.removedSlotIds.includes(slot.id)) {
+            cur.removedSlotIds.push(slot.id);
+            await saveTimetableCustomizations(cur);
+            toast(`Removed ${slot.module} (${slot.day} ${slot.start}) from schedule ✓`);
+            renderModal();
+          }
+        });
+
+        overlay.querySelector('#tt-act-edit')?.addEventListener('click', () => {
+          dismiss();
+          openEditSlot(slot);
+        });
+
+        overlay.querySelector('#tt-act-reset-slot')?.addEventListener('click', async () => {
+          dismiss();
+          const cur = getStoredTimetableCustomizations(targetUser);
+          if (cur.editedSlots[slot.id]) {
+            delete cur.editedSlots[slot.id];
+            await saveTimetableCustomizations(cur);
+            toast(`Reset ${slot.module} to NWU default ✓`);
+            renderModal();
+          }
+        });
+
+        overlay.querySelector('#tt-act-locate')?.addEventListener('click', () => {
+          dismiss();
+          closeModal();
+          locateTimetableVenue(slot.venue);
+        });
+
+        overlay.querySelector('#tt-act-discuss')?.addEventListener('click', () => {
+          dismiss();
+          closeModal();
+          openModuleFeed(slot.module);
+        });
+      });
+    };
+
+    // 2. Slot Edit Modal
+    const openEditSlot = (slot) => {
+      const html = `
+        <div class="tt-action-sheet-header">
+          <div class="tt-action-sheet-title">
+            <span>✏️ Edit ${esc(slot.module)}</span>
+            <button type="button" class="icon-btn" id="tt-sheet-close-btn">&times;</button>
+          </div>
+          <div class="tt-action-sheet-sub">Update your actual lecture or practical schedule</div>
+        </div>
+        <div style="padding:16px 18px">
+          <div class="tt-form-group">
+            <label class="tt-form-label">Day of Week</label>
+            <select id="tt-edit-day" class="tt-form-select">
+              ${DAYS_ORDER.map(d => `<option value="${d}" ${slot.day === d ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div>
+          <div class="tt-form-grid">
+            <div class="tt-form-group">
+              <label class="tt-form-label">Start Time</label>
+              <input type="time" id="tt-edit-start" class="tt-form-input" value="${esc(slot.start || '08:00')}">
+            </div>
+            <div class="tt-form-group">
+              <label class="tt-form-label">End Time</label>
+              <input type="time" id="tt-edit-end" class="tt-form-input" value="${esc(slot.end || '09:30')}">
+            </div>
+          </div>
+          <div class="tt-form-grid">
+            <div class="tt-form-group">
+              <label class="tt-form-label">Venue / Room</label>
+              <input type="text" id="tt-edit-venue" class="tt-form-input" placeholder="e.g. MC-A5_109" value="${esc(slot.venue || '')}">
+            </div>
+            <div class="tt-form-group">
+              <label class="tt-form-label">Stream / Group</label>
+              <input type="text" id="tt-edit-group" class="tt-form-input" placeholder="e.g. 001, SME_001" value="${esc(slot.group || '')}">
+            </div>
+          </div>
+          <div class="tt-form-group">
+            <label class="tt-form-label">Custom Note (Optional)</label>
+            <input type="text" id="tt-edit-note" class="tt-form-input" placeholder="e.g. Online Lecture, Lab 3" value="${esc(slot.note || '')}">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button type="button" class="btn-outline" id="tt-edit-cancel-btn" style="flex:1">Cancel</button>
+            <button type="button" class="btn-primary" id="tt-edit-save-btn" style="flex:2">Save Changes</button>
+          </div>
+        </div>
+      `;
+
+      showOverlay(html, (overlay, dismiss) => {
+        overlay.querySelector('#tt-edit-cancel-btn')?.addEventListener('click', dismiss);
+        overlay.querySelector('#tt-edit-save-btn')?.addEventListener('click', async () => {
+          const day = overlay.querySelector('#tt-edit-day')?.value || slot.day;
+          const start = overlay.querySelector('#tt-edit-start')?.value || slot.start;
+          const end = overlay.querySelector('#tt-edit-end')?.value || slot.end;
+          const venue = overlay.querySelector('#tt-edit-venue')?.value.trim() || '';
+          const group = overlay.querySelector('#tt-edit-group')?.value.trim() || '';
+          const note = overlay.querySelector('#tt-edit-note')?.value.trim() || '';
+
+          if (!start || !end) {
+            toast('Please enter valid start and end times');
+            return;
+          }
+
+          const cur = getStoredTimetableCustomizations(targetUser);
+          if (slot.isCustom) {
+            const idx = cur.customSlots.findIndex(cs => cs.id === slot.id);
+            if (idx >= 0) {
+              cur.customSlots[idx] = { ...cur.customSlots[idx], day, start, end, venue, group, note };
+            }
+          } else {
+            cur.editedSlots[slot.id] = {
+              module: slot.module,
+              day,
+              start,
+              end,
+              venue,
+              group,
+              note,
+              isEdited: true
+            };
+          }
+
+          await saveTimetableCustomizations(cur);
+          dismiss();
+          toast(`Updated ${slot.module} schedule ✓`);
+          renderModal();
+        });
+      });
+    };
+
+    // 3. Add Custom Class Modal
+    const openAddClass = () => {
+      const defaultMod = currentFilterModule !== 'ALL' ? currentFilterModule : '';
+      const html = `
+        <div class="tt-action-sheet-header">
+          <div class="tt-action-sheet-title">
+            <span>+ Add Class to Schedule</span>
+            <button type="button" class="icon-btn" id="tt-sheet-close-btn">&times;</button>
+          </div>
+          <div class="tt-action-sheet-sub">Add custom lecture, tutorial, practical, or study group</div>
+        </div>
+        <div style="padding:16px 18px">
+          <div class="tt-form-grid">
+            <div class="tt-form-group">
+              <label class="tt-form-label">Module Code</label>
+              <input type="text" id="tt-add-mod" class="tt-form-input" placeholder="e.g. CMPG121" autocapitalize="characters" value="${esc(defaultMod || '')}">
+            </div>
+            <div class="tt-form-group">
+              <label class="tt-form-label">Day of Week</label>
+              <select id="tt-add-day" class="tt-form-select">
+                ${DAYS_ORDER.map(d => `<option value="${d}" ${(currentSelectedDay === d || (currentSelectedDay === 'ALL' && d === 'Monday')) ? 'selected' : ''}>${d}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="tt-form-grid">
+            <div class="tt-form-group">
+              <label class="tt-form-label">Start Time</label>
+              <input type="time" id="tt-add-start" class="tt-form-input" value="08:00">
+            </div>
+            <div class="tt-form-group">
+              <label class="tt-form-label">End Time</label>
+              <input type="time" id="tt-add-end" class="tt-form-input" value="09:30">
+            </div>
+          </div>
+          <div class="tt-form-grid">
+            <div class="tt-form-group">
+              <label class="tt-form-label">Venue / Room</label>
+              <input type="text" id="tt-add-venue" class="tt-form-input" placeholder="e.g. MC-A5_109">
+            </div>
+            <div class="tt-form-group">
+              <label class="tt-form-label">Stream / Group</label>
+              <input type="text" id="tt-add-group" class="tt-form-input" placeholder="e.g. 001">
+            </div>
+          </div>
+          <div class="tt-form-group">
+            <label class="tt-form-label">Custom Note (Optional)</label>
+            <input type="text" id="tt-add-note" class="tt-form-input" placeholder="e.g. Tutorial, Lab session">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button type="button" class="btn-outline" id="tt-add-cancel-btn" style="flex:1">Cancel</button>
+            <button type="button" class="btn-primary" id="tt-add-save-btn" style="flex:2">Add to Schedule</button>
+          </div>
+        </div>
+      `;
+
+      showOverlay(html, (overlay, dismiss) => {
+        overlay.querySelector('#tt-add-cancel-btn')?.addEventListener('click', dismiss);
+        overlay.querySelector('#tt-add-save-btn')?.addEventListener('click', async () => {
+          const mod = overlay.querySelector('#tt-add-mod')?.value.trim().toUpperCase() || '';
+          const day = overlay.querySelector('#tt-add-day')?.value || 'Monday';
+          const start = overlay.querySelector('#tt-add-start')?.value || '08:00';
+          const end = overlay.querySelector('#tt-add-end')?.value || '09:30';
+          const venue = overlay.querySelector('#tt-add-venue')?.value.trim() || '';
+          const group = overlay.querySelector('#tt-add-group')?.value.trim() || '';
+          const note = overlay.querySelector('#tt-add-note')?.value.trim() || '';
+
+          if (!mod) {
+            toast('Please enter a module code (e.g. CMPG121)');
+            return;
+          }
+          if (!start || !end) {
+            toast('Please specify start and end times');
+            return;
+          }
+
+          const cur = getStoredTimetableCustomizations(targetUser);
+          const newSlot = {
+            id: 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+            module: mod,
+            day,
+            start,
+            end,
+            venue,
+            group,
+            note,
+            isCustom: true
+          };
+          cur.customSlots.push(newSlot);
+          await saveTimetableCustomizations(cur);
+          dismiss();
+          toast(`Added ${newSlot.module} to schedule ✓`);
+          renderModal();
+        });
+      });
+    };
+
+    // 4. View Hidden / Removed Classes Modal
+    const openRemovedClasses = () => {
+      const { removedSlots } = getEffectiveUserSlots(targetUser, allTimetable, 'ALL', 'ALL', '');
+      const html = `
+        <div class="tt-action-sheet-header">
+          <div class="tt-action-sheet-title">
+            <span>👁️ Hidden Classes (${removedSlots.length})</span>
+            <button type="button" class="icon-btn" id="tt-sheet-close-btn">&times;</button>
+          </div>
+          <div class="tt-action-sheet-sub">Tap restore to bring any class back to your weekly timetable</div>
+        </div>
+        <div style="padding:14px 18px 20px">
+          ${!removedSlots.length ? `
+            <div style="text-align:center;padding:28px 12px;color:var(--text-tertiary)">
+              <div style="font-size:32px;margin-bottom:6px">✓</div>
+              <div style="font-weight:700;font-size:14px;color:var(--text-primary)">No hidden classes</div>
+              <p style="font-size:12px;margin-top:4px">All enrolled classes are currently visible in your timetable.</p>
+            </div>
+          ` : `
+            <div class="tt-removed-list">
+              ${removedSlots.map(item => `
+                <div class="tt-removed-card">
+                  <div class="tt-removed-info">
+                    <div style="font-weight:800;font-size:14px;color:var(--accent)">
+                      📖 ${esc(item.module)}
+                    </div>
+                    <div style="font-size:12px;color:var(--text-primary);margin-top:2px;font-weight:600">
+                      ${esc(item.day)} · ${esc(item.start)} - ${esc(item.end)}
+                    </div>
+                    <div style="font-size:11px;color:var(--text-tertiary);margin-top:1px">
+                      📍 ${esc(item.venue || 'TBA')} ${item.group ? `· Stream: ${esc(item.group)}` : ''}
+                    </div>
+                  </div>
+                  <button type="button" class="tt-restore-btn" data-restore-id="${esc(item.id)}">
+                    + Restore
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+            <div style="margin-top:16px;text-align:center">
+              <button type="button" class="btn-outline btn-sm" id="tt-restore-all-btn" style="width:100%">
+                ↩️ Restore All Hidden Classes
+              </button>
+            </div>
+          `}
+        </div>
+      `;
+
+      showOverlay(html, (overlay, dismiss) => {
+        overlay.querySelectorAll('[data-restore-id]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const rId = btn.dataset.restoreId;
+            const cur = getStoredTimetableCustomizations(targetUser);
+            cur.removedSlotIds = cur.removedSlotIds.filter(id => id !== rId);
+            await saveTimetableCustomizations(cur);
+            toast('Restored class to timetable ✓');
+            dismiss();
+            renderModal();
+          });
+        });
+
+        overlay.querySelector('#tt-restore-all-btn')?.addEventListener('click', async () => {
+          const cur = getStoredTimetableCustomizations(targetUser);
+          cur.removedSlotIds = [];
+          await saveTimetableCustomizations(cur);
+          toast('Restored all hidden classes ✓');
+          dismiss();
+          renderModal();
+        });
+      });
+    };
+
+    // Card long-press detection and ⋯ button click
+    const { activeSlots: currentSlots } = getEffectiveUserSlots(
+      targetUser,
+      allTimetable,
+      currentSelectedDay,
+      currentFilterModule,
+      currentSearchQuery
+    );
+
+    modal.querySelectorAll('.timetable-card').forEach(card => {
+      const slotId = card.dataset.slotId;
+      if (!slotId) return;
+      const slot = currentSlots.find(item => item.id === slotId);
+      if (!slot) return;
+
+      let pressTimer = null;
+      let startX = 0;
+      let startY = 0;
+
+      const cancelPress = () => {
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+        card.classList.remove('is-holding');
+      };
+
+      card.addEventListener('pointerdown', e => {
+        if (e.target.closest('button, a, input, select, .timetable-card-opt-btn, .timetable-venue-chip')) return;
+        startX = e.clientX;
+        startY = e.clientY;
+        card.classList.add('is-holding');
+        pressTimer = setTimeout(() => {
+          card.classList.remove('is-holding');
+          pressTimer = null;
+          if (navigator.vibrate) {
+            try { navigator.vibrate(40); } catch (_) {}
+          }
+          openSlotActions(slot);
+        }, 450);
+      });
+
+      card.addEventListener('pointerup', cancelPress);
+      card.addEventListener('pointercancel', cancelPress);
+      card.addEventListener('pointerleave', cancelPress);
+      card.addEventListener('pointermove', e => {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+          cancelPress();
+        }
+      });
+
+      card.addEventListener('contextmenu', e => {
+        if (e.pointerType === 'touch') e.preventDefault();
+      });
+    });
+
+    modal.querySelectorAll('.timetable-card-opt-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const slotId = btn.dataset.optId;
+        const slot = currentSlots.find(item => item.id === slotId);
+        if (slot) openSlotActions(slot);
+      });
+    });
+
+    // Top action bar buttons
+    modal.querySelector('#tt-add-class-btn')?.addEventListener('click', () => {
+      openAddClass();
+    });
+
+    modal.querySelector('#tt-view-removed-btn')?.addEventListener('click', () => {
+      openRemovedClasses();
+    });
+
+    modal.querySelector('#tt-reset-all-btn')?.addEventListener('click', async () => {
+      if (confirm('Reset all schedule customizations (edits, custom additions, and removed classes) back to the official NWU timetable?')) {
+        await saveTimetableCustomizations({ removedSlotIds: [], editedSlots: {}, customSlots: [] });
+        toast('Schedule reset to NWU default ✓');
+        renderModal();
+      }
+    });
+
+    // Clash banner dismiss
+    modal.querySelector('#tt-dismiss-clash-btn')?.addEventListener('click', () => {
+      dismissedClashes = true;
+      renderModal();
+    });
 
     const searchInput = modal.querySelector('#tt-search-input');
     searchInput?.addEventListener('input', e => {
@@ -18109,6 +18799,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
     openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
+    getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
     voteOnPollEncoded, voteOnPoll
   });
 });

@@ -10352,7 +10352,45 @@ body {
   max-height: min(90vh, 760px);
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
+
+.tt-sheet-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-radius: 20px;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease;
+}
+
+.tt-sheet-content {
+  background: var(--bg-primary);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+  border-top: 1px solid var(--border);
+  max-height: 90%;
+  overflow-y: auto;
+  animation: slideUpSheet 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
 
 .timetable-modal-header {
   display: flex;
@@ -10826,6 +10864,299 @@ body {
   font-weight: 600;
   outline: none;
 }
+
+/* Timetable Card Interactive & State Enhancements */
+.timetable-card {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+}
+
+.timetable-card.is-holding {
+  transform: scale(0.985);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(109, 40, 217, 0.18);
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.timetable-card.has-clash {
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.timetable-card-opt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+.timetable-card-opt-btn:hover,
+.timetable-card-opt-btn:active {
+  background: var(--border);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.timetable-clash-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  letter-spacing: 0.2px;
+}
+
+.timetable-edited-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  letter-spacing: 0.2px;
+}
+
+.timetable-custom-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  letter-spacing: 0.2px;
+}
+
+/* Timetable Header Action Bar */
+.timetable-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 2px;
+  scrollbar-width: none;
+}
+.timetable-actions-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.timetable-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.timetable-action-pill:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+.timetable-action-pill.has-removed {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #ef4444;
+}
+.timetable-action-pill.has-removed:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+.timetable-action-pill.subtle {
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* Action Sheet & Edit Modal */
+.tt-action-sheet-header {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tt-action-sheet-title {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tt-action-sheet-sub {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.tt-sheet-clash-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  display: inline-block;
+}
+.tt-sheet-badge {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 3px 8px;
+  border-radius: 8px;
+}
+.tt-action-sheet-body {
+  padding: 12px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tt-action-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+.tt-action-item:hover {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.tt-action-item.danger {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.tt-action-item.danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+.tt-action-item-icon {
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.tt-action-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.tt-action-item-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-top: 2px;
+}
+.tt-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.tt-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.tt-form-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.tt-form-input, .tt-form-select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+.tt-form-input:focus, .tt-form-select:focus {
+  border-color: var(--accent);
+}
+.tt-removed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.tt-removed-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-secondary);
+}
+.tt-removed-info {
+  flex: 1;
+  min-width: 0;
+}
+.tt-restore-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 13px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+.tt-restore-btn:hover {
+  opacity: 0.9;
+}
+
 
 
 
