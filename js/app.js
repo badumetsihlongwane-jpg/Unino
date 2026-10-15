@@ -4355,7 +4355,11 @@ function initAuth() {
   // Verification Screen Handlers
   $('#verify-check-btn')?.addEventListener('click', async () => {
     const btn = $('#verify-check-btn');
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) {
+      toast('Please log in with your NWU student email first.');
+      showScreen('auth-screen');
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Checking...';
     try {
@@ -4371,9 +4375,10 @@ function initAuth() {
         state.user = auth.currentUser;
         enterApp();
       } else {
-        toast('Email not verified yet. Please check your NWU student inbox and click the link.');
+        toast('Email not verified yet. Check Junk/Spam or click the link in your inbox.');
       }
     } catch (e) {
+      console.error('[Verification Check Error]', e);
       toast('Could not verify status. Please try again.');
     } finally {
       btn.disabled = false;
@@ -4383,17 +4388,23 @@ function initAuth() {
 
   $('#verify-resend-btn')?.addEventListener('click', async () => {
     const btn = $('#verify-resend-btn');
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) {
+      toast('Please log in with your NWU student email first.');
+      showScreen('auth-screen');
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Sending...';
     try {
+      console.log('[Verification] Sending verification email to:', auth.currentUser.email);
       await auth.currentUser.sendEmailVerification();
-      toast('Verification link resent to ' + (auth.currentUser.email || 'your NWU inbox') + '!');
+      toast('Verification link sent to ' + (auth.currentUser.email || 'your NWU inbox') + '! (Check Junk folder)');
     } catch (e) {
+      console.error('[Verification Error]', e);
       if (e?.code === 'auth/too-many-requests') {
-        toast('Too many attempts. Please wait a minute before requesting another link.');
+        toast('Firebase rate limit: Please wait a few minutes before resending.');
       } else {
-        toast('Could not resend email right now. Please wait a moment.');
+        toast(e?.message ? `Failed: ${e.message}` : 'Could not resend email. Check console.');
       }
     } finally {
       setTimeout(() => {
