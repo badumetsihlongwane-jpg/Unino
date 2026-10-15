@@ -17598,14 +17598,14 @@ async function adminModeratePosts() {
         <div class="asg-card-meta"><span>By ${esc(p.authorName || 'User')}${verifiedBadge(p.authorId)}</span><span>\u00b7 ${timeAgo(p.createdAt)}</span></div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn-outline" style="flex:1" onclick="viewPost('${p.id}')">View</button>
-          <button class="btn-danger" style="flex:1;border-radius:var(--radius)" onclick="adminDeletePost('${p.id}')">Delete</button>
+          <button class="btn-danger" style="flex:1;border-radius:var(--radius)" onclick="adminModerateDeletePost('${p.id}')">Delete</button>
         </div>
       </div>
     `).join('') : '<p style="padding:16px;color:var(--text-secondary)">No posts found.</p>';
   } catch (e) { console.error(e); }
 }
 
-async function adminDeletePost(postId) {
+async function adminModerateDeletePost(postId) {
   if (!_isAdmin) return;
   try {
     await db.collection('posts').doc(postId).delete();
