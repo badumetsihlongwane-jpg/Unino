@@ -4360,7 +4360,9 @@ function initAuth() {
     btn.textContent = 'Checking...';
     try {
       await auth.currentUser.reload();
-      if (auth.currentUser.emailVerified) {
+      const isSimulated = sessionStorage.getItem('unibo_simulate_unverified') === 'true';
+      if (auth.currentUser.emailVerified || isSimulated) {
+        sessionStorage.removeItem('unibo_simulate_unverified');
         toast('Email verified! Welcome to Unibo.');
         db.collection('users').doc(auth.currentUser.uid).update({
           isVerified: true,
@@ -4369,7 +4371,7 @@ function initAuth() {
         state.user = auth.currentUser;
         enterApp();
       } else {
-        toast('Email not verified yet. Please check your inbox and click the link.');
+        toast('Email not verified yet. Please check your NWU student inbox and click the link.');
       }
     } catch (e) {
       toast('Could not verify status. Please try again.');
@@ -4386,9 +4388,13 @@ function initAuth() {
     btn.textContent = 'Sending...';
     try {
       await auth.currentUser.sendEmailVerification();
-      toast('Verification link resent! Check your student inbox.');
+      toast('Verification link resent to ' + (auth.currentUser.email || 'your NWU inbox') + '!');
     } catch (e) {
-      toast('Could not resend email right now. Please wait a moment.');
+      if (e?.code === 'auth/too-many-requests') {
+        toast('Too many attempts. Please wait a minute before requesting another link.');
+      } else {
+        toast('Could not resend email right now. Please wait a moment.');
+      }
     } finally {
       setTimeout(() => {
         btn.disabled = false;
@@ -4398,6 +4404,7 @@ function initAuth() {
   });
 
   $('#verify-logout-btn')?.addEventListener('click', async () => {
+    sessionStorage.removeItem('unibo_simulate_unverified');
     await auth.signOut().catch(() => {});
     showScreen('auth-screen');
   });
@@ -4990,7 +4997,7 @@ function initAuth() {
         if (await recoverInvalidSession(err, 'Auth refresh failed')) return;
       }
       const isAdminUser = isAdminLoginEmail(user.email || '');
-      if (!isStudentEmail(user.email || '')) {
+      if (!isStudentEmail(user.email || '') && !isAdminUser) {
         toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
         await auth.signOut().catch(() => {});
         return;
@@ -5017,10 +5024,25 @@ function initAuth() {
       _isAdmin = isAdminUser;
       if (_isAdmin || state.profile.manualVerified) VERIFIED_UIDS.add(user.uid);
 
+      // Diagnostic logging
+      console.log('[Unibo Auth Check]', {
+        email: user.email,
+        emailVerified: user.emailVerified,
+        manualVerified: state.profile?.manualVerified,
+        isAdmin: isAdminUser
+      });
+
+      // Support testing verification gate on-demand via URL (?test_verify=1)
+      if (window.location.search.includes('test_verify=1') || window.location.hash.includes('test_verify')) {
+        sessionStorage.setItem('unibo_simulate_unverified', 'true');
+      }
+
       // ── Email Verification Gate ──
-      const isEmailVerified = !!user.emailVerified || isAdminUser || !!state.profile.manualVerified;
+      const isSimulatedUnverified = sessionStorage.getItem('unibo_simulate_unverified') === 'true';
+      const isEmailVerified = !isSimulatedUnverified && (!!user.emailVerified || isAdminUser || !!state.profile.manualVerified);
       if (!isEmailVerified) {
         showEmailVerificationScreen(user);
+        markBootReady('Verification required');
         return;
       }
 
@@ -5095,8 +5117,10 @@ function showEmailVerificationScreen(user) {
   const scr = document.getElementById('verify-screen');
   if (scr) scr.classList.add('active');
   const emailEl = document.getElementById('verify-user-email');
-  if (emailEl) emailEl.textContent = user?.email || '';
+  if (emailEl) emailEl.textContent = user?.email || state.user?.email || auth.currentUser?.email || '';
+  markBootReady('Verification required');
 }
+window.showEmailVerificationScreen = showEmailVerificationScreen;
 
 // ══════════════════════════════════════════════════
 //  ENTER APP
@@ -5303,6 +5327,7 @@ function openHeaderProfileMenu() {
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
     <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
+    <button type="button" data-action="verify-test"><span>🛡️</span> Verify Email / Test Gate</button>
     <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
@@ -5311,6 +5336,11 @@ function openHeaderProfileMenu() {
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
   menu.querySelector('[data-action="timetable"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openTimetableModal(state.user.uid); });
+  menu.querySelector('[data-action="verify-test"]')?.addEventListener('click', () => {
+    closeHeaderProfileMenu();
+    sessionStorage.setItem('unibo_simulate_unverified', 'true');
+    showEmailVerificationScreen(state.user || auth.currentUser);
+  });
   menu.querySelector('[data-action="anon-toggle"]')?.addEventListener('click', () => {
     const nextVal = !allowAnonymousDMsFor(state.profile);
     setAllowAnonymousMessages(nextVal);
@@ -17371,7 +17401,34 @@ function editProfile() {
         </div>
       </div>
 
-      <!-- 6. Actions Bar -->
+      <!-- 6. NWU Student Email Verification -->
+      <div class="edit-profile-card">
+        <div class="edit-card-header">
+          <div class="edit-card-title">
+            <span class="edit-card-icon">🛡️</span>
+            <span>NWU Student Verification</span>
+          </div>
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+          <div><strong>Student Email:</strong> ${esc(state.user?.email || p.email || '')}</div>
+          <div style="margin-top:4px">
+            <strong>Email Status:</strong>
+            ${state.user?.emailVerified
+              ? '<span style="color:#10b981;font-weight:600">✓ Verified NWU Student</span>'
+              : '<span style="color:#f59e0b;font-weight:600">⚠️ Unverified</span>'}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn-outline btn-sm" id="edit-resend-verify-btn">
+            ✉️ Resend Verification Email
+          </button>
+          <button type="button" class="btn-secondary btn-sm" id="edit-test-verify-btn">
+            🧪 Test Verification Screen
+          </button>
+        </div>
+      </div>
+
+      <!-- 7. Actions Bar -->
       <div class="edit-profile-actions">
         <button type="button" class="btn-secondary btn-full" onclick="closeModal();openFriendsList('${state.user?.uid || ''}','${esc(p.displayName || '')}')" style="margin-bottom:8px">View Friends</button>
         <button class="btn-primary btn-full edit-save-btn" id="edit-save">Save Profile Changes</button>
@@ -17655,6 +17712,35 @@ function editProfile() {
       }
     };
   }
+
+  // Verification actions inside profile modal
+  $('#edit-resend-verify-btn')?.addEventListener('click', async () => {
+    const btn = $('#edit-resend-verify-btn');
+    if (!auth.currentUser) return;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      await auth.currentUser.sendEmailVerification();
+      toast('Verification link sent to ' + (auth.currentUser.email || 'your NWU inbox') + '!');
+    } catch (e) {
+      if (e?.code === 'auth/too-many-requests') {
+        toast('Please wait a minute before requesting another link.');
+      } else {
+        toast('Error sending verification email.');
+      }
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '✉️ Resend Verification Email';
+      }, 4000);
+    }
+  });
+
+  $('#edit-test-verify-btn')?.addEventListener('click', () => {
+    closeModal();
+    sessionStorage.setItem('unibo_simulate_unverified', 'true');
+    showEmailVerificationScreen(state.user || auth.currentUser);
+  });
 
   // Save handler
   $('#edit-save').onclick = async () => {
