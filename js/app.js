@@ -4336,19 +4336,34 @@ function initAuth() {
   });
 
   $('#forgot-pass-btn')?.addEventListener('click', async () => {
-    const email = loginEmailValue();
-    if (!email) return toast('Enter your email first');
-    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) return toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
+    let email = loginEmailValue();
+    if (!email) {
+      const prompted = prompt('Enter your 7 or 8-digit NWU student email (e.g. 52005097@mynwu.ac.za):');
+      if (!prompted) return;
+      email = prompted.trim();
+      const el = $('#l-email');
+      if (el) el.value = email;
+    }
+    if (!isStudentEmail(email) && !isAdminLoginEmail(email)) {
+      return toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
+    }
     const btn = $('#forgot-pass-btn');
     btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = 'Sending link...';
     try {
       await auth.sendPasswordResetEmail(email);
-      toast('If that account exists, a recovery email has been sent. Check your inbox.');
+      toast('Password reset link sent to ' + email + '! Check your NWU inbox.');
     } catch (err) {
-      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-email') toast('If that account exists, a recovery email has been sent. Check your inbox.');
-      else toast(friendlyErr(err.code));
+      console.error('[Forgot Password Error]', err);
+      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-email') {
+        toast('If that account exists, a recovery email has been sent. Check your inbox.');
+      } else {
+        toast(friendlyErr(err?.code) || 'Could not send reset email. Please try again.');
+      }
     } finally {
       btn.disabled = false;
+      btn.textContent = origText;
     }
   });
 
