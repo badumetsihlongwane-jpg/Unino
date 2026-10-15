@@ -11157,6 +11157,76 @@ body {
   opacity: 0.9;
 }
 
+/* ─── Instant Feed Refresh & Timetable Multi-Day Polish ─── */
+@keyframes navPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.85); }
+  100% { transform: scale(1); }
+}
+.nav-btn.nav-pulse {
+  animation: navPulse 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 
+.feed-refresh-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin: 6px 16px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease;
+}
+.feed-refresh-banner.is-done {
+  background: color-mix(in srgb, #10b981 14%, var(--bg-card));
+  border-color: color-mix(in srgb, #10b981 32%, transparent);
+  color: #10b981;
+}
 
-
+.tt-quick-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tt-stream-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tt-stream-pill:hover, .tt-stream-pill.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.tt-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  user-select: none;
+}
+.tt-toggle-row input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

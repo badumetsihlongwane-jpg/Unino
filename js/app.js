@@ -5069,6 +5069,8 @@ function initAuth() {
       // Support testing verification gate on-demand via URL (?test_verify=1)
       if (window.location.search.includes('test_verify=1') || window.location.hash.includes('test_verify')) {
         sessionStorage.setItem('unibo_simulate_unverified', 'true');
+      } else {
+        sessionStorage.removeItem('unibo_simulate_unverified');
       }
 
       // ── Email Verification Gate ──
@@ -5361,7 +5363,6 @@ function openHeaderProfileMenu() {
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
     <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
-    <button type="button" data-action="verify-test"><span>🛡️</span> Verify Email / Test Gate</button>
     <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="theme"><span>◐</span> Switch theme</button>
@@ -5370,11 +5371,6 @@ function openHeaderProfileMenu() {
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
   menu.querySelector('[data-action="timetable"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openTimetableModal(state.user.uid); });
-  menu.querySelector('[data-action="verify-test"]')?.addEventListener('click', () => {
-    closeHeaderProfileMenu();
-    sessionStorage.setItem('unibo_simulate_unverified', 'true');
-    showEmailVerificationScreen(state.user || auth.currentUser);
-  });
   menu.querySelector('[data-action="anon-toggle"]')?.addEventListener('click', () => {
     const nextVal = !allowAnonymousDMsFor(state.profile);
     setAllowAnonymousMessages(nextVal);
@@ -5395,6 +5391,34 @@ function openHeaderProfileMenu() {
   document.addEventListener('pointerdown', _headerProfileMenuClose, true);
 }
 
+let _feedIsRefreshing = false;
+
+function triggerFeedInstantRefresh(btn) {
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch (_) {}
+  if (btn) {
+    btn.classList.add('nav-pulse');
+    setTimeout(() => btn.classList.remove('nav-pulse'), 350);
+  }
+  const contentEl = document.getElementById('content');
+  if (contentEl) {
+    contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  _feedIsRefreshing = true;
+  const indicator = ensurePullRefreshIndicator();
+  updatePullRefreshIndicator(indicator, 72, true, true);
+
+  const existingBanner = document.getElementById('feed-refresh-banner');
+  if (existingBanner) {
+    existingBanner.className = 'feed-refresh-banner';
+    existingBanner.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span><span>Refreshing feed…</span>';
+    existingBanner.style.opacity = '1';
+    existingBanner.style.transform = 'none';
+    existingBanner.style.display = 'flex';
+  }
+
+  navigate('feed', { refresh: true, restoreFeed: false });
+}
+
 function setupNav() {
   const navPages = ['feed', 'explore', 'hustle', 'chat'];
   const nav = document.getElementById('nav');
@@ -5404,7 +5428,7 @@ function setupNav() {
       const p = btn.dataset.p;
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
-        if (p === 'feed') navigate('feed', { refresh: true, restoreFeed: false });
+        if (p === 'feed') return triggerFeedInstantRefresh(btn);
         if (p === 'chat') {
           const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
           const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
@@ -5786,6 +5810,10 @@ function renderFeed() {
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
+      <div id="feed-refresh-banner" class="feed-refresh-banner" style="${_feedIsRefreshing ? 'display:flex' : 'display:none'}">
+        <span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span>
+        <span>Refreshing feed…</span>
+      </div>
 
       <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
         <div class="discover-tabs">
@@ -5975,6 +6003,28 @@ function renderFeed() {
           : (contentEl ? contentEl.scrollTop : _feedScrollTop));
 
       renderFeedResults(scored);
+      if (_feedIsRefreshing) {
+        _feedIsRefreshing = false;
+        const banner = document.getElementById('feed-refresh-banner');
+        if (banner) {
+          banner.classList.add('is-done');
+          banner.innerHTML = '<span>✓ Feed updated</span>';
+          setTimeout(() => {
+            const b = document.getElementById('feed-refresh-banner');
+            if (b) {
+              b.style.opacity = '0';
+              b.style.transform = 'translateY(-6px)';
+              setTimeout(() => { b.style.display = 'none'; }, 260);
+            }
+          }, 650);
+        }
+        const indicator = document.getElementById('pull-refresh-indicator');
+        if (indicator) {
+          indicator.classList.remove('refreshing');
+          indicator.style.opacity = '0';
+          indicator.style.transform = 'translate(-50%, 0)';
+        }
+      }
       if (contentEl) {
         requestAnimationFrame(() => {
           if (!hasPendingFeedFocus && restoreScroll !== null) contentEl.scrollTop = restoreScroll;
@@ -5991,6 +6041,14 @@ function renderFeed() {
       window._lastLikedPost = null;
     }, err => {
       console.error('Feed listener error:', err);
+      _feedIsRefreshing = false;
+      const banner = document.getElementById('feed-refresh-banner');
+      if (banner) banner.style.display = 'none';
+      const indicator = document.getElementById('pull-refresh-indicator');
+      if (indicator) {
+        indicator.classList.remove('refreshing');
+        indicator.style.opacity = '0';
+      }
       c.style.opacity = '';
       _feedRestorePendingPaint = false;
       ensureDiscoverLoaded();
@@ -10342,7 +10400,10 @@ async function showUserPreview(uid) {
           <div style="text-align:left;margin-bottom:16px">
             <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Enrolled Modules (${modules.length})</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
-              ${modules.slice(0, 12).map(m => `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${escJs(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`).join('')}
+              ${modules.slice(0, 12).map(m => isMe
+                ? `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${escJs(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`
+                : `<span class="module-chip clickable" onclick="closeModal();openModuleFeed('${escJs(m)}')" title="View discussions for ${esc(m)}">📖 ${esc(m)}</span>`
+              ).join('')}
               ${modules.length > 12 ? `<span class="module-chip" style="opacity:0.6">+${modules.length - 12} more</span>` : ''}
             </div>
           </div>
@@ -10351,7 +10412,7 @@ async function showUserPreview(uid) {
           ${isMe ? '' : (state.page !== 'chat' && isFriend ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Message</button>` : '')}
           ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous</button>` : '')}
           ${isMe ? '' : (!isFriend && !isPending ? `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Add Friend</button>` : '')}
-          <button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>
+          ${isMe ? `<button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>` : ''}
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Full Profile & Posts →</button>
         </div>
       </div>
@@ -14034,10 +14095,10 @@ async function saveUserTimetableStream(streamCode, enrolledModules = [], allTime
   }
 
   if (state.user?.uid) {
-    await db.collection('users').doc(state.user.uid).set({
+    db.collection('users').doc(state.user.uid).set({
       timetableStream: effectiveCode,
       moduleGroups: state.profile?.moduleGroups || {}
-    }, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(err => console.warn('Timetable stream cloud sync error:', err));
   }
 }
 
@@ -14102,7 +14163,7 @@ function getStoredTimetableCustomizations(targetUser = state.profile) {
   return custom;
 }
 
-async function saveTimetableCustomizations(customizations) {
+function saveTimetableCustomizations(customizations) {
   if (!customizations || typeof customizations !== 'object') return;
   const clean = {
     removedSlotIds: Array.isArray(customizations.removedSlotIds) ? Array.from(new Set(customizations.removedSlotIds)) : [],
@@ -14119,9 +14180,9 @@ async function saveTimetableCustomizations(customizations) {
   }
 
   if (state.user?.uid) {
-    await db.collection('users').doc(state.user.uid).set({
+    db.collection('users').doc(state.user.uid).set({
       timetableCustomizations: clean
-    }, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(err => console.warn('Timetable cloud sync error:', err));
   }
 }
 
@@ -14338,14 +14399,11 @@ function updateTimetableAlertPreference(pref) {
 
 async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
   const isMe = !uid || uid === state.user?.uid;
-  let targetUser = isMe ? (state.profile || {}) : null;
-  if (!targetUser) {
-    try {
-      const doc = await db.collection('users').doc(uid).get();
-      if (doc.exists) targetUser = { id: doc.id, ...doc.data() };
-    } catch (_) {}
+  if (!isMe) {
+    toast('Timetables are private to each student');
+    return;
   }
-  if (!targetUser) targetUser = state.profile || {};
+  const targetUser = state.profile || {};
 
   const enrolledModules = normalizeModules(targetUser.modules || []);
   const allTimetable = await loadWeeklyTimetable();
@@ -14715,15 +14773,22 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             <button type="button" class="tt-action-item danger" id="tt-act-remove">
               <span class="tt-action-item-icon">🗑️</span>
               <div class="tt-action-item-text">
-                <div>Remove from Timetable</div>
-                <div class="tt-action-item-desc">Hides this class and disables its reminder alerts</div>
+                <div>Remove this class (${esc(slot.day)} ${esc(slot.start)})</div>
+                <div class="tt-action-item-desc">Hides only this class block from your schedule</div>
+              </div>
+            </button>
+            <button type="button" class="tt-action-item danger" id="tt-act-remove-all-mod">
+              <span class="tt-action-item-icon">🚫</span>
+              <div class="tt-action-item-text">
+                <div>Remove all ${esc(slot.module)} classes</div>
+                <div class="tt-action-item-desc">Hides all days and blocks for ${esc(slot.module)}</div>
               </div>
             </button>
             <button type="button" class="tt-action-item" id="tt-act-edit">
               <span class="tt-action-item-icon">✏️</span>
               <div class="tt-action-item-text">
                 <div>Edit Actual Schedule</div>
-                <div class="tt-action-item-desc">Change time, venue, stream, or add custom notes</div>
+                <div class="tt-action-item-desc">Change stream, venue, label, or time for all days</div>
               </div>
             </button>
             ${slot.isEdited ? `
@@ -14754,15 +14819,33 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       `;
 
       showOverlay(html, (overlay, dismiss) => {
-        overlay.querySelector('#tt-act-remove')?.addEventListener('click', async () => {
+        overlay.querySelector('#tt-act-remove')?.addEventListener('click', () => {
           dismiss();
           const cur = getStoredTimetableCustomizations(targetUser);
           if (!cur.removedSlotIds.includes(slot.id)) {
             cur.removedSlotIds.push(slot.id);
-            await saveTimetableCustomizations(cur);
-            toast(`Removed ${slot.module} (${slot.day} ${slot.start}) from schedule ✓`);
+            saveTimetableCustomizations(cur);
             renderModal();
+            toast(`Removed ${slot.module} (${slot.day} ${slot.start}) from schedule ✓`);
           }
+        });
+
+        overlay.querySelector('#tt-act-remove-all-mod')?.addEventListener('click', () => {
+          dismiss();
+          const cur = getStoredTimetableCustomizations(targetUser);
+          const modSlots = allTimetable[slot.module] || [];
+          modSlots.forEach(s => {
+            const sId = getTimetableSlotId({ ...s, module: slot.module });
+            if (!cur.removedSlotIds.includes(sId)) cur.removedSlotIds.push(sId);
+          });
+          (cur.customSlots || []).forEach(cs => {
+            if ((cs.module || '').toUpperCase() === (slot.module || '').toUpperCase()) {
+              if (!cur.removedSlotIds.includes(cs.id)) cur.removedSlotIds.push(cs.id);
+            }
+          });
+          saveTimetableCustomizations(cur);
+          renderModal();
+          toast(`Removed all ${slot.module} classes from schedule ✓`);
         });
 
         overlay.querySelector('#tt-act-edit')?.addEventListener('click', () => {
@@ -14770,14 +14853,14 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           openEditSlot(slot);
         });
 
-        overlay.querySelector('#tt-act-reset-slot')?.addEventListener('click', async () => {
+        overlay.querySelector('#tt-act-reset-slot')?.addEventListener('click', () => {
           dismiss();
           const cur = getStoredTimetableCustomizations(targetUser);
           if (cur.editedSlots[slot.id]) {
             delete cur.editedSlots[slot.id];
-            await saveTimetableCustomizations(cur);
-            toast(`Reset ${slot.module} to NWU default ✓`);
+            saveTimetableCustomizations(cur);
             renderModal();
+            toast(`Reset ${slot.module} to NWU default ✓`);
           }
         });
 
@@ -14797,6 +14880,14 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
     // 2. Slot Edit Modal
     const openEditSlot = (slot) => {
+      const modSlots = allTimetable[slot.module] || [];
+      const availableGroups = Array.from(new Set(modSlots.map(s => s.group).filter(Boolean)));
+      const quickGroupsHtml = availableGroups.length ? `
+        <div class="tt-quick-groups">
+          ${availableGroups.map(g => `<button type="button" class="tt-stream-pill ${g === slot.group ? 'active' : ''}" data-pick-group="${esc(g)}">${esc(g)}</button>`).join('')}
+        </div>
+      ` : '';
+
       const html = `
         <div class="tt-action-sheet-header">
           <div class="tt-action-sheet-title">
@@ -14830,12 +14921,22 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             <div class="tt-form-group">
               <label class="tt-form-label">Stream / Group</label>
               <input type="text" id="tt-edit-group" class="tt-form-input" placeholder="e.g. 001, SME_001" value="${esc(slot.group || '')}">
+              ${quickGroupsHtml}
             </div>
           </div>
           <div class="tt-form-group">
-            <label class="tt-form-label">Custom Note (Optional)</label>
-            <input type="text" id="tt-edit-note" class="tt-form-input" placeholder="e.g. Online Lecture, Lab 3" value="${esc(slot.note || '')}">
+            <label class="tt-form-label">Custom Note / Label (Optional)</label>
+            <input type="text" id="tt-edit-note" class="tt-form-input" placeholder="e.g. Online Lecture, Lab 3, SME" value="${esc(slot.note || '')}">
           </div>
+          <label class="tt-toggle-row">
+            <input type="checkbox" id="tt-edit-apply-all" checked>
+            <div>
+              <strong>Apply stream & details to all days</strong>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">
+                Applies stream (${esc(slot.group || 'all')}), venue, and label across all weekly ${esc(slot.module)} lecture blocks
+              </div>
+            </div>
+          </label>
           <div style="display:flex;gap:10px;margin-top:16px">
             <button type="button" class="btn-outline" id="tt-edit-cancel-btn" style="flex:1">Cancel</button>
             <button type="button" class="btn-primary" id="tt-edit-save-btn" style="flex:2">Save Changes</button>
@@ -14844,14 +14945,24 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       `;
 
       showOverlay(html, (overlay, dismiss) => {
+        overlay.querySelectorAll('[data-pick-group]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            overlay.querySelectorAll('[data-pick-group]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const grpInput = overlay.querySelector('#tt-edit-group');
+            if (grpInput) grpInput.value = btn.dataset.pickGroup || '';
+          });
+        });
+
         overlay.querySelector('#tt-edit-cancel-btn')?.addEventListener('click', dismiss);
-        overlay.querySelector('#tt-edit-save-btn')?.addEventListener('click', async () => {
+        overlay.querySelector('#tt-edit-save-btn')?.addEventListener('click', () => {
           const day = overlay.querySelector('#tt-edit-day')?.value || slot.day;
           const start = overlay.querySelector('#tt-edit-start')?.value || slot.start;
           const end = overlay.querySelector('#tt-edit-end')?.value || slot.end;
           const venue = overlay.querySelector('#tt-edit-venue')?.value.trim() || '';
           const group = overlay.querySelector('#tt-edit-group')?.value.trim() || '';
           const note = overlay.querySelector('#tt-edit-note')?.value.trim() || '';
+          const applyAll = overlay.querySelector('#tt-edit-apply-all')?.checked !== false;
 
           if (!start || !end) {
             toast('Please enter valid start and end times');
@@ -14877,10 +14988,34 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             };
           }
 
-          await saveTimetableCustomizations(cur);
+          if (applyAll && slot.module) {
+            if (group) {
+              saveModuleGroup(slot.module, group);
+            }
+            const otherSlots = allTimetable[slot.module] || [];
+            otherSlots.forEach(s => {
+              const sId = getTimetableSlotId({ ...s, module: slot.module });
+              if (sId !== slot.id) {
+                const existingEdit = cur.editedSlots[sId] || {};
+                cur.editedSlots[sId] = {
+                  ...existingEdit,
+                  module: slot.module,
+                  day: existingEdit.day || s.day,
+                  start: existingEdit.start || s.start,
+                  end: existingEdit.end || s.end,
+                  venue: venue || existingEdit.venue || s.venue || '',
+                  group: group || existingEdit.group || s.group || '',
+                  note: note || existingEdit.note || '',
+                  isEdited: true
+                };
+              }
+            });
+          }
+
+          saveTimetableCustomizations(cur);
           dismiss();
-          toast(`Updated ${slot.module} schedule ✓`);
           renderModal();
+          toast(`Updated ${slot.module} schedule ${applyAll ? 'across all days ' : ''}✓`);
         });
       });
     };
@@ -14973,10 +15108,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             isCustom: true
           };
           cur.customSlots.push(newSlot);
-          await saveTimetableCustomizations(cur);
+          saveTimetableCustomizations(cur);
           dismiss();
-          toast(`Added ${newSlot.module} to schedule ✓`);
           renderModal();
+          toast(`Added ${newSlot.module} to schedule ✓`);
         });
       });
     };
@@ -15031,21 +15166,21 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
       showOverlay(html, (overlay, dismiss) => {
         overlay.querySelectorAll('[data-restore-id]').forEach(btn => {
-          btn.addEventListener('click', async () => {
+          btn.addEventListener('click', () => {
             const rId = btn.dataset.restoreId;
             const cur = getStoredTimetableCustomizations(targetUser);
             cur.removedSlotIds = cur.removedSlotIds.filter(id => id !== rId);
-            await saveTimetableCustomizations(cur);
+            saveTimetableCustomizations(cur);
             toast('Restored class to timetable ✓');
             dismiss();
             renderModal();
           });
         });
 
-        overlay.querySelector('#tt-restore-all-btn')?.addEventListener('click', async () => {
+        overlay.querySelector('#tt-restore-all-btn')?.addEventListener('click', () => {
           const cur = getStoredTimetableCustomizations(targetUser);
           cur.removedSlotIds = [];
-          await saveTimetableCustomizations(cur);
+          saveTimetableCustomizations(cur);
           toast('Restored all hidden classes ✓');
           dismiss();
           renderModal();
@@ -15127,9 +15262,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       openRemovedClasses();
     });
 
-    modal.querySelector('#tt-reset-all-btn')?.addEventListener('click', async () => {
+    modal.querySelector('#tt-reset-all-btn')?.addEventListener('click', () => {
       if (confirm('Reset all schedule customizations (edits, custom additions, and removed classes) back to the official NWU timetable?')) {
-        await saveTimetableCustomizations({ removedSlotIds: [], editedSlots: {}, customSlots: [] });
+        saveTimetableCustomizations({ removedSlotIds: [], editedSlots: {}, customSlots: [] });
         toast('Schedule reset to NWU default ✓');
         renderModal();
       }
@@ -15178,10 +15313,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
     // Global stream selector pills
     modal.querySelectorAll('[data-globalstream]').forEach(btn => {
-      btn.onclick = async () => {
+      btn.onclick = () => {
         const str = btn.dataset.globalstream;
         if (isMe) {
-          await saveUserTimetableStream(str, enrolledModules, allTimetable);
+          saveUserTimetableStream(str, enrolledModules, allTimetable);
           if (str === '__ALL__') toast('Showing all module streams');
           else toast(`Applied stream "${str}" to all modules ✓`);
         }
@@ -15192,11 +15327,11 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
 
     const setCustomStreamBtn = modal.querySelector('#tt-set-custom-stream-btn');
     if (setCustomStreamBtn && isMe) {
-      setCustomStreamBtn.onclick = async () => {
+      setCustomStreamBtn.onclick = () => {
         const current = getStoredTimetableStream(targetUser);
         const code = prompt('Enter common stream / group code for all modules (e.g. 001, SME_00, 01):', current);
         if (code !== null) {
-          await saveUserTimetableStream(code.trim(), enrolledModules, allTimetable);
+          saveUserTimetableStream(code.trim(), enrolledModules, allTimetable);
           if (!code.trim() || code.trim() === '__ALL__') toast('Showing all module streams');
           else toast(`Applied stream "${code.trim().toUpperCase()}" to all modules ✓`);
           modal.innerHTML = buildModalHtml();
@@ -17456,9 +17591,6 @@ function editProfile() {
           <button type="button" class="btn-outline btn-sm" id="edit-resend-verify-btn">
             ✉️ Resend Verification Email
           </button>
-          <button type="button" class="btn-secondary btn-sm" id="edit-test-verify-btn">
-            🧪 Test Verification Screen
-          </button>
         </div>
       </div>
 
@@ -17768,12 +17900,6 @@ function editProfile() {
         btn.textContent = '✉️ Resend Verification Email';
       }, 4000);
     }
-  });
-
-  $('#edit-test-verify-btn')?.addEventListener('click', () => {
-    closeModal();
-    sessionStorage.setItem('unibo_simulate_unverified', 'true');
-    showEmailVerificationScreen(state.user || auth.currentUser);
   });
 
   // Save handler
