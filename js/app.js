@@ -1696,7 +1696,13 @@ function addressMatchScore(a = '', b = '') {
   return left.filter(token => rightSet.has(token)).length;
 }
 
+function isLocationSharingEnabled(profile = state.profile) {
+  if (!profile) return false;
+  return profile.locationSharingEnabled !== false && profile.geoSource !== 'disabled';
+}
+
 function getUserCoords(profile = {}) {
+  if (!isLocationSharingEnabled(profile)) return null;
   const lat = Number(profile?.geoLat);
   const lng = Number(profile?.geoLng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -1752,10 +1758,48 @@ function getLocationPromptKey(uid = '') {
   return `unino-location-prompt-${uid}`;
 }
 
+async function toggleLocationSharing(enabled) {
+  if (!state.user || !state.profile) return;
+  try {
+    const isEnabling = !!enabled;
+    const updates = {
+      locationSharingEnabled: isEnabling
+    };
+    if (!isEnabling) {
+      updates.geoLat = null;
+      updates.geoLng = null;
+      updates.geoSource = 'disabled';
+      updates.geoUpdatedAt = FieldVal.serverTimestamp();
+      await db.collection('users').doc(state.user.uid).update(updates);
+      Object.assign(state.profile, {
+        ...updates,
+        geoUpdatedAt: new Date()
+      });
+      const statusEl = $('#gps-location-status');
+      if (statusEl) statusEl.textContent = 'Location sharing is disabled';
+      toast('🔒 Location disabled. You are hidden from map radar.');
+      if (state.page === 'explore') loadExploreUsers();
+    } else {
+      updates.geoSource = 'gps';
+      await db.collection('users').doc(state.user.uid).update(updates);
+      Object.assign(state.profile, updates);
+      toast('📍 Enabling location sharing...');
+      await saveCurrentGpsLocation({ silent: false, enabling: true });
+    }
+  } catch (err) {
+    console.error('Failed to toggle location sharing:', err);
+    toast('Could not update location setting');
+  }
+}
+
 async function saveCurrentGpsLocation(options = {}) {
-  const { silent = false } = options;
+  const { silent = false, enabling = false } = options;
   if (!state.user || !navigator.geolocation) {
     if (!silent) toast('GPS location is not available on this device');
+    return null;
+  }
+  if (!enabling && !isLocationSharingEnabled(state.profile)) {
+    if (!silent) toast('🔒 Location sharing is disabled in your profile');
     return null;
   }
   try {
@@ -1777,6 +1821,7 @@ async function saveCurrentGpsLocation(options = {}) {
       geoLat: lat,
       geoLng: lng,
       geoSource: 'gps',
+      locationSharingEnabled: true,
       geoUpdatedAt: FieldVal.serverTimestamp(),
       address: state.profile?.address || nearestCampus?.name || ''
     };
@@ -1800,6 +1845,10 @@ async function saveCurrentGpsLocation(options = {}) {
 }
 
 async function recenterMapToUserLocation() {
+  if (!isLocationSharingEnabled(state.profile)) {
+    toast('🔒 Location sharing is off. Enable it in your profile menu to use GPS recenter.');
+    return;
+  }
   const btns = document.querySelectorAll('.map-recenter-btn');
   btns.forEach(b => b.classList.add('loading'));
   try {
@@ -1820,7 +1869,7 @@ async function recenterMapToUserLocation() {
 }
 
 function maybePromptForGpsLocation() {
-  if (!state.user || !state.profile || getUserCoords(state.profile) || !navigator.geolocation) return;
+  if (!state.user || !state.profile || !isLocationSharingEnabled(state.profile) || getUserCoords(state.profile) || !navigator.geolocation) return;
   const promptKey = getLocationPromptKey(state.user.uid);
   if (localStorage.getItem(promptKey)) return;
   localStorage.setItem(promptKey, 'seen');
@@ -5361,6 +5410,7 @@ function openHeaderProfileMenu() {
   menu.id = 'header-profile-menu';
   menu.className = 'header-profile-menu';
   const isOnline = state.status === 'online';
+  const locEnabled = isLocationSharingEnabled(state.profile);
   menu.innerHTML = `
     <div class="header-profile-summary">
       <div class="header-profile-menu-avatar">${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
@@ -5368,6 +5418,7 @@ function openHeaderProfileMenu() {
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
     <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
+    <button type="button" data-action="location-toggle"><span>${locEnabled ? '📍' : '🔒'}</span> Location sharing: <strong>${locEnabled ? 'ON' : 'OFF (Hidden)'}</strong></button>
     <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="residences"><span>🏢</span> NWU Residences</button>
@@ -5376,6 +5427,11 @@ function openHeaderProfileMenu() {
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
   menu.querySelector('[data-action="timetable"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openTimetableModal(state.user.uid); });
+  menu.querySelector('[data-action="location-toggle"]')?.addEventListener('click', () => {
+    closeHeaderProfileMenu();
+    const currentEnabled = isLocationSharingEnabled(state.profile);
+    toggleLocationSharing(!currentEnabled);
+  });
   menu.querySelector('[data-action="anon-toggle"]')?.addEventListener('click', () => {
     const nextVal = !allowAnonymousDMsFor(state.profile);
     setAllowAnonymousMessages(nextVal);
@@ -9868,55 +9924,82 @@ function renderRadarView() {
 
     const dynamic = $('#radar-dynamic');
     if (dynamic) {
-      dynamic.innerHTML = `
-        <div class="radar-legend" style="padding:0 16px">
-          <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-          <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
-          <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
-          <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
-          <span class="radar-precision-note">Solid pin = saved GPS · dashed pin = proximity estimate</span>
-        </div>
-
-        ${moduleUsers.length ? `
-        <div class="proximity-section">
-          <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('module', '${escJs(searchQuery)}')">View all</button></div>
-          <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
-        </div>` : ''}
-
-        <div class="proximity-section">
-          <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">View all</button></div>
-          <div class="proximity-scroll">
-            ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
-              : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
+      if (!isLocationSharingEnabled(state.profile)) {
+        dynamic.innerHTML = `
+          <div class="radar-location-off-card">
+            <div class="radar-loc-off-icon">🔒</div>
+            <h4>Location Sharing is Off</h4>
+            <p>To keep things fair, student radar pins and nearby students are hidden while your location is off. You remain completely invisible to other students on the map.</p>
+            <button type="button" class="btn-primary btn-sm" onclick="toggleLocationSharing(true)">
+              📍 Turn On Location Sharing
+            </button>
           </div>
-        </div>
 
-        ${courseUsers.length ? `
-        <div class="proximity-section">
-          <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('course', '${escJs(searchQuery)}')">View all</button></div>
-          <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
-        </div>` : ''}
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>Campus Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
+            ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+              const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+              const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+              const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+              return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+                ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
+                <div class="event-scroll-title">${esc(ev.title)}</div>
+                <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
+              </div>`;
+            }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+          </div>
+        `;
+      } else {
+        dynamic.innerHTML = `
+          <div class="radar-legend" style="padding:0 16px">
+            <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
+            <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
+            <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
+            <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
+            <span class="radar-precision-note">Solid pin = saved GPS · dashed pin = proximity estimate</span>
+          </div>
 
-        ${otherUsers.length ? `
-        <div class="proximity-section">
-          <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('all', '${escJs(searchQuery)}')">View all</button></div>
-          <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
-        </div>` : ''}
+          ${moduleUsers.length ? `
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('module', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
+          </div>` : ''}
 
-        <div class="proximity-section">
-          <div class="proximity-header"><h3>Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
-          ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
-            const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-            const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
-            const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-            return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
-              ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
-              <div class="event-scroll-title">${esc(ev.title)}</div>
-              <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
-            </div>`;
-          }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
-        </div>
-      `;
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-scroll">
+              ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
+                : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
+            </div>
+          </div>
+
+          ${courseUsers.length ? `
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('course', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
+          </div>` : ''}
+
+          ${otherUsers.length ? `
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('all', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
+          </div>` : ''}
+
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
+            ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+              const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+              const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+              const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+              return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+                ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
+                <div class="event-scroll-title">${esc(ev.title)}</div>
+                <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
+              </div>`;
+            }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+          </div>
+        `;
+      }
     }
 
     const eventsByLoc = {};
@@ -10283,7 +10366,10 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         if (_mapLibreMap !== mapRef) return;
         try { mountCampusLocationLabels(mapRef); } catch (_) {}
         mountCampusGeoJsonLayers(mapRef).catch(() => {});
-        attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
+        const locSharingOn = isLocationSharingEnabled(state.profile);
+        if (locSharingOn) {
+          attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
+        }
         syncRadarOverlayToUser();
         mapRef.on('move', syncRadarOverlayToUser);
         mapRef.on('render', syncRadarOverlayToUser);
@@ -10307,7 +10393,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           });
         }
 
-        const usersToPlot = routeOnlyMode ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
+        const usersToPlot = (routeOnlyMode || !locSharingOn) ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
         const plottedIds = new Set();
         const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
         usersToPlot.forEach((u, i) => {
@@ -10340,7 +10426,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
 }
 
 function renderRadarDots(users, radius, type) {
-  if (!users.length) return '';
+  if (!isLocationSharingEnabled(state.profile) || !users.length) return '';
   return users.slice(0, 8).map((u, i) => {
     const angle = (i / Math.min(users.length, 8)) * Math.PI * 2 - Math.PI / 2;
     const x = Math.cos(angle) * radius;
@@ -17546,6 +17632,14 @@ function editProfile() {
 
         <label class="edit-toggle-row">
           <div class="edit-toggle-info">
+            <div class="edit-toggle-title">Share location on campus radar</div>
+            <div class="edit-toggle-desc">If disabled, you cannot be seen on the map by other students, and student radar pins will be hidden (campus places and events remain visible).</div>
+          </div>
+          <input type="checkbox" id="edit-location-sharing" class="edit-toggle-checkbox" ${isLocationSharingEnabled(p) ? 'checked' : ''}>
+        </label>
+
+        <label class="edit-toggle-row">
+          <div class="edit-toggle-info">
             <div class="edit-toggle-title">Auto-fill into study groups</div>
             <div class="edit-toggle-desc">Allow group hosts to automatically add you to groups for your enrolled modules.</div>
           </div>
@@ -17927,13 +18021,19 @@ function editProfile() {
 
     const allowAutoFill = $('#edit-autofill')?.checked !== false;
     const allowAnonymousMessages = $('#edit-anon-dm')?.checked !== false;
+    const locationSharingEnabled = $('#edit-location-sharing')?.checked !== false;
     const selectedTheme = $('#edit-anon-identity-theme')?.value || '__custom';
     let anonIdentity = ($('#edit-anon-custom')?.value || '').trim();
     if (!anonIdentity && selectedTheme !== '__custom') anonIdentity = `${selectedTheme} #A${String(Math.floor(scoreSeed(state.user.uid) * 1000)).padStart(3, '0')}`;
     if (!anonIdentity) anonIdentity = buildDefaultAnonIdentity(state.user.uid, state.profile?.firstName || '');
     anonIdentity = clampText(anonIdentity, 32);
     const identityChanged = normalizeIdentityValue(anonIdentity) !== normalizeIdentityValue(currentAnonIdentity);
-    const updates = { displayName: name, bio, modules, address, gender, major, course: major, year, allowAutoFill, allowAnonymousMessages, anonIdentity };
+    const updates = { displayName: name, bio, modules, address, gender, major, course: major, year, allowAutoFill, allowAnonymousMessages, anonIdentity, locationSharingEnabled };
+    if (!locationSharingEnabled) {
+      updates.geoLat = null;
+      updates.geoLng = null;
+      updates.geoSource = 'disabled';
+    }
 
     try {
       if (newPhotoFile) {
@@ -19021,7 +19121,7 @@ let _selectedResidence = null;
 async function loadResidencesData() {
   if (_residencesData && _residencesData.length) return _residencesData;
   try {
-    const res = await fetch('data/approved_residences.json?v=70');
+    const res = await fetch('data/approved_residences.json?v=71');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     _residencesData = data.residences || [];
@@ -19074,7 +19174,7 @@ function toggleResidencesViewMode() {
     if (mapView) mapView.style.display = 'flex';
     initResidencesMap();
   } else {
-    if (listView) listView.style.display = 'flex';
+    if (listView) listView.style.display = 'block';
     if (mapView) mapView.style.display = 'none';
   }
 }
@@ -19120,7 +19220,7 @@ function renderResidencesShell() {
 
     <div class="res-content-area">
       <!-- List Container -->
-      <div class="res-list-view" id="res-list-view" style="display:${_resViewMode === 'list' ? 'flex' : 'none'}"></div>
+      <div class="res-list-view" id="res-list-view" style="display:${_resViewMode === 'list' ? 'block' : 'none'}"></div>
 
       <!-- Map Container -->
       <div class="res-map-view" id="res-map-view" style="display:${_resViewMode === 'map' ? 'flex' : 'none'}">
@@ -19137,15 +19237,23 @@ function renderResidencesShell() {
     </div>
   `;
 
-  // Bind controls
+  // Bind controls with live auto-update and auto-fetch
   const searchInput = $('#res-search-input');
   const searchClear = $('#res-search-clear');
+  let searchDebounceTimer = null;
   if (searchInput) {
     searchInput.oninput = () => {
-      _resSearchQuery = searchInput.value.trim();
-      if (searchClear) searchClear.style.display = _resSearchQuery ? 'block' : 'none';
-      _resListLimit = 40;
-      applyResidencesFilters();
+      _resSearchQuery = searchInput.value;
+      const hasVal = _resSearchQuery.trim().length > 0;
+      if (searchClear) searchClear.style.display = hasVal ? 'block' : 'none';
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(async () => {
+        if (!_residencesData || !_residencesData.length) {
+          await loadResidencesData();
+        }
+        _resListLimit = 40;
+        applyResidencesFilters();
+      }, 70);
     };
   }
   if (searchClear) {
@@ -19224,8 +19332,10 @@ function populateResidencesSuburbs(list) {
 }
 
 function getFilteredResidences() {
-  if (!_residencesData) return [];
-  const query = _resSearchQuery.toLowerCase();
+  if (!_residencesData || !_residencesData.length) return [];
+  const raw = (_resSearchQuery || '').toLowerCase().trim();
+  const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
+
   return _residencesData.filter(res => {
     // Category filter
     if (_resFilterCategory !== 'ALL' && res.type !== _resFilterCategory) return false;
@@ -19237,14 +19347,23 @@ function getFilteredResidences() {
     if (_resFilterRoom === 'single' && (!res.singleRooms || res.singleRooms <= 0)) return false;
     if (_resFilterRoom === 'sharing' && (!res.sharingRooms || res.sharingRooms <= 0)) return false;
 
-    // Search query
-    if (query) {
-      const matchName = (res.name || '').toLowerCase().includes(query);
-      const matchAddr = (res.address || '').toLowerCase().includes(query);
-      const matchSuburb = (res.suburb || '').toLowerCase().includes(query);
-      const matchAcc = (res.accreditationNumber || '').toLowerCase().includes(query);
-      const matchPhone = (res.phone || '').includes(query);
-      if (!matchName && !matchAddr && !matchSuburb && !matchAcc && !matchPhone) return false;
+    // Smart multi-token search across all attributes
+    if (tokens.length) {
+      const searchBlob = [
+        res.name,
+        res.address,
+        res.suburb,
+        res.accreditationNumber,
+        res.building,
+        res.gender,
+        res.phone,
+        res.whatsapp,
+        res.landlord,
+        res.type === 'on_campus' ? 'on campus nwu' : 'private accredited landlord'
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matchesAll = tokens.every(token => searchBlob.includes(token));
+      if (!matchesAll) return false;
     }
     return true;
   });
@@ -19254,13 +19373,33 @@ function applyResidencesFilters() {
   const filtered = getFilteredResidences();
   const countBadge = $('#res-count-badge');
   if (countBadge) {
-    countBadge.textContent = `${filtered.length} residence${filtered.length === 1 ? '' : 's'}`;
+    countBadge.textContent = `${filtered.length}`;
   }
 
   renderResidencesList(filtered);
 
   if (_resViewMode === 'map') {
     renderResidencesMapMarkers(filtered);
+    const query = (_resSearchQuery || '').trim();
+    if (query && filtered.length > 0 && _resMapInstance) {
+      if (filtered.length === 1) {
+        _resMapInstance.flyTo({
+          center: [filtered[0].lng, filtered[0].lat],
+          zoom: 16.5,
+          speed: 1.2
+        });
+      } else {
+        const bounds = new maplibregl.LngLatBounds();
+        filtered.slice(0, 30).forEach(r => bounds.extend([r.lng, r.lat]));
+        try {
+          _resMapInstance.fitBounds(bounds, {
+            padding: { top: 90, bottom: 90, left: 40, right: 40 },
+            maxZoom: 16.5,
+            duration: 700
+          });
+        } catch (_) {}
+      }
+    }
   }
 }
 
@@ -19724,6 +19863,7 @@ function openResidenceDetail(id) {
     openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
     getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
     voteOnPollEncoded, voteOnPoll,
-    openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview
+    openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview,
+    toggleLocationSharing
   });
 });
