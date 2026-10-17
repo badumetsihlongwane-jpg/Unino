@@ -17882,6 +17882,135 @@ async function doAdminDataClear() {
     toast('Wipe failed');
   }
 }
+
+function showAdminRelaunchDateShift() {
+  if (!_isAdmin) return toast('Admin only');
+  openModal(`
+    <div class="modal-header"><h2>🔄 Relaunch Date Refresh</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:16px">
+      <p style="margin-bottom:12px;color:var(--text-secondary);font-size:14px;line-height:1.5">
+        Compress and shift all existing posts, comments, and user joined dates to active, recent timestamps:
+      </p>
+      <ul style="margin:0 0 16px 20px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+        <li><b>Posts</b>: Distributed smoothly across the last 5–6 days up to right now (~25m ago).</li>
+        <li><b>Comments</b>: Timed directly after their parent posts (5–30m intervals).</li>
+        <li><b>Joined Dates</b>: Distributed across the last 1–2 weeks (authors joined before posting).</li>
+        <li><b>Order</b>: Strict chronological sequence is preserved.</li>
+      </ul>
+      <button class="btn-primary btn-full" id="admin-date-shift-btn" onclick="doAdminRelaunchDateShift()">🚀 Refresh Dates to Today</button>
+    </div>
+  `);
+}
+
+async function doAdminRelaunchDateShift() {
+  if (!_isAdmin) return toast('Admin only');
+  const btn = $('#admin-date-shift-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing timestamps...'; }
+  toast('Refreshing timestamps...');
+  try {
+    const [postsSnap, usersSnap] = await Promise.all([
+      db.collection('posts').get(),
+      db.collection('users').get()
+    ]);
+
+    const now = Date.now();
+    const endPostTime = now - (25 * 60 * 1000);
+    const startPostTime = now - (6 * 24 * 60 * 60 * 1000);
+    const postSpan = endPostTime - startPostTime;
+
+    const rawPosts = postsSnap.docs;
+    const sortedPosts = [...rawPosts].sort((a, b) => {
+      const ta = (a.data().createdAt?.toDate ? a.data().createdAt.toDate() : new Date(a.data().createdAt || 0)).getTime();
+      const tb = (b.data().createdAt?.toDate ? b.data().createdAt.toDate() : new Date(b.data().createdAt || 0)).getTime();
+      return ta - tb;
+    });
+
+    const N = sortedPosts.length;
+    let lastTimestamp = startPostTime;
+    const authorEarliestActivity = {};
+    const batchUpdates = [];
+
+    for (let i = 0; i < N; i++) {
+      const d = sortedPosts[i];
+      const p = d.data();
+      const pid = d.id;
+      const authorId = p.authorId || '';
+
+      const progress = i / Math.max(1, N - 1);
+      const curvedProgress = Math.pow(progress, 1.25);
+      let targetTime = Math.round(startPostTime + curvedProgress * postSpan);
+
+      const h = Math.abs(pid.split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0), 0));
+      targetTime += (((h % 20) - 10) * 60 * 1000);
+
+      if (targetTime <= lastTimestamp + (12 * 60 * 1000)) {
+        targetTime = lastTimestamp + (12 * 60 * 1000) + ((h % 10) * 60 * 1000);
+      }
+      if (i === N - 1 || targetTime > endPostTime) targetTime = endPostTime;
+      lastTimestamp = targetTime;
+
+      const newDate = new Date(targetTime);
+      batchUpdates.push(d.ref.update({ createdAt: firebase.firestore.Timestamp.fromDate(newDate) }));
+
+      if (authorId) {
+        if (!authorEarliestActivity[authorId] || targetTime < authorEarliestActivity[authorId]) {
+          authorEarliestActivity[authorId] = targetTime;
+        }
+      }
+
+      if (p.commentsCount > 0) {
+        const cSnap = await d.ref.collection('comments').get();
+        if (!cSnap.empty) {
+          const sortedComments = [...cSnap.docs].sort((ca, cb) => {
+            const cta = (ca.data().createdAt?.toDate ? ca.data().createdAt.toDate() : new Date(ca.data().createdAt || 0)).getTime();
+            const ctb = (cb.data().createdAt?.toDate ? cb.data().createdAt.toDate() : new Date(cb.data().createdAt || 0)).getTime();
+            return cta - ctb;
+          });
+          let lastCommentTime = targetTime;
+          for (const cDoc of sortedComments) {
+            const ch = Math.abs(cDoc.id.split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0), 0));
+            let cNewTime = lastCommentTime + ((5 + (ch % 20)) * 60 * 1000);
+            if (cNewTime > now - (3 * 60 * 1000)) cNewTime = now - (3 * 60 * 1000);
+            lastCommentTime = cNewTime;
+            batchUpdates.push(cDoc.ref.update({ createdAt: firebase.firestore.Timestamp.fromDate(new Date(cNewTime)) }));
+            const cAuthorId = cDoc.data().authorId;
+            if (cAuthorId) {
+              if (!authorEarliestActivity[cAuthorId] || cNewTime < authorEarliestActivity[cAuthorId]) {
+                authorEarliestActivity[cAuthorId] = cNewTime;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const userEarliestJoin = now - (14 * 24 * 60 * 60 * 1000);
+    for (const uDoc of usersSnap.docs) {
+      const uid = uDoc.id;
+      const uh = Math.abs(uid.split('').reduce((acc, c) => ((acc << 5) - acc) + c.charCodeAt(0), 0));
+      let newJoinTime;
+      if (authorEarliestActivity[uid]) {
+        newJoinTime = authorEarliestActivity[uid] - ((6 + (uh % 42)) * 60 * 60 * 1000);
+      } else {
+        const daysAgo = 1 + (uh % 11);
+        const hoursAgo = (uh % 24);
+        newJoinTime = now - (daysAgo * 24 * 60 * 60 * 1000) - (hoursAgo * 60 * 60 * 1000);
+      }
+      if (newJoinTime < userEarliestJoin) newJoinTime = userEarliestJoin + ((uh % 48) * 60 * 60 * 1000);
+      batchUpdates.push(uDoc.ref.update({ joinedAt: firebase.firestore.Timestamp.fromDate(new Date(newJoinTime)) }));
+    }
+
+    await Promise.all(batchUpdates);
+    closeModal();
+    toast('✅ All posts and joined dates refreshed to today!');
+    triggerFeedInstantRefresh();
+  } catch (err) {
+    console.error('Admin date shift error:', err);
+    toast('Date refresh failed: ' + (err.message || 'Error'));
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Refresh Dates to Today'; }
+  }
+}
+
 function renderProfileAbout(user) {
   const modules = user.modules || [];
   const isMe = user.id === state.user?.uid;
@@ -19278,6 +19407,7 @@ async function openAdminPanel() {
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">\ud83e\uddf9 Moderate Posts</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">📢 Broadcast Notice</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--primary);border-color:var(--primary)" onclick="showAdminRelaunchDateShift()">🔄 Relaunch: Refresh All Dates to Today</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">Kill Switch: Wipe Data</button>
       </div>
     </div>
@@ -20917,6 +21047,7 @@ function checkLandlordPortalHash() {
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
+    showAdminRelaunchDateShift, doAdminRelaunchDateShift,
     showConvoActions, archiveConvo, deleteConvo, blockUserFromChat, unblockUser, requestReveal,
     unarchiveConvo, loadArchivedDMList, toggleArchiveDmView, loadBlockedUsersList,
     openAnonDmSettings, setAllowAnonymousMessages, toggleStoryViewerSound, clearStoryMediaSelection, openStoryFromMessage, closeNotifDropdown,
