@@ -3339,7 +3339,7 @@ async function openModuleFeed(tag) {
     } catch (e) { console.error(e); }
   }
   openModal(`
-    <div class="modal-header"><h2>${esc(moduleTag)} Posts</h2><button class="btn-sm btn-outline" style="margin-left:auto;margin-right:8px;font-size:11px;padding:3px 8px" onclick="openTimetableModal(state.user?.uid, '${esc(moduleTag)}')">📅 Schedule</button><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><h2>${esc(moduleTag)} Posts</h2><button class="btn-sm btn-outline" style="margin-left:auto;margin-right:8px;font-size:11px;padding:3px 8px;display:inline-flex;align-items:center;gap:4px" onclick="openTimetableModal(state.user?.uid, '${esc(moduleTag)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Schedule</button><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body module-feed-modal">
       ${posts.length ? posts.map(post => `
         <div class="module-post-item" onclick="closeModal();viewPost('${post.id}')">
@@ -5424,12 +5424,12 @@ function openHeaderProfileMenu() {
       <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
-    <button type="button" data-action="timetable"><span>📅</span> My Timetable</button>
-    <button type="button" data-action="location-toggle"><span>${locEnabled ? '📍' : '🔒'}</span> Location sharing: <strong>${locEnabled ? 'ON' : 'OFF (Hidden)'}</strong></button>
-    <button type="button" data-action="anon-toggle"><span>👻</span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
-    <button type="button" data-action="presence"><span>●</span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
-    <button type="button" data-action="residences"><span>🏢</span> NWU Residences</button>
-    <button type="button" data-action="signout" class="profile-menu-danger"><span>↪</span> Sign out</button>
+    <button type="button" data-action="timetable"><span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg></span> My Timetable</button>
+    <button type="button" data-action="location-toggle"><span>${locEnabled ? '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'}</span> Location sharing: <strong>${locEnabled ? 'ON' : 'OFF (Hidden)'}</strong></button>
+    <button type="button" data-action="anon-toggle"><span><svg viewBox="0 0 24 24"><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg></span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
+    <button type="button" data-action="presence"><span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/><circle cx="12" cy="12" r="9"/></svg></span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
+    <button type="button" data-action="residences"><span><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg></span> NWU Residences</button>
+    <button type="button" data-action="signout" class="profile-menu-danger"><span><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span> Sign out</button>
   `;
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
@@ -5978,7 +5978,7 @@ function renderFeed() {
   }
 
   // Real-time posts
-  const u = db.collection('posts').orderBy('createdAt', 'desc').limit(50)
+  const u = db.collection('posts').orderBy('createdAt', 'desc').limit(80)
     .onSnapshot(async snap => {
       const myFriends = state.profile.friends || [];
       const uid = state.user.uid;
@@ -6066,18 +6066,43 @@ function renderFeed() {
         return { ...p, _score: totalScore };
       });
 
-      if (!_feedIsRefreshing && previousOrder.size > 0) {
-        // While passively scrolling, preserve existing post positions so reading doesn't jump
+      const contentEl = document.getElementById('content');
+      const isNearTop = !contentEl || contentEl.scrollTop < 60;
+
+      // Track currently visible anchor post to preserve exact pixel scroll position without jumps
+      let anchorCardId = null;
+      let anchorCardTop = 0;
+      if (contentEl && !isNearTop) {
+        const visibleCards = Array.from(contentEl.querySelectorAll('.post-card'));
+        const topCard = visibleCards.find(card => {
+          const rect = card.getBoundingClientRect();
+          return rect.top >= 0 && rect.top <= window.innerHeight * 0.75;
+        }) || visibleCards[0];
+        if (topCard) {
+          anchorCardId = topCard.dataset.postId;
+          anchorCardTop = topCard.getBoundingClientRect().top;
+        }
+      }
+
+      if (!_feedIsRefreshing && previousOrder.size > 0 && !isNearTop) {
+        // While scrolled down reading, preserve existing post positions to eliminate jumps,
+        // while allowing newly approved high-ranking posts to slot in below visible viewport
         scored.sort((a, b) => {
           const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
           const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
           if (ai !== -1 && bi !== -1) return ai - bi;
-          if (ai !== -1) return -1;
-          if (bi !== -1) return 1;
+          if (ai !== -1 && bi === -1) {
+            if (b._score > a._score + 25) return 1;
+            return -1;
+          }
+          if (ai === -1 && bi !== -1) {
+            if (a._score > b._score + 25) return -1;
+            return 1;
+          }
           return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
         });
       } else {
-        // Explicit refresh or initial load: rank directly by multi-signal algorithm
+        // Near top or explicit refresh: rank directly by multi-signal campus recommendation algorithm
         scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       }
 
@@ -6115,7 +6140,6 @@ function renderFeed() {
         return;
       }
 
-      const contentEl = document.getElementById('content');
       const hasPendingFeedFocus = !!_pendingFeedFocusPostId || Date.now() < _feedFocusLockUntil;
       const restoreScroll = hasPendingFeedFocus
         ? null
@@ -6148,7 +6172,18 @@ function renderFeed() {
       }
       if (contentEl) {
         requestAnimationFrame(() => {
-          if (!hasPendingFeedFocus && restoreScroll !== null) contentEl.scrollTop = restoreScroll;
+          if (anchorCardId && !isNearTop) {
+            const anchorEl = contentEl.querySelector(`.post-card[data-post-id="${anchorCardId}"]`);
+            if (anchorEl) {
+              const currentTop = anchorEl.getBoundingClientRect().top;
+              const delta = currentTop - anchorCardTop;
+              if (Math.abs(delta) > 1) {
+                contentEl.scrollTop += delta;
+              }
+            }
+          } else if (!hasPendingFeedFocus && restoreScroll !== null) {
+            contentEl.scrollTop = restoreScroll;
+          }
           c.style.opacity = '';
           _feedRestorePendingPaint = false;
           ensureDiscoverLoaded();
@@ -6340,48 +6375,74 @@ function cleanupExpiredStories() {
     .catch(() => {});
 }
 
+let _storiesUnsub = null;
+let _cachedStoriesSnap = null;
+
+function renderStoriesRowFromSnap(snap) {
+  _cachedStoriesSnap = snap;
+  const rows = [$('#stories-row'), $('#messages-stories-row')].filter(Boolean);
+  if (!rows.length) return;
+
+  const byUser = {};
+  const myFriends = state.profile.friends || [];
+  snap.docs.forEach(d => {
+    const s = { id: d.id, ...d.data() };
+    if (s.authorId !== state.user.uid && !myFriends.includes(s.authorId)) return;
+    if (!byUser[s.authorId]) byUser[s.authorId] = [];
+    byUser[s.authorId].push(s);
+  });
+
+  const uid = state.user.uid;
+  const ordered = [];
+  if (byUser[uid]) { ordered.push({ uid, stories: byUser[uid] }); delete byUser[uid]; }
+  Object.keys(byUser).forEach(k => ordered.push({ uid: k, stories: byUser[k] }));
+
+  rows.forEach(row => {
+    row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
+    ordered.forEach(group => {
+      const s = group.stories[0];
+      const isMe = group.uid === uid;
+      const identity = getResolvedUserIdentity(group.uid, s.authorName || s.authorFirstName || 'User', s.authorPhoto || null);
+      const shortName = (identity.name || s.authorFirstName || s.authorName || '?').split(' ')[0] || '?';
+      const name = isMe ? 'You' : esc(shortName);
+      const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
+      row.insertAdjacentHTML('beforeend', `
+        <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="event.stopPropagation();viewStory('${group.uid}')">
+          <div class="story-avatar"><div class="story-avatar-inner">
+            ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(identity.name || s.authorName)}
+          </div></div>
+          <div class="story-name">${name}</div>
+        </div>
+      `);
+    });
+  });
+}
+
 function loadStories() {
-  const row = $('#stories-row') || $('#messages-stories-row'); if (!row) return;
-  // Clear all but the add-story button
-  row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
+  const row = $('#stories-row') || $('#messages-stories-row');
+  if (!row) return;
 
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').limit(30)
-    .get().then(snap => {
-      // Group stories by author
-      const byUser = {};
-      const myFriends = state.profile.friends || [];
-      snap.docs.forEach(d => {
-        const s = { id: d.id, ...d.data() };
-        // Only show own stories and friends' stories
-        if (s.authorId !== state.user.uid && !myFriends.includes(s.authorId)) return;
-        if (!byUser[s.authorId]) byUser[s.authorId] = [];
-        byUser[s.authorId].push(s);
+  if (_cachedStoriesSnap) {
+    renderStoriesRowFromSnap(_cachedStoriesSnap);
+  }
+
+  if (!_storiesUnsub) {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    try {
+      _storiesUnsub = db.collection('stories')
+        .where('expiresAt', '>', cutoff)
+        .orderBy('expiresAt', 'desc')
+        .limit(40)
+        .onSnapshot(snap => {
+          renderStoriesRowFromSnap(snap);
+        }, err => console.warn('Stories realtime listener error:', err));
+      state.unsubs.push(() => {
+        if (_storiesUnsub) { _storiesUnsub(); _storiesUnsub = null; }
       });
-      // Put current user first if they have stories
-      const uid = state.user.uid;
-      const ordered = [];
-      if (byUser[uid]) { ordered.push({ uid, stories: byUser[uid] }); delete byUser[uid]; }
-      Object.keys(byUser).forEach(k => ordered.push({ uid: k, stories: byUser[k] }));
-
-      ordered.forEach(group => {
-        const s = group.stories[0];
-        const isMe = group.uid === uid;
-        const identity = getResolvedUserIdentity(group.uid, s.authorName || s.authorFirstName || 'User', s.authorPhoto || null);
-        const shortName = (identity.name || s.authorFirstName || s.authorName || '?').split(' ')[0] || '?';
-        const name = isMe ? 'You' : esc(shortName);
-        const hasNew = group.stories.some(st => !(st.viewedBy || []).includes(uid));
-        row.insertAdjacentHTML('beforeend', `
-          <div class="story-item ${hasNew ? 'has-unseen' : 'seen'}" onclick="event.stopPropagation();viewStory('${group.uid}')">
-            <div class="story-avatar"><div class="story-avatar-inner">
-              ${s.authorPhoto ? `<img src="${s.authorPhoto}" alt="" draggable="false">` : initials(identity.name || s.authorName)}
-            </div></div>
-            <div class="story-name">${name}</div>
-          </div>
-        `);
-      });
-
-    }).catch(() => {});
+    } catch (e) {
+      console.warn('Stories subscription error:', e);
+    }
+  }
 }
 
 function setStoryComposerMode(hasMedia = false) {
@@ -8555,6 +8616,7 @@ async function reelLike(pid, btn) {
 }
 
 // ─── Auto-play videos on scroll in feed ─────────
+let _currentlyPlayingFeedVideo = null;
 function setupFeedVideoAutoplay() {
   if (_feedAutoplayObserver) { _feedAutoplayObserver.disconnect(); _feedAutoplayObserver = null; }
   const feedEl = document.getElementById('feed-posts');
@@ -8564,13 +8626,19 @@ function setupFeedVideoAutoplay() {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-        document.querySelectorAll('#feed-posts video').forEach(other => {
-          if (other !== vid) other.pause();
-        });
+        if (_currentlyPlayingFeedVideo && _currentlyPlayingFeedVideo !== vid) {
+          _currentlyPlayingFeedVideo.pause();
+        }
+        _currentlyPlayingFeedVideo = vid;
         vid.muted = true;
         vid.play().catch(() => {});
       } else {
-        vid.pause();
+        if (_currentlyPlayingFeedVideo === vid) {
+          vid.pause();
+          _currentlyPlayingFeedVideo = null;
+        } else if (!vid.paused) {
+          vid.pause();
+        }
       }
     });
   }, { threshold: [0.6] });
@@ -10563,9 +10631,9 @@ async function showUserPreview(uid) {
         ` : ''}
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
           ${isMe ? '' : (state.page !== 'chat' && isFriend ? `<button class="btn-primary" onclick="closeModal();startChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Message</button>` : '')}
-          ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous</button>` : '')}
+          ${isMe ? '' : (!isFriend && allowsAnon && state.page !== 'chat' ? `<button class="btn-outline anon-msg-btn" onclick="closeModal();startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)" style="display:inline-flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg> Anonymous</button>` : '')}
           ${isMe ? '' : (!isFriend && !isPending ? `<button class="btn-outline" onclick="closeModal();sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}')">Add Friend</button>` : '')}
-          ${isMe ? `<button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')">📅 Timetable</button>` : ''}
+          ${isMe ? `<button class="btn-outline" onclick="closeModal();openTimetableModal('${uid}')" style="display:inline-flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Timetable</button>` : ''}
           <button class="btn-secondary" onclick="closeModal();openProfile('${uid}')">View Full Profile & Posts →</button>
         </div>
       </div>
@@ -11740,14 +11808,44 @@ async function upsertEventChatGroup(eventData = {}) {
   }, { merge: true });
 }
 
+let _campusEventsUnsub = null;
+
+function setupCampusEventsRealtimeListener() {
+  if (_campusEventsUnsub) return;
+  try {
+    _campusEventsUnsub = db.collection('events').limit(80).onSnapshot(snap => {
+      const now = Date.now();
+      const upcoming = [];
+      snap.docs.forEach(doc => {
+        const data = { id: doc.id, ...doc.data() };
+        const startAt = eventStartTimeMs(data);
+        if (!Number.isFinite(startAt) || startAt >= now) upcoming.push(data);
+      });
+      allCampusEvents = upcoming.sort((a, b) => eventStartTimeMs(a) - eventStartTimeMs(b));
+      if (state.page === 'explore') {
+        const evtsList = $('#events-list');
+        if (evtsList) renderEvts(allCampusEvents);
+      }
+      if ($('#campus-map-container')) {
+        renderCampusMapView();
+      }
+    }, err => console.warn('Events realtime listener error:', err));
+    state.unsubs.push(() => {
+      if (_campusEventsUnsub) { _campusEventsUnsub(); _campusEventsUnsub = null; }
+    });
+  } catch (err) {
+    console.warn('Events live listener error:', err);
+  }
+}
+
 async function loadCampusEvents() {
+  setupCampusEventsRealtimeListener();
+  if (allCampusEvents.length) return allCampusEvents;
   try {
     let snap;
     try {
       snap = await db.collection('events').orderBy('date', 'asc').limit(80).get();
     } catch (orderedErr) {
-      // Some legacy docs can break ordered queries; fall back so events still render.
-      console.warn('Ordered events query failed, using fallback:', orderedErr?.message || orderedErr);
       snap = await db.collection('events').limit(80).get();
     }
     const now = Date.now();
@@ -11768,6 +11866,7 @@ async function loadCampusEvents() {
     console.error(e);
     allCampusEvents = [];
   }
+  return allCampusEvents;
 }
 
 let _leafletMap = null;
@@ -12159,94 +12258,117 @@ function renderHustle() {
   });
 }
 
+let _listingsUnsub = null;
+let _cachedListingsData = [];
+
+function renderListingsGrid(items = [], cat = 'all', query = '') {
+  const grid = $('#listings-grid');
+  if (!grid) return;
+
+  // Calculate top categories for dynamic filters
+  if (!window._categoryTabsBuilt && items.length) {
+    const categoryCounts = {};
+    items.forEach(i => {
+      const c = (i.category || 'Other').trim();
+      categoryCounts[c] = (categoryCounts[c] || 0) + 1;
+    });
+    const topCategories = Object.entries(categoryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(e => e[0]);
+
+    const catTabs = document.querySelector('.category-tabs');
+    if (catTabs && topCategories.length) {
+      catTabs.innerHTML = `
+        <span class="chip active" data-cat="all">All</span>
+        ${topCategories.map(c => `<span class="chip" data-cat="${esc(c.toLowerCase())}">${esc(c)}</span>`).join('')}
+      `;
+      $$('.category-tabs .chip').forEach(ch => {
+        ch.onclick = () => {
+          $$('.category-tabs .chip').forEach(c2 => c2.classList.remove('active'));
+          ch.classList.add('active');
+          loadListings(ch.dataset.cat, $('#hustle-search')?.value.trim());
+        };
+      });
+      window._categoryTabsBuilt = true;
+    }
+  }
+
+  let filtered = [...items];
+  if (cat !== 'all') filtered = filtered.filter(i => (i.category || '').toLowerCase() === cat.toLowerCase());
+  if (query) {
+    const q = query.toLowerCase();
+    filtered = filtered.filter(i => (i.title || '').toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q) || (i.sellerName || '').toLowerCase().includes(q));
+  }
+
+  const interestProfile = buildInterestProfile();
+  filtered = filtered.map(item => {
+    const sellerContext = _userContextCache[item.sellerId] || null;
+    const nearbyBoost = sellerContext ? getNearbySignal(state.profile, sellerContext).score * 5 : 0;
+    const interestBoost = textInterestScore(`${item.title || ''} ${item.category || ''} ${item.description || ''}`, interestProfile);
+    const rank = nearbyBoost + interestBoost + ((item.createdAt?.seconds || 0) / 100000);
+    const syntheticViews = Math.round(((item.interestCount || 0) * 6) + scoreSeed(item.id || '') * 40 + 8);
+    const syntheticRating = Number(item.ratingAvg || (3.6 + scoreSeed(item.sellerId || item.id || '') * 1.3));
+    return {
+      ...item,
+      _rank: rank,
+      _views: Math.max(item.views || 0, syntheticViews),
+      _ratingAvg: Math.min(5, Math.max(1, syntheticRating)),
+      _ratingCount: Number(item.ratingCount || 0),
+      _isHot: rank > 15 || (item.interestCount || 0) >= 2,
+      _sellingFast: (item.interestCount || 0) >= 4
+    };
+  });
+  filtered.sort((a, b) => b._rank - a._rank || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🛒</div><h3>No listings yet</h3><p>Be the first to sell something!</p></div>`;
+    return;
+  }
+  grid.innerHTML = filtered.map(item => `
+    <div class="listing-card" onclick="openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
+      ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
+      <div class="listing-info">
+        <div class="listing-meta-tags">
+          ${item._isHot ? '<span class="listing-meta-tag hot">🔥 Hot</span>' : ''}
+          <span class="listing-meta-tag">⏳ ${timeAgo(item.createdAt)}</span>
+          <span class="listing-meta-tag">👀 ${item._views} views</span>
+          ${item._sellingFast ? '<span class="listing-meta-tag fast">⚡ Selling fast</span>' : ''}
+        </div>
+        <div class="listing-price">R${esc(String(item.price))}</div>
+        <div class="listing-title">${esc(item.title)}</div>
+        <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
+        <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
+      </div>
+    </div>
+  `).join('');
+  window._hustleItems = {};
+  filtered.forEach(i => window._hustleItems[i.id] = i);
+}
+
 async function loadListings(cat = 'all', query = '') {
   const grid = $('#listings-grid'); if (!grid) return;
-  try {
-    const snap = await db.collection('listings').where('status', '==', 'active').limit(50).get();
-    let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    await ensureUserContextCache(items.map(item => item.sellerId));
-    const interestProfile = buildInterestProfile();
-    
-    // Calculate top categories for dynamic filters
-    if (!window._categoryTabsBuilt && items.length) {
-      const categoryCounts = {};
-      items.forEach(i => {
-        const cat = (i.category || 'Other').trim();
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+  if (!_listingsUnsub) {
+    try {
+      _listingsUnsub = db.collection('listings')
+        .where('status', '==', 'active')
+        .limit(80)
+        .onSnapshot(async snap => {
+          _cachedListingsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          await ensureUserContextCache(_cachedListingsData.map(item => item.sellerId));
+          const currentCat = document.querySelector('.category-tabs .chip.active')?.dataset.cat || cat;
+          const currentQuery = $('#hustle-search')?.value.trim() || query;
+          renderListingsGrid(_cachedListingsData, currentCat, currentQuery);
+        }, err => console.warn('Listings realtime listener error:', err));
+      state.unsubs.push(() => {
+        if (_listingsUnsub) { _listingsUnsub(); _listingsUnsub = null; }
       });
-      const topCategories = Object.entries(categoryCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(e => e[0]);
-      
-      // Rebuild category tabs
-      const catTabs = document.querySelector('.category-tabs');
-      if (catTabs && topCategories.length) {
-        catTabs.innerHTML = `
-          <span class="chip active" data-cat="all">All</span>
-          ${topCategories.map(c => `<span class="chip" data-cat="${esc(c.toLowerCase())}">${esc(c)}</span>`).join('')}
-        `;
-        // Re-wire click events
-        $$('.category-tabs .chip').forEach(ch => {
-          ch.onclick = () => {
-            $$('.category-tabs .chip').forEach(c2 => c2.classList.remove('active'));
-            ch.classList.add('active');
-            loadListings(ch.dataset.cat, $('#hustle-search')?.value.trim());
-          };
-        });
-        window._categoryTabsBuilt = true;
-      }
+    } catch (e) {
+      console.warn('Listings live listener error:', e);
     }
-    
-    if (cat !== 'all') items = items.filter(i => (i.category || '').toLowerCase() === cat);
-    if (query) {
-      const q = query.toLowerCase();
-      items = items.filter(i => (i.title || '').toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q) || (i.sellerName || '').toLowerCase().includes(q));
-    }
-    items = items.map(item => {
-      const sellerContext = _userContextCache[item.sellerId] || null;
-      const nearbyBoost = sellerContext ? getNearbySignal(state.profile, sellerContext).score * 5 : 0;
-      const interestBoost = textInterestScore(`${item.title || ''} ${item.category || ''} ${item.description || ''}`, interestProfile);
-      const rank = nearbyBoost + interestBoost + ((item.createdAt?.seconds || 0) / 100000);
-      const syntheticViews = Math.round(((item.interestCount || 0) * 6) + scoreSeed(item.id || '') * 40 + 8);
-      const syntheticRating = Number(item.ratingAvg || (3.6 + scoreSeed(item.sellerId || item.id || '') * 1.3));
-      return {
-        ...item,
-        _rank: rank,
-        _views: Math.max(item.views || 0, syntheticViews),
-        _ratingAvg: Math.min(5, Math.max(1, syntheticRating)),
-        _ratingCount: Number(item.ratingCount || 0),
-        _isHot: rank > 15 || (item.interestCount || 0) >= 2,
-        _sellingFast: (item.interestCount || 0) >= 4
-      };
-    });
-    items.sort((a, b) => b._rank - a._rank || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-
-    if (!items.length) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🛒</div><h3>No listings yet</h3><p>Be the first to sell something!</p></div>`;
-      return;
-    }
-    grid.innerHTML = items.map(item => `
-      <div class="listing-card" onclick="openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
-        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
-        <div class="listing-info">
-          <div class="listing-meta-tags">
-            ${item._isHot ? '<span class="listing-meta-tag hot">🔥 Hot</span>' : ''}
-            <span class="listing-meta-tag">⏳ ${timeAgo(item.createdAt)}</span>
-            <span class="listing-meta-tag">👀 ${item._views} views</span>
-            ${item._sellingFast ? '<span class="listing-meta-tag fast">⚡ Selling fast</span>' : ''}
-          </div>
-          <div class="listing-price">R${esc(String(item.price))}</div>
-          <div class="listing-title">${esc(item.title)}</div>
-          <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
-          <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
-        </div>
-      </div>
-    `).join('');
-    // store items for detail view
-    window._hustleItems = {};
-    items.forEach(i => window._hustleItems[i.id] = i);
-  } catch (e) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>Error loading</h3></div>'; }
+  } else if (_cachedListingsData.length) {
+    renderListingsGrid(_cachedListingsData, cat, query);
+  }
 }
 
 async function saveListingToProfile(itemId) {
@@ -14837,7 +14959,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       <div class="timetable-modal-wrapper">
         <div class="timetable-modal-header">
           <div class="timetable-title-area">
-            <h2>📅 Academic Timetable</h2>
+            <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/></svg>Academic Timetable</h2>
             <div class="timetable-sub">
               ${isMe ? 'Your enrolled lecture schedule' : `${esc(targetUser.displayName || 'Student')}'s schedule`} · NWU 2026
             </div>

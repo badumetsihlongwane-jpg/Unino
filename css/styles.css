@@ -647,10 +647,32 @@ input, select, textarea, button {
 .header-profile-summary strong { display: block; color: var(--text-primary); font-size: 13px; }
 .header-profile-summary span { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--text-secondary); font-size: 11px; }
 .presence-indicator { width: 7px; height: 7px; border-radius: 50%; background: #9CA3AF; }
-.header-profile-menu > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border: 0; border-radius: 11px; background: transparent; color: var(--text-primary); font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
+.header-profile-menu > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border: 0; border-radius: 11px; background: transparent; color: var(--text-primary); font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
 .header-profile-menu > button:hover { background: var(--bg-tertiary); }
-.header-profile-menu > button > span { width: 18px; color: var(--text-secondary); font-size: 17px; text-align: center; }
+.header-profile-menu > button > span {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+.header-profile-menu > button > span svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  display: block;
+}
+.header-profile-menu > button:hover > span {
+  color: var(--accent);
+  transform: scale(1.08);
+}
 .header-profile-menu .profile-menu-danger { color: var(--red); }
+.header-profile-menu .profile-menu-danger:hover > span { color: var(--red); }
 
 .radar-suggestions {
   max-height: 280px;
@@ -932,6 +954,9 @@ input, select, textarea, button {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  overflow-anchor: auto;
+  scroll-behavior: smooth;
+  will-change: scroll-position;
   padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
 }
 
@@ -6140,6 +6165,9 @@ body.image-view-open .modal-bg {
 .unino-player {
   position: relative;
   width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 220px;
+  max-height: 480px;
   background: #000;
   border-radius: 0;
   overflow: hidden;
@@ -6147,13 +6175,13 @@ body.image-view-open .modal-bg {
   user-select: none;
   -webkit-user-select: none;
   isolation: isolate;
+  contain: layout paint;
 }
 
 .unino-player video {
   width: 100%;
+  height: 100%;
   display: block;
-  min-height: 200px;
-  max-height: 500px;
   object-fit: contain;
   background: #000;
   opacity: 1;
@@ -6162,7 +6190,6 @@ body.image-view-open .modal-bg {
 
 .unino-player.is-loading video {
   opacity: 0;
-  visibility: hidden;
 }
 
 .unino-player.is-loading .up-big-play,
