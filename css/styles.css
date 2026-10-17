@@ -125,6 +125,10 @@ input, select, textarea, button {
   background: var(--bg-primary);
 }
 
+#app.screen {
+  padding-bottom: 0;
+}
+
 .screen.active {
   display: flex;
 }
@@ -799,16 +803,19 @@ input, select, textarea, button {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  height: calc(var(--nav-height) + 8px);
+  height: 54px;
+  min-height: 54px;
+  max-height: 54px;
   background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  padding: 8px 10px calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
+  padding: 4px 10px;
   flex-shrink: 0;
   width: calc(100% - 24px);
-  margin: 0 auto calc(10px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  margin: 0 auto calc(6px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
   border-radius: 28px;
   box-shadow: 0 16px 40px rgba(17,24,39,.12);
   backdrop-filter: blur(14px);
+  box-sizing: border-box;
 }
 
 .nav-item,
@@ -816,14 +823,15 @@ input, select, textarea, button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 2px;
   background: none;
   border: none;
   color: var(--text-tertiary);
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
-  padding: 10px 12px;
+  padding: 4px 10px;
   border-radius: 18px;
   position: relative;
   transition: all var(--transition);
@@ -831,8 +839,8 @@ input, select, textarea, button {
 
 .nav-item svg,
 .nav-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   transition: all var(--transition);
 }
 
@@ -853,13 +861,13 @@ input, select, textarea, button {
 .nav-create,
 .nav-plus {
   position: relative;
-  top: -10px;
+  top: -4px;
 }
 
 .create-btn-wrap,
 .plus-circle {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6071,7 +6079,7 @@ body.image-view-open .modal-bg {
 /* ═══ REELS FEED BUTTON ═══ */
 .reels-fab {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 70px);
   right: 16px;
   width: 52px;
   height: 52px;
@@ -7902,7 +7910,7 @@ body.image-view-open .modal-bg {
 /* Reels FAB on feed */
 .reels-fab {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 70px);
   right: 16px;
   width: 52px;
   height: 52px;
@@ -9135,7 +9143,6 @@ body {
 }
 
 #nav {
-  height: calc(var(--nav-height) + 12px);
   background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   border-color: color-mix(in srgb, var(--accent) 16%, var(--border));
   box-shadow: 0 18px 42px rgba(23, 23, 23, 0.14);
@@ -11456,21 +11463,118 @@ body {
   flex-direction: column;
   background: var(--bg-card, var(--bg-secondary));
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 14px;
-  margin-bottom: 11px;
+  border-radius: 16px;
+  padding: 0;
+  margin-bottom: 14px;
   flex-shrink: 0;
   min-height: fit-content;
   width: 100%;
   box-sizing: border-box;
-  transition: transform 0.15s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  overflow: hidden;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.03);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   cursor: pointer;
   position: relative;
 }
 .res-card:hover {
   border-color: var(--accent);
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.07);
+}
+
+.res-card-media {
+  position: relative;
+  width: 100%;
+  height: 135px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.res-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+.res-card:hover .res-card-img {
+  transform: scale(1.03);
+}
+
+.res-card-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--bg-tertiary)), var(--bg-secondary));
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.res-card-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  background-image: radial-gradient(var(--text-primary) 1.2px, transparent 1.2px);
+  background-size: 14px 14px;
+  pointer-events: none;
+}
+.res-card-placeholder svg {
+  opacity: 0.55;
+  color: var(--accent);
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.res-card:hover .res-card-placeholder svg {
+  transform: scale(1.08);
+  opacity: 0.8;
+}
+.res-placeholder-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.res-media-badges {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 2;
+}
+.res-photo-count-badge {
+  background: rgba(15, 23, 42, 0.75);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.res-card-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
 }
 
 .res-card-top {
@@ -11846,5 +11950,194 @@ body {
   align-items: center;
   gap: 5px;
 }
+
+/* ── Landlord Portal & Modern Residence Media ── */
+.res-btn-landlord {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-weight: 700;
+}
+.res-btn-landlord:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.res-detail-media-wrap {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+.res-detail-gallery {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  height: 100%;
+  scrollbar-width: none;
+}
+.res-detail-gallery::-webkit-scrollbar { display: none; }
+.res-gallery-img {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  scroll-snap-align: start;
+}
+.res-gallery-counter {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(15, 23, 42, 0.75);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+}
+
+/* Landlord Portal Modal */
+.landlord-portal-sheet {
+  max-width: 540px;
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 18px 20px 24px;
+  box-sizing: border-box;
+}
+.landlord-hero {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-secondary)), var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.landlord-hero-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.landlord-hero-sub {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.landlord-upload-dropzone {
+  border: 2px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 14px;
+  padding: 24px 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-tertiary));
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.landlord-upload-dropzone:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+}
+.landlord-photos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.landlord-photo-item {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.landlord-photo-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.landlord-photo-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.landlord-photo-del:hover {
+  transform: scale(1.15);
+  background: var(--red);
+}
+.landlord-share-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-top: 12px;
+}
+.landlord-share-link {
+  flex: 1;
+  font-size: 11.5px;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+/* Feed Refresh Loading Hero */
+.feed-refresh-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  animation: fadeIn 0.25s ease;
+}
+.feed-refresh-loader .spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.feed-refresh-loader p {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
 
 

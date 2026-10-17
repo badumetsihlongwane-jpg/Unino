@@ -3099,11 +3099,16 @@ function scoreSeed(str = '') {
 
 // ─── Feed randomisation & seen-post tracking ─────
 let _sessionPostSeeds = {};
+let _feedRefreshEpoch = Date.now();
 function sessionSeed(postId) {
-  if (_sessionPostSeeds[postId] == null) _sessionPostSeeds[postId] = Math.random();
-  return _sessionPostSeeds[postId];
+  const key = postId + '_' + _feedRefreshEpoch;
+  if (_sessionPostSeeds[key] == null) _sessionPostSeeds[key] = Math.random();
+  return _sessionPostSeeds[key];
 }
-function resetFeedSeeds() { _sessionPostSeeds = {}; }
+function resetFeedSeeds() {
+  _sessionPostSeeds = {};
+  _feedRefreshEpoch = Date.now();
+}
 
 function shuffleList(items = []) {
   const arr = [...(items || [])];
@@ -5455,7 +5460,7 @@ function openHeaderProfileMenu() {
 let _feedIsRefreshing = false;
 
 function triggerFeedInstantRefresh(btn) {
-  try { if (navigator.vibrate) navigator.vibrate(15); } catch (_) {}
+  try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) {}
   if (btn) {
     btn.classList.add('nav-pulse');
     setTimeout(() => btn.classList.remove('nav-pulse'), 350);
@@ -5465,17 +5470,34 @@ function triggerFeedInstantRefresh(btn) {
     contentEl.scrollTo({ top: 0, behavior: 'smooth' });
   }
   _feedIsRefreshing = true;
+  resetFeedSeeds();
+  state.posts = []; // Unlock comparator so recommendation algorithm sorts fresh
+
   const indicator = ensurePullRefreshIndicator();
   updatePullRefreshIndicator(indicator, 72, true, true);
+
+  const postsContainer = document.getElementById('feed-posts');
+  if (postsContainer) {
+    postsContainer.innerHTML = `
+      <div class="feed-refresh-loader">
+        <div class="spinner"></div>
+        <p>Curating your campus feed…</p>
+      </div>
+    `;
+  }
 
   const existingBanner = document.getElementById('feed-refresh-banner');
   if (existingBanner) {
     existingBanner.className = 'feed-refresh-banner';
-    existingBanner.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span><span>Refreshing feed…</span>';
+    existingBanner.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span><span>Curating feed…</span>';
     existingBanner.style.opacity = '1';
     existingBanner.style.transform = 'none';
     existingBanner.style.display = 'flex';
   }
+
+  // Reshuffle discover rails dynamically
+  loadDiscoverPeople({ force: true });
+  loadCampusEvents().catch(() => {});
 
   navigate('feed', { refresh: true, restoreFeed: false });
 }
@@ -5991,35 +6013,69 @@ function renderFeed() {
         return !authorContext.shadowMuted;
       });
 
-      // Discovery ranking with relevancy, randomness per session, and seen-post demotion
+      // Multi-signal campus recommendation algorithm
       const seenMap = getSeenPosts();
+      const myRegisteredModules = new Set(normalizeModules(state.profile.modules || []));
+      const myMajor = (state.profile.major || '').trim().toLowerCase();
+
       const scored = moderatedVisible.map(p => {
         const likes = (p.likes || []).length;
         const comments = p.commentsCount || 0;
         const isFriend = myFriends.includes(p.authorId);
         const authorContext = _userContextCache[p.authorId] || null;
         const nearbyBoost = authorContext ? getNearbySignal(state.profile, authorContext).score * 4 : 0;
-        const sharedModules = normalizeModules(p.moduleTags || []).filter(tag => likedModulePrefs.has(tag)).length;
+
+        // 1. Module relevance: +30 pts per enrolled module match
+        const postModules = normalizeModules(p.moduleTags || []);
+        const enrolledMatches = postModules.filter(m => myRegisteredModules.has(m)).length;
+        const moduleScore = enrolledMatches * 30;
+
+        // 2. Liked modules & tags history
+        const sharedLikedModules = postModules.filter(tag => likedModulePrefs.has(tag)).length;
         const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
+        const interestBoost = sharedLikedModules * 10 + sharedTags * 5;
+
+        // 3. Faculty / Degree affinity: +20 pts if author shares major
+        let majorBoost = 0;
+        if (myMajor && authorContext?.major && authorContext.major.trim().toLowerCase() === myMajor) {
+          majorBoost = 20;
+        }
+
+        // 4. Social connection: +25 pts for friends
+        const friendBoost = isFriend ? 25 : 0;
+
+        // 5. Freshness Half-Life Decay: smooth power decay over 12-24h
         const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
-        const freshness = Math.max(0, 1 - ageHrs / 48); // decay over 48h
-        const engagement = (likes * 2 + comments * 3) * 0.3;
-        const friendBoost = isFriend ? 8 : 0;
-        const interestBoost = sharedModules * 10 + sharedTags * 5;
-        const randomFactor = sessionSeed(p.id) * 12;
-        // Demote posts the user has already seen (more views → bigger penalty, caps at 25)
+        const freshnessScore = (1 / (1 + Math.pow(Math.max(0, ageHrs) / 12, 1.4))) * 35;
+
+        // 6. Engagement Velocity (trending discussions bubble up)
+        const engagementVelocity = ((likes * 2.5 + comments * 4) / Math.sqrt(Math.max(0, ageHrs) + 1)) * 1.5;
+
+        // 7. Exploration Perturbation per refresh epoch (smoothly cycles conversations on refresh)
+        const randomFactor = sessionSeed(p.id) * 20;
+
+        // 8. Seen-post demotion (-12 pts per view, up to 36)
         const seenEntry = seenMap[p.id];
-        const seenPenalty = seenEntry ? Math.min(seenEntry.v * 4, 25) : 0;
-        return { ...p, _score: engagement + freshness * 15 + friendBoost + nearbyBoost + interestBoost + randomFactor - seenPenalty };
+        const seenPenalty = seenEntry ? Math.min(seenEntry.v * 12, 36) : 0;
+
+        const totalScore = moduleScore + majorBoost + friendBoost + nearbyBoost + interestBoost + freshnessScore + engagementVelocity + randomFactor - seenPenalty;
+        return { ...p, _score: totalScore };
       });
-      scored.sort((a, b) => {
-        const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
-        const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
-        if (ai !== -1 && bi !== -1) return ai - bi;
-        if (ai !== -1) return 1;
-        if (bi !== -1) return -1;
-        return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-      });
+
+      if (!_feedIsRefreshing && previousOrder.size > 0) {
+        // While passively scrolling, preserve existing post positions so reading doesn't jump
+        scored.sort((a, b) => {
+          const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
+          const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
+          if (ai !== -1 && bi !== -1) return ai - bi;
+          if (ai !== -1) return -1;
+          if (bi !== -1) return 1;
+          return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+        });
+      } else {
+        // Explicit refresh or initial load: rank directly by multi-signal algorithm
+        scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      }
 
       const prevIds = previousPosts.map(post => post.id).join(',');
       const nextIds = scored.map(post => post.id).join(',');
@@ -6125,7 +6181,7 @@ function renderFeed() {
 }
 
 // ─── Discover: People tab ────────────────────────
-function loadDiscoverPeople() {
+function loadDiscoverPeople(options = {}) {
   const el = $('#discover-content'); if (!el) return;
   const myMajor = state.profile.major || '';
   const myModules = normalizeModules(state.profile.modules || []);
@@ -6135,7 +6191,7 @@ function loadDiscoverPeople() {
   const myFriends = new Set(state.profile.friends || []);
   const sentRequests = new Set(state.profile.sentRequests || []);
 
-  getUsersCache().then(allUsers => {
+  getUsersCache(options).then(allUsers => {
     const baseUsers = allUsers
       .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
       .filter(u => !myFriends.has(u.id) && !sentRequests.has(u.id));
@@ -6154,6 +6210,7 @@ function loadDiscoverPeople() {
       if (nearbyScore > 0) score += 18 + nearbyScore * 7;
       if (u.status === 'online') score += 5;
       score += genderAffinityScore(state.profile, u);
+      score += sessionSeed('user_' + u.id) * 12; // Dynamic shuffle on refresh
       if (isFriend) score -= 18;
       if (!shared.length && !majorMatch && nearbyScore === 0) score -= 12;
       return {
@@ -6242,7 +6299,8 @@ function loadDiscoverEvents() {
         : 0;
       const goingBoost = Math.min(10, (ev.going || []).length * 1.5);
       const interestBoost = textInterestScore(`${ev.title || ''} ${ev.description || ''} ${locationMeta.label || ev.location || ''}`, interestProfile);
-      return { ...ev, _discoverScore: locationBoost + goingBoost + interestBoost };
+      const refreshJitter = sessionSeed('event_' + (ev.id || ev.title)) * 8;
+      return { ...ev, _discoverScore: locationBoost + goingBoost + interestBoost + refreshJitter };
     }).sort((a, b) => b._discoverScore - a._discoverScore || (a.date || '').localeCompare(b.date || ''));
     el.innerHTML = `<div class="discover-scroll">${rankedEvents.slice(0, 8).map(ev => {
       const locationMeta = getEventLocationMeta(ev);
@@ -19013,6 +19071,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuth();
   initNativeShell().catch(() => {});
   setupPullToRefresh();
+  window.addEventListener('hashchange', checkLandlordPortalHash);
+  setTimeout(checkLandlordPortalHash, 600);
 
   showBootStatus('Starting Unibo…');
   ensureBootFallback();
@@ -19121,15 +19181,57 @@ let _selectedResidence = null;
 async function loadResidencesData() {
   if (_residencesData && _residencesData.length) return _residencesData;
   try {
-    const res = await fetch('data/approved_residences.json?v=71');
+    const res = await fetch('data/approved_residences.json?v=72');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     _residencesData = data.residences || [];
+
+    // Attach any locally cached photos instantly for 0ms paint
+    _residencesData.forEach(r => {
+      try {
+        const cached = localStorage.getItem('unibo_res_media_' + r.id);
+        if (cached) {
+          const imgs = JSON.parse(cached);
+          if (Array.isArray(imgs) && imgs.length) r.images = imgs;
+        }
+      } catch (_) {}
+    });
+
+    // Cloud sync live landlord images in background from Firestore
+    syncResidenceMediaFromCloud().catch(() => {});
+
     return _residencesData;
   } catch (err) {
     console.error('Failed to load residences data:', err);
     toast('Could not load residences catalog');
     return [];
+  }
+}
+
+async function syncResidenceMediaFromCloud() {
+  if (!_residencesData || !_residencesData.length) return;
+  try {
+    const snap = await db.collection('residence_media').get();
+    let updated = false;
+    snap.docs.forEach(doc => {
+      const data = doc.data();
+      const imgs = data.images || [];
+      if (!imgs.length) return;
+      const target = _residencesData.find(r => r.id === doc.id || r.id === data.resId || (data.accreditationNumber && r.accreditationNumber === data.accreditationNumber));
+      if (target) {
+        target.images = imgs;
+        updated = true;
+        try { localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs)); } catch (_) {}
+      }
+    });
+    if (updated) {
+      const listEl = $('#res-list-view');
+      if (listEl && listEl.children.length) {
+        renderResidencesList(getFilteredResidences());
+      }
+    }
+  } catch (e) {
+    console.warn('Could not sync residence media:', e);
   }
 }
 
@@ -19425,6 +19527,30 @@ function renderResidencesList(filtered = getFilteredResidences()) {
       ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
       : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
+    const hasImages = Array.isArray(res.images) && res.images.length > 0;
+    const mediaHeader = hasImages ? `
+      <div class="res-card-media">
+        <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy">
+        <div class="res-media-badges">
+          ${badgeHtml}
+          <span class="res-photo-count-badge">📷 ${res.images.length} photo${res.images.length > 1 ? 's' : ''}</span>
+        </div>
+      </div>
+    ` : `
+      <div class="res-card-media">
+        <div class="res-card-placeholder">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+          <div class="res-placeholder-pill">
+            <span>Photos coming soon</span>
+          </div>
+        </div>
+        <div class="res-media-badges">
+          ${badgeHtml}
+          <span class="res-dist-pill" style="background:rgba(15,23,42,0.72);color:#fff;border-color:rgba(255,255,255,0.2)">📍 ${esc(res.distanceText)}</span>
+        </div>
+      </div>
+    `;
+
     const waBtn = res.whatsapp ? `
       <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
         💬 WhatsApp
@@ -19441,35 +19567,40 @@ function renderResidencesList(filtered = getFilteredResidences()) {
 
     return `
       <div class="res-card" onclick="openResidenceDetail('${escJs(res.id)}')">
-        <div class="res-card-top">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            ${badgeHtml}
-            ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
-            ${res.gender ? `<span class="res-dist-pill" style="opacity:0.85">${esc(res.gender)}</span>` : ''}
+        ${mediaHeader}
+        <div class="res-card-body">
+          <div class="res-card-top">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
+              ${res.gender ? `<span class="res-dist-pill" style="opacity:0.85">${esc(res.gender)}</span>` : ''}
+            </div>
+            ${hasImages ? `<span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>` : ''}
           </div>
-          <span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>
-        </div>
-        <div class="res-card-name">${esc(res.name)}</div>
-        <div class="res-card-addr">
-          <span>📍</span>
-          <span>${esc(res.address)}</span>
-        </div>
-        <div class="res-card-stats">
-          <span class="res-stat-item">🛏️ <strong>${res.beds || 0}</strong> Beds</span>
-          <span class="res-stat-sep">·</span>
-          <span class="res-stat-item">🚪 <strong>${res.singleRooms || 0}</strong> Single</span>
-          <span class="res-stat-sep">·</span>
-          <span class="res-stat-item">👥 <strong>${res.sharingRooms || 0}</strong> Sharing</span>
-        </div>
-        <div class="res-card-actions">
-          ${callBtn}
-          ${waBtn}
-          <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-            🗺️ Directions
-          </a>
-          <button type="button" class="res-btn" onclick="event.stopPropagation();locateResidenceOnMap('${escJs(res.id)}')" title="Locate on map">
-            🔍 Map
-          </button>
+          <div class="res-card-name">${esc(res.name)}</div>
+          <div class="res-card-addr">
+            <span>📍</span>
+            <span>${esc(res.address)}</span>
+          </div>
+          <div class="res-card-stats">
+            <span class="res-stat-item">🛏️ <strong>${res.beds || 0}</strong> Beds</span>
+            <span class="res-stat-sep">·</span>
+            <span class="res-stat-item">🚪 <strong>${res.singleRooms || 0}</strong> Single</span>
+            <span class="res-stat-sep">·</span>
+            <span class="res-stat-item">👥 <strong>${res.sharingRooms || 0}</strong> Sharing</span>
+          </div>
+          <div class="res-card-actions">
+            ${callBtn}
+            ${waBtn}
+            <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+              🗺️ Directions
+            </a>
+            <button type="button" class="res-btn" onclick="event.stopPropagation();locateResidenceOnMap('${escJs(res.id)}')" title="Locate on map">
+              🔍 Map
+            </button>
+            <button type="button" class="res-btn res-btn-landlord" onclick="event.stopPropagation();openLandlordPortal('${escJs(res.id)}')" title="Landlord photo upload portal">
+              📷 Upload Photos
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -19715,8 +19846,27 @@ function openResidenceDetail(id) {
     <div class="res-amenity-chip">✓ ${esc(a)}</div>
   `).join('');
 
+  const hasImages = Array.isArray(res.images) && res.images.length > 0;
+  const detailMediaHtml = hasImages ? `
+    <div class="res-detail-media-wrap">
+      <div class="res-detail-gallery">
+        ${res.images.map(img => `<img src="${esc(img)}" class="res-gallery-img" alt="${esc(res.name)}" onclick="viewImage('${escJs(img)}')">`).join('')}
+      </div>
+      <div class="res-gallery-counter">📷 1 of ${res.images.length} (swipe)</div>
+    </div>
+  ` : `
+    <div class="res-card-placeholder" style="height:150px;border-radius:14px;margin-bottom:12px;border:1px solid var(--border)">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+      <div class="res-placeholder-pill">
+        <span>🏢 Photos coming soon</span>
+      </div>
+    </div>
+  `;
+
   const modalHtml = `
     <div class="res-detail-sheet-wrap">
+      ${detailMediaHtml}
+
       <div class="res-detail-hero">
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -19795,6 +19945,22 @@ function openResidenceDetail(id) {
         </div>
       </div>
 
+      <!-- Landlord Photo Portal Card -->
+      <div class="res-detail-card" style="border-color:color-mix(in srgb, var(--accent) 30%, var(--border));background:color-mix(in srgb, var(--accent) 4%, var(--bg-tertiary))">
+        <div class="res-detail-card-title">🔑 Landlord Photo Portal</div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">
+          Are you the accredited landlord or accommodation manager? Update building photos or generate your direct upload link.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="res-btn res-btn-landlord" style="flex:1;justify-content:center;height:38px" onclick="closeModal(); openLandlordPortal('${escJs(res.id)}')">
+            📷 Upload Photos
+          </button>
+          <button type="button" class="res-btn" style="height:38px;padding:0 14px" onclick="copyLandlordUploadLink('${escJs(res.id)}')" title="Copy upload link for landlord">
+            📋 Copy Upload Link
+          </button>
+        </div>
+      </div>
+
       <!-- Direct Contact Section -->
       <div class="res-detail-card" style="border-color:var(--accent)">
         <div class="res-detail-card-title">📞 Direct Landlord / Residence Contact</div>
@@ -19813,6 +19979,261 @@ function openResidenceDetail(id) {
   `;
 
   openModal(modalHtml);
+}
+
+// ─── Landlord Photo Upload Portal ─────────────────────
+window._landlordPhotos = [];
+window._landlordPendingFiles = [];
+window._selectedLandlordRes = null;
+
+function copyLandlordUploadLink(id) {
+  const res = (_residencesData || []).find(r => r.id === id);
+  if (!res) return;
+  const url = `${window.location.origin}${window.location.pathname}#upload-res?id=${encodeURIComponent(res.id)}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      toast('✓ Landlord upload link copied to clipboard!');
+    }).catch(() => {
+      prompt('Landlord upload link:', url);
+    });
+  } else {
+    prompt('Landlord upload link:', url);
+  }
+}
+
+async function openLandlordPortal(targetId = '') {
+  if (!_residencesData || !_residencesData.length) {
+    await loadResidencesData();
+  }
+  let currentRes = targetId ? (_residencesData || []).find(r => r.id === targetId || r.accreditationNumber === targetId) : null;
+  window._selectedLandlordRes = currentRes;
+  window._landlordPhotos = currentRes?.images ? [...currentRes.images] : [];
+  window._landlordPendingFiles = [];
+
+  renderLandlordPortalModal();
+}
+
+function renderLandlordPortalModal() {
+  const res = window._selectedLandlordRes;
+  const shareUrl = res ? `${window.location.origin}${window.location.pathname}#upload-res?id=${encodeURIComponent(res.id)}` : '';
+
+  const html = `
+    <div class="landlord-portal-sheet">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="landlord-hero-title">
+          <span>🔑</span>
+          <span>Landlord Photo Portal</span>
+        </div>
+        <button type="button" class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+      </div>
+
+      ${res ? `
+        <div class="landlord-hero">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <strong style="font-size:15px;color:var(--text-primary)">${esc(res.name)}</strong>
+            <span class="res-badge-private">✓ Accredited</span>
+          </div>
+          <div class="landlord-hero-sub">
+            <div>📍 ${esc(res.address)} (${esc(res.suburb)})</div>
+            <div style="margin-top:2px;font-family:monospace">Accreditation: <strong>${esc(res.accreditationNumber || res.id)}</strong></div>
+          </div>
+          <div class="landlord-share-box">
+            <span style="font-size:12px">🔗 Direct Link:</span>
+            <input type="text" readonly class="landlord-share-link" value="${esc(shareUrl)}" onclick="this.select()">
+            <button type="button" class="btn-sm btn-accent" style="padding:4px 10px;font-size:11px" onclick="copyLandlordUploadLink('${escJs(res.id)}')">Copy</button>
+          </div>
+        </div>
+      ` : `
+        <div style="margin-bottom:14px">
+          <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">Select Your Residence:</label>
+          <input type="text" id="landlord-res-search" class="input w100" placeholder="Type residence name or accreditation code…" oninput="filterLandlordResOptions(this.value)">
+          <div id="landlord-res-options" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-top:4px;display:none;background:var(--bg-secondary)"></div>
+        </div>
+      `}
+
+      <div class="landlord-upload-dropzone" onclick="document.getElementById('landlord-file-input').click()">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        <div style="font-size:13.5px;font-weight:700;color:var(--text-primary)">Tap to choose photos from device</div>
+        <div style="font-size:12px;color:var(--text-secondary)">Upload exterior building views, bedrooms, study desks, and kitchens (JPG/PNG).</div>
+        <input type="file" id="landlord-file-input" accept="image/*" multiple style="display:none" onchange="handleLandlordFilesSelected(this.files)">
+      </div>
+
+      <div id="landlord-photos-container">
+        ${renderLandlordPhotosGridHtml()}
+      </div>
+
+      <div style="margin-top:18px;display:flex;gap:10px">
+        <button type="button" class="btn-outline" style="flex:1;height:42px" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn-primary" id="landlord-submit-btn" style="flex:2;height:42px;font-weight:700" onclick="submitLandlordPhotos()">
+          Save & Publish Photos
+        </button>
+      </div>
+    </div>
+  `;
+
+  openModal(html);
+}
+
+function renderLandlordPhotosGridHtml() {
+  const existing = window._landlordPhotos || [];
+  const pending = window._landlordPendingFiles || [];
+  const total = existing.length + pending.length;
+  if (total === 0) {
+    return `<div style="text-align:center;padding:16px;font-size:12.5px;color:var(--text-secondary)">No photos added yet. Select photos above.</div>`;
+  }
+  return `
+    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:14px 0 6px">
+      Photos (${total})
+    </div>
+    <div class="landlord-photos-grid">
+      ${existing.map((url, i) => `
+        <div class="landlord-photo-item">
+          <img src="${esc(url)}" alt="Residence photo">
+          <button type="button" class="landlord-photo-del" onclick="deleteLandlordExistingPhoto(${i})" title="Remove photo">&times;</button>
+        </div>
+      `).join('')}
+      ${pending.map((p, i) => `
+        <div class="landlord-photo-item" style="border-color:var(--accent)">
+          <img src="${esc(p.previewUrl)}" alt="New photo">
+          <button type="button" class="landlord-photo-del" onclick="deleteLandlordPendingPhoto(${i})" title="Remove photo">&times;</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function handleLandlordFilesSelected(files) {
+  if (!files || !files.length) return;
+  Array.from(files).forEach(f => {
+    const previewUrl = URL.createObjectURL(f);
+    window._landlordPendingFiles.push({ file: f, previewUrl });
+  });
+  const container = document.getElementById('landlord-photos-container');
+  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+}
+
+function deleteLandlordExistingPhoto(idx) {
+  window._landlordPhotos.splice(idx, 1);
+  const container = document.getElementById('landlord-photos-container');
+  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+}
+
+function deleteLandlordPendingPhoto(idx) {
+  const item = window._landlordPendingFiles.splice(idx, 1)[0];
+  if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  const container = document.getElementById('landlord-photos-container');
+  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+}
+
+function filterLandlordResOptions(query) {
+  const container = document.getElementById('landlord-res-options');
+  if (!container) return;
+  const q = (query || '').trim().toLowerCase();
+  if (q.length < 2) {
+    container.style.display = 'none';
+    return;
+  }
+  const matches = (_residencesData || []).filter(r => 
+    r.name.toLowerCase().includes(q) || 
+    (r.accreditationNumber && r.accreditationNumber.toLowerCase().includes(q)) ||
+    (r.address && r.address.toLowerCase().includes(q))
+  ).slice(0, 10);
+
+  if (!matches.length) {
+    container.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--text-secondary)">No residences found matching "${esc(query)}"</div>`;
+    container.style.display = 'block';
+    return;
+  }
+
+  container.innerHTML = matches.map(r => `
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectLandlordResidence('${escJs(r.id)}')">
+      <div style="font-weight:700;font-size:13px;color:var(--text-primary)">${esc(r.name)}</div>
+      <div style="font-size:11.5px;color:var(--text-secondary)">${esc(r.accreditationNumber || r.id)} · ${esc(r.suburb)}</div>
+    </div>
+  `).join('');
+  container.style.display = 'block';
+}
+
+function selectLandlordResidence(id) {
+  const res = (_residencesData || []).find(r => r.id === id);
+  if (!res) return;
+  window._selectedLandlordRes = res;
+  window._landlordPhotos = res.images ? [...res.images] : [];
+  renderLandlordPortalModal();
+}
+
+async function submitLandlordPhotos() {
+  const res = window._selectedLandlordRes;
+  if (!res) {
+    toast('Please select a residence first');
+    return;
+  }
+  const pending = window._landlordPendingFiles || [];
+  const existing = window._landlordPhotos || [];
+
+  if (existing.length === 0 && pending.length === 0) {
+    toast('Please select at least 1 photo to publish');
+    return;
+  }
+
+  const btn = document.getElementById('landlord-submit-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-spinner" style="width:16px;height:16px"></span> Publishing photos…';
+  }
+
+  try {
+    const uploadedUrls = [];
+    for (let i = 0; i < pending.length; i++) {
+      if (btn) btn.innerHTML = `<span class="inline-spinner" style="width:16px;height:16px"></span> Uploading ${i + 1}/${pending.length}…`;
+      const url = await uploadToR2(pending[i].file, 'residences');
+      uploadedUrls.push(url);
+    }
+
+    const finalImages = [...existing, ...uploadedUrls];
+
+    // Save to Firestore residence_media
+    await db.collection('residence_media').doc(res.id).set({
+      resId: res.id,
+      resName: res.name,
+      accreditationNumber: res.accreditationNumber || '',
+      images: finalImages,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: state.user?.uid || 'landlord_portal'
+    }, { merge: true });
+
+    // Save to local cache
+    try {
+      localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(finalImages));
+    } catch (_) {}
+
+    // Update in memory
+    res.images = finalImages;
+
+    // Refresh list view
+    renderResidencesList(getFilteredResidences());
+
+    closeModal();
+    toast('✓ Residence photos published successfully!');
+  } catch (err) {
+    console.error('Failed to publish residence photos:', err);
+    toast('Upload failed: ' + (err.message || 'Please try again'));
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Save & Publish Photos';
+    }
+  }
+}
+
+function checkLandlordPortalHash() {
+  const hash = window.location.hash || '';
+  if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
+    const params = new URLSearchParams(hash.split('?')[1] || '');
+    const resId = params.get('id') || params.get('resId') || '';
+    loadResidencesData().then(() => {
+      openLandlordPortal(resId);
+    });
+  }
 }
 
   // Expose globals for inline onclick
@@ -19864,6 +20285,8 @@ function openResidenceDetail(id) {
     getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
     voteOnPollEncoded, voteOnPoll,
     openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview,
-    toggleLocationSharing
+    toggleLocationSharing,
+    openLandlordPortal, copyLandlordUploadLink, handleLandlordFilesSelected, deleteLandlordExistingPhoto, deleteLandlordPendingPhoto,
+    filterLandlordResOptions, selectLandlordResidence, submitLandlordPhotos, checkLandlordPortalHash
   });
 });
