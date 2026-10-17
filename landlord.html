@@ -645,6 +645,18 @@
           const data = await resp.json();
           _allResidences = data.residences || [];
           _filteredResidences = [..._allResidences];
+          _allResidences.forEach(r => {
+            try {
+              const c = localStorage.getItem('unino_res_media_' + r.id) || localStorage.getItem('unibo_res_media_' + r.id);
+              if (c) {
+                const arr = JSON.parse(c);
+                if (Array.isArray(arr) && arr.length) {
+                  _mediaCache[r.id] = arr;
+                  r.images = arr;
+                }
+              }
+            } catch (_) {}
+          });
         }
       } catch (e) {
         console.error('Error loading residences dataset:', e);
@@ -958,6 +970,7 @@
         if (_currentRes) _currentRes.images = updatedMediaList;
         try {
           localStorage.setItem('unino_res_media_' + _currentResId, JSON.stringify(updatedMediaList));
+          localStorage.setItem('unibo_res_media_' + _currentResId, JSON.stringify(updatedMediaList));
         } catch (e) {}
 
         _pendingFiles = [];

@@ -5473,20 +5473,6 @@ function triggerFeedInstantRefresh(btn) {
   }
   _feedIsRefreshing = true;
   resetFeedSeeds();
-  state.posts = []; // Unlock comparator so recommendation algorithm sorts fresh
-
-  const indicator = ensurePullRefreshIndicator();
-  updatePullRefreshIndicator(indicator, 72, true, true);
-
-  const postsContainer = document.getElementById('feed-posts');
-  if (postsContainer) {
-    postsContainer.innerHTML = `
-      <div class="feed-refresh-loader">
-        <div class="spinner"></div>
-        <p>Curating your campus feed…</p>
-      </div>
-    `;
-  }
 
   const existingBanner = document.getElementById('feed-refresh-banner');
   if (existingBanner) {
@@ -5499,9 +5485,17 @@ function triggerFeedInstantRefresh(btn) {
 
   // Reshuffle discover rails dynamically
   loadDiscoverPeople({ force: true });
-  loadCampusEvents().catch(() => {});
+  // Soft refresh: re-render current posts without blanking out screen
+  if (Array.isArray(state.posts) && state.posts.length) {
+    renderFeedResults(state.posts);
+  }
 
-  navigate('feed', { refresh: true, restoreFeed: false });
+  setTimeout(() => {
+    _feedIsRefreshing = false;
+    if (existingBanner) {
+      existingBanner.style.display = 'none';
+    }
+  }, 700);
 }
 
 function setupNav() {
@@ -5513,7 +5507,15 @@ function setupNav() {
       const p = btn.dataset.p;
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
-        if (p === 'feed') return triggerFeedInstantRefresh(btn);
+        if (p === 'feed') {
+          const contentEl = document.getElementById('content');
+          const currentScroll = contentEl ? contentEl.scrollTop : 0;
+          if (currentScroll > 50) {
+            contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+          return triggerFeedInstantRefresh(btn);
+        }
         if (p === 'chat') {
           const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
           const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
@@ -19193,7 +19195,9 @@ async function loadResidencesData() {
     // Attach any locally cached photos instantly for 0ms paint
     _residencesData.forEach(r => {
       try {
-        const cached = localStorage.getItem('unibo_res_media_' + r.id);
+        const cached = localStorage.getItem('unino_res_media_' + r.id) ||
+                       localStorage.getItem('unibo_res_media_' + r.id) ||
+                       (r.accreditationNumber ? (localStorage.getItem('unino_res_media_' + r.accreditationNumber) || localStorage.getItem('unibo_res_media_' + r.accreditationNumber)) : null);
         if (cached) {
           const imgs = JSON.parse(cached);
           if (Array.isArray(imgs) && imgs.length) r.images = imgs;
@@ -19225,7 +19229,17 @@ async function syncResidenceMediaFromCloud() {
       if (target) {
         target.images = imgs;
         updated = true;
-        try { localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs)); } catch (_) {}
+        try {
+          localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
+          localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
+        } catch (_) {}
+        if (window._currentOpenResId === target.id) {
+          window._currentDetailImages = imgs;
+          const box = document.getElementById('res-detail-media-box');
+          if (box && typeof buildResidenceDetailMediaHtml === 'function') {
+            box.innerHTML = buildResidenceDetailMediaHtml(target);
+          }
+        }
       }
     });
     if (updated) {
@@ -19532,28 +19546,69 @@ function renderResidencesList(filtered = getFilteredResidences()) {
       : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
     const hasImages = Array.isArray(res.images) && res.images.length > 0;
-    const mediaHeader = hasImages ? `
-      <div class="res-card-media">
-        <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy">
-        <div class="res-media-badges">
-          ${badgeHtml}
-          <span class="res-photo-count-badge">📷 ${res.images.length} photo${res.images.length > 1 ? 's' : ''}</span>
-        </div>
-      </div>
-    ` : `
-      <div class="res-card-media">
-        <div class="res-card-placeholder">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
-          <div class="res-placeholder-pill">
-            <span>Photos coming soon</span>
+    let mediaHeader = '';
+    if (!hasImages) {
+      mediaHeader = `
+        <div class="res-card-media" onclick="openResidenceDetail('${escJs(res.id)}')">
+          <div class="res-card-placeholder">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+            <div class="res-placeholder-pill">
+              <span>Photos coming soon</span>
+            </div>
+          </div>
+          <div class="res-media-badges">
+            ${badgeHtml}
+            <span class="res-dist-pill" style="background:rgba(15,23,42,0.72);color:#fff;border-color:rgba(255,255,255,0.2)">📍 ${esc(res.distanceText)}</span>
           </div>
         </div>
-        <div class="res-media-badges">
-          ${badgeHtml}
-          <span class="res-dist-pill" style="background:rgba(15,23,42,0.72);color:#fff;border-color:rgba(255,255,255,0.2)">📍 ${esc(res.distanceText)}</span>
+      `;
+    } else if (res.images.length === 1) {
+      mediaHeader = `
+        <div class="res-card-media" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
+          <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy">
+          <div class="res-media-badges">
+            ${badgeHtml}
+            <span class="res-photo-count-badge">📷 1 photo</span>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    } else if (res.images.length === 2) {
+      mediaHeader = `
+        <div class="res-card-media res-collage-2">
+          <div class="res-collage-cell" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
+            <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
+          </div>
+          <div class="res-collage-cell" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 1)">
+            <img src="${esc(res.images[1])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
+          </div>
+          <div class="res-media-badges">
+            ${badgeHtml}
+            <span class="res-photo-count-badge">📷 2 photos (tap to swipe)</span>
+          </div>
+        </div>
+      `;
+    } else {
+      mediaHeader = `
+        <div class="res-card-media res-collage-3">
+          <div class="res-collage-main" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
+            <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
+          </div>
+          <div class="res-collage-side">
+            <div class="res-collage-side-item" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 1)">
+              <img src="${esc(res.images[1])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
+            </div>
+            <div class="res-collage-side-item" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 2)">
+              <img src="${esc(res.images[2])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
+              ${res.images.length > 3 ? `<div class="res-collage-more">+${res.images.length - 2} more</div>` : ''}
+            </div>
+          </div>
+          <div class="res-media-badges">
+            ${badgeHtml}
+            <span class="res-photo-count-badge">📷 ${res.images.length} photos</span>
+          </div>
+        </div>
+      `;
+    }
 
     const waBtn = res.whatsapp ? `
       <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
@@ -19815,23 +19870,127 @@ function locateResidenceOnMap(id) {
   }, 150);
 }
 
-function openResidenceDetail(id) {
-  const res = (_residencesData || []).find(r => r.id === id);
+function buildResidenceDetailMediaHtml(res) {
+  const images = Array.isArray(res.images) ? res.images : [];
+  if (!images.length) {
+    return `
+      <div class="res-card-placeholder" style="height:175px;border-radius:16px;border:1px solid var(--border);position:relative">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+        <div class="res-placeholder-pill">
+          <span>🏢 Photos coming soon</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const slidesHtml = images.map((img, idx) => `
+    <img src="${esc(img)}" class="res-gallery-img" alt="${esc(res.name)}" onclick="openResidenceGallery('${escJs(res.id)}', ${idx})">
+  `).join('');
+
+  const filmstripHtml = images.length > 1 ? `
+    <div class="res-detail-filmstrip" id="res-detail-filmstrip">
+      ${images.map((img, idx) => `
+        <div class="res-filmstrip-thumb ${idx === 0 ? 'active' : ''}" onclick="scrollDetailGallery(${idx})">
+          <img src="${esc(img)}" alt="thumb">
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="res-detail-media-wrap">
+        <div class="res-detail-gallery" id="res-detail-gallery" onscroll="onResidenceGalleryScroll(this)">
+          ${slidesHtml}
+        </div>
+        <div class="res-gallery-counter" id="res-gallery-counter">📷 1 of ${images.length} (swipe)</div>
+      </div>
+      ${filmstripHtml}
+    </div>
+  `;
+}
+
+function scrollDetailGallery(idx) {
+  const gal = document.getElementById('res-detail-gallery');
+  if (!gal) return;
+  gal.scrollTo({ left: gal.clientWidth * idx, behavior: 'smooth' });
+  updateDetailGalleryCounter(idx);
+}
+
+function onResidenceGalleryScroll(el) {
+  if (!el) return;
+  const idx = Math.round(el.scrollLeft / (el.clientWidth || 1));
+  updateDetailGalleryCounter(idx);
+}
+
+function updateDetailGalleryCounter(idx) {
+  const imgs = window._currentDetailImages || [];
+  const counter = document.getElementById('res-gallery-counter');
+  if (counter && imgs.length) {
+    counter.textContent = `📷 ${idx + 1} of ${imgs.length} (swipe)`;
+  }
+  const thumbs = document.querySelectorAll('#res-detail-filmstrip .res-filmstrip-thumb');
+  thumbs.forEach((th, i) => {
+    if (i === idx) th.classList.add('active');
+    else th.classList.remove('active');
+  });
+}
+
+function openResidenceGallery(id, startIdx = 0) {
+  const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
+  let images = res?.images;
+  if (!images || !images.length) {
+    try {
+      const raw = localStorage.getItem('unino_res_media_' + id) ||
+                  localStorage.getItem('unibo_res_media_' + id) ||
+                  (res && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
+      if (raw) images = JSON.parse(raw);
+    } catch (_) {}
+  }
+  if (!images || !images.length) {
+    toast('No photos available yet');
+    return;
+  }
+  openGallery(images, startIdx);
+}
+
+async function openResidenceDetail(id) {
+  if (!_residencesData || !_residencesData.length) {
+    await loadResidencesData();
+  }
+  const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
   if (!res) return;
+
+  // Retrieve cached photos if not already on object
+  if (!res.images || !res.images.length) {
+    try {
+      const cached = localStorage.getItem('unino_res_media_' + res.id) ||
+                     localStorage.getItem('unibo_res_media_' + res.id) ||
+                     (res.accreditationNumber && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length) res.images = parsed;
+      }
+    } catch (_) {}
+  }
+
+  window._currentOpenResId = res.id;
+  window._currentDetailImages = Array.isArray(res.images) ? [...res.images] : [];
 
   const isOnCampus = res.type === 'on_campus';
   const badgeHtml = isOnCampus
     ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus Residence</span>`
     : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
 
+  const waPrefill = `Hello ${res.name}, I saw your accredited accommodation on Unibo and would like to inquire about NSFAS/private room availability.`;
   const waBtn = res.whatsapp ? `
-    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" style="flex:1;justify-content:center;height:42px;font-size:13.5px">
+    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=${encodeURIComponent(waPrefill)}" target="_blank" rel="noopener" style="flex:1;justify-content:center;height:44px;font-size:13.5px;font-weight:700">
       💬 WhatsApp Landlord
     </a>
   ` : '';
 
   const callBtn = res.phone ? `
-    <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:42px;font-size:13.5px">
+    <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:44px;font-size:13.5px;font-weight:700">
       📞 Call (${esc(res.phone)})
     </a>
   ` : '';
@@ -19850,26 +20009,11 @@ function openResidenceDetail(id) {
     <div class="res-amenity-chip">✓ ${esc(a)}</div>
   `).join('');
 
-  const hasImages = Array.isArray(res.images) && res.images.length > 0;
-  const detailMediaHtml = hasImages ? `
-    <div class="res-detail-media-wrap">
-      <div class="res-detail-gallery">
-        ${res.images.map(img => `<img src="${esc(img)}" class="res-gallery-img" alt="${esc(res.name)}" onclick="viewImage('${escJs(img)}')">`).join('')}
-      </div>
-      <div class="res-gallery-counter">📷 1 of ${res.images.length} (swipe)</div>
-    </div>
-  ` : `
-    <div class="res-card-placeholder" style="height:150px;border-radius:14px;margin-bottom:12px;border:1px solid var(--border)">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
-      <div class="res-placeholder-pill">
-        <span>🏢 Photos coming soon</span>
-      </div>
-    </div>
-  `;
-
   const modalHtml = `
     <div class="res-detail-sheet-wrap">
-      ${detailMediaHtml}
+      <div id="res-detail-media-box">
+        ${buildResidenceDetailMediaHtml(res)}
+      </div>
 
       <div class="res-detail-hero">
         <div style="flex:1">
@@ -19908,6 +20052,21 @@ function openResidenceDetail(id) {
         <div class="res-stat-pill-box">
           <div class="res-stat-pill-val" style="font-size:11.5px;color:var(--accent)">${esc(res.distanceKm ? res.distanceKm.toFixed(1) + ' km' : 'Campus')}</div>
           <div class="res-stat-pill-lbl">From Gate</div>
+        </div>
+      </div>
+
+      <!-- Direct Contact Section -->
+      <div class="res-detail-card" style="border-color:var(--accent)">
+        <div class="res-detail-card-title">📞 Direct Landlord / Residence Contact</div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">
+          Inquire directly about available bed slots, NSFAS allowances, lease agreements, and viewing appointments.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:8px">
+            ${callBtn}
+            ${waBtn}
+          </div>
+          ${emailBtn}
         </div>
       </div>
 
@@ -19964,25 +20123,39 @@ function openResidenceDetail(id) {
           </button>
         </div>
       </div>
-
-      <!-- Direct Contact Section -->
-      <div class="res-detail-card" style="border-color:var(--accent)">
-        <div class="res-detail-card-title">📞 Direct Landlord / Residence Contact</div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">
-          Inquire directly about available bed slots, lease agreements, NSFAS accreditation status, and viewing schedules.
-        </p>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="display:flex;gap:8px">
-            ${callBtn}
-            ${waBtn}
-          </div>
-          ${emailBtn}
-        </div>
-      </div>
     </div>
   `;
 
   openModal(modalHtml);
+
+  // Background fetch from Firestore to ensure newest uploaded photos are displayed immediately
+  if (typeof db !== 'undefined' && db && db.collection) {
+    db.collection('residence_media').doc(res.id).get().then(doc => {
+      let cloudImgs = null;
+      if (doc.exists && doc.data() && Array.isArray(doc.data().images) && doc.data().images.length) {
+        cloudImgs = doc.data().images;
+      } else if (res.accreditationNumber) {
+        return db.collection('residence_media').doc(res.accreditationNumber).get().then(doc2 => {
+          if (doc2.exists && doc2.data() && Array.isArray(doc2.data().images)) return doc2.data().images;
+          return null;
+        });
+      }
+      return cloudImgs;
+    }).then(cloudImgs => {
+      if (cloudImgs && cloudImgs.length) {
+        res.images = cloudImgs;
+        window._currentDetailImages = cloudImgs;
+        try {
+          localStorage.setItem('unino_res_media_' + res.id, JSON.stringify(cloudImgs));
+          localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(cloudImgs));
+        } catch (_) {}
+        if (window._currentOpenResId === res.id) {
+          const mediaBox = document.getElementById('res-detail-media-box');
+          if (mediaBox) mediaBox.innerHTML = buildResidenceDetailMediaHtml(res);
+        }
+      }
+    }).catch(err => console.warn('Live residence media fetch error:', err));
+  }
 }
 
 // ─── Landlord Photo Upload Portal ─────────────────────
@@ -20309,6 +20482,7 @@ function checkLandlordPortalHash() {
     getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
     voteOnPollEncoded, voteOnPoll,
     openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview,
+    openResidenceGallery, scrollDetailGallery, onResidenceGalleryScroll,
     toggleLocationSharing,
     openLandlordPortal, copyLandlordUploadLink, handleLandlordFilesSelected, deleteLandlordExistingPhoto, deleteLandlordPendingPhoto,
     filterLandlordResOptions, selectLandlordResidence, submitLandlordPhotos, checkLandlordPortalHash
