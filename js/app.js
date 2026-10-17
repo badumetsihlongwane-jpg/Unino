@@ -3121,23 +3121,44 @@ function shuffleList(items = []) {
   return arr;
 }
 
+let _cachedSeenPosts = null;
+let _seenPostsSaveTimer = null;
+
 function getSeenPosts() {
-  try { return JSON.parse(localStorage.getItem('unino_seen_posts') || '{}'); }
-  catch { return {}; }
+  if (_cachedSeenPosts) return _cachedSeenPosts;
+  try {
+    _cachedSeenPosts = JSON.parse(localStorage.getItem('unino_seen_posts') || '{}');
+  } catch {
+    _cachedSeenPosts = {};
+  }
+  return _cachedSeenPosts;
 }
+
+function flushSeenPosts() {
+  if (!_cachedSeenPosts) return;
+  try {
+    const keys = Object.keys(_cachedSeenPosts);
+    if (keys.length > 500) {
+      keys.sort((a, b) => _cachedSeenPosts[a].t - _cachedSeenPosts[b].t);
+      keys.slice(0, keys.length - 500).forEach(k => delete _cachedSeenPosts[k]);
+    }
+    localStorage.setItem('unino_seen_posts', JSON.stringify(_cachedSeenPosts));
+  } catch (_) {}
+}
+
 function markPostSeen(postId) {
+  if (!postId) return;
   const seen = getSeenPosts();
   const entry = seen[postId] || { v: 0, t: 0 };
   entry.v++;
   entry.t = Date.now();
   seen[postId] = entry;
-  // keep only most recent 500
-  const keys = Object.keys(seen);
-  if (keys.length > 500) {
-    keys.sort((a, b) => seen[a].t - seen[b].t);
-    keys.slice(0, keys.length - 500).forEach(k => delete seen[k]);
+  if (!_seenPostsSaveTimer) {
+    _seenPostsSaveTimer = setTimeout(() => {
+      _seenPostsSaveTimer = null;
+      flushSeenPosts();
+    }, 1500);
   }
-  localStorage.setItem('unino_seen_posts', JSON.stringify(seen));
 }
 let _feedSeenObserver = null;
 
@@ -3703,14 +3724,57 @@ function formatContent(text) {
 // ─── Custom Video Player Engine ──────────────────
 let _playerIdCounter = 0;
 let _activePlayerDestroys = [];
+let _feedVideoLazyObserver = null;
+
+function ensureVideoSource(vid) {
+  if (!vid) return;
+  if (vid.dataset.srcLoaded === '1' && vid.src) return;
+  const src = vid.dataset.src || vid.closest('.unino-player')?.dataset.videoSrc;
+  if (!src) return;
+  vid.dataset.srcLoaded = '1';
+  vid.src = src;
+  vid.load();
+}
+
+function unloadVideoSource(vid) {
+  if (!vid || vid.dataset.srcLoaded !== '1') return;
+  if (!vid.paused) return;
+  vid.pause();
+  vid.removeAttribute('src');
+  vid.load();
+  vid.dataset.srcLoaded = '0';
+}
+
+function setupFeedVideoLazyLoading() {
+  if (_feedVideoLazyObserver) {
+    _feedVideoLazyObserver.disconnect();
+    _feedVideoLazyObserver = null;
+  }
+  const players = document.querySelectorAll('.unino-player[data-video-src]');
+  if (!players.length) return;
+  _feedVideoLazyObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const player = entry.target;
+      const vid = player.querySelector('video');
+      if (!vid) return;
+      if (entry.isIntersecting) {
+        ensureVideoSource(vid);
+      } else {
+        const rect = entry.boundingClientRect;
+        const dist = Math.min(Math.abs(rect.top), Math.abs(rect.bottom - window.innerHeight));
+        if (dist > 900 && vid.paused) {
+          unloadVideoSource(vid);
+        }
+      }
+    });
+  }, { rootMargin: '350px 0px' });
+  players.forEach(p => _feedVideoLazyObserver.observe(p));
+}
 
 function buildPlayerHTML(src, id) {
   return `
-  <div class="unino-player show-controls is-loading" id="up-${id}" data-player-id="${id}">
-    <video preload="metadata" playsinline webkit-playsinline disablepictureinpicture muted>
-      <source src="${src}" type="video/mp4">
-      <source src="${src}" type="video/webm">
-    </video>
+  <div class="unino-player show-controls is-loading" id="up-${id}" data-player-id="${id}" data-video-src="${esc(src)}">
+    <video preload="none" playsinline webkit-playsinline disablepictureinpicture muted data-src="${esc(src)}"></video>
 
     <div class="up-loader"><div class="up-loader-ring"></div></div>
 
@@ -3810,11 +3874,20 @@ function initPlayer(id) {
   const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
   let speedIdx = 2;
 
+  const applyVideoDimensions = () => {
+    if (!vid.videoWidth || !vid.videoHeight) return;
+    const ratio = vid.videoWidth / vid.videoHeight;
+    root.style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
+    root.classList.toggle('is-portrait', ratio < 0.95);
+    root.classList.toggle('is-square', ratio >= 0.95 && ratio <= 1.05);
+  };
+
   const markReady = () => {
     root.classList.add('ready');
     root.classList.remove('is-loading');
     if (vid) vid.style.visibility = 'visible';
     loader.classList.remove('active');
+    applyVideoDimensions();
   };
 
   // Format time
@@ -3843,6 +3916,7 @@ function initPlayer(id) {
 
   // Toggle play/pause
   const togglePlay = () => {
+    ensureVideoSource(vid);
     if (vid.paused) {
       if (vid.muted && root.dataset.userMuted !== '1') {
         vid.muted = false;
@@ -3893,6 +3967,7 @@ function initPlayer(id) {
 
   // Seek via progress bar
   const seekFromEvent = (e) => {
+    ensureVideoSource(vid);
     const rect = progressWrap.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     vid.currentTime = pct * vid.duration;
@@ -3930,7 +4005,10 @@ function initPlayer(id) {
   vid.addEventListener('pause', () => { syncPlayState(); root.classList.add('show-controls'); clearTimeout(controlsTimer); });
   vid.addEventListener('timeupdate', updateProgress);
   vid.addEventListener('progress', updateBuffer);
-  vid.addEventListener('loadedmetadata', () => { durTime.textContent = fmt(vid.duration); });
+  vid.addEventListener('loadedmetadata', () => {
+    durTime.textContent = fmt(vid.duration);
+    applyVideoDimensions();
+  });
   vid.addEventListener('loadeddata', markReady, { once: true });
   vid.addEventListener('ended', () => { root.classList.remove('playing'); root.classList.add('show-controls'); clearTimeout(controlsTimer); });
   vid.addEventListener('waiting', () => loader.classList.add('active'));
@@ -4083,13 +4161,14 @@ function initPlayer(id) {
   // Make focusable
   root.setAttribute('tabindex', '0');
 
+  if (vid.readyState >= 1) applyVideoDimensions();
   if (vid.readyState >= 2) markReady();
   else loader.classList.add('active');
 
   // Initial controls auto-hide
   controlsTimer = setTimeout(() => root.classList.remove('show-controls'), 4000);
 
-  const destroy = () => { _ac.abort(); clearTimeout(controlsTimer); vid.pause(); vid.removeAttribute('src'); vid.load(); };
+  const destroy = () => { _ac.abort(); clearTimeout(controlsTimer); vid.pause(); vid.removeAttribute('src'); vid.load(); vid.dataset.srcLoaded = '0'; };
   return { root, vid, togglePlay, destroy };
 }
 
@@ -5635,6 +5714,7 @@ async function triggerFeedInstantRefresh(btn) {
     setTimeout(() => btn.classList.remove('nav-pulse'), 350);
   }
 
+  setChromeCollapsed(false);
   showFeedLoadscreen('Refreshing feed…', 450);
 
   const contentEl = document.getElementById('content');
@@ -5706,9 +5786,50 @@ async function triggerFeedInstantRefresh(btn) {
   }, 420);
 }
 
+let _chromeCollapsed = false;
+let _lastContentScrollTop = 0;
+let _chromeScrollTicking = false;
+
+function setChromeCollapsed(collapsed) {
+  const shouldCollapse = !!collapsed;
+  if (_chromeCollapsed === shouldCollapse) return;
+  _chromeCollapsed = shouldCollapse;
+  const app = document.getElementById('app');
+  if (app) app.classList.toggle('nav-collapsed', shouldCollapse);
+}
+
+function bindFeedCollapsibleChrome() {
+  const contentEl = document.getElementById('content');
+  if (!contentEl || contentEl.dataset.chromeBound === '1') return;
+  contentEl.dataset.chromeBound = '1';
+
+  contentEl.addEventListener('scroll', () => {
+    if (_chromeScrollTicking) return;
+    _chromeScrollTicking = true;
+    requestAnimationFrame(() => {
+      _chromeScrollTicking = false;
+      const currentTop = contentEl.scrollTop || 0;
+      const delta = currentTop - _lastContentScrollTop;
+
+      const hasActiveModal = document.getElementById('modal-bg')?.style.display === 'flex';
+      if (currentTop <= 60 || hasActiveModal) {
+        setChromeCollapsed(false);
+      } else if (state.page === 'feed') {
+        if (delta > 14 && currentTop > 80) {
+          setChromeCollapsed(true);
+        } else if (delta < -10) {
+          setChromeCollapsed(false);
+        }
+      }
+      _lastContentScrollTop = currentTop;
+    });
+  }, { passive: true });
+}
+
 function setupNav() {
   const navPages = ['feed', 'explore', 'hustle', 'chat'];
   const nav = document.getElementById('nav');
+  bindFeedCollapsibleChrome();
   let swipeStart = null;
   $$('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5817,6 +5938,7 @@ function setupPresenceTracking() {
       _nativeAppIsActive = !document.hidden;
       if (document.hidden) {
         stopAllVideos();
+        flushSeenPosts();
         if (state.manualStatus === 'online') {
           _lastActivityAt = 0;
           refreshPresence(true).catch(() => {});
@@ -5848,6 +5970,7 @@ function navigate(page, options = {}) {
   if (previousPage === page && !refresh) return;
   const restoreCached = previousPage !== page && !refresh && _pageViewCache.has(page);
   closeNotifDropdown();
+  setChromeCollapsed(false);
   if (previousPage === 'feed') {
     const contentEl = document.getElementById('content');
     if (contentEl) _feedScrollTop = contentEl.scrollTop || 0;
@@ -6004,6 +6127,7 @@ function filterFeedPosts(posts = [], query = _feedSearchQuery) {
 }
 
 function clearFeedSearch() {
+  setChromeCollapsed(false);
   _feedSearchQuery = '';
   _feedPeopleSuggestLastQuery = '';
   const input = $('#feed-search-input');
@@ -7486,6 +7610,7 @@ function renderPosts(posts) {
       if (result?.destroy) _activePlayerDestroys.push(result.destroy);
     });
     _pendingQuotePlayers.length = 0;
+    setupFeedVideoLazyLoading();
     setupFeedVideoAutoplay();
     bindPostReactionLongPress(el);
 
@@ -8756,6 +8881,7 @@ function setupFeedVideoAutoplay() {
       const vid = entry.target.querySelector('video');
       if (!vid) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+        ensureVideoSource(vid);
         if (_currentlyPlayingFeedVideo && _currentlyPlayingFeedVideo !== vid) {
           _currentlyPlayingFeedVideo.pause();
         }
@@ -16126,6 +16252,7 @@ async function viewPost(pid, options = {}) {
 
   try {
     closeModal();
+    setChromeCollapsed(false);
     const contentEl = document.getElementById('content');
 
     // If already on the feed page and the post card is currently visible in viewport
@@ -18487,6 +18614,7 @@ async function doLogout() {
 
 // ─── Modal System ────────────────────────────────
 function openModal(innerHtml) {
+  setChromeCollapsed(false);
   const bg = $('#modal-bg');
   const inner = $('#modal-inner');
   if (!bg || !inner) return;
@@ -19528,7 +19656,14 @@ async function syncResidenceMediaFromCloud() {
   }
 }
 
+let _resEpochSeed = Math.random();
+
+function resetResSessionSeed() {
+  _resEpochSeed = Math.random();
+}
+
 async function openResidencesView() {
+  resetResSessionSeed();
   showScreen('residences-view');
 
   const backBtn = $('#residences-back');
@@ -19726,12 +19861,20 @@ function populateResidencesSuburbs(list) {
   `;
 }
 
+function residenceHasPhotos(res) {
+  if (!res) return false;
+  if (Array.isArray(res.images) && res.images.filter(Boolean).length > 0) return true;
+  if (Array.isArray(res.photos) && res.photos.filter(Boolean).length > 0) return true;
+  if (typeof res.imageUrl === 'string' && res.imageUrl.trim()) return true;
+  return false;
+}
+
 function getFilteredResidences() {
   if (!_residencesData || !_residencesData.length) return [];
   const raw = (_resSearchQuery || '').toLowerCase().trim();
   const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
 
-  return _residencesData.filter(res => {
+  const list = _residencesData.filter(res => {
     // Category filter
     if (_resFilterCategory !== 'ALL' && res.type !== _resFilterCategory) return false;
 
@@ -19762,6 +19905,20 @@ function getFilteredResidences() {
     }
     return true;
   });
+
+  // Sort: Residences with photos FIRST, then random per session
+  list.sort((a, b) => {
+    const aHasImg = residenceHasPhotos(a) ? 1 : 0;
+    const bHasImg = residenceHasPhotos(b) ? 1 : 0;
+    if (aHasImg !== bHasImg) {
+      return bHasImg - aHasImg;
+    }
+    const aRand = scoreSeed(`${a.id || a.name}:${_resEpochSeed}`);
+    const bRand = scoreSeed(`${b.id || b.name}:${_resEpochSeed}`);
+    return bRand - aRand;
+  });
+
+  return list;
 }
 
 function applyResidencesFilters() {
@@ -19930,9 +20087,6 @@ function renderResidencesList(filtered = getFilteredResidences()) {
             </a>
             <button type="button" class="res-btn" onclick="event.stopPropagation();locateResidenceOnMap('${escJs(res.id)}')" title="Locate on map">
               🔍 Map
-            </button>
-            <button type="button" class="res-btn res-btn-landlord" onclick="event.stopPropagation();openLandlordPortal('${escJs(res.id)}')" title="Landlord photo upload portal">
-              📷 Upload Photos
             </button>
           </div>
         </div>
