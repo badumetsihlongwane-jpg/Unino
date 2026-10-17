@@ -1458,8 +1458,14 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
 async function initNativeShell() {
   if (_nativeShellReady || !isNativeApp()) return;
   _nativeShellReady = true;
-  document.documentElement.style.setProperty('--native-safe-bottom', '0px');
-  document.documentElement.style.setProperty('--native-status-bar', '0px');
+  if (window.UninoNativeBridge && typeof window.UninoNativeBridge.getNavigationBarInset === 'function') {
+    try {
+      const navInset = window.UninoNativeBridge.getNavigationBarInset();
+      if (navInset > 0) document.documentElement.style.setProperty('--native-safe-bottom', `${navInset}px`);
+      const statusInset = window.UninoNativeBridge.getStatusBarInset();
+      if (statusInset > 0) document.documentElement.style.setProperty('--native-status-bar', `${statusInset}px`);
+    } catch (_) {}
+  }
   await syncNativeStatusBar();
 
   const appPlugin = getCapacitorPlugin('App');
@@ -5830,9 +5836,18 @@ function setupNav() {
   const navPages = ['feed', 'explore', 'hustle', 'chat'];
   const nav = document.getElementById('nav');
   bindFeedCollapsibleChrome();
+
+  if (nav && !nav.dataset.isolatedEvents) {
+    nav.dataset.isolatedEvents = '1';
+    nav.addEventListener('click', e => e.stopPropagation());
+    nav.addEventListener('pointerdown', e => e.stopPropagation());
+  }
+
   let swipeStart = null;
   $$('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const p = btn.dataset.p;
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
@@ -18614,7 +18629,6 @@ async function doLogout() {
 
 // ─── Modal System ────────────────────────────────
 function openModal(innerHtml) {
-  setChromeCollapsed(false);
   const bg = $('#modal-bg');
   const inner = $('#modal-inner');
   if (!bg || !inner) return;
@@ -18631,6 +18645,7 @@ function closeModal() {
     _hostStream.getTracks().forEach(t => t.stop());
     _hostStream = null;
   }
+  window._currentOpenResId = null;
   resetModalSheetPosition();
   const bg = $('#modal-bg');
   const inner = $('#modal-inner');
@@ -19465,8 +19480,6 @@ async function adminSendBroadcast() {
 //  INIT
 // ══════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  document.documentElement.style.setProperty('--native-safe-bottom', '0px');
-  document.documentElement.style.setProperty('--native-status-bar', '0px');
   initTheme();
   initAuth();
   initNativeShell().catch(() => {});

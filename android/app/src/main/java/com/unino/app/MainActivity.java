@@ -36,6 +36,34 @@ public class MainActivity extends BridgeActivity {
 		public String getFcmToken() {
 			return UninoFirebaseMessagingService.getStoredFcmToken(MainActivity.this);
 		}
+
+		@JavascriptInterface
+		public int getNavigationBarInset() {
+			View contentView = findViewById(android.R.id.content);
+			if (contentView != null) {
+				WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(contentView);
+				if (insets != null) {
+					float density = getResources().getDisplayMetrics().density;
+					if (density <= 0) density = 1.0f;
+					return Math.round(insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom / density);
+				}
+			}
+			return 0;
+		}
+
+		@JavascriptInterface
+		public int getStatusBarInset() {
+			View contentView = findViewById(android.R.id.content);
+			if (contentView != null) {
+				WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(contentView);
+				if (insets != null) {
+					float density = getResources().getDisplayMetrics().density;
+					if (density <= 0) density = 1.0f;
+					return Math.round(insets.getInsets(WindowInsetsCompat.Type.statusBars()).top / density);
+				}
+			}
+			return 0;
+		}
 	}
 
 	@Override
@@ -164,17 +192,18 @@ public class MainActivity extends BridgeActivity {
 	}
 
 	private void applySystemInsetCssVars(WindowInsetsCompat insets) {
-		// When WindowCompat.setDecorFitsSystemWindows(window, true) is active,
-		// Android's decor layout automatically constrains the WebView inside the content frame.
-		// Therefore the WebView is already positioned strictly between the status bar and navigation bar.
-		// We inject 0px so web CSS does not duplicate the 3-button navigation bar height.
-		injectNativeInsetCssVars(0, 0);
+		if (insets == null) return;
+		float density = getResources().getDisplayMetrics().density;
+		if (density <= 0) density = 1.0f;
+		int statusInset = Math.round(insets.getInsets(WindowInsetsCompat.Type.statusBars()).top / density);
+		int navInset = Math.round(insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom / density);
+		injectNativeInsetCssVars(statusInset, navInset);
 	}
 
 	private void injectNativeInsetCssVars(int topInsetPx, int bottomInsetPx) {
 		if (getBridge() == null || getBridge().getWebView() == null) return;
-		String script = "document.documentElement.style.setProperty('--native-status-bar','0px');"
-			+ "document.documentElement.style.setProperty('--native-safe-bottom','0px');";
+		String script = "document.documentElement.style.setProperty('--native-status-bar','" + topInsetPx + "px');"
+			+ "document.documentElement.style.setProperty('--native-safe-bottom','" + bottomInsetPx + "px');";
 		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
 	}
 

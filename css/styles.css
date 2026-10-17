@@ -38,10 +38,10 @@
   --radius-full: 50%;
   --nav-height: 60px;
   --header-height: 56px;
-  --app-safe-top: env(safe-area-inset-top, 0px);
   --native-status-bar: 0px;
   --native-safe-bottom: 0px;
-  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-top: max(var(--native-status-bar, 0px), env(safe-area-inset-top, 0px));
+  --app-safe-bottom: max(var(--native-safe-bottom, 0px), env(safe-area-inset-bottom, 0px));
   --transition: 0.2s ease;
 }
 
@@ -833,23 +833,24 @@ input, select, textarea, button {
   padding: 4px 10px;
   flex-shrink: 0;
   width: calc(100% - 24px);
-  margin: 0 auto calc(8px + env(safe-area-inset-bottom, 0px));
+  margin: 0 auto calc(8px + var(--app-safe-bottom, 0px));
   border-radius: 28px;
   box-shadow: 0 16px 40px rgba(17,24,39,.12);
   backdrop-filter: blur(14px);
   box-sizing: border-box;
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), margin-bottom 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+  z-index: 90;
 }
 
 #app.nav-collapsed #nav {
-  transform: translateY(calc(100% + 24px));
-  margin-bottom: calc(-54px - 12px - env(safe-area-inset-bottom, 0px));
+  transform: translateY(calc(100% + 24px + var(--app-safe-bottom, 0px)));
+  margin-bottom: calc(-54px - 12px - var(--app-safe-bottom, 0px));
   opacity: 0;
   pointer-events: none;
 }
 
 #app.nav-collapsed .reels-fab {
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(16px + var(--app-safe-bottom, 0px));
 }
 
 .nav-item,
@@ -969,7 +970,7 @@ input, select, textarea, button {
   overflow-anchor: auto;
   scroll-behavior: smooth;
   will-change: scroll-position;
-  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(76px + var(--app-safe-bottom, 0px));
 }
 
 /* ── Feed Page ─────────────────────────────────────────── */
@@ -3321,6 +3322,8 @@ video::-webkit-media-controls-start-playback-button {
   will-change: transform;
   transition: transform 0.22s ease;
   animation: slideUp 0.3s ease;
+  padding-bottom: max(var(--app-safe-bottom, 0px), 16px);
+  box-sizing: border-box;
 }
 
 .modal-bg.sheet-dragging {
@@ -4737,7 +4740,7 @@ body.image-view-open .modal-bg {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 10px 14px calc(10px + var(--app-safe-bottom, 0px));
   background: rgba(0,0,0,0.6);
   backdrop-filter: blur(10px);
   z-index: 10010;
@@ -6135,7 +6138,7 @@ body.image-view-open .modal-bg {
 /* ═══ REELS FEED BUTTON ═══ */
 .reels-fab {
   position: fixed;
-  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(70px + var(--app-safe-bottom, 0px));
   right: 16px;
   width: 52px;
   height: 52px;
@@ -7973,7 +7976,7 @@ body.image-view-open .modal-bg {
 /* Reels FAB on feed */
 .reels-fab {
   position: fixed;
-  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(70px + var(--app-safe-bottom, 0px));
   right: 16px;
   width: 52px;
   height: 52px;
@@ -9444,7 +9447,7 @@ body {
 .bottom-nav {
   left: 12px;
   right: 12px;
-  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(8px + var(--app-safe-bottom, 0px));
   width: auto;
   border-radius: 26px;
   padding: 8px 10px;
@@ -11512,7 +11515,7 @@ body {
   inset: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 10px 12px 80px;
+  padding: 10px 12px calc(80px + var(--app-safe-bottom, 0px));
   box-sizing: border-box;
   display: block;
   width: 100%;
@@ -11893,7 +11896,7 @@ body {
 /* ── Floating Preview Sheet on Map ── */
 .res-map-preview-sheet {
   position: absolute;
-  bottom: 14px;
+  bottom: calc(14px + var(--app-safe-bottom, 0px));
   left: 12px;
   right: 12px;
   max-width: 500px;
@@ -12324,7 +12327,7 @@ body {
   top: 56px;
   left: 0;
   right: 0;
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(64px + var(--app-safe-bottom, 0px));
   background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
