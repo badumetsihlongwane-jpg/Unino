@@ -17,6 +17,7 @@ android/app/google-services.json.firebase/
 
 # Celcat Timetable Captures & Profiles
 celcat_capture/
+data/whatsapp_chrome_profile/
 __pycache__/
 *.py[cod]
 .DS_Store

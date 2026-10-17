@@ -1347,7 +1347,7 @@ function handleNativeNotificationOpen(extra = {}, actionId = 'tap') {
     return;
   }
   if (extra.postId) {
-    viewPost(extra.postId);
+    viewPost(extra.postId, { openComments: extra.kind === 'comment' || extra.type === 'comment' });
     return;
   }
   if (extra.profileId && extra.profileId !== 'anonymous') openProfile(extra.profileId);
@@ -5461,17 +5461,88 @@ function openHeaderProfileMenu() {
 
 let _feedIsRefreshing = false;
 
+function ensureFeedLoadscreen() {
+  let el = document.getElementById('feed-loadscreen');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'feed-loadscreen';
+  el.className = 'feed-loadscreen-overlay';
+  el.innerHTML = `
+    <div class="feed-loadscreen-card">
+      <div class="feed-loadscreen-spinner"></div>
+      <span class="feed-loadscreen-text">Curating feed…</span>
+    </div>
+  `;
+  document.body.appendChild(el);
+  return el;
+}
+
+let _feedLoadscreenTimer = null;
+
+function showFeedLoadscreen(text = 'Curating feed…', minDuration = 420) {
+  const el = ensureFeedLoadscreen();
+  const label = el.querySelector('.feed-loadscreen-text');
+  if (label) label.textContent = text;
+  el.classList.add('active');
+  if (_feedLoadscreenTimer) clearTimeout(_feedLoadscreenTimer);
+  if (minDuration > 0) {
+    _feedLoadscreenTimer = setTimeout(() => {
+      hideFeedLoadscreen();
+    }, minDuration);
+  }
+}
+
+function hideFeedLoadscreen() {
+  if (_feedLoadscreenTimer) {
+    clearTimeout(_feedLoadscreenTimer);
+    _feedLoadscreenTimer = null;
+  }
+  const el = document.getElementById('feed-loadscreen');
+  if (el) el.classList.remove('active');
+}
+
+function clearFeedPostFocus(event, postId) {
+  if (event) {
+    try { event.stopPropagation(); event.preventDefault(); } catch (_) {}
+  }
+  _feedFocusedPostId = '';
+  _feedFocusLockUntil = 0;
+  _pendingFeedFocusPostId = '';
+  const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+  if (card) {
+    card.classList.remove('post-spotlight-active', 'post-focus-flash');
+    const banner = card.querySelector('.post-spotlight-banner');
+    if (banner) banner.remove();
+  }
+}
+
 function triggerFeedInstantRefresh(btn) {
   try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) {}
   if (btn) {
     btn.classList.add('nav-pulse');
     setTimeout(() => btn.classList.remove('nav-pulse'), 350);
   }
+
+  showFeedLoadscreen('Curating fresh feed…', 450);
+
   const contentEl = document.getElementById('content');
   if (contentEl) {
-    contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+    // Instantly reset scroll to top behind loadscreen without forcing smooth scrolling
+    contentEl.style.scrollBehavior = 'auto';
+    contentEl.scrollTop = 0;
+    requestAnimationFrame(() => {
+      contentEl.style.scrollBehavior = '';
+    });
   }
+
   _feedIsRefreshing = true;
+  _feedFocusedPostId = '';
+  _feedFocusLockUntil = 0;
+  _pendingFeedFocusPostId = '';
+  _feedSearchQuery = '';
+  const searchInput = $('#feed-search-input');
+  if (searchInput) searchInput.value = '';
+
   resetFeedSeeds();
 
   const existingBanner = document.getElementById('feed-refresh-banner');
@@ -5485,6 +5556,9 @@ function triggerFeedInstantRefresh(btn) {
 
   // Reshuffle discover rails dynamically
   loadDiscoverPeople({ force: true });
+  loadCampusEvents().catch(() => {});
+  loadFeedLiveSpotlight();
+
   // Soft refresh: re-render current posts without blanking out screen
   if (Array.isArray(state.posts) && state.posts.length) {
     renderFeedResults(state.posts);
@@ -5492,10 +5566,17 @@ function triggerFeedInstantRefresh(btn) {
 
   setTimeout(() => {
     _feedIsRefreshing = false;
+    hideFeedLoadscreen();
     if (existingBanner) {
-      existingBanner.style.display = 'none';
+      existingBanner.className = 'feed-refresh-banner is-done';
+      existingBanner.innerHTML = '<span>✓ Feed updated</span>';
+      setTimeout(() => {
+        existingBanner.style.opacity = '0';
+        existingBanner.style.transform = 'translateY(-6px)';
+        setTimeout(() => { existingBanner.style.display = 'none'; }, 260);
+      }, 1600);
     }
-  }, 700);
+  }, 420);
 }
 
 function setupNav() {
@@ -5508,12 +5589,6 @@ function setupNav() {
       if (p === 'create') return openCreateModal();
       if (p === state.page) {
         if (p === 'feed') {
-          const contentEl = document.getElementById('content');
-          const currentScroll = contentEl ? contentEl.scrollTop : 0;
-          if (currentScroll > 50) {
-            contentEl.scrollTo({ top: 0, behavior: 'smooth' });
-            return;
-          }
           return triggerFeedInstantRefresh(btn);
         }
         if (p === 'chat') {
@@ -5818,26 +5893,31 @@ function focusFeedPostCard(postId, behavior = 'smooth') {
   if (contentEl) {
     const contentRect = contentEl.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
-    const nextTop = Math.max(0, contentEl.scrollTop + (cardRect.top - contentRect.top) - 10);
-    contentEl.scrollTo({ top: nextTop, behavior });
-  } else {
-    card.scrollIntoView({ behavior, block: 'start' });
-  }
-  card.classList.add('post-focus-flash');
-  setTimeout(() => card.classList.remove('post-focus-flash'), 1700);
+    const currentOffset = cardRect.top - contentRect.top;
 
-  setTimeout(() => {
-    const reCard = document.querySelector(`.post-card[data-post-id="${targetId}"]`);
-    const cEl = document.getElementById('content');
-    if (reCard && cEl) {
-      const cRect = cEl.getBoundingClientRect();
-      const rRect = reCard.getBoundingClientRect();
-      const currentOffset = rRect.top - cRect.top;
-      if (Math.abs(currentOffset - 10) > 25) {
-        cEl.scrollTo({ top: Math.max(0, cEl.scrollTop + currentOffset - 10), behavior: 'smooth' });
+    // If card is already comfortably in view, avoid scroll jump
+    if (currentOffset >= 0 && currentOffset <= contentEl.clientHeight * 0.7) {
+      // already in view
+    } else {
+      const nextTop = Math.max(0, contentEl.scrollTop + currentOffset - 10);
+      const dist = Math.abs(currentOffset);
+      const useInstant = dist > 500 || behavior === 'auto';
+      if (useInstant) {
+        contentEl.style.scrollBehavior = 'auto';
+        contentEl.scrollTop = nextTop;
+        requestAnimationFrame(() => { contentEl.style.scrollBehavior = ''; });
+      } else {
+        contentEl.scrollTo({ top: nextTop, behavior: 'smooth' });
       }
     }
-  }, 350);
+  } else {
+    card.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+
+  card.classList.remove('post-focus-flash');
+  void card.offsetWidth;
+  card.classList.add('post-focus-flash');
+  setTimeout(() => card.classList.remove('post-focus-flash'), 2000);
 
   return true;
 }
@@ -6017,6 +6097,15 @@ function renderFeed() {
         return !authorContext.shadowMuted;
       });
 
+      // Preserve currently focused post from previousPosts if it is an older post not in snapshot
+      if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
+        const hasFocused = moderatedVisible.some(p => p.id === _feedFocusedPostId);
+        if (!hasFocused) {
+          const preserved = (previousPosts || []).find(p => p.id === _feedFocusedPostId);
+          if (preserved) moderatedVisible.unshift(preserved);
+        }
+      }
+
       // Multi-signal campus recommendation algorithm
       const seenMap = getSeenPosts();
       const myRegisteredModules = new Set(normalizeModules(state.profile.modules || []));
@@ -6104,6 +6193,15 @@ function renderFeed() {
       } else {
         // Near top or explicit refresh: rank directly by multi-signal campus recommendation algorithm
         scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      }
+
+      // Always keep focused post pinned at index 0 in realtime
+      if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
+        const fIdx = scored.findIndex(p => p.id === _feedFocusedPostId);
+        if (fIdx > 0) {
+          const [focusedPost] = scored.splice(fIdx, 1);
+          scored.unshift(focusedPost);
+        }
       }
 
       const prevIds = previousPosts.map(post => post.id).join(',');
@@ -7257,8 +7355,15 @@ function renderPosts(posts) {
       videoPlayerData = createVideoPlayer(mediaURL);
       _videoPlayers.push(videoPlayerData);
     }
+    const isFocusedSpotlight = post.id === _feedFocusedPostId && Date.now() < _feedFocusLockUntil;
     return `
-      <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
+      <div class="post-card ${isFocusedSpotlight ? 'post-spotlight-active' : ''}" id="post-${post.id}" data-post-id="${post.id}">
+        ${isFocusedSpotlight ? `
+          <div class="post-spotlight-banner">
+            <span class="post-spotlight-tag">🎯 Focused Post</span>
+            <button class="post-spotlight-dismiss-btn" onclick="clearFeedPostFocus(event, '${post.id}')" title="Dismiss focus">Dismiss</button>
+          </div>
+        ` : ''}
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
           <span>Reposted by ${esc(displayAuthorName)}</span>
@@ -15916,7 +16021,7 @@ function loadNotifications() {
           : n.payload?.streamId
             ? `closeNotifDropdown();openLiveStreamFromFeed('${n.payload.streamId}', ${isOwnLive ? 'true' : 'false'});markNotifRead('${n.id}')`
             : n.payload?.postId
-              ? `closeNotifDropdown();viewPost('${n.payload.postId}');markNotifRead('${n.id}')`
+              ? `closeNotifDropdown();viewPost('${n.payload.postId}', { openComments: ${n.type === 'comment'} });markNotifRead('${n.id}')`
               : n.payload?.groupId
                 ? `closeNotifDropdown();openGroupDetail('${n.payload.groupId}');markNotifRead('${n.id}')`
                 : n.from?.uid && n.from.uid !== 'anonymous'
@@ -15990,73 +16095,86 @@ async function addNotification(targetId, type, text, payload, { anonymous = fals
   } catch (e) { console.error(e); }
 }
 
-async function viewPost(pid) {
+async function viewPost(pid, options = {}) {
   const postId = String(pid || '').trim();
   if (!postId) return;
 
   try {
     closeModal();
+    const contentEl = document.getElementById('content');
 
-    // If already on the feed page, scroll directly without unmounting or reloading the feed
+    // If already on the feed page and the post card is currently visible in viewport
     if (state.page === 'feed') {
       const existingCard = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-      if (existingCard) {
-        _pendingFeedFocusPostId = '';
-        _feedFocusedPostId = postId;
-        _feedFocusLockUntil = Date.now() + 2500;
-        focusFeedPostCard(postId, 'smooth');
-        return;
+      if (existingCard && contentEl) {
+        const cRect = contentEl.getBoundingClientRect();
+        const rRect = existingCard.getBoundingClientRect();
+        const offset = rRect.top - cRect.top;
+        if (offset >= 0 && offset <= contentEl.clientHeight * 0.75) {
+          _pendingFeedFocusPostId = '';
+          _feedFocusedPostId = postId;
+          _feedFocusLockUntil = Date.now() + 60000;
+          focusFeedPostCard(postId, 'smooth');
+          if (options.openComments) {
+            setTimeout(() => openComments(postId), 180);
+          }
+          return;
+        }
       }
-
-      if (_feedSearchQuery) {
-        _feedSearchQuery = '';
-        const input = $('#feed-search-input');
-        if (input) input.value = '';
-      }
-
-      let post = (state.posts || []).find(item => item.id === postId) || null;
-      if (!post) {
-        const doc = await db.collection('posts').doc(postId).get();
-        if (!doc.exists) return toast('Post not found');
-        post = { id: doc.id, ...doc.data() };
-        state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
-      }
-
-      _pendingFeedFocusPostId = '';
-      _feedFocusedPostId = postId;
-      _feedFocusLockUntil = Date.now() + 2500;
-      renderFeedResults(state.posts || []);
-      requestAnimationFrame(() => {
-        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
-      });
-      return;
     }
 
-    // Navigating from another page (explore, chat, hustle, etc.)
+    // Bring post to top of feed with an unobtrusive loadscreen veil
+    showFeedLoadscreen('Opening post…', 380);
+
+    // Get post object (from state.posts or Firestore)
     let post = (state.posts || []).find(item => item.id === postId) || null;
     if (!post) {
       const doc = await db.collection('posts').doc(postId).get();
-      if (!doc.exists) return toast('Post not found');
+      if (!doc.exists) {
+        hideFeedLoadscreen();
+        return toast('Post not found or deleted');
+      }
       post = { id: doc.id, ...doc.data() };
-      state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+    }
+
+    // Smart bring-to-top: place the post at index 0 of feed
+    state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+
+    if (_feedSearchQuery) {
+      _feedSearchQuery = '';
+      const input = $('#feed-search-input');
+      if (input) input.value = '';
     }
 
     _pendingFeedFocusPostId = postId;
     _feedFocusedPostId = postId;
-    _feedFocusLockUntil = Date.now() + 3000;
-    navigate('feed', { refresh: false, pushHistory: true, restoreFeed: false });
+    _feedFocusLockUntil = Date.now() + 60000; // Keep pinned at index 0 for 60s against real-time snapshot re-sort
+
+    if (state.page !== 'feed') {
+      navigate('feed', { refresh: false, pushHistory: true, restoreFeed: false });
+    }
+
+    // Render feed with the post right at the top
+    renderFeedResults(state.posts || []);
+
+    // Instantly reset scroll to top behind the veil (stop forcing UI to scroll long distances)
+    if (contentEl) {
+      contentEl.style.scrollBehavior = 'auto';
+      contentEl.scrollTop = 0;
+      requestAnimationFrame(() => {
+        contentEl.style.scrollBehavior = '';
+      });
+    }
+
     requestAnimationFrame(() => {
-      setTimeout(() => {
-        if (state.page !== 'feed') return;
-        const inDom = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-        if (!inDom && Array.isArray(state.posts) && state.posts.length) {
-          renderFeedResults(state.posts);
-        }
-        if (!focusFeedPostCard(postId, 'smooth')) toast('Post opened in feed');
-      }, 60);
+      focusFeedPostCard(postId, 'auto');
+      if (options.openComments) {
+        setTimeout(() => openComments(postId), 180);
+      }
     });
   } catch (e) {
     console.error(e);
+    hideFeedLoadscreen();
     toast('Could not open post');
   }
 }
@@ -20581,7 +20699,7 @@ function checkLandlordPortalHash() {
     openVideoHub, closeVideoHub, switchVideoHubTab, openGoLiveModal, startLiveStream,
     joinLiveStream, leaveLiveStream, endLiveStream, sendLiveComment, sendLiveReaction, openHostLiveView, switchLiveCamera,
     toggleCommentLike, openShareModal, repost, openQuoteRepost, shareToFriend, sharePostAsImageCard, copyPostLink, viewPost, markNotifRead,
-    clearFeedSearch,
+    clearFeedSearch, clearFeedPostFocus, triggerFeedInstantRefresh, showFeedLoadscreen, hideFeedLoadscreen,
     clearCommentImage, clearReelCommentImage, toggleReelCommentLike,
     setReelCommentReply, clearReelCommentReply,
     closeReelsViewer, toggleReelPlay, toggleReelsSound, reelLike, togglePostExpand, shiftTrendingRail, toggleTrendingRail,
