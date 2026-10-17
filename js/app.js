@@ -1458,6 +1458,8 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
 async function initNativeShell() {
   if (_nativeShellReady || !isNativeApp()) return;
   _nativeShellReady = true;
+  document.documentElement.style.setProperty('--native-safe-bottom', '0px');
+  document.documentElement.style.setProperty('--native-status-bar', '0px');
   await syncNativeStatusBar();
 
   const appPlugin = getCapacitorPlugin('App');
@@ -19067,6 +19069,8 @@ async function adminSendBroadcast() {
 //  INIT
 // ══════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  document.documentElement.style.setProperty('--native-safe-bottom', '0px');
+  document.documentElement.style.setProperty('--native-status-bar', '0px');
   initTheme();
   initAuth();
   initNativeShell().catch(() => {});

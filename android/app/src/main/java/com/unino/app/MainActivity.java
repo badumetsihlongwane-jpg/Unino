@@ -164,16 +164,17 @@ public class MainActivity extends BridgeActivity {
 	}
 
 	private void applySystemInsetCssVars(WindowInsetsCompat insets) {
-		if (insets == null) return;
-		int statusInset = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.statusBars()).top);
-		int navInset = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
-		injectNativeInsetCssVars(statusInset, navInset);
+		// When WindowCompat.setDecorFitsSystemWindows(window, true) is active,
+		// Android's decor layout automatically constrains the WebView inside the content frame.
+		// Therefore the WebView is already positioned strictly between the status bar and navigation bar.
+		// We inject 0px so web CSS does not duplicate the 3-button navigation bar height.
+		injectNativeInsetCssVars(0, 0);
 	}
 
 	private void injectNativeInsetCssVars(int topInsetPx, int bottomInsetPx) {
 		if (getBridge() == null || getBridge().getWebView() == null) return;
-		String script = "document.documentElement.style.setProperty('--native-status-bar','" + topInsetPx + "px');"
-			+ "document.documentElement.style.setProperty('--native-safe-bottom','" + bottomInsetPx + "px');";
+		String script = "document.documentElement.style.setProperty('--native-status-bar','0px');"
+			+ "document.documentElement.style.setProperty('--native-safe-bottom','0px');";
 		getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(script, null));
 	}
 

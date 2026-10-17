@@ -41,7 +41,7 @@
   --app-safe-top: env(safe-area-inset-top, 0px);
   --native-status-bar: 0px;
   --native-safe-bottom: 0px;
-  --app-safe-bottom: var(--native-safe-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
   --transition: 0.2s ease;
 }
 
@@ -811,7 +811,7 @@ input, select, textarea, button {
   padding: 4px 10px;
   flex-shrink: 0;
   width: calc(100% - 24px);
-  margin: 0 auto calc(6px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  margin: 0 auto calc(8px + env(safe-area-inset-bottom, 0px));
   border-radius: 28px;
   box-shadow: 0 16px 40px rgba(17,24,39,.12);
   backdrop-filter: blur(14px);
@@ -861,26 +861,45 @@ input, select, textarea, button {
 .nav-create,
 .nav-plus {
   position: relative;
-  top: -4px;
+  top: 0;
+}
+
+.nav-btn.nav-plus {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 0;
+  transform: none;
 }
 
 .create-btn-wrap,
 .plus-circle {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--gradient);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   color: #fff;
-  box-shadow: 0 4px 16px var(--accent-glow);
+  box-shadow: 0 4px 14px var(--accent-glow);
   transition: all var(--transition);
+}
+
+.plus-circle svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  stroke: #fff !important;
 }
 
 .nav-create:hover .create-btn-wrap,
 .nav-plus:hover .plus-circle {
-  transform: scale(1.08);
+  transform: scale(1.06);
   box-shadow: 0 6px 20px var(--accent-glow);
 }
 
@@ -913,7 +932,7 @@ input, select, textarea, button {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  padding-bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 16px);
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Feed Page ─────────────────────────────────────────── */
@@ -6079,7 +6098,7 @@ body.image-view-open .modal-bg {
 /* ═══ REELS FEED BUTTON ═══ */
 .reels-fab {
   position: fixed;
-  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 70px);
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
   right: 16px;
   width: 52px;
   height: 52px;
@@ -7910,7 +7929,7 @@ body.image-view-open .modal-bg {
 /* Reels FAB on feed */
 .reels-fab {
   position: fixed;
-  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 70px);
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
   right: 16px;
   width: 52px;
   height: 52px;
@@ -9381,7 +9400,7 @@ body {
 .bottom-nav {
   left: 12px;
   right: 12px;
-  bottom: calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 8px);
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   width: auto;
   border-radius: 26px;
   padding: 8px 10px;
@@ -9397,7 +9416,6 @@ body {
 .nav-btn.active:not(.nav-plus) {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
 }
-.nav-plus { transform: translateY(-14px); }
 .chat-plus-menu { display:grid; }
 .chat-plus-option.modern span:last-child { font-size: 12px; }
 .msg-bubble-pin {
@@ -9433,7 +9451,6 @@ body {
 .img-download:hover{background:rgba(15,23,42,.9)}
 .suggested-card-event{justify-content:flex-start}.suggested-event-thumb{width:64px;height:64px;border-radius:18px;object-fit:cover;margin-bottom:10px}.suggested-event-emoji{width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:28px;background:linear-gradient(135deg, rgba(108,92,231,.16), rgba(168,85,247,.18));margin-bottom:10px}
 .story-insight-link{border:none;background:none;color:var(--accent);font:inherit;font-weight:700;padding:0;cursor:pointer}
-.nav-plus{transform:translateY(-8px)}
 .chat-plus-wrap{align-self:flex-end}
 .create-post-actions-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;gap:10px;flex-wrap:nowrap}.create-post-actions-row .create-post-actions-left{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow:auto;scrollbar-width:none}.create-post-actions-row .create-post-actions-left::-webkit-scrollbar{display:none}.create-post-actions-row .btn-primary{flex:0 0 auto}
 [data-theme="light"] .poll-question,[data-theme="light"] .poll-option-text,[data-theme="light"] .poll-footer,[data-theme="light"] .chat-plus-option.modern,[data-theme="light"] .create-anon-toggle,[data-theme="light"] .suggested-card-name,[data-theme="light"] .suggested-card-meta{color:var(--text-primary)}
