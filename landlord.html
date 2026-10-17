@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>NWU Student Housing — Landlord Photo Upload Portal | Unibo</title>
-  <meta name="description" content="Official photo upload portal for NWU accredited private landlords and residences. Zero login required.">
+  <title>NWU Accredited Landlord Portal — Accommodation Profile Manager | Unibo</title>
+  <meta name="description" content="Official accommodation profile manager for NWU accredited private landlords. Manage photos, room availability, pricing, and contact details with zero login required.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -15,24 +15,29 @@
       --card-bg: #FFFFFF;
       --text: #0F172A;
       --text-muted: #64748B;
+      --text-subtle: #94A3B8;
       --accent: #6C5CE7;
       --accent-hover: #5846E2;
       --accent-light: #EEF2FF;
       --success: #10B981;
       --success-light: #ECFDF5;
+      --warning: #F59E0B;
+      --warning-light: #FEF3C7;
+      --danger: #EF4444;
+      --danger-light: #FEE2E2;
       --border: #E2E8F0;
       --border-subtle: #F1F5F9;
       --radius-sm: 8px;
       --radius-md: 14px;
       --radius-lg: 20px;
-      --shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.06), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
-      --shadow-lg: 0 20px 35px -5px rgba(108, 92, 231, 0.12), 0 10px 15px -5px rgba(15, 23, 42, 0.05);
+      --shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+      --shadow-lg: 0 20px 35px -5px rgba(108, 92, 231, 0.12), 0 10px 15px -5px rgba(15, 23, 42, 0.04);
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
-    /* Top Bar */
+    /* Top Navigation */
     .top-nav {
       background: #FFFFFF;
       border-bottom: 1px solid var(--border);
@@ -42,9 +47,9 @@
       backdrop-filter: blur(12px);
     }
     .top-nav-inner {
-      max-width: 960px;
+      max-width: 980px;
       margin: 0 auto;
-      padding: 14px 20px;
+      padding: 12px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -58,38 +63,37 @@
       color: inherit;
     }
     .brand img { width: 34px; height: 34px; border-radius: 10px; }
-    .brand-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+    .brand-title { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
     .brand-badge {
       font-size: 11px;
       font-weight: 700;
       background: var(--accent-light);
       color: var(--accent);
-      padding: 4px 10px;
+      padding: 3px 9px;
       border-radius: 999px;
       border: 1px solid rgba(108, 92, 231, 0.2);
     }
-    .btn-top-switch {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 13px;
+    .btn-help-wa {
+      background: #25D366;
+      color: #FFFFFF;
+      font-size: 12.5px;
       font-weight: 700;
-      padding: 8px 14px;
+      padding: 7px 14px;
       border-radius: 999px;
-      cursor: pointer;
+      text-decoration: none;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      transition: all 0.2s;
+      transition: background 0.15s;
     }
-    .btn-top-switch:hover { background: var(--border-subtle); }
+    .btn-help-wa:hover { background: #1EBE5D; }
 
     /* Main Container */
     .container {
-      max-width: 960px;
+      max-width: 980px;
       width: 100%;
       margin: 0 auto;
-      padding: 24px 20px 80px;
+      padding: 20px 18px 90px;
       flex: 1;
     }
 
@@ -100,54 +104,279 @@
       border-radius: var(--radius-lg);
       padding: 24px;
       box-shadow: var(--shadow);
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
-    /* Hero / Notice Banner */
-    .hero-banner {
-      background: linear-gradient(135deg, #6C5CE7 0%, #A855F7 100%);
+    /* Profile Hero Header */
+    .profile-hero {
+      background: linear-gradient(135deg, #4338CA 0%, #6C5CE7 50%, #8B5CF6 100%);
       color: #FFFFFF;
       border-radius: var(--radius-lg);
       padding: 24px 28px;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       box-shadow: var(--shadow-lg);
       display: flex;
       flex-direction: column;
+      gap: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+    .profile-hero::after {
+      content: '';
+      position: absolute;
+      right: -30px;
+      bottom: -40px;
+      width: 180px;
+      height: 180px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .profile-hero-badges {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
       gap: 8px;
     }
-    .hero-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
-    .hero-sub { font-size: 14px; opacity: 0.92; line-height: 1.5; }
-
-    /* Residence Details Header */
-    .res-badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    .badge {
-      font-size: 12px;
-      font-weight: 700;
+    .hero-badge {
+      font-size: 11.5px;
+      font-weight: 800;
       padding: 4px 10px;
       border-radius: 999px;
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(8px);
+      color: #FFFFFF;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .hero-badge.badge-status-avail { background: #10B981; }
+    .hero-badge.badge-status-limited { background: #F59E0B; }
+    .hero-badge.badge-status-full { background: #EF4444; }
+
+    .profile-hero-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .profile-hero-meta {
+      font-size: 13.5px;
+      opacity: 0.95;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+    }
+    .profile-hero-meta span { display: inline-flex; align-items: center; gap: 5px; }
+
+    /* Interactive Tab Navigation */
+    .profile-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .profile-tabs::-webkit-scrollbar { display: none; }
+    .profile-tab-btn {
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 9px 18px;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .profile-tab-btn:hover { background: var(--border-subtle); color: var(--text); }
+    .profile-tab-btn.active {
+      background: var(--accent);
+      color: #FFFFFF;
+      border-color: var(--accent);
+      box-shadow: 0 4px 12px rgba(108, 92, 231, 0.25);
+    }
+
+    /* Sections */
+    .tab-section { display: none; }
+    .tab-section.active { display: block; }
+
+    .section-header {
+      margin-bottom: 18px;
+    }
+    .section-title { font-size: 19px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+    .section-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+    /* Form Fields */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .form-group.full-width { grid-column: 1 / -1; }
+    .form-label {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-label span.req { color: var(--danger); }
+    .form-label span.helper { font-weight: 500; color: var(--text-muted); font-size: 11.5px; }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: #FFFFFF;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+    }
+    .form-textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+
+    /* Availability Pill Selector */
+    .avail-radio-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .avail-radio-card {
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      background: #FFFFFF;
+      transition: all 0.15s;
+    }
+    .avail-radio-card:hover { border-color: #CBD5E1; }
+    .avail-radio-card.active {
+      border-color: var(--accent);
+      background: var(--accent-light);
+    }
+    .avail-radio-card input { display: none; }
+    .avail-indicator {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .avail-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+    .avail-desc { font-size: 11.5px; color: var(--text-muted); }
+
+    /* Amenities Checklist */
+    .amenities-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .amenity-checkbox-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      background: #FFFFFF;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .amenity-checkbox-card:hover { border-color: #CBD5E1; background: var(--border-subtle); }
+    .amenity-checkbox-card.checked {
+      border-color: var(--accent);
+      background: var(--accent-light);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .amenity-checkbox-card input { display: none; }
+    .amenity-icon { font-size: 16px; }
+    .amenity-text { font-size: 13px; color: inherit; }
+
+    /* Photo Management Gallery */
+    .photo-management-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .photo-thumb-card {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: #E2E8F0;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+      border: 1.5px solid var(--border);
+      transition: transform 0.15s ease;
+    }
+    .photo-thumb-card:hover { transform: scale(1.02); }
+    .photo-thumb-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .photo-cover-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(15, 23, 42, 0.85);
+      color: #FFFFFF;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      backdrop-filter: blur(4px);
       display: inline-flex;
       align-items: center;
       gap: 4px;
     }
-    .badge-accredited { background: #ECFDF5; color: #059669; border: 1px solid #A7F3D0; }
-    .badge-suburb { background: #F1F5F9; color: #475569; }
-    .badge-beds { background: #EFF6FF; color: #2563EB; }
-
-    .res-title { font-size: 26px; font-weight: 800; margin-bottom: 6px; color: var(--text); }
-    .res-address { font-size: 14px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
-    
-    .res-meta-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      padding-top: 14px;
-      border-top: 1px solid var(--border);
+    .photo-actions {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      gap: 6px;
     }
-    .meta-item { display: flex; flex-direction: column; gap: 2px; }
-    .meta-label { font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; }
-    .meta-value { font-size: 14px; font-weight: 700; color: var(--text); }
+    .btn-photo-action {
+      background: rgba(15, 23, 42, 0.85);
+      color: #FFFFFF;
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 13px;
+      backdrop-filter: blur(4px);
+      transition: all 0.15s;
+    }
+    .btn-photo-action:hover { transform: scale(1.15); background: #EF4444; }
+    .btn-photo-cover { font-size: 11px; }
+    .btn-photo-cover:hover { background: var(--accent); }
 
-    /* Photo Upload Area */
+    /* Upload Zone */
     .upload-zone {
       border: 2px dashed #CBD5E1;
       border-radius: var(--radius-md);
@@ -159,121 +388,150 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
-    .upload-zone:hover, .upload-zone.dragover {
+    .upload-zone:hover {
       border-color: var(--accent);
       background: var(--accent-light);
     }
     .upload-icon {
-      width: 56px;
-      height: 56px;
+      width: 52px;
+      height: 52px;
       border-radius: 50%;
       background: #FFFFFF;
       box-shadow: 0 4px 12px rgba(108, 92, 231, 0.15);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 28px;
+      font-size: 24px;
     }
-    .upload-title { font-size: 16px; font-weight: 800; color: var(--text); }
-    .upload-hint { font-size: 13px; color: var(--text-muted); max-width: 380px; }
+    .upload-title { font-size: 15px; font-weight: 800; color: var(--text); }
+    .upload-hint { font-size: 12.5px; color: var(--text-muted); max-width: 420px; }
 
-    /* Preview Gallery */
-    .gallery-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 12px;
+    /* Pending Uploads */
+    .pending-uploads-wrap {
       margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border);
     }
-    .gallery-thumb {
-      position: relative;
-      aspect-ratio: 4 / 3;
-      border-radius: var(--radius-sm);
-      overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      background: #E2E8F0;
+
+    /* Floating Save Bar */
+    .floating-save-bar {
+      position: sticky;
+      bottom: 20px;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px 20px;
+      box-shadow: 0 15px 35px -5px rgba(15, 23, 42, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 24px;
     }
-    .gallery-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .gallery-thumb .btn-delete-thumb {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      background: rgba(15, 23, 42, 0.85);
+    .save-bar-info { display: flex; flex-direction: column; gap: 2px; }
+    .save-bar-title { font-size: 13.5px; font-weight: 800; color: var(--text); }
+    .save-bar-sub { font-size: 11.5px; color: var(--text-muted); }
+    .btn-save-main {
+      background: linear-gradient(135deg, #6C5CE7 0%, #A855F7 100%);
       color: #FFFFFF;
       border: none;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
+      padding: 12px 26px;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(108, 92, 231, 0.35);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .btn-save-main:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(108, 92, 231, 0.45); }
+    .btn-save-main:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Student App Preview Simulation */
+    .preview-phone-wrap {
+      max-width: 420px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border: 6px solid #1E293B;
+      border-radius: 36px;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .phone-speaker-notch {
+      height: 22px;
+      background: #1E293B;
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
-      font-size: 13px;
-      backdrop-filter: blur(4px);
-      transition: transform 0.15s;
     }
-    .gallery-thumb .btn-delete-thumb:hover { transform: scale(1.15); background: #EF4444; }
-
-    /* Action Buttons */
-    .btn-primary {
-      background: linear-gradient(135deg, var(--accent) 0%, #A855F7 100%);
-      color: #FFFFFF;
-      border: none;
-      font-size: 15px;
-      font-weight: 800;
-      padding: 14px 28px;
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      box-shadow: 0 4px 14px rgba(108, 92, 231, 0.35);
-      transition: all 0.2s;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+    .phone-speaker {
+      width: 60px;
+      height: 4px;
+      background: #334155;
+      border-radius: 999px;
+    }
+    .preview-card-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .preview-media-box {
       width: 100%;
+      aspect-ratio: 16 / 10;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
     }
-    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(108, 92, 231, 0.45); }
-    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-
-    .btn-outline {
-      background: #FFFFFF;
-      color: var(--text);
-      border: 1px solid var(--border);
-      font-size: 14px;
+    .preview-media-box img { width: 100%; height: 100%; object-fit: cover; }
+    .preview-badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .preview-badge {
+      font-size: 11px;
       font-weight: 700;
-      padding: 10px 18px;
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      display: inline-flex;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: #F1F5F9;
+      color: #334155;
+    }
+
+    /* Fallback / Verification Gate View */
+    .gate-view {
+      max-width: 560px;
+      margin: 40px auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .gate-icon {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      color: var(--accent);
+      display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      transition: all 0.15s;
+      font-size: 30px;
+      margin: 0 auto;
     }
-    .btn-outline:hover { background: var(--border-subtle); border-color: #CBD5E1; }
-
-    .btn-wa {
-      background: #25D366;
-      color: #FFFFFF;
-      border: none;
-      font-size: 14px;
-      font-weight: 700;
-      padding: 10px 18px;
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      text-decoration: none;
-      transition: all 0.15s;
+    .gate-title { font-size: 24px; font-weight: 800; color: var(--text); }
+    .gate-desc { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+    .gate-search-box {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
     }
-    .btn-wa:hover { background: #1EBE5D; }
 
     /* Toast */
     .toast {
@@ -283,7 +541,7 @@
       transform: translateX(-50%) translateY(100px);
       background: #0F172A;
       color: #FFFFFF;
-      padding: 12px 22px;
+      padding: 12px 24px;
       border-radius: 999px;
       font-size: 14px;
       font-weight: 700;
@@ -298,125 +556,13 @@
     }
     .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
-    /* Success Card */
-    .success-box {
-      background: #ECFDF5;
-      border: 1px solid #A7F3D0;
-      border-radius: var(--radius-md);
-      padding: 18px 20px;
-      display: none;
-      align-items: flex-start;
-      gap: 14px;
-      margin-top: 18px;
-      color: #065F46;
-    }
-    .success-box.show { display: flex; }
-    .success-icon { font-size: 26px; flex-shrink: 0; }
-    .success-title { font-weight: 800; font-size: 16px; margin-bottom: 4px; }
-    .success-desc { font-size: 13px; line-height: 1.5; color: #047857; }
-
-    /* Residence Search & Selector View */
-    .search-box-wrap {
-      position: relative;
-      margin-bottom: 16px;
-    }
-    .search-input {
-      width: 100%;
-      padding: 14px 18px 14px 44px;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--border);
-      background: #FFFFFF;
-      font-size: 15px;
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15); }
-    .search-icon {
-      position: absolute;
-      left: 16px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      pointer-events: none;
-    }
-
-    .filter-pills {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-    }
-    .filter-pill {
-      border: 1px solid var(--border);
-      background: #FFFFFF;
-      padding: 8px 14px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text-muted);
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.15s;
-    }
-    .filter-pill.active {
-      background: var(--accent);
-      color: #FFFFFF;
-      border-color: var(--accent);
-    }
-
-    /* Residence List Item */
-    .res-item-card {
-      background: #FFFFFF;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 18px 20px;
-      margin-bottom: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      transition: all 0.15s;
-    }
-    .res-item-card:hover { border-color: #CBD5E1; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05); }
-    .res-item-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .res-item-name { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
-    .res-item-sub { font-size: 13px; color: var(--text-muted); }
-    .res-item-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      padding-top: 10px;
-      border-top: 1px solid var(--border-subtle);
-    }
-
-    /* Progress indicator */
-    .progress-bar {
-      height: 6px;
-      width: 100%;
-      background: #E2E8F0;
-      border-radius: 999px;
-      overflow: hidden;
-      margin-top: 12px;
-      display: none;
-    }
-    .progress-bar-fill {
-      height: 100%;
-      background: var(--accent);
-      width: 0%;
-      transition: width 0.2s ease;
-    }
-
     @media (max-width: 640px) {
-      .hero-title { font-size: 20px; }
-      .res-title { font-size: 22px; }
-      .container { padding: 16px 14px 60px; }
-      .card { padding: 18px 16px; }
+      .profile-hero { padding: 20px 18px; }
+      .profile-hero-title { font-size: 22px; }
+      .container { padding: 14px 12px 80px; }
+      .card { padding: 18px 14px; }
+      .floating-save-bar { flex-direction: column; align-items: stretch; text-align: center; }
+      .btn-save-main { justify-content: center; width: 100%; }
     }
   </style>
 </head>
@@ -428,421 +574,580 @@
       <a href="landlord.html" class="brand">
         <img src="unino-icon-light.png" alt="Unibo Logo">
         <span class="brand-title">Unibo</span>
-        <span class="brand-badge">Landlord Portal</span>
+        <span class="brand-badge">Accredited Landlord Portal</span>
       </a>
-      <button type="button" class="btn-top-switch" id="btn-toggle-view" onclick="toggleViewMode()">
-        🔍 Browse All Residences
-      </button>
+      <a href="https://wa.me/27794358487?text=Hello%20Unibo%20Support%2C%20I%20am%20an%20NWU%20accredited%20landlord%20and%20need%20assistance%20with%20my%20accommodation%20profile." target="_blank" class="btn-help-wa">
+        💬 Landlord Support
+      </a>
     </div>
   </header>
 
   <main class="container">
-    
-    <!-- Hero / Intro -->
-    <div class="hero-banner">
-      <h1 class="hero-title" id="page-hero-title">NWU Accredited Landlord Photo Portal</h1>
-      <p class="hero-sub" id="page-hero-sub">
-        Upload 1 to 8 clear photos of your accredited student residence. No password or university account needed. Photos are immediately visible to NWU students on the Unibo campus network.
-      </p>
-    </div>
 
-    <!-- VIEW 1: DIRECT RESIDENCE UPLOAD -->
-    <div id="view-upload" style="display: none;">
-      
-      <!-- Residence Details Card -->
-      <div class="card" id="res-detail-card">
-        <div class="res-badge-row">
-          <span class="badge badge-accredited" id="res-badge-acc">✓ NWU 2026 Accredited</span>
-          <span class="badge badge-suburb" id="res-badge-suburb">Suburb</span>
-          <span class="badge badge-beds" id="res-badge-beds">0 Beds</span>
+    <!-- VIEW 1: DEDICATED ACCOMMODATION PROFILE DASHBOARD -->
+    <div id="view-profile-dashboard" style="display: none;">
+
+      <!-- Profile Header Hero -->
+      <div class="profile-hero">
+        <div class="profile-hero-badges">
+          <span class="hero-badge">✓ NWU 2026 Accredited</span>
+          <span class="hero-badge" id="hero-badge-acc">Code: —</span>
+          <span class="hero-badge badge-status-avail" id="hero-badge-status">🟢 Accepting Students</span>
         </div>
-        <h2 class="res-title" id="res-name">Loading Residence…</h2>
-        <div class="res-address" id="res-address">📍 Loading address…</div>
+        <h1 class="profile-hero-title" id="hero-res-name">Loading Accommodation…</h1>
+        <div class="profile-hero-meta">
+          <span id="hero-res-address">📍 Address</span>
+          <span>·</span>
+          <span id="hero-res-suburb">Suburb</span>
+          <span>·</span>
+          <span id="hero-res-distance">Distance</span>
+          <span>·</span>
+          <span id="hero-res-beds">0 Beds</span>
+        </div>
+      </div>
 
-        <div class="res-meta-grid">
-          <div class="meta-item">
-            <span class="meta-label">Accreditation #</span>
-            <span class="meta-value" id="res-acc-num">—</span>
+      <!-- Tab Switcher -->
+      <div class="profile-tabs">
+        <button type="button" class="profile-tab-btn active" data-tab="tab-photos" onclick="switchTab('tab-photos')">
+          📷 Photo Gallery (<span id="tab-photo-count">0</span>)
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-details" onclick="switchTab('tab-details')">
+          📝 About & Contact
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-pricing" onclick="switchTab('tab-pricing')">
+          💰 Rent & Availability
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-amenities" onclick="switchTab('tab-amenities')">
+          ✨ Facilities & Amenities
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-preview" onclick="switchTab('tab-preview')">
+          📱 Student App Preview
+        </button>
+      </div>
+
+      <!-- TAB 1: PHOTO GALLERY -->
+      <div class="tab-section active" id="tab-photos">
+        <div class="card">
+          <div class="section-header">
+            <h2 class="section-title">Published Photo Gallery</h2>
+            <p class="section-sub">
+              Photos appear instantly to NWU students browsing campus accommodation. Clear photos of bedrooms, study desks, kitchens, and security gates dramatically increase student applications.
+            </p>
           </div>
-          <div class="meta-item">
-            <span class="meta-label">Landlord Phone</span>
-            <span class="meta-value" id="res-phone">—</span>
+
+          <!-- Existing Live Photos Grid -->
+          <div class="photo-management-grid" id="live-photos-grid">
+            <!-- Populated by JS -->
           </div>
-          <div class="meta-item">
-            <span class="meta-label">Room Capacity</span>
-            <span class="meta-value" id="res-rooms">—</span>
+
+          <!-- Dropzone to add new photos -->
+          <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+            <div class="upload-icon">📷</div>
+            <div class="upload-title">Tap to upload photos of your residence</div>
+            <div class="upload-hint">Upload photos of bedrooms, study desks, kitchen, bathroom, and exterior gate (Max 10 photos). We automatically compress for super-fast mobile loading.</div>
+            <input type="file" id="file-input" accept="image/*" multiple style="display: none;" onchange="handleFileSelect(event)">
           </div>
-          <div class="meta-item">
-            <span class="meta-label">Email</span>
-            <span class="meta-value" id="res-email">—</span>
+
+          <!-- Pending uploads section -->
+          <div class="pending-uploads-wrap" id="pending-section" style="display: none;">
+            <h4 style="font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 10px;">
+              Ready to save & publish (<span id="pending-count">0</span> new):
+            </h4>
+            <div class="photo-management-grid" id="pending-photos-grid"></div>
           </div>
         </div>
       </div>
 
-      <!-- Published Media Card -->
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-          <div>
-            <h3 style="font-size: 18px; font-weight: 800;">Photos Live on Unibo</h3>
-            <p style="font-size: 13px; color: var(--text-muted);" id="live-photos-subtitle">Fetching current live photos…</p>
+      <!-- TAB 2: DETAILS & BIO -->
+      <div class="tab-section" id="tab-details">
+        <div class="card">
+          <div class="section-header">
+            <h2 class="section-title">Residence Details & Contact Person</h2>
+            <p class="section-sub">
+              Ensure students reach the correct manager or caretaker when inquiring about bed availability.
+            </p>
           </div>
-          <span class="badge badge-beds" id="live-photo-count">0 Photos</span>
-        </div>
 
-        <div class="gallery-grid" id="live-gallery">
-          <!-- Filled by JS -->
-        </div>
-      </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Landlord / Caretaker Name <span class="req">*</span></label>
+              <input type="text" id="input-manager-name" class="form-input" placeholder="e.g. Mr. M. Molefe">
+            </div>
 
-      <!-- Upload New Photos Card -->
-      <div class="card">
-        <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 6px;">Add / Update Photos</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-          Select photos from your phone gallery or take new pictures. We automatically compress them for fast mobile loading.
-        </p>
+            <div class="form-group">
+              <label class="form-label">Phone for Direct Calls <span class="req">*</span></label>
+              <input type="tel" id="input-phone" class="form-input" placeholder="e.g. 082 123 4567">
+            </div>
 
-        <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-          <div class="upload-icon">📷</div>
-          <div class="upload-title">Tap here to choose photos</div>
-          <div class="upload-hint">Upload photos of student bedrooms, kitchen, bathroom, and front gate. (Max 8 photos)</div>
-          <input type="file" id="file-input" accept="image/*" multiple style="display: none;" onchange="handleFileSelect(event)">
-        </div>
+            <div class="form-group">
+              <label class="form-label">WhatsApp Number <span class="req">*</span> <span class="helper">(For instant student chat)</span></label>
+              <input type="tel" id="input-whatsapp" class="form-input" placeholder="e.g. 082 123 4567">
+            </div>
 
-        <!-- Pending New Uploads Grid -->
-        <div id="pending-section" style="display: none; margin-top: 18px;">
-          <h4 style="font-size: 14px; font-weight: 700; margin-bottom: 10px;">Ready to publish (<span id="pending-count">0</span>):</h4>
-          <div class="gallery-grid" id="pending-gallery"></div>
-        </div>
+            <div class="form-group">
+              <label class="form-label">Inquiry Email Address <span class="helper">(Optional)</span></label>
+              <input type="email" id="input-email" class="form-input" placeholder="e.g. accommodation@example.com">
+            </div>
 
-        <div class="progress-bar" id="upload-progress">
-          <div class="progress-bar-fill" id="upload-progress-fill"></div>
-        </div>
-
-        <div style="margin-top: 20px;">
-          <button type="button" class="btn-primary" id="btn-save-photos" onclick="publishResidencePhotos()">
-            🚀 Save & Publish Photos to Unibo
-          </button>
-        </div>
-
-        <!-- Success Box -->
-        <div class="success-box" id="success-box">
-          <div class="success-icon">🎉</div>
-          <div>
-            <div class="success-title">Photos Published Successfully!</div>
-            <div class="success-desc">
-              Your photos are now saved and visible to NWU students browsing campus residences on the Unibo app. You can return to this link anytime to update photos.
+            <div class="form-group full-width">
+              <label class="form-label">Residence Overview & Student Bio</label>
+              <textarea id="input-description" class="form-textarea" placeholder="Describe the atmosphere, quiet study environment, proximity to NWU Gate, security measures, water tanks, backup power, etc."></textarea>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Quick Share Card for Landlord / Admin -->
-      <div class="card" style="background: #F8FAFC;">
-        <h4 style="font-size: 15px; font-weight: 800; margin-bottom: 6px;">🔗 Share this Upload Link</h4>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
-          Anyone with this link can view or update photos for this specific residence without needing an account.
-        </p>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="button" class="btn-outline" onclick="copyCurrentUploadLink()">📋 Copy Direct Link</button>
-          <a href="#" target="_blank" class="btn-wa" id="btn-share-res-wa">💬 Send via WhatsApp</a>
+      <!-- TAB 3: RENT & AVAILABILITY -->
+      <div class="tab-section" id="tab-pricing">
+        <div class="card">
+          <div class="section-header">
+            <h2 class="section-title">Room Availability & Rental Pricing</h2>
+            <p class="section-sub">
+              Keep your availability up to date so students don't flood your WhatsApp when all rooms are already taken.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Current Room Availability Status</label>
+            <div class="avail-radio-group">
+              <label class="avail-radio-card" id="avail-card-available" onclick="selectAvailability('available')">
+                <input type="radio" name="availability" value="available">
+                <div class="avail-indicator" style="background:#10B981"></div>
+                <div>
+                  <div class="avail-title">🟢 Beds Available</div>
+                  <div class="avail-desc">Accepting applications</div>
+                </div>
+              </label>
+
+              <label class="avail-radio-card" id="avail-card-limited" onclick="selectAvailability('limited')">
+                <input type="radio" name="availability" value="limited">
+                <div class="avail-indicator" style="background:#F59E0B"></div>
+                <div>
+                  <div class="avail-title">🟡 Limited Beds Left</div>
+                  <div class="avail-desc">1 to 2 slots remaining</div>
+                </div>
+              </label>
+
+              <label class="avail-radio-card" id="avail-card-full" onclick="selectAvailability('full')">
+                <input type="radio" name="availability" value="full">
+                <div class="avail-indicator" style="background:#EF4444"></div>
+                <div>
+                  <div class="avail-title">🔴 Fully Booked</div>
+                  <div class="avail-desc">Join waiting list</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-group">
+              <label class="form-label">Monthly Rental Rates / NSFAS</label>
+              <input type="text" id="input-pricing" class="form-input" placeholder="e.g. NSFAS Cap • R3,400 Single / R2,800 Sharing">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Total Accredited Beds</label>
+              <input type="number" id="input-beds" class="form-input" placeholder="e.g. 16" readonly style="background:#F1F5F9;cursor:not-allowed">
+            </div>
+          </div>
         </div>
+      </div>
+
+      <!-- TAB 4: FACILITIES & AMENITIES -->
+      <div class="tab-section" id="tab-amenities">
+        <div class="card">
+          <div class="section-header">
+            <h2 class="section-title">Facilities & Amenities Checklist</h2>
+            <p class="section-sub">
+              Select all features available at this residence. Students filter accommodations based on these items.
+            </p>
+          </div>
+
+          <div class="amenities-grid" id="amenities-container">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: STUDENT APP PREVIEW -->
+      <div class="tab-section" id="tab-preview">
+        <div class="card" style="background:#F8FAFC">
+          <div class="section-header" style="text-align:center">
+            <h2 class="section-title">📱 Student Live Preview</h2>
+            <p class="section-sub">This is exactly how NWU students view your residence on the Unibo campus network.</p>
+          </div>
+
+          <div class="preview-phone-wrap">
+            <div class="phone-speaker-notch"><div class="phone-speaker"></div></div>
+            <div class="preview-card-body">
+              <div class="preview-media-box" id="sim-cover-box">
+                <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#fff;font-size:13px">No cover photo</div>
+              </div>
+              <div>
+                <div class="preview-badge-row">
+                  <span class="preview-badge" style="background:#ECFDF5;color:#059669;font-weight:700">✓ NWU Accredited</span>
+                  <span class="preview-badge" id="sim-status-badge">🟢 Beds Available</span>
+                  <span class="preview-badge" id="sim-distance-badge">1.2 km</span>
+                </div>
+                <div style="font-size:17px;font-weight:800;color:#0F172A;margin-top:6px" id="sim-name">Residence Title</div>
+                <div style="font-size:12px;color:#64748B;margin-top:2px" id="sim-address">📍 Address</div>
+                <div style="font-size:12px;color:#6C5CE7;font-weight:700;margin-top:4px" id="sim-pricing">Rent rate</div>
+              </div>
+              <div style="font-size:12.5px;color:#334155;line-height:1.4" id="sim-desc">
+                Description preview...
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <button type="button" style="flex:1;height:38px;background:#25D366;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:12px">💬 WhatsApp</button>
+                <button type="button" style="flex:1;height:38px;background:#0F172A;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:12px">📞 Call</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating Save Bar -->
+      <div class="floating-save-bar">
+        <div class="save-bar-info">
+          <div class="save-bar-title">Ready to publish changes?</div>
+          <div class="save-bar-sub">Updated photos and information reflect live on Unibo immediately.</div>
+        </div>
+        <button type="button" class="btn-save-main" id="btn-save-profile" onclick="saveResidenceProfile()">
+          💾 Save & Publish to Unibo
+        </button>
       </div>
 
     </div>
 
-    <!-- VIEW 2: RESIDENCE SELECTOR & LINK GENERATOR -->
-    <div id="view-selector">
-      
-      <div class="card">
-        <h2 style="font-size: 20px; font-weight: 800; margin-bottom: 6px;">Find a Residence & Generate Link</h2>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 18px;">
-          Search any accredited residence to upload photos directly or generate a direct WhatsApp upload link to send to the landlord.
+    <!-- VIEW 2: VERIFICATION GATE (WHEN ACCESSED WITHOUT DIRECT ID) -->
+    <div id="view-gate" style="display: none;">
+      <div class="gate-view">
+        <div class="gate-icon">🔐</div>
+        <h1 class="gate-title">NWU Accredited Landlord Portal</h1>
+        <p class="gate-desc">
+          To protect the integrity of student accommodation listings and prevent unauthorized photo or info changes, each landlord has a private management link sent via WhatsApp.
         </p>
 
-        <div class="search-box-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="search-input" class="search-input" placeholder="Search residence name, suburb, street, or landlord phone…" oninput="handleSearch(event)">
+        <div class="card" style="text-align: left; margin-top: 10px;">
+          <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 8px;">Find Your Accommodation Profile</h3>
+          <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px;">
+            Enter your registered cellphone/WhatsApp number or NWU accreditation code to open your residence profile:
+          </p>
+          <div class="gate-search-box">
+            <input type="text" id="gate-search-input" class="form-input" placeholder="e.g. 082 123 4567 or NWU-2026-..." onkeydown="if(event.key==='Enter') lookupLandlordProfile()">
+            <button type="button" class="btn-save-main" style="padding:10px 20px" onclick="lookupLandlordProfile()">
+              Access
+            </button>
+          </div>
+          <div id="gate-search-results" style="margin-top: 14px; display: none;"></div>
         </div>
 
-        <div class="filter-pills">
-          <button type="button" class="filter-pill active" data-filter="all" onclick="setFilter('all')">All Residences (650)</button>
-          <button type="button" class="filter-pill" data-filter="needs_photos" onclick="setFilter('needs_photos')">⚠️ Needs Photos</button>
-          <button type="button" class="filter-pill" data-filter="has_photos" onclick="setFilter('has_photos')">✓ Has Photos</button>
-          <button type="button" class="filter-pill" data-filter="unit12" onclick="setFilter('unit12')">Unit 12</button>
-          <button type="button" class="filter-pill" data-filter="golfview" onclick="setFilter('golfview')">Golf View</button>
-          <button type="button" class="filter-pill" data-filter="riviera" onclick="setFilter('riviera')">Riviera Park</button>
-        </div>
-
-        <div id="results-count" style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 14px;">Showing 650 residences</div>
-
-        <!-- Residence Cards List -->
-        <div id="residences-list">
-          <!-- Populated by JS -->
-        </div>
-
-        <div id="pagination-controls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
-          <button type="button" class="btn-outline" id="btn-load-more" onclick="loadMoreResidences()">Load More Residences</button>
+        <div style="font-size: 12.5px; color: var(--text-muted);">
+          Didn't receive your link? <a href="https://wa.me/27794358487?text=Hello%2C%20I%20am%20an%20NWU%20landlord%20requesting%20my%20accommodation%20profile%20link." target="_blank" style="color:var(--accent);font-weight:700;text-decoration:none">Request Link on WhatsApp →</a>
         </div>
       </div>
-
     </div>
 
   </main>
 
-  <!-- Global Toast Notification -->
+  <!-- Global Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- Firebase Scripts (compat) -->
+  <!-- Firebase Scripts (Compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js"></script>
 
   <script>
-    // ─── STATE ──────────────────────────────────────────────────
+    // ─── AMENITY CATALOG ─────────────────────────────────────────
+    const ALL_AMENITIES = [
+      { id: 'wifi', label: 'High-Speed Wi-Fi', icon: '📶' },
+      { id: 'security', label: '24/7 Security Guard', icon: '👮' },
+      { id: 'biometric', label: 'Biometric Access Gate', icon: '🔒' },
+      { id: 'solar', label: 'Solar / Inverter Backup', icon: '⚡' },
+      { id: 'water', label: 'Borehole / Water Tanks', icon: '🚰' },
+      { id: 'study', label: 'Study Desks & Chairs', icon: '📚' },
+      { id: 'laundry', label: 'Laundromat / Washing Machine', icon: '🧺' },
+      { id: 'kitchen', label: 'Communal Kitchen & Stove', icon: '🍳' },
+      { id: 'cctv', label: 'CCTV Surveillance', icon: '📹' },
+      { id: 'fence', label: 'Electric Security Fencing', icon: '⚡' },
+      { id: 'shuttle', label: 'Campus Shuttle Service', icon: '🚐' },
+      { id: 'ensuite', label: 'En-Suite Bathrooms', icon: '🚿' }
+    ];
+
+    // ─── STATE ───────────────────────────────────────────────────
     let _allResidences = [];
-    let _filteredResidences = [];
-    let _renderedCount = 30;
     let _currentResId = null;
     let _currentRes = null;
     let _liveImages = [];
-    let _pendingFiles = []; // Array of { file, previewUrl, compressedBlob }
-    let _mediaCache = {}; // resId -> [urls]
-    let _activeFilter = 'all';
+    let _pendingFiles = []; // { file, previewUrl, blob }
+    let _selectedAvailability = 'available';
+    let _selectedAmenities = new Set();
     const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
 
-    // ─── INIT ───────────────────────────────────────────────────
+    // ─── INIT ────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', async () => {
-      // Auto-sign in anonymously in the background so Firebase security checks pass
       try {
         if (firebase.auth) {
-          firebase.auth().signInAnonymously().catch(e => {
-            console.log('Anonymous sign-in note:', e.message);
-          });
+          firebase.auth().signInAnonymously().catch(() => {});
         }
-      } catch (err) {}
+      } catch (_) {}
 
-      // Load residence dataset
-      await loadResidenceData();
+      await loadResidenceRegistry();
 
-      // Read URL params
       const urlParams = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
       const targetId = urlParams.get('id') || urlParams.get('res') || urlParams.get('resId') || hashParams.get('id') || '';
 
       if (targetId) {
-        openResidenceUploadView(targetId);
+        openResidenceDashboard(targetId);
       } else {
-        openSelectorView();
+        document.getElementById('view-gate').style.display = 'block';
+        document.getElementById('view-profile-dashboard').style.display = 'none';
       }
     });
 
-    // ─── LOAD DATA ──────────────────────────────────────────────
-    async function loadResidenceData() {
+    async function loadResidenceRegistry() {
       try {
-        const resp = await fetch('data/approved_residences.json');
+        const resp = await fetch('data/approved_residences.json?v=72');
         if (resp.ok) {
           const data = await resp.json();
           _allResidences = data.residences || [];
-          _filteredResidences = [..._allResidences];
-          _allResidences.forEach(r => {
-            try {
-              const c = localStorage.getItem('unino_res_media_' + r.id) || localStorage.getItem('unibo_res_media_' + r.id);
-              if (c) {
-                const arr = JSON.parse(c);
-                if (Array.isArray(arr) && arr.length) {
-                  _mediaCache[r.id] = arr;
-                  r.images = arr;
-                }
-              }
-            } catch (_) {}
-          });
         }
       } catch (e) {
-        console.error('Error loading residences dataset:', e);
+        console.error('Error loading registry:', e);
       }
     }
 
-    // ─── ROUTING & VIEW SWITCHING ────────────────────────────────
-    function openResidenceUploadView(resId) {
+    // ─── PROFILE DASHBOARD LOADER ────────────────────────────────
+    async function openResidenceDashboard(resId) {
       _currentResId = resId;
-      _currentRes = _allResidences.find(r => r.id === resId) || {
+      _currentRes = _allResidences.find(r => r.id === resId || r.accreditationNumber === resId) || {
         id: resId,
         name: resId,
-        accreditationNumber: 'NWU-2026',
-        address: 'Accredited NWU Student Accommodation',
+        address: 'Mahikeng',
         suburb: 'Mahikeng',
+        accreditationNumber: 'NWU-2026',
         beds: 0,
         phone: '',
         whatsapp: '',
         email: ''
       };
 
-      document.getElementById('view-selector').style.display = 'none';
-      document.getElementById('view-upload').style.display = 'block';
-      document.getElementById('btn-toggle-view').innerHTML = '🔍 Browse All Residences';
-      document.getElementById('page-hero-title').innerText = 'Upload Photos: ' + _currentRes.name;
-      document.getElementById('page-hero-sub').innerText = 'Upload 1 to 8 clear photos of bedrooms, kitchen, bathroom, and exterior. No login required.';
+      document.getElementById('view-gate').style.display = 'none';
+      document.getElementById('view-profile-dashboard').style.display = 'block';
 
-      // Populate details
-      document.getElementById('res-name').innerText = _currentRes.name;
-      document.getElementById('res-address').innerText = '📍 ' + (_currentRes.address || 'Mahikeng');
-      document.getElementById('res-acc-num').innerText = _currentRes.accreditationNumber || '2026 Accredited';
-      document.getElementById('res-phone').innerText = _currentRes.phone || '—';
-      document.getElementById('res-rooms').innerText = (_currentRes.beds || 0) + ' Beds (' + (_currentRes.singleRooms || 0) + ' single, ' + (_currentRes.sharingRooms || 0) + ' sharing)';
-      document.getElementById('res-email').innerText = _currentRes.email || '—';
-      document.getElementById('res-badge-suburb').innerText = _currentRes.suburb || 'Mahikeng';
-      document.getElementById('res-badge-beds').innerText = (_currentRes.beds || 0) + ' Beds';
+      // Render Hero Header
+      document.getElementById('hero-res-name').innerText = _currentRes.name;
+      document.getElementById('hero-badge-acc').innerText = `Code: ${_currentRes.accreditationNumber || '2026'}`;
+      document.getElementById('hero-res-address').innerText = `📍 ${_currentRes.address || 'Mahikeng'}`;
+      document.getElementById('hero-res-suburb').innerText = _currentRes.suburb || 'Mahikeng';
+      document.getElementById('hero-res-distance').innerText = _currentRes.distanceKm ? `${_currentRes.distanceKm.toFixed(1)} km from gate` : 'Near campus';
+      document.getElementById('hero-res-beds').innerText = `${_currentRes.beds || 0} Beds (${_currentRes.singleRooms || 0} single, ${_currentRes.sharingRooms || 0} sharing)`;
 
-      // WhatsApp Share button
-      const cleanPhone = (_currentRes.whatsapp || _currentRes.phone || '').replace(/[^0-9]/g, '');
-      const waNumber = cleanPhone.startsWith('0') ? '27' + cleanPhone.slice(1) : cleanPhone;
-      const uploadUrl = getDirectUploadLink(resId);
-      const waText = encodeURIComponent(`Hello! This is NWU Student Life (Unibo). Please upload photos of your accredited residence *${_currentRes.name}* here: ${uploadUrl} (No login or password needed). Thank you!`);
-      const btnWa = document.getElementById('btn-share-res-wa');
-      if (btnWa) {
-        btnWa.href = `https://wa.me/${waNumber}?text=${waText}`;
-      }
+      // Pre-fill Form Fields with official registry defaults
+      document.getElementById('input-manager-name').value = _currentRes.managerName || '';
+      document.getElementById('input-phone').value = _currentRes.phone || '';
+      document.getElementById('input-whatsapp').value = _currentRes.whatsapp || _currentRes.phone || '';
+      document.getElementById('input-email').value = _currentRes.email || '';
+      document.getElementById('input-description').value = _currentRes.description || '';
+      document.getElementById('input-pricing').value = _currentRes.pricing || '';
+      document.getElementById('input-beds').value = _currentRes.beds || 0;
 
-      // Fetch live photos from Firestore
-      fetchLiveResidenceMedia(resId);
+      // Default Amenities
+      _selectedAmenities = new Set(
+        Array.isArray(_currentRes.amenities) && _currentRes.amenities.length
+          ? _currentRes.amenities
+          : ['High-Speed Wi-Fi', '24/7 Security Guard', 'Study Desks & Chairs', 'Borehole / Water Tanks']
+      );
 
-      // Reset pending
+      _liveImages = Array.isArray(_currentRes.images) ? [..._currentRes.images] : [];
       _pendingFiles = [];
-      renderPendingGallery();
-      document.getElementById('success-box').classList.remove('show');
+
+      // Check local cache
+      try {
+        const cached = localStorage.getItem('unino_res_media_' + resId) || localStorage.getItem('unibo_res_media_' + resId);
+        if (cached) {
+          const arr = JSON.parse(cached);
+          if (Array.isArray(arr) && arr.length) _liveImages = arr;
+        }
+      } catch (_) {}
+
+      // Render Amenities Grid
+      renderAmenitiesChecklist();
+
+      // Fetch Live Profile from Firestore
+      await fetchLiveProfileFromFirestore(resId);
+
+      renderLivePhotos();
+      renderPendingPhotos();
+      updateAvailabilityUI(_selectedAvailability);
+      updateSimPreview();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function openSelectorView() {
-      _currentResId = null;
-      _currentRes = null;
-      document.getElementById('view-upload').style.display = 'none';
-      document.getElementById('view-selector').style.display = 'block';
-      document.getElementById('btn-toggle-view').innerHTML = '📸 Upload Photos';
-      document.getElementById('page-hero-title').innerText = 'NWU Accredited Landlord Photo Portal';
-      document.getElementById('page-hero-sub').innerText = 'Search any of the 650 accredited NWU residences to upload photos directly or generate landlord WhatsApp outreach links.';
-      renderResidencesList();
-    }
-
-    function toggleViewMode() {
-      if (document.getElementById('view-upload').style.display !== 'none') {
-        openSelectorView();
-      } else {
-        if (_allResidences.length > 0) {
-          openResidenceUploadView(_allResidences[0].id);
-        }
-      }
-    }
-
-    function getDirectUploadLink(resId) {
-      const base = window.location.origin + window.location.pathname;
-      return `${base}?id=${encodeURIComponent(resId)}`;
-    }
-
-    // ─── FIRESTORE LIVE MEDIA ───────────────────────────────────
-    async function fetchLiveResidenceMedia(resId) {
-      const container = document.getElementById('live-gallery');
-      const subtitle = document.getElementById('live-photos-subtitle');
-      const countBadge = document.getElementById('live-photo-count');
-      container.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Checking live cloud storage…</div>';
-
+    async function fetchLiveProfileFromFirestore(resId) {
       try {
         const docSnap = await db.collection('residence_media').doc(resId).get();
         if (docSnap.exists) {
           const data = docSnap.data();
-          _liveImages = Array.isArray(data.images) ? data.images : [];
-          _mediaCache[resId] = _liveImages;
-        } else {
-          _liveImages = _currentRes?.images || [];
+          if (Array.isArray(data.images)) _liveImages = data.images;
+          if (data.managerName) document.getElementById('input-manager-name').value = data.managerName;
+          if (data.phone) document.getElementById('input-phone').value = data.phone;
+          if (data.whatsapp) document.getElementById('input-whatsapp').value = data.whatsapp;
+          if (data.email) document.getElementById('input-email').value = data.email;
+          if (data.description) document.getElementById('input-description').value = data.description;
+          if (data.pricing) document.getElementById('input-pricing').value = data.pricing;
+          if (data.availability) _selectedAvailability = data.availability;
+          if (Array.isArray(data.amenities) && data.amenities.length) {
+            _selectedAmenities = new Set(data.amenities);
+            renderAmenitiesChecklist();
+          }
         }
       } catch (err) {
-        console.warn('Firestore fetch notice:', err.message);
-        _liveImages = _currentRes?.images || [];
+        console.warn('Firestore live profile note:', err.message);
       }
-
-      renderLiveGallery();
     }
 
-    function renderLiveGallery() {
-      const container = document.getElementById('live-gallery');
-      const subtitle = document.getElementById('live-photos-subtitle');
-      const countBadge = document.getElementById('live-photo-count');
+    // ─── TAB SWITCHING ───────────────────────────────────────────
+    function switchTab(tabId) {
+      document.querySelectorAll('.profile-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+      });
+      document.querySelectorAll('.tab-section').forEach(sec => {
+        sec.classList.toggle('active', sec.id === tabId);
+      });
+      if (tabId === 'tab-preview') {
+        updateSimPreview();
+      }
+    }
 
-      countBadge.innerText = `${_liveImages.length} Photo${_liveImages.length === 1 ? '' : 's'}`;
+    // ─── AMENITIES CHECKLIST ─────────────────────────────────────
+    function renderAmenitiesChecklist() {
+      const container = document.getElementById('amenities-container');
+      container.innerHTML = ALL_AMENITIES.map(a => {
+        const isChecked = _selectedAmenities.has(a.label);
+        return `
+          <label class="amenity-checkbox-card ${isChecked ? 'checked' : ''}" onclick="toggleAmenity('${a.label}')">
+            <span class="amenity-icon">${a.icon}</span>
+            <span class="amenity-text">${a.label}</span>
+          </label>
+        `;
+      }).join('');
+    }
+
+    function toggleAmenity(label) {
+      if (_selectedAmenities.has(label)) {
+        _selectedAmenities.delete(label);
+      } else {
+        _selectedAmenities.add(label);
+      }
+      renderAmenitiesChecklist();
+      updateSimPreview();
+    }
+
+    // ─── AVAILABILITY ────────────────────────────────────
+    function selectAvailability(status) {
+      _selectedAvailability = status;
+      updateAvailabilityUI(status);
+      updateSimPreview();
+    }
+
+    function updateAvailabilityUI(status) {
+      ['available', 'limited', 'full'].forEach(s => {
+        const card = document.getElementById('avail-card-' + s);
+        if (card) card.classList.toggle('active', s === status);
+      });
+
+      const heroBadge = document.getElementById('hero-badge-status');
+      if (status === 'full') {
+        heroBadge.className = 'hero-badge badge-status-full';
+        heroBadge.innerText = '🔴 Fully Booked (Waitlist)';
+      } else if (status === 'limited') {
+        heroBadge.className = 'hero-badge badge-status-limited';
+        heroBadge.innerText = '🟡 Limited Beds Left';
+      } else {
+        heroBadge.className = 'hero-badge badge-status-avail';
+        heroBadge.innerText = '🟢 Accepting Students';
+      }
+    }
+
+    // ─── PHOTO MANAGEMENT ────────────────────────────────────────
+    function renderLivePhotos() {
+      const grid = document.getElementById('live-photos-grid');
+      const countLabel = document.getElementById('tab-photo-count');
+      countLabel.innerText = _liveImages.length;
 
       if (_liveImages.length === 0) {
-        subtitle.innerText = 'No photos published yet for this residence.';
-        container.innerHTML = `
-          <div style="grid-column: 1 / -1; padding: 24px 16px; background: #F8FAFC; border-radius: var(--radius-sm); border: 1px dashed var(--border); text-align: center; color: var(--text-muted); font-size: 13px;">
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 24px 16px; background: #F8FAFC; border-radius: var(--radius-md); border: 1px dashed var(--border); text-align: center; color: var(--text-muted); font-size: 13px;">
             ⚠️ No photos published yet. Add photos below so NWU students can explore your rooms!
           </div>
         `;
         return;
       }
 
-      subtitle.innerText = 'These photos are currently visible to students on Unibo.';
-      container.innerHTML = _liveImages.map((url, idx) => `
-        <div class="gallery-thumb">
+      grid.innerHTML = _liveImages.map((url, idx) => `
+        <div class="photo-thumb-card">
           <img src="${url}" alt="Residence Photo ${idx + 1}" loading="lazy">
-          <button type="button" class="btn-delete-thumb" title="Remove photo" onclick="deleteLivePhoto(${idx})">×</button>
+          ${idx === 0 ? `<div class="photo-cover-badge">⭐ Cover Photo</div>` : ''}
+          <div class="photo-actions">
+            ${idx !== 0 ? `<button type="button" class="btn-photo-action btn-photo-cover" title="Make Cover Photo" onclick="setCoverPhoto(${idx})">⭐</button>` : ''}
+            <button type="button" class="btn-photo-action" title="Remove Photo" onclick="deleteLivePhoto(${idx})">×</button>
+          </div>
         </div>
       `).join('');
     }
 
-    async function deleteLivePhoto(index) {
-      if (!confirm('Remove this photo from the residence listing?')) return;
-      _liveImages.splice(index, 1);
-      renderLiveGallery();
-
-      try {
-        await db.collection('residence_media').doc(_currentResId).set({
-          resId: _currentResId,
-          images: _liveImages,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'landlord_delete'
-        }, { merge: true });
-        showToast('✓ Photo removed');
-      } catch (e) {
-        console.error('Delete photo error:', e);
-      }
+    function setCoverPhoto(idx) {
+      if (idx <= 0 || idx >= _liveImages.length) return;
+      const target = _liveImages.splice(idx, 1)[0];
+      _liveImages.unshift(target);
+      renderLivePhotos();
+      updateSimPreview();
+      showToast('⭐ Cover photo updated');
     }
 
-    // ─── CLIENT-SIDE COMPRESSION & FILE PICKING ─────────────────
+    function deleteLivePhoto(idx) {
+      if (!confirm('Remove this photo from your residence profile?')) return;
+      _liveImages.splice(idx, 1);
+      renderLivePhotos();
+      updateSimPreview();
+      showToast('Photo removed. Remember to tap Save & Publish.');
+    }
+
+    // ─── FILE UPLOAD & CANVAS COMPRESSION ────────────────────────
     async function handleFileSelect(e) {
       const files = Array.from(e.target.files || []);
       if (!files.length) return;
 
-      const totalAllowed = 8 - _liveImages.length - _pendingFiles.length;
+      const totalAllowed = 10 - _liveImages.length - _pendingFiles.length;
       if (totalAllowed <= 0) {
-        showToast('Maximum 8 photos reached. Please remove existing photos first.');
+        showToast('Maximum 10 photos reached. Please remove an existing photo first.');
         return;
       }
 
       const filesToProcess = files.slice(0, totalAllowed);
-      showToast(`Processing ${filesToProcess.length} image${filesToProcess.length === 1 ? '' : 's'}…`);
+      showToast(`Compressing ${filesToProcess.length} image${filesToProcess.length === 1 ? '' : 's'}…`);
 
       for (const file of filesToProcess) {
         try {
-          const compressed = await compressImage(file, 1280, 0.82);
-          _pendingFiles.push({
-            file,
-            previewUrl: compressed.dataUrl,
-            blob: compressed.blob
-          });
+          const comp = await compressImage(file, 1280, 0.82);
+          _pendingFiles.push({ file, previewUrl: comp.dataUrl, blob: comp.blob });
         } catch (err) {
-          console.error('Compression error:', err);
+          console.error('Image compression error:', err);
         }
       }
 
       e.target.value = '';
-      renderPendingGallery();
+      renderPendingPhotos();
+      updateSimPreview();
     }
 
-    function renderPendingGallery() {
+    function renderPendingPhotos() {
       const section = document.getElementById('pending-section');
-      const count = document.getElementById('pending-count');
-      const container = document.getElementById('pending-gallery');
+      const countEl = document.getElementById('pending-count');
+      const grid = document.getElementById('pending-photos-grid');
 
       if (_pendingFiles.length === 0) {
         section.style.display = 'none';
@@ -850,22 +1155,24 @@
       }
 
       section.style.display = 'block';
-      count.innerText = _pendingFiles.length;
+      countEl.innerText = _pendingFiles.length;
 
-      container.innerHTML = _pendingFiles.map((item, idx) => `
-        <div class="gallery-thumb">
-          <img src="${item.previewUrl}" alt="New Photo ${idx + 1}">
-          <button type="button" class="btn-delete-thumb" onclick="removePendingFile(${idx})">×</button>
+      grid.innerHTML = _pendingFiles.map((p, idx) => `
+        <div class="photo-thumb-card" style="border-color:var(--accent)">
+          <img src="${p.previewUrl}" alt="New Photo ${idx + 1}">
+          <div class="photo-actions">
+            <button type="button" class="btn-photo-action" title="Remove" onclick="removePendingFile(${idx})">×</button>
+          </div>
         </div>
       `).join('');
     }
 
     function removePendingFile(idx) {
       _pendingFiles.splice(idx, 1);
-      renderPendingGallery();
+      renderPendingPhotos();
+      updateSimPreview();
     }
 
-    // Canvas Compression function
     function compressImage(file, maxDimension = 1280, quality = 0.82) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -883,17 +1190,13 @@
                 height = maxDimension;
               }
             }
-
             const canvas = document.createElement('canvas');
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
-
             const dataUrl = canvas.toDataURL('image/jpeg', quality);
-            canvas.toBlob(blob => {
-              resolve({ dataUrl, blob: blob || file });
-            }, 'image/jpeg', quality);
+            canvas.toBlob(blob => resolve({ dataUrl, blob: blob || file }), 'image/jpeg', quality);
           };
           img.onerror = reject;
           img.src = ev.target.result;
@@ -903,249 +1206,184 @@
       });
     }
 
-    // ─── SAVE & PUBLISH PHOTOS ──────────────────────────────────
-    async function publishResidencePhotos() {
-      if (_pendingFiles.length === 0) {
-        showToast('Please select at least 1 photo to publish');
-        return;
+    // ─── STUDENT PREVIEW UPDATER ─────────────────────────────────
+    function updateSimPreview() {
+      const name = _currentRes?.name || 'Accredited Residence';
+      const address = _currentRes?.address || 'Mahikeng';
+      const pricing = document.getElementById('input-pricing')?.value.trim() || 'Inquire for 2026 rates';
+      const desc = document.getElementById('input-description')?.value.trim() || 'Verified NWU accredited accommodation near Mahikeng campus.';
+      const distance = _currentRes?.distanceKm ? `${_currentRes.distanceKm.toFixed(1)} km from NWU` : 'Campus';
+
+      document.getElementById('sim-name').innerText = name;
+      document.getElementById('sim-address').innerText = `📍 ${address}`;
+      document.getElementById('sim-pricing').innerText = `💰 ${pricing}`;
+      document.getElementById('sim-desc').innerText = desc.slice(0, 140) + (desc.length > 140 ? '…' : '');
+      document.getElementById('sim-distance-badge').innerText = distance;
+
+      const simStatus = document.getElementById('sim-status-badge');
+      if (_selectedAvailability === 'full') {
+        simStatus.style.background = '#FEE2E2';
+        simStatus.style.color = '#DC2626';
+        simStatus.innerText = '🔴 Fully Booked';
+      } else if (_selectedAvailability === 'limited') {
+        simStatus.style.background = '#FEF3C7';
+        simStatus.style.color = '#D97706';
+        simStatus.innerText = '🟡 Limited Beds Left';
+      } else {
+        simStatus.style.background = '#ECFDF5';
+        simStatus.style.color = '#059669';
+        simStatus.innerText = '🟢 Beds Available';
       }
 
-      const btn = document.getElementById('btn-save-photos');
-      const progress = document.getElementById('upload-progress');
-      const fill = document.getElementById('upload-progress-fill');
+      const coverBox = document.getElementById('sim-cover-box');
+      const coverUrl = (_liveImages[0]) || (_pendingFiles[0]?.previewUrl) || '';
+      if (coverUrl) {
+        coverBox.innerHTML = `<img src="${coverUrl}" alt="cover">`;
+      } else {
+        coverBox.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94A3B8;font-size:13px">🏢 Photos coming soon</div>`;
+      }
+    }
 
+    // ─── SAVE & PUBLISH TO FIRESTORE ─────────────────────────────
+    async function saveResidenceProfile() {
+      const btn = document.getElementById('btn-save-profile');
       btn.disabled = true;
-      btn.innerHTML = '⏳ Uploading & Publishing…';
-      progress.style.display = 'block';
-      fill.style.width = '10%';
-
-      const uploadedUrls = [];
-      const total = _pendingFiles.length;
-
-      for (let i = 0; i < total; i++) {
-        const item = _pendingFiles[i];
-        let finalUrl = item.previewUrl; // default fallback to compressed base64 dataUrl
-
-        // Try direct Cloudflare R2 worker upload
-        try {
-          const ts = Date.now();
-          const rand = Math.random().toString(36).slice(2, 8);
-          const safeName = (item.file.name || 'res_photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
-          const r2Path = `landlord/residences/${_currentResId}/${ts}_${rand}_${safeName}`;
-          const targetUrl = R2_BASE + r2Path;
-
-          const r2Resp = await fetch(targetUrl, {
-            method: 'PUT',
-            body: item.blob,
-            headers: { 'Content-Type': 'image/jpeg' },
-            mode: 'cors'
-          });
-
-          if (r2Resp.ok) {
-            finalUrl = targetUrl;
-          }
-        } catch (r2Err) {
-          console.warn('R2 upload note (using optimized base64):', r2Err.message);
-        }
-
-        uploadedUrls.push(finalUrl);
-        fill.style.width = `${Math.round(((i + 1) / total) * 90)}%`;
-      }
-
-      // Merge with live photos
-      const updatedMediaList = [..._liveImages, ...uploadedUrls].slice(0, 8);
+      btn.innerHTML = '⏳ Saving & Publishing…';
 
       try {
-        await db.collection('residence_media').doc(_currentResId).set({
+        const uploadedUrls = [];
+        for (const item of _pendingFiles) {
+          let finalUrl = item.previewUrl;
+          try {
+            const ts = Date.now();
+            const rand = Math.random().toString(36).slice(2, 7);
+            const r2Path = `landlord/residences/${_currentResId}/${ts}_${rand}.jpg`;
+            const targetUrl = R2_BASE + r2Path;
+            const r2Resp = await fetch(targetUrl, {
+              method: 'PUT',
+              body: item.blob,
+              headers: { 'Content-Type': 'image/jpeg' },
+              mode: 'cors'
+            });
+            if (r2Resp.ok) finalUrl = targetUrl;
+          } catch (_) {}
+          uploadedUrls.push(finalUrl);
+        }
+
+        const updatedImages = [..._liveImages, ...uploadedUrls].slice(0, 10);
+        const managerName = document.getElementById('input-manager-name').value.trim();
+        const phone = document.getElementById('input-phone').value.trim();
+        const whatsapp = document.getElementById('input-whatsapp').value.trim();
+        const email = document.getElementById('input-email').value.trim();
+        const description = document.getElementById('input-description').value.trim();
+        const pricing = document.getElementById('input-pricing').value.trim();
+        const amenities = Array.from(_selectedAmenities);
+
+        const payload = {
           resId: _currentResId,
           name: _currentRes.name,
-          images: updatedMediaList,
+          accreditationNumber: _currentRes.accreditationNumber || '',
+          images: updatedImages,
+          managerName,
+          phone,
+          whatsapp,
+          email,
+          description,
+          pricing,
+          availability: _selectedAvailability,
+          amenities,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'landlord_portal_direct'
-        }, { merge: true });
+          updatedBy: 'landlord_portal_dashboard'
+        };
 
-        // Update local memory and cache
-        _liveImages = updatedMediaList;
-        _mediaCache[_currentResId] = updatedMediaList;
-        if (_currentRes) _currentRes.images = updatedMediaList;
-        try {
-          localStorage.setItem('unino_res_media_' + _currentResId, JSON.stringify(updatedMediaList));
-          localStorage.setItem('unibo_res_media_' + _currentResId, JSON.stringify(updatedMediaList));
-        } catch (e) {}
+        await db.collection('residence_media').doc(_currentResId).set(payload, { merge: true });
 
+        // Update local state and memory
+        _liveImages = updatedImages;
         _pendingFiles = [];
-        renderPendingGallery();
-        renderLiveGallery();
+        if (_currentRes) {
+          _currentRes.images = updatedImages;
+          _currentRes.managerName = managerName;
+          _currentRes.phone = phone;
+          _currentRes.whatsapp = whatsapp;
+          _currentRes.email = email;
+          _currentRes.description = description;
+          _currentRes.pricing = pricing;
+          _currentRes.availability = _selectedAvailability;
+          _currentRes.amenities = amenities;
+        }
 
-        fill.style.width = '100%';
-        setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; }, 500);
+        try {
+          localStorage.setItem('unino_res_media_' + _currentResId, JSON.stringify(updatedImages));
+          localStorage.setItem('unibo_res_media_' + _currentResId, JSON.stringify(updatedImages));
+        } catch (_) {}
 
-        document.getElementById('success-box').classList.add('show');
-        showToast('✓ Photos published successfully!');
+        renderLivePhotos();
+        renderPendingPhotos();
+        updateSimPreview();
+
+        showToast('✓ Accommodation profile published live to Unibo!');
       } catch (err) {
-        console.error('Publish error:', err);
-        showToast('Upload failed: ' + (err.message || 'Please retry'));
+        console.error('Save error:', err);
+        showToast('Failed to save profile: ' + (err.message || 'Please retry'));
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '🚀 Save & Publish Photos to Unibo';
+        btn.innerHTML = '💾 Save & Publish to Unibo';
       }
     }
 
-    // ─── RESIDENCE SELECTOR LIST & SEARCH ───────────────────────
-    function renderResidencesList() {
-      const container = document.getElementById('residences-list');
-      const countEl = document.getElementById('results-count');
-      const toShow = _filteredResidences.slice(0, _renderedCount);
-
-      countEl.innerText = `Showing ${toShow.length} of ${_filteredResidences.length} residences`;
-
-      if (toShow.length === 0) {
-        container.innerHTML = `
-          <div style="padding: 36px 20px; text-align: center; color: var(--text-muted); font-size: 14px;">
-            🔍 No residences found matching your search. Try typing a street name or suburb (e.g. "Unit 12" or "Golf View").
-          </div>
-        `;
-        document.getElementById('pagination-controls').style.display = 'none';
+    // ─── GATE VERIFICATION / SEARCH ──────────────────────────────
+    function lookupLandlordProfile() {
+      const q = (document.getElementById('gate-search-input')?.value || '').trim().toLowerCase();
+      const resultsDiv = document.getElementById('gate-search-results');
+      if (!q) {
+        showToast('Please enter your phone number or accreditation code');
         return;
       }
 
-      container.innerHTML = toShow.map(res => {
-        const cleanPhone = (res.whatsapp || res.phone || '').replace(/[^0-9]/g, '');
-        const waNumber = cleanPhone.startsWith('0') ? '27' + cleanPhone.slice(1) : cleanPhone;
-        const uploadUrl = getDirectUploadLink(res.id);
-        const waText = encodeURIComponent(`Hello! This is NWU Student Life (Unibo). Please upload 2-5 photos of your accredited residence *${res.name}* here so students can view your rooms: ${uploadUrl} (No login or password needed). Thank you!`);
-        const hasPhotos = (_mediaCache[res.id] && _mediaCache[res.id].length > 0) || (res.images && res.images.length > 0);
+      const cleanQ = q.replace(/[^0-9a-zA-Z]/g, '');
+      const matches = _allResidences.filter(r => {
+        const p1 = (r.phone || '').replace(/[^0-9]/g, '');
+        const p2 = (r.whatsapp || '').replace(/[^0-9]/g, '');
+        const acc = (r.accreditationNumber || '').toLowerCase().replace(/[^0-9a-zA-Z]/g, '');
+        const id = (r.id || '').toLowerCase().replace(/[^0-9a-zA-Z]/g, '');
+        return (cleanQ && (p1.includes(cleanQ) || p2.includes(cleanQ) || acc.includes(cleanQ) || id.includes(cleanQ)));
+      });
 
-        return `
-          <div class="res-item-card">
-            <div class="res-item-top">
-              <div>
-                <div class="res-item-name">${res.name}</div>
-                <div class="res-item-sub">📍 ${res.address || res.suburb || 'Mahikeng'}</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-                  Accreditation: <strong>${res.accreditationNumber || '2026'}</strong> • <strong>${res.beds || 0} Beds</strong> • Cell: <strong>${res.phone || '—'}</strong>
-                </div>
-              </div>
-              <div>
-                ${hasPhotos
-                  ? `<span class="badge badge-accredited">✓ Photos Ready</span>`
-                  : `<span class="badge" style="background:#FFFBEB;color:#D97706;border:1px solid #FDE68A;">⚠️ Needs Photos</span>`
-                }
-              </div>
-            </div>
+      if (matches.length === 1) {
+        openResidenceDashboard(matches[0].id);
+        return;
+      }
 
-            <div class="res-item-actions">
-              <button type="button" class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px;" onclick="openResidenceUploadView('${res.id}')">
-                📷 Upload Photos
-              </button>
-              <button type="button" class="btn-outline" style="font-size:13px;padding:8px 14px;" onclick="copyResUploadLink('${res.id}')">
-                🔗 Copy Link
-              </button>
-              ${waNumber ? `
-                <a href="https://wa.me/${waNumber}?text=${waText}" target="_blank" class="btn-wa" style="font-size:13px;padding:8px 14px;">
-                  💬 WhatsApp
-                </a>
-              ` : ''}
-              <button type="button" class="btn-outline" style="font-size:13px;padding:8px 14px;" onclick="copySmsText('${res.id}', '${encodeURIComponent(res.name)}')">
-                📱 Copy SMS
-              </button>
-            </div>
+      resultsDiv.style.display = 'block';
+      if (matches.length === 0) {
+        resultsDiv.innerHTML = `
+          <div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;font-size:13px;color:#991B1B">
+            ⚠️ No accommodation found matching "${q}". Please check your number or tap the WhatsApp button below to request your link.
           </div>
         `;
-      }).join('');
+        return;
+      }
 
-      document.getElementById('pagination-controls').style.display = _filteredResidences.length > _renderedCount ? 'flex' : 'none';
-    }
-
-    function loadMoreResidences() {
-      _renderedCount += 30;
-      renderResidencesList();
-    }
-
-    function handleSearch(e) {
-      const q = (e.target.value || '').trim().toLowerCase();
-      applyFilters(q, _activeFilter);
-    }
-
-    function setFilter(filter) {
-      _activeFilter = filter;
-      document.querySelectorAll('.filter-pill').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-      });
-      const q = (document.getElementById('search-input')?.value || '').trim().toLowerCase();
-      applyFilters(q, filter);
-    }
-
-    function applyFilters(searchQuery, filter) {
-      _renderedCount = 30;
-      _filteredResidences = _allResidences.filter(res => {
-        // Search query
-        if (searchQuery) {
-          const matchName = (res.name || '').toLowerCase().includes(searchQuery);
-          const matchAddress = (res.address || '').toLowerCase().includes(searchQuery);
-          const matchSuburb = (res.suburb || '').toLowerCase().includes(searchQuery);
-          const matchPhone = (res.phone || '').includes(searchQuery);
-          const matchAcc = (res.accreditationNumber || '').toLowerCase().includes(searchQuery);
-          if (!matchName && !matchAddress && !matchSuburb && !matchPhone && !matchAcc) return false;
-        }
-
-        // Pill filter
-        if (filter === 'needs_photos') {
-          const has = (_mediaCache[res.id] && _mediaCache[res.id].length > 0) || (res.images && res.images.length > 0);
-          return !has;
-        } else if (filter === 'has_photos') {
-          const has = (_mediaCache[res.id] && _mediaCache[res.id].length > 0) || (res.images && res.images.length > 0);
-          return has;
-        } else if (filter === 'unit12') {
-          return (res.suburb || '').toLowerCase().includes('unit 12') || (res.address || '').toLowerCase().includes('unit 12');
-        } else if (filter === 'golfview') {
-          return (res.suburb || '').toLowerCase().includes('golf') || (res.address || '').toLowerCase().includes('golf');
-        } else if (filter === 'riviera') {
-          return (res.suburb || '').toLowerCase().includes('riviera') || (res.address || '').toLowerCase().includes('riviera');
-        }
-
-        return true;
-      });
-
-      renderResidencesList();
-    }
-
-    // ─── CLIPBOARD & SHARING ────────────────────────────────────
-    function copyCurrentUploadLink() {
-      if (!_currentResId) return;
-      const url = getDirectUploadLink(_currentResId);
-      navigator.clipboard.writeText(url).then(() => {
-        showToast('✓ Link copied to clipboard!');
-      }).catch(() => {
-        prompt('Copy this upload link:', url);
-      });
-    }
-
-    function copyResUploadLink(resId) {
-      const url = getDirectUploadLink(resId);
-      navigator.clipboard.writeText(url).then(() => {
-        showToast('✓ Landlord upload link copied!');
-      }).catch(() => {
-        prompt('Copy this upload link:', url);
-      });
-    }
-
-    function copySmsText(resId, encodedName) {
-      const name = decodeURIComponent(encodedName);
-      const url = getDirectUploadLink(resId);
-      const text = `NWU Student Life: Please upload photos of your accredited residence "${name}" for students on Unibo here: ${url} (No login required). Thank you!`;
-      navigator.clipboard.writeText(text).then(() => {
-        showToast('✓ SMS text copied to clipboard!');
-      }).catch(() => {
-        prompt('Copy this SMS message:', text);
-      });
+      resultsDiv.innerHTML = `
+        <div style="font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:8px">Select your residence to manage:</div>
+        ${matches.map(m => `
+          <div style="padding:12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;background:#fff">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:var(--text)">${m.name}</div>
+              <div style="font-size:12px;color:var(--text-muted)">📍 ${m.address || m.suburb} • ${m.beds || 0} Beds</div>
+            </div>
+            <button type="button" class="btn-save-main" style="padding:6px 14px;font-size:12px" onclick="openResidenceDashboard('${m.id}')">Manage →</button>
+          </div>
+        `).join('')}
+      `;
     }
 
     function showToast(msg) {
       const el = document.getElementById('toast');
       el.innerText = msg;
       el.classList.add('show');
-      setTimeout(() => { el.classList.remove('show'); }, 3200);
+      setTimeout(() => el.classList.remove('show'), 3200);
     }
   </script>
 </body>

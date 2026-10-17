@@ -19489,18 +19489,27 @@ async function syncResidenceMediaFromCloud() {
     let updated = false;
     snap.docs.forEach(doc => {
       const data = doc.data();
-      const imgs = data.images || [];
-      if (!imgs.length) return;
+      const imgs = Array.isArray(data.images) ? data.images : [];
       const target = _residencesData.find(r => r.id === doc.id || r.id === data.resId || (data.accreditationNumber && r.accreditationNumber === data.accreditationNumber));
       if (target) {
-        target.images = imgs;
+        if (imgs.length) target.images = imgs;
+        if (data.description) target.description = data.description;
+        if (data.pricing) target.pricing = data.pricing;
+        if (data.availability) target.availability = data.availability;
+        if (data.phone) target.phone = data.phone;
+        if (data.whatsapp) target.whatsapp = data.whatsapp;
+        if (data.email) target.email = data.email;
+        if (Array.isArray(data.amenities) && data.amenities.length) target.amenities = data.amenities;
+        if (data.managerName) target.managerName = data.managerName;
         updated = true;
         try {
-          localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
-          localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
+          if (imgs.length) {
+            localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
+            localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
+          }
         } catch (_) {}
         if (window._currentOpenResId === target.id) {
-          window._currentDetailImages = imgs;
+          window._currentDetailImages = target.images || [];
           const box = document.getElementById('res-detail-media-box');
           if (box && typeof buildResidenceDetailMediaHtml === 'function') {
             box.innerHTML = buildResidenceDetailMediaHtml(target);
@@ -20240,13 +20249,22 @@ async function openResidenceDetail(id) {
     } catch (_) {}
   }
 
-  window._currentOpenResId = res.id;
+    window._currentOpenResId = res.id;
   window._currentDetailImages = Array.isArray(res.images) ? [...res.images] : [];
 
   const isOnCampus = res.type === 'on_campus';
   const badgeHtml = isOnCampus
     ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus Residence</span>`
     : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
+
+  let availBadgeHtml = '';
+  if (res.availability === 'full') {
+    availBadgeHtml = '<span class="res-dist-pill" style="background:#FEE2E2;color:#DC2626;font-weight:700">🔴 Fully Booked</span>';
+  } else if (res.availability === 'limited') {
+    availBadgeHtml = '<span class="res-dist-pill" style="background:#FEF3C7;color:#D97706;font-weight:700">🟡 Limited Beds</span>';
+  } else if (res.availability === 'available') {
+    availBadgeHtml = '<span class="res-dist-pill" style="background:#ECFDF5;color:#059669;font-weight:700">🟢 Beds Available (2026)</span>';
+  }
 
   const waPrefill = `Hello ${res.name}, I saw your accredited accommodation on Unibo and would like to inquire about NSFAS/private room availability.`;
   const waBtn = res.whatsapp ? `
@@ -20285,6 +20303,7 @@ async function openResidenceDetail(id) {
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             ${badgeHtml}
+            ${availBadgeHtml}
             ${res.gender ? `<span class="res-dist-pill">${esc(res.gender)}</span>` : ''}
             ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
           </div>
@@ -20320,6 +20339,13 @@ async function openResidenceDetail(id) {
           <div class="res-stat-pill-lbl">From Gate</div>
         </div>
       </div>
+
+      ${res.pricing ? `
+        <div class="res-detail-card" style="border-color:var(--accent);background:color-mix(in srgb, var(--accent) 5%, var(--bg-tertiary));padding:12px 16px">
+          <div style="font-size:11.5px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em">💰 Rental Rates / NSFAS</div>
+          <div style="font-size:14.5px;font-weight:800;color:var(--accent);margin-top:3px">${esc(res.pricing)}</div>
+        </div>
+      ` : ''}
 
       <!-- Direct Contact Section -->
       <div class="res-detail-card" style="border-color:var(--accent)">
@@ -20374,42 +20400,46 @@ async function openResidenceDetail(id) {
         </div>
       </div>
 
-      <!-- Landlord Photo Portal Card -->
-      <div class="res-detail-card" style="border-color:color-mix(in srgb, var(--accent) 30%, var(--border));background:color-mix(in srgb, var(--accent) 4%, var(--bg-tertiary))">
-        <div class="res-detail-card-title">🔑 Landlord Photo Portal</div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">
-          Are you the accredited landlord or accommodation manager? Update building photos or generate your direct upload link.
-        </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="res-btn res-btn-landlord" style="flex:1;justify-content:center;height:38px" onclick="closeModal(); openLandlordPortal('${escJs(res.id)}')">
-            📷 Upload Photos
-          </button>
-          <button type="button" class="res-btn" style="height:38px;padding:0 14px" onclick="copyLandlordUploadLink('${escJs(res.id)}')" title="Copy upload link for landlord">
-            📋 Copy Upload Link
-          </button>
-        </div>
+      <!-- Official Accommodation Notice -->
+      <div style="text-align:center;padding:12px 14px;border-radius:12px;background:var(--bg-tertiary);border:1px dashed var(--border);font-size:12px;color:var(--text-secondary);margin-top:6px">
+        🏢 <strong>Official NWU Accredited Accommodation:</strong> Landlords manage residence room availability, rental rates, and photo galleries via their private WhatsApp access link.
       </div>
     </div>
   `;
 
   openModal(modalHtml);
 
-  // Background fetch from Firestore to ensure newest uploaded photos are displayed immediately
+  // Background fetch from Firestore to ensure newest uploaded photos and info are displayed immediately
   if (typeof db !== 'undefined' && db && db.collection) {
     db.collection('residence_media').doc(res.id).get().then(doc => {
       let cloudImgs = null;
-      if (doc.exists && doc.data() && Array.isArray(doc.data().images) && doc.data().images.length) {
-        cloudImgs = doc.data().images;
+      if (doc.exists && doc.data()) {
+        const d = doc.data();
+        if (Array.isArray(d.images) && d.images.length) res.images = d.images;
+        if (d.description) res.description = d.description;
+        if (d.pricing) res.pricing = d.pricing;
+        if (d.availability) res.availability = d.availability;
+        if (d.phone) res.phone = d.phone;
+        if (d.whatsapp) res.whatsapp = d.whatsapp;
+        if (d.email) res.email = d.email;
+        if (Array.isArray(d.amenities) && d.amenities.length) res.amenities = d.amenities;
+        cloudImgs = res.images;
       } else if (res.accreditationNumber) {
         return db.collection('residence_media').doc(res.accreditationNumber).get().then(doc2 => {
-          if (doc2.exists && doc2.data() && Array.isArray(doc2.data().images)) return doc2.data().images;
+          if (doc2.exists && doc2.data()) {
+            const d2 = doc2.data();
+            if (Array.isArray(d2.images) && d2.images.length) res.images = d2.images;
+            if (d2.description) res.description = d2.description;
+            if (d2.pricing) res.pricing = d2.pricing;
+            if (d2.availability) res.availability = d2.availability;
+            return res.images;
+          }
           return null;
         });
       }
       return cloudImgs;
     }).then(cloudImgs => {
       if (cloudImgs && cloudImgs.length) {
-        res.images = cloudImgs;
         window._currentDetailImages = cloudImgs;
         try {
           localStorage.setItem('unino_res_media_' + res.id, JSON.stringify(cloudImgs));
@@ -20425,10 +20455,6 @@ async function openResidenceDetail(id) {
 }
 
 // ─── Landlord Photo Upload Portal ─────────────────────
-window._landlordPhotos = [];
-window._landlordPendingFiles = [];
-window._selectedLandlordRes = null;
-
 function copyLandlordUploadLink(id) {
   const res = (_residencesData || []).find(r => r.id === id);
   if (!res) return;
@@ -20437,7 +20463,7 @@ function copyLandlordUploadLink(id) {
   const url = `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}`;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(() => {
-      toast('✓ Zero-auth landlord link copied to clipboard!');
+      toast('✓ Private landlord link copied to clipboard!');
     }).catch(() => {
       prompt('Landlord upload link:', url);
     });
@@ -20446,16 +20472,11 @@ function copyLandlordUploadLink(id) {
   }
 }
 
-async function openLandlordPortal(targetId = '') {
-  if (!_residencesData || !_residencesData.length) {
-    await loadResidencesData();
-  }
-  let currentRes = targetId ? (_residencesData || []).find(r => r.id === targetId || r.accreditationNumber === targetId) : null;
-  window._selectedLandlordRes = currentRes;
-  window._landlordPhotos = currentRes?.images ? [...currentRes.images] : [];
-  window._landlordPendingFiles = [];
-
-  renderLandlordPortalModal();
+function openLandlordPortal(targetId = '') {
+  const basePath = window.location.pathname.replace(/index\.html$/, '');
+  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+  const url = targetId ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(targetId)}` : `${window.location.origin}${cleanBase}landlord.html`;
+  window.open(url, '_blank');
 }
 
 function renderLandlordPortalModal() {
@@ -20687,15 +20708,9 @@ function checkLandlordPortalHash() {
   if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
     const params = new URLSearchParams(hash.split('?')[1] || '');
     const resId = params.get('id') || params.get('resId') || '';
-    if (!state.user) {
-      const basePath = window.location.pathname.replace(/index\.html$/, '');
-      const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
-      window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
-      return;
-    }
-    loadResidencesData().then(() => {
-      openLandlordPortal(resId);
-    });
+    const basePath = window.location.pathname.replace(/index\.html$/, '');
+    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+    window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
   }
 }
 

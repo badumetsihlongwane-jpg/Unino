@@ -80,10 +80,10 @@ def build_message(landlord_data):
         upload_link = f"{BASE_URL}?id={urllib.parse.quote(res.get('id', ''))}"
         msg = (
             f"Hello! This is NWU Student Life (Unibo).\n\n"
-            f"Please tap the link below to upload 2-5 photos of your accredited residence *{res_name}* "
-            f"so NWU students can view your rooms on the campus platform:\n\n"
+            f"Here is your official landlord management link for accredited residence *{res_name}*:\n\n"
             f"👉 {upload_link}\n\n"
-            f"✓ No login or password required — simply select photos from your phone gallery and tap Save. Thank you!"
+            f"You can now manage your accommodation profile directly for NWU students: upload/remove room photos, set room availability (available/full), update rental rates & NSFAS options, and edit your student contact details.\n\n"
+            f"✓ Zero login required — tap your secure link above to review and update your listing. Thank you!"
         )
     else:
         names = ", ".join([f"*{r.get('name')}*" for r in res_list[:3]])
@@ -93,10 +93,10 @@ def build_message(landlord_data):
         upload_link = f"{BASE_URL}?id={urllib.parse.quote(first_id)}"
         msg = (
             f"Hello! This is NWU Student Life (Unibo).\n\n"
-            f"Please tap the link below to upload photos for your accredited residences ({names}) "
-            f"so students can view your rooms on the campus platform:\n\n"
+            f"Here is your official landlord management link for your accredited residences ({names}):\n\n"
             f"👉 {upload_link}\n\n"
-            f"✓ No login or password required — simply select photos from your phone gallery and tap Save. Thank you!"
+            f"You can now manage your accommodation profiles on Unibo: upload/remove photos, update room availability, set rental pricing, and ensure NWU students can reach you directly.\n\n"
+            f"✓ Zero login required — tap your secure link above to review and update your listings. Thank you!"
         )
     return msg
 
