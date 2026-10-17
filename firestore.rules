@@ -224,5 +224,11 @@ service cloud.firestore {
       allow create: if isAuthenticated();
       allow read, update, delete: if isAdmin();
     }
+
+    // ─── RESIDENCE MEDIA (ZERO-AUTH LANDLORD UPLOADS) ───
+    match /residence_media/{resId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

@@ -19993,10 +19993,12 @@ window._selectedLandlordRes = null;
 function copyLandlordUploadLink(id) {
   const res = (_residencesData || []).find(r => r.id === id);
   if (!res) return;
-  const url = `${window.location.origin}${window.location.pathname}#upload-res?id=${encodeURIComponent(res.id)}`;
+  const basePath = window.location.pathname.replace(/index\.html$/, '');
+  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+  const url = `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}`;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(() => {
-      toast('✓ Landlord upload link copied to clipboard!');
+      toast('✓ Zero-auth landlord link copied to clipboard!');
     }).catch(() => {
       prompt('Landlord upload link:', url);
     });
@@ -20019,7 +20021,17 @@ async function openLandlordPortal(targetId = '') {
 
 function renderLandlordPortalModal() {
   const res = window._selectedLandlordRes;
-  const shareUrl = res ? `${window.location.origin}${window.location.pathname}#upload-res?id=${encodeURIComponent(res.id)}` : '';
+  const basePath = window.location.pathname.replace(/index\.html$/, '');
+  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+  const shareUrl = res ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}` : `${window.location.origin}${cleanBase}landlord.html`;
+
+  let waHref = '';
+  if (res) {
+    const cleanPhone = (res.whatsapp || res.phone || '').replace(/[^0-9]/g, '');
+    const waNumber = cleanPhone.startsWith('0') ? '27' + cleanPhone.slice(1) : cleanPhone;
+    const waText = encodeURIComponent(`Hello! This is NWU Student Life (Unibo). Please upload 2-5 photos of your accredited residence *${res.name}* here so students can view your rooms on the campus platform: ${shareUrl} (No login or password needed). Thank you!`);
+    waHref = waNumber ? `https://wa.me/${waNumber}?text=${waText}` : '';
+  }
 
   const html = `
     <div class="landlord-portal-sheet">
@@ -20041,10 +20053,12 @@ function renderLandlordPortalModal() {
             <div>📍 ${esc(res.address)} (${esc(res.suburb)})</div>
             <div style="margin-top:2px;font-family:monospace">Accreditation: <strong>${esc(res.accreditationNumber || res.id)}</strong></div>
           </div>
-          <div class="landlord-share-box">
-            <span style="font-size:12px">🔗 Direct Link:</span>
+          <div class="landlord-share-box" style="flex-wrap:wrap;gap:6px">
+            <span style="font-size:12px;font-weight:700">🔗 Zero-Auth Link:</span>
             <input type="text" readonly class="landlord-share-link" value="${esc(shareUrl)}" onclick="this.select()">
             <button type="button" class="btn-sm btn-accent" style="padding:4px 10px;font-size:11px" onclick="copyLandlordUploadLink('${escJs(res.id)}')">Copy</button>
+            ${waHref ? `<a href="${waHref}" target="_blank" class="btn-sm btn-accent" style="padding:4px 10px;font-size:11px;background:#25D366;text-decoration:none">💬 WhatsApp</a>` : ''}
+            <button type="button" class="btn-sm btn-outline" style="padding:4px 10px;font-size:11px" onclick="window.open('${escJs(shareUrl)}', '_blank')">Open Site ↗</button>
           </div>
         </div>
       ` : `
@@ -20234,6 +20248,12 @@ function checkLandlordPortalHash() {
   if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
     const params = new URLSearchParams(hash.split('?')[1] || '');
     const resId = params.get('id') || params.get('resId') || '';
+    if (!state.user) {
+      const basePath = window.location.pathname.replace(/index\.html$/, '');
+      const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+      window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
+      return;
+    }
     loadResidencesData().then(() => {
       openLandlordPortal(resId);
     });

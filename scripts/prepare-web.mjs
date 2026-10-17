@@ -8,6 +8,7 @@ const distDir = join(rootDir, 'dist');
 const includeDirs = ['css', 'js', 'data', 'worker'];
 const includeFiles = [
   'index.html',
+  'landlord.html',
   'favicon.png',
   'unino-icon.png',
   'unino-icon-light.png',
