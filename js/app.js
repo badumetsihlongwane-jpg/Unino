@@ -4130,8 +4130,16 @@ function restoreCachedPageView(page) {
   const cached = _pageViewCache.get(page);
   const content = document.getElementById('content');
   if (!cached || !content) return false;
+  const targetTop = cached.scrollTop || 0;
+  content.style.scrollBehavior = 'auto';
   content.replaceChildren(cached.node);
-  requestAnimationFrame(() => { content.scrollTop = cached.scrollTop || 0; });
+  content.scrollTop = targetTop;
+  requestAnimationFrame(() => {
+    content.scrollTop = targetTop;
+    requestAnimationFrame(() => {
+      content.style.scrollBehavior = '';
+    });
+  });
   return true;
 }
 
@@ -5470,7 +5478,7 @@ function ensureFeedLoadscreen() {
   el.innerHTML = `
     <div class="feed-loadscreen-card">
       <div class="feed-loadscreen-spinner"></div>
-      <span class="feed-loadscreen-text">Curating feed…</span>
+      <span class="feed-loadscreen-text">Refreshing feed…</span>
     </div>
   `;
   document.body.appendChild(el);
@@ -5479,7 +5487,7 @@ function ensureFeedLoadscreen() {
 
 let _feedLoadscreenTimer = null;
 
-function showFeedLoadscreen(text = 'Curating feed…', minDuration = 420) {
+function showFeedLoadscreen(text = 'Refreshing feed…', minDuration = 420) {
   const el = ensureFeedLoadscreen();
   const label = el.querySelector('.feed-loadscreen-text');
   if (label) label.textContent = text;
@@ -5508,28 +5516,133 @@ function clearFeedPostFocus(event, postId) {
   _feedFocusedPostId = '';
   _feedFocusLockUntil = 0;
   _pendingFeedFocusPostId = '';
-  const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-  if (card) {
-    card.classList.remove('post-spotlight-active', 'post-focus-flash');
-    const banner = card.querySelector('.post-spotlight-banner');
-    if (banner) banner.remove();
-  }
 }
 
-function triggerFeedInstantRefresh(btn) {
+async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previousOrder = null, isNearTop = true } = {}) {
+  const uid = state.user?.uid || '';
+  const myFriends = state.profile?.friends || [];
+  const likedTagPrefs = new Set();
+  const likedModulePrefs = new Set(normalizeModules(state.profile?.modules || []));
+  (state.posts || []).forEach(existingPost => {
+    if ((existingPost.likes || []).includes(uid)) {
+      normalizeModules(existingPost.moduleTags || []).forEach(tag => likedModulePrefs.add(tag));
+      getPostHashTags(existingPost).forEach(tag => likedTagPrefs.add(tag));
+    }
+  });
+
+  await ensureUserContextCache(posts.map(post => post.authorId));
+  const moderatedVisible = posts.filter(post => {
+    if (isPostShadowHiddenForViewer(post, uid)) return false;
+    if (post.authorId === uid) return true;
+    if (_isAdmin) return true;
+    const authorContext = _userContextCache[post.authorId] || {};
+    return !authorContext.shadowMuted;
+  });
+
+  // Preserve currently focused post from state.posts if it is an older post not in snapshot
+  if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
+    const hasFocused = moderatedVisible.some(p => p.id === _feedFocusedPostId);
+    if (!hasFocused) {
+      const preserved = (state.posts || []).find(p => p.id === _feedFocusedPostId);
+      if (preserved) moderatedVisible.unshift(preserved);
+    }
+  }
+
+  // Multi-signal campus recommendation algorithm
+  const seenMap = getSeenPosts();
+  const myRegisteredModules = new Set(normalizeModules(state.profile?.modules || []));
+  const myMajor = (state.profile?.major || '').trim().toLowerCase();
+
+  const scored = moderatedVisible.map(p => {
+    const likes = (p.likes || []).length;
+    const comments = p.commentsCount || 0;
+    const isFriend = myFriends.includes(p.authorId);
+    const authorContext = _userContextCache[p.authorId] || null;
+    const nearbyBoost = authorContext ? getNearbySignal(state.profile, authorContext).score * 4 : 0;
+
+    // 1. Module relevance: +30 pts per enrolled module match
+    const postModules = normalizeModules(p.moduleTags || []);
+    const enrolledMatches = postModules.filter(m => myRegisteredModules.has(m)).length;
+    const moduleScore = enrolledMatches * 30;
+
+    // 2. Liked modules & tags history
+    const sharedLikedModules = postModules.filter(tag => likedModulePrefs.has(tag)).length;
+    const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
+    const interestBoost = sharedLikedModules * 10 + sharedTags * 5;
+
+    // 3. Faculty / Degree affinity: +20 pts if author shares major
+    let majorBoost = 0;
+    if (myMajor && authorContext?.major && authorContext.major.trim().toLowerCase() === myMajor) {
+      majorBoost = 20;
+    }
+
+    // 4. Social connection: +25 pts for friends
+    const friendBoost = isFriend ? 25 : 0;
+
+    // 5. Freshness Half-Life Decay: smooth power decay over 12-24h
+    const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
+    const freshnessScore = (1 / (1 + Math.pow(Math.max(0, ageHrs) / 12, 1.4))) * 35;
+
+    // 6. Engagement Velocity (trending discussions bubble up)
+    const engagementVelocity = ((likes * 2.5 + comments * 4) / Math.sqrt(Math.max(0, ageHrs) + 1)) * 1.5;
+
+    // 7. Exploration Perturbation per refresh epoch (smoothly cycles conversations on refresh)
+    const randomFactor = sessionSeed(p.id) * 20;
+
+    // 8. Seen-post demotion (-12 pts per view, up to 36)
+    const seenEntry = seenMap[p.id];
+    const seenPenalty = seenEntry ? Math.min(seenEntry.v * 12, 36) : 0;
+
+    const totalScore = moduleScore + majorBoost + friendBoost + nearbyBoost + interestBoost + freshnessScore + engagementVelocity + randomFactor - seenPenalty;
+    return { ...p, _score: totalScore };
+  });
+
+  if (!forceReorder && previousOrder && previousOrder.size > 0 && !isNearTop) {
+    scored.sort((a, b) => {
+      const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
+      const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1 && bi === -1) {
+        if (b._score > a._score + 25) return 1;
+        return -1;
+      }
+      if (ai === -1 && bi !== -1) {
+        if (a._score > b._score + 25) return -1;
+        return 1;
+      }
+      return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+    });
+  } else {
+    scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  }
+
+  // Pin focused post at index 0 if active
+  if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
+    const fIdx = scored.findIndex(p => p.id === _feedFocusedPostId);
+    if (fIdx > 0) {
+      const [focusedPost] = scored.splice(fIdx, 1);
+      scored.unshift(focusedPost);
+    }
+  }
+
+  return scored;
+}
+
+async function triggerFeedInstantRefresh(btn) {
   try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) {}
   if (btn) {
     btn.classList.add('nav-pulse');
     setTimeout(() => btn.classList.remove('nav-pulse'), 350);
   }
 
-  showFeedLoadscreen('Curating fresh feed…', 450);
+  showFeedLoadscreen('Refreshing feed…', 450);
 
   const contentEl = document.getElementById('content');
   if (contentEl) {
     // Instantly reset scroll to top behind loadscreen without forcing smooth scrolling
     contentEl.style.scrollBehavior = 'auto';
     contentEl.scrollTop = 0;
+    _feedScrollTop = 0;
     requestAnimationFrame(() => {
       contentEl.style.scrollBehavior = '';
     });
@@ -5543,12 +5656,12 @@ function triggerFeedInstantRefresh(btn) {
   const searchInput = $('#feed-search-input');
   if (searchInput) searchInput.value = '';
 
-  resetFeedSeeds();
+  resetFeedSeeds(); // Resets epoch seeds so sessionSeed produces new randomFactor for every post!
 
   const existingBanner = document.getElementById('feed-refresh-banner');
   if (existingBanner) {
     existingBanner.className = 'feed-refresh-banner';
-    existingBanner.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span><span>Curating feed…</span>';
+    existingBanner.innerHTML = '<span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span><span>Refreshing feed…</span>';
     existingBanner.style.opacity = '1';
     existingBanner.style.transform = 'none';
     existingBanner.style.display = 'flex';
@@ -5559,9 +5672,23 @@ function triggerFeedInstantRefresh(btn) {
   loadCampusEvents().catch(() => {});
   loadFeedLiveSpotlight();
 
-  // Soft refresh: re-render current posts without blanking out screen
-  if (Array.isArray(state.posts) && state.posts.length) {
+  try {
+    const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(80).get();
+    const freshDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const activePosts = freshDocs.filter(post => {
+      const expiry = post.locationPing?.expiresAt?.toDate ? post.locationPing.expiresAt.toDate() : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
+      return !(post.locationPing?.enabled && expiry && expiry.getTime() <= Date.now());
+    });
+    const ranked = await curateAndRankFeedPosts(activePosts, { forceReorder: true });
+    state.posts = ranked;
     renderFeedResults(state.posts);
+  } catch (err) {
+    console.error('Instant refresh fetch error:', err);
+    if (Array.isArray(state.posts) && state.posts.length) {
+      const ranked = await curateAndRankFeedPosts(state.posts, { forceReorder: true });
+      state.posts = ranked;
+      renderFeedResults(state.posts);
+    }
   }
 
   setTimeout(() => {
@@ -6081,80 +6208,6 @@ function renderFeed() {
 
       const previousPosts = state.posts || [];
       const previousOrder = new Map(previousPosts.map((post, index) => [post.id, index]));
-      const likedTagPrefs = new Set();
-      const likedModulePrefs = new Set(normalizeModules(state.profile.modules || []));
-      (state.posts || []).forEach(existingPost => {
-        if ((existingPost.likes || []).includes(uid)) {
-          normalizeModules(existingPost.moduleTags || []).forEach(tag => likedModulePrefs.add(tag));
-          getPostHashTags(existingPost).forEach(tag => likedTagPrefs.add(tag));
-        }
-      });
-      await ensureUserContextCache(visible.map(post => post.authorId));
-      const moderatedVisible = visible.filter(post => {
-        const authorContext = _userContextCache[post.authorId] || {};
-        if (post.authorId === uid) return true;
-        if (_isAdmin) return true;
-        return !authorContext.shadowMuted;
-      });
-
-      // Preserve currently focused post from previousPosts if it is an older post not in snapshot
-      if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
-        const hasFocused = moderatedVisible.some(p => p.id === _feedFocusedPostId);
-        if (!hasFocused) {
-          const preserved = (previousPosts || []).find(p => p.id === _feedFocusedPostId);
-          if (preserved) moderatedVisible.unshift(preserved);
-        }
-      }
-
-      // Multi-signal campus recommendation algorithm
-      const seenMap = getSeenPosts();
-      const myRegisteredModules = new Set(normalizeModules(state.profile.modules || []));
-      const myMajor = (state.profile.major || '').trim().toLowerCase();
-
-      const scored = moderatedVisible.map(p => {
-        const likes = (p.likes || []).length;
-        const comments = p.commentsCount || 0;
-        const isFriend = myFriends.includes(p.authorId);
-        const authorContext = _userContextCache[p.authorId] || null;
-        const nearbyBoost = authorContext ? getNearbySignal(state.profile, authorContext).score * 4 : 0;
-
-        // 1. Module relevance: +30 pts per enrolled module match
-        const postModules = normalizeModules(p.moduleTags || []);
-        const enrolledMatches = postModules.filter(m => myRegisteredModules.has(m)).length;
-        const moduleScore = enrolledMatches * 30;
-
-        // 2. Liked modules & tags history
-        const sharedLikedModules = postModules.filter(tag => likedModulePrefs.has(tag)).length;
-        const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
-        const interestBoost = sharedLikedModules * 10 + sharedTags * 5;
-
-        // 3. Faculty / Degree affinity: +20 pts if author shares major
-        let majorBoost = 0;
-        if (myMajor && authorContext?.major && authorContext.major.trim().toLowerCase() === myMajor) {
-          majorBoost = 20;
-        }
-
-        // 4. Social connection: +25 pts for friends
-        const friendBoost = isFriend ? 25 : 0;
-
-        // 5. Freshness Half-Life Decay: smooth power decay over 12-24h
-        const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
-        const freshnessScore = (1 / (1 + Math.pow(Math.max(0, ageHrs) / 12, 1.4))) * 35;
-
-        // 6. Engagement Velocity (trending discussions bubble up)
-        const engagementVelocity = ((likes * 2.5 + comments * 4) / Math.sqrt(Math.max(0, ageHrs) + 1)) * 1.5;
-
-        // 7. Exploration Perturbation per refresh epoch (smoothly cycles conversations on refresh)
-        const randomFactor = sessionSeed(p.id) * 20;
-
-        // 8. Seen-post demotion (-12 pts per view, up to 36)
-        const seenEntry = seenMap[p.id];
-        const seenPenalty = seenEntry ? Math.min(seenEntry.v * 12, 36) : 0;
-
-        const totalScore = moduleScore + majorBoost + friendBoost + nearbyBoost + interestBoost + freshnessScore + engagementVelocity + randomFactor - seenPenalty;
-        return { ...p, _score: totalScore };
-      });
-
       const contentEl = document.getElementById('content');
       const isNearTop = !contentEl || contentEl.scrollTop < 60;
 
@@ -6173,36 +6226,11 @@ function renderFeed() {
         }
       }
 
-      if (!_feedIsRefreshing && previousOrder.size > 0 && !isNearTop) {
-        // While scrolled down reading, preserve existing post positions to eliminate jumps,
-        // while allowing newly approved high-ranking posts to slot in below visible viewport
-        scored.sort((a, b) => {
-          const ai = previousOrder.has(a.id) ? previousOrder.get(a.id) : -1;
-          const bi = previousOrder.has(b.id) ? previousOrder.get(b.id) : -1;
-          if (ai !== -1 && bi !== -1) return ai - bi;
-          if (ai !== -1 && bi === -1) {
-            if (b._score > a._score + 25) return 1;
-            return -1;
-          }
-          if (ai === -1 && bi !== -1) {
-            if (a._score > b._score + 25) return -1;
-            return 1;
-          }
-          return b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-        });
-      } else {
-        // Near top or explicit refresh: rank directly by multi-signal campus recommendation algorithm
-        scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      }
-
-      // Always keep focused post pinned at index 0 in realtime
-      if (_feedFocusedPostId && Date.now() < _feedFocusLockUntil) {
-        const fIdx = scored.findIndex(p => p.id === _feedFocusedPostId);
-        if (fIdx > 0) {
-          const [focusedPost] = scored.splice(fIdx, 1);
-          scored.unshift(focusedPost);
-        }
-      }
+      const scored = await curateAndRankFeedPosts(activePosts, {
+        forceReorder: _feedIsRefreshing,
+        previousOrder,
+        isNearTop
+      });
 
       const prevIds = previousPosts.map(post => post.id).join(',');
       const nextIds = scored.map(post => post.id).join(',');
@@ -6280,7 +6308,11 @@ function renderFeed() {
               }
             }
           } else if (!hasPendingFeedFocus && restoreScroll !== null) {
+            contentEl.style.scrollBehavior = 'auto';
             contentEl.scrollTop = restoreScroll;
+            requestAnimationFrame(() => {
+              contentEl.style.scrollBehavior = '';
+            });
           }
           c.style.opacity = '';
           _feedRestorePendingPaint = false;
@@ -7355,15 +7387,8 @@ function renderPosts(posts) {
       videoPlayerData = createVideoPlayer(mediaURL);
       _videoPlayers.push(videoPlayerData);
     }
-    const isFocusedSpotlight = post.id === _feedFocusedPostId && Date.now() < _feedFocusLockUntil;
     return `
-      <div class="post-card ${isFocusedSpotlight ? 'post-spotlight-active' : ''}" id="post-${post.id}" data-post-id="${post.id}">
-        ${isFocusedSpotlight ? `
-          <div class="post-spotlight-banner">
-            <span class="post-spotlight-tag">🎯 Focused Post</span>
-            <button class="post-spotlight-dismiss-btn" onclick="clearFeedPostFocus(event, '${post.id}')" title="Dismiss focus">Dismiss</button>
-          </div>
-        ` : ''}
+      <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
           <span>Reposted by ${esc(displayAuthorName)}</span>
@@ -16161,6 +16186,7 @@ async function viewPost(pid, options = {}) {
     if (contentEl) {
       contentEl.style.scrollBehavior = 'auto';
       contentEl.scrollTop = 0;
+      _feedScrollTop = 0;
       requestAnimationFrame(() => {
         contentEl.style.scrollBehavior = '';
       });
