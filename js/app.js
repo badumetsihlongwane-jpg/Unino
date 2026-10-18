@@ -5861,6 +5861,10 @@ function setupNav() {
             state.lastMsgTab = 'dm';
             showScreen('app');
             navigate('chat', { refresh: true, pushHistory: false });
+          } else {
+            const contentEl = document.getElementById('content');
+            if (contentEl) contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+            loadDMList();
           }
         }
         return;
@@ -6046,6 +6050,10 @@ function navigate(page, options = {}) {
   if (restoreCached && restoreCachedPageView(page)) {
     if (page === 'feed') requestAnimationFrame(() => setupFeedVideoAutoplay());
     if (page === 'explore') setTimeout(() => { if (state.page === 'explore') renderExploreView(); }, 0);
+    if (page === 'chat') {
+      bindMessagesScrollEffects();
+      refreshCurrentMessageList();
+    }
   } else {
     switch (page) {
       case 'feed': renderFeed(); break;
@@ -13722,8 +13730,8 @@ function refreshCurrentMessageList() {
 function bindMessagesScrollEffects() {
   const page = document.querySelector('.messages-page');
   const host = document.getElementById('msg-tab-content');
+  const contentEl = document.getElementById('content');
   if (!page || !host || host.dataset.storyScrollBound === '1') return;
-  let lastTop = 0;
   let lastObservedTop = 0;
   let collapsed = false;
   let ticking = false;
@@ -13732,25 +13740,38 @@ function bindMessagesScrollEffects() {
   const applyState = (st) => {
     if (state.lastMsgTab === 'groups') {
       page.classList.add('stories-collapsed');
-      lastTop = st;
       return;
     }
     collapsed = st > 80;
     page.classList.toggle('stories-collapsed', collapsed);
-    lastTop = st;
   };
 
-  host.addEventListener('scroll', e => {
-    const target = e.target;
-    if (!(target instanceof HTMLElement) || !target.classList.contains('convo-list')) return;
-    lastObservedTop = target.scrollTop || 0;
+  const scheduleUpdate = (st) => {
+    lastObservedTop = st;
     if (ticking) return;
     ticking = true;
     requestAnimationFrame(() => {
       applyState(lastObservedTop);
       ticking = false;
     });
+  };
+
+  host.addEventListener('scroll', e => {
+    const target = e.target;
+    if (target instanceof HTMLElement && target.classList.contains('convo-list')) {
+      scheduleUpdate(target.scrollTop || 0);
+    }
   }, true);
+
+  if (contentEl && !contentEl.dataset.msgScrollBound) {
+    contentEl.dataset.msgScrollBound = '1';
+    contentEl.addEventListener('scroll', () => {
+      if (state.page === 'chat') {
+        scheduleUpdate(contentEl.scrollTop || 0);
+      }
+    }, { passive: true });
+  }
+
   host.dataset.storyScrollBound = '1';
 }
 
