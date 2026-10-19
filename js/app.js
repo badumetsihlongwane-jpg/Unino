@@ -5977,16 +5977,6 @@ function _updateDMTabBadge() {
 function setupHeader() {
   const el = $('#hdr-avatar');
   if (!el || !state.profile) return;
-  if (isNwuDemoActive()) {
-    el.innerHTML = `<div class="header-nwu-avatar" title="NWU Institutional Preview"><span class="header-nwu-tag">NWU</span><span class="header-presence-dot is-online"></span></div>`;
-    el.style.background = 'transparent';
-    el.classList.add('has-presence');
-    el.onclick = event => {
-      event.stopPropagation();
-      openNwuDemoProfileModal();
-    };
-    return;
-  }
   const p = state.profile;
   if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot"></span>`; el.style.background = 'transparent'; }
   else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot"></span>`; el.style.background = colorFor(p.displayName); }
@@ -6024,10 +6014,14 @@ function openHeaderProfileMenu() {
   menu.className = 'header-profile-menu';
   const isOnline = state.status === 'online';
   const locEnabled = isLocationSharingEnabled(state.profile);
+  const isDemo = isNwuDemoActive();
   menu.innerHTML = `
     <div class="header-profile-summary">
       <div class="header-profile-menu-avatar">${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
-      <div><strong>${esc(state.profile.displayName || 'Student')}</strong><span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span></div>
+      <div>
+        <strong>${esc(state.profile.displayName || 'Student')} ${isDemo ? '<span style="font-size:10px;padding:2px 6px;background:rgba(95,39,205,0.15);color:#5F27CD;border-radius:6px;font-weight:700">GUEST</span>' : ''}</strong>
+        <span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span>
+      </div>
     </div>
     <button type="button" data-action="profile"><span>◎</span> View profile</button>
     <button type="button" data-action="timetable"><span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg></span> My Timetable</button>
@@ -6035,7 +6029,7 @@ function openHeaderProfileMenu() {
     <button type="button" data-action="anon-toggle"><span><svg viewBox="0 0 24 24"><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg></span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
     <button type="button" data-action="presence"><span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/><circle cx="12" cy="12" r="9"/></svg></span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
     <button type="button" data-action="residences"><span><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg></span> NWU Residences</button>
-    <button type="button" data-action="signout" class="profile-menu-danger"><span><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span> Sign out</button>
+    <button type="button" data-action="signout" class="profile-menu-danger"><span><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span> ${isDemo ? 'Exit Demo / Sign In' : 'Sign out'}</button>
   `;
   host.appendChild(menu);
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
@@ -6058,7 +6052,14 @@ function openHeaderProfileMenu() {
     toast(state.manualStatus === 'offline' ? 'You are offline' : 'You are online');
   });
   menu.querySelector('[data-action="residences"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openResidencesView(); });
-  menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); auth.signOut().then(() => window.location.reload()); });
+  menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => {
+    closeHeaderProfileMenu();
+    if (isNwuDemoActive()) {
+      exitNwuDemoMode();
+    } else {
+      auth.signOut().then(() => window.location.reload());
+    }
+  });
   _headerProfileMenuClose = event => {
     if (!menu.contains(event.target) && event.target !== $('#hdr-avatar')) closeHeaderProfileMenu();
   };
@@ -18060,6 +18061,8 @@ async function openProfile(uid) {
     try {
       if (typeof DEMO_STUDENT_PROFILES !== 'undefined' && DEMO_STUDENT_PROFILES[uid]) {
         posts = DEMO_STUDENT_PROFILES[uid].demoPosts || [];
+      } else if (isNwuDemoActive() && isMe) {
+        posts = user.demoPosts || [];
       } else {
         const pSnap = await db.collection('posts').where('authorId', '==', uid).limit(20).get();
         posts = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -18110,8 +18113,9 @@ async function openProfile(uid) {
         <div class="profile-actions">
           ${isMe
             ? (isNwuDemoActive()
-                ? `<button class="btn-primary" onclick="openNwuDemoProfileModal()">Explore Sample Student Profiles</button>
-                   <button class="btn-secondary" onclick="exitNwuDemoMode()">Exit Demo / Login</button>`
+                ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+                   <button class="btn-secondary" onclick="openNwuDemoProfileModal()">Sample Profiles</button>
+                   <button class="btn-outline" onclick="exitNwuDemoMode()">Exit Demo / Login</button>`
                 : `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                    <button class="btn-secondary" onclick="doLogout()">Log Out</button>`)
             : (isNwuDemoActive()
@@ -19228,6 +19232,17 @@ function editProfile() {
     }
 
     try {
+      if (isNwuDemoActive()) {
+        if (newPhotoFile) {
+          try { updates.photoURL = URL.createObjectURL(newPhotoFile); } catch (_) {}
+        }
+        Object.assign(state.profile, updates);
+        setupHeader();
+        closeModal();
+        toast('Profile updated (Guest Preview)!');
+        openProfile(state.user.uid);
+        return;
+      }
       if (newPhotoFile) {
         updates.photoURL = await uploadToR2(newPhotoFile, 'profile');
       }
