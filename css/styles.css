@@ -12452,3 +12452,252 @@ body {
   color: var(--text-primary);
   letter-spacing: -0.2px;
 }
+
+/* ── NWU Institutional Demo / Faculty Preview ───────────── */
+.header-nwu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5F27CD 0%, #341f97 100%);
+  box-shadow: 0 2px 8px rgba(95, 39, 205, 0.35);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+.header-nwu-tag {
+  color: #FFFFFF;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.nwu-demo-feed-banner {
+  margin: 8px 16px 14px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(95, 39, 205, 0.08) 0%, rgba(95, 39, 205, 0.02) 100%);
+  border: 1px solid rgba(95, 39, 205, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.nwu-demo-banner-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5F27CD;
+  background: rgba(95, 39, 205, 0.12);
+  padding: 3px 8px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+[data-theme="dark"] .nwu-demo-banner-pill {
+  color: #a29bfe;
+  background: rgba(162, 155, 254, 0.15);
+}
+.nwu-demo-banner-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.nwu-demo-banner-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+.nwu-demo-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nwu-demo-chat-notice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 12px 16px;
+  padding: 12px 14px;
+  background: rgba(95, 39, 205, 0.06);
+  border: 1px solid rgba(95, 39, 205, 0.2);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.nwu-demo-chat-notice strong {
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 2px;
+}
+.nwu-demo-notice-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.nwu-demo-modal-body {
+  padding: 16px 20px 24px;
+}
+.nwu-demo-modal-intro {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--bg-tertiary);
+  padding: 14px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.nwu-demo-modal-icon {
+  font-size: 26px;
+}
+.nwu-demo-modal-intro h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.nwu-demo-modal-intro p {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.nwu-demo-badge-pill {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5F27CD;
+  background: rgba(95, 39, 205, 0.12);
+  padding: 4px 10px;
+  border-radius: 14px;
+}
+[data-theme="dark"] .nwu-demo-badge-pill {
+  color: #a29bfe;
+  background: rgba(162, 155, 254, 0.18);
+}
+.nwu-demo-section-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.nwu-demo-section-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+.nwu-demo-profiles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nwu-demo-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.nwu-demo-profile-card:hover {
+  border-color: #5F27CD;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.nwu-demo-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.nwu-demo-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.nwu-demo-card-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.verified-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #3B82F6;
+  color: #FFFFFF;
+  font-size: 10px;
+  font-weight: 800;
+}
+.nwu-demo-card-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+.nwu-demo-card-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.module-chip-mini {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #5F27CD;
+  background: rgba(95, 39, 205, 0.08);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+[data-theme="dark"] .module-chip-mini {
+  color: #a29bfe;
+  background: rgba(162, 155, 254, 0.12);
+}
+.nwu-demo-card-arrow {
+  font-size: 16px;
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+.nwu-demo-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+@media (max-width: 480px) {
+  .nwu-demo-actions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.nwu-demo-quick-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.nwu-demo-quick-btn:hover {
+  border-color: #5F27CD;
+  background: rgba(95, 39, 205, 0.04);
+}
+.nwu-demo-quick-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.nwu-demo-quick-btn strong {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.nwu-demo-quick-btn span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}

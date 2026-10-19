@@ -103,6 +103,489 @@ let _feedInlineSuggestedUserIds = new Set();
 let _postTopCommentCache = new Map();
 let _feedPeopleSuggestLastQuery = '';
 let _headerProfileMenuClose = null;
+
+// ══════════════════════════════════════════════════
+//  NWU INSTITUTIONAL DEMO & FACULTY PREVIEW MODE
+// ══════════════════════════════════════════════════
+let _isNwuDemoMode = false;
+
+function isNwuDemoActive() {
+  if (_isNwuDemoMode) return true;
+  const hash = (window.location.hash || '').toLowerCase();
+  const search = (window.location.search || '').toLowerCase();
+  const match = hash.includes('nwu_demo') || hash.includes('nwu-demo') || hash === '#demo' ||
+                search.includes('nwu_demo') || search.includes('nwu-demo') || search.includes('demo=nwu') || search.includes('demo=1');
+  if (match) {
+    try { sessionStorage.setItem('unino_nwu_demo_mode', 'true'); } catch (_) {}
+    _isNwuDemoMode = true;
+    return true;
+  }
+  try {
+    if (sessionStorage.getItem('unino_nwu_demo_mode') === 'true') {
+      _isNwuDemoMode = true;
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function exitNwuDemoMode() {
+  _isNwuDemoMode = false;
+  try { sessionStorage.removeItem('unino_nwu_demo_mode'); } catch (_) {}
+  try {
+    const url = new URL(window.location.href);
+    url.hash = '';
+    url.searchParams.delete('nwu_demo');
+    url.searchParams.delete('demo');
+    window.history.replaceState(null, '', url.pathname + (url.search || ''));
+  } catch (_) {}
+  state.user = null;
+  state.profile = null;
+  unsub();
+  showScreen('auth-screen');
+  toast('Exited institutional preview mode.');
+}
+window.exitNwuDemoMode = exitNwuDemoMode;
+
+const DEMO_STUDENT_PROFILES = {
+  nwu_katlego_molefe: {
+    id: 'nwu_katlego_molefe',
+    uid: 'nwu_katlego_molefe',
+    displayName: 'Katlego Molefe',
+    firstName: 'Katlego',
+    lastName: 'Molefe',
+    email: '38291048@mynwu.ac.za',
+    university: 'NWU',
+    campus: 'Potchefstroom',
+    address: 'Patria Men’s Residence',
+    major: 'BSc Information Technology',
+    year: '3rd Year',
+    gender: 'Male',
+    bio: '3rd Year IT student. CMPG121 & CMPG211 peer tutor. Passionate about software architecture and student mentorship.',
+    modules: ['CMPG121', 'CMPG211', 'MTHS111', 'ITSP311'],
+    status: 'online',
+    manualStatus: 'online',
+    isVerified: true,
+    manualVerified: true,
+    friends: ['nwu_anke_vandermerwe', 'nwu_sipho_dlamini'],
+    geoLat: -26.6842,
+    geoLng: 27.0956,
+    geoSource: 'manual',
+    locationName: 'Ferdinand Postma Library',
+    photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop&crop=faces',
+    demoPosts: [
+      {
+        id: 'post_demo_katlego_1',
+        authorId: 'nwu_katlego_molefe',
+        authorName: 'Katlego Molefe',
+        authorUni: 'NWU',
+        content: 'CMPG121 tutorial prep session on Thursday 16:00 in building G3 lab 112. Bring your recursive algorithm questions! 💻📚 #CMPG121',
+        createdAt: { seconds: Math.floor(Date.now() / 1000) - 3600 * 2 },
+        likes: ['nwu_anke_vandermerwe', 'nwu_faculty_guest'],
+        likesCount: 14,
+        commentsCount: 3,
+        moduleTags: ['CMPG121'],
+        visibility: 'public'
+      }
+    ]
+  },
+  nwu_anke_vandermerwe: {
+    id: 'nwu_anke_vandermerwe',
+    uid: 'nwu_anke_vandermerwe',
+    displayName: 'Anke van der Merwe',
+    firstName: 'Anke',
+    lastName: 'van der Merwe',
+    email: '41209384@mynwu.ac.za',
+    university: 'NWU',
+    campus: 'Potchefstroom',
+    address: 'Heide Dameskoshuis',
+    major: 'BCom Chartered Accountancy',
+    year: '2nd Year',
+    gender: 'Female',
+    bio: 'Accounting student & Golden Key member. Balancing balance sheets, coffee at Eish!, and campus runs.',
+    modules: ['ACCF111', 'BMAN111', 'ECON112', 'STAT111'],
+    status: 'online',
+    manualStatus: 'online',
+    isVerified: true,
+    manualVerified: true,
+    friends: ['nwu_katlego_molefe'],
+    geoLat: -26.6835,
+    geoLng: 27.0940,
+    geoSource: 'manual',
+    locationName: 'Eish! Student Centre',
+    photoURL: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&h=300&fit=crop&crop=faces',
+    demoPosts: [
+      {
+        id: 'post_demo_anke_1',
+        authorId: 'nwu_anke_vandermerwe',
+        authorName: 'Anke van der Merwe',
+        authorUni: 'NWU',
+        content: 'Anyone have the updated ACCF111 past paper questions for trial exams? Can swap for completed summaries! 📊☕ #ACCF111',
+        createdAt: { seconds: Math.floor(Date.now() / 1000) - 3600 * 5 },
+        likes: ['nwu_katlego_molefe'],
+        likesCount: 9,
+        commentsCount: 2,
+        moduleTags: ['ACCF111'],
+        visibility: 'public'
+      }
+    ]
+  },
+  nwu_sipho_dlamini: {
+    id: 'nwu_sipho_dlamini',
+    uid: 'nwu_sipho_dlamini',
+    displayName: 'Sipho Dlamini',
+    firstName: 'Sipho',
+    lastName: 'Dlamini',
+    email: '34901823@mynwu.ac.za',
+    university: 'NWU',
+    campus: 'Potchefstroom',
+    address: 'Veritas Residence',
+    major: 'LLB Faculty of Law',
+    year: '4th Year',
+    gender: 'Male',
+    bio: 'Final year Law candidate. Moot Court finalist & Law Society academic representative.',
+    modules: ['JURI111', 'JURI213', 'JURI315', 'IURI411'],
+    status: 'study',
+    manualStatus: 'study',
+    isVerified: true,
+    manualVerified: true,
+    friends: ['nwu_katlego_molefe'],
+    geoLat: -26.6825,
+    geoLng: 27.0935,
+    geoSource: 'manual',
+    locationName: 'Faculty of Law Building',
+    photoURL: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop&crop=faces',
+    demoPosts: []
+  },
+  nwu_zandile_khumalo: {
+    id: 'nwu_zandile_khumalo',
+    uid: 'nwu_zandile_khumalo',
+    displayName: 'Zandile Khumalo',
+    firstName: 'Zandile',
+    lastName: 'Khumalo',
+    email: '50198421@mynwu.ac.za',
+    university: 'NWU',
+    campus: 'Potchefstroom',
+    address: 'Wag-\'n-Bietjie Res',
+    major: 'BEng Mechanical Engineering',
+    year: '1st Year',
+    gender: 'Female',
+    bio: 'First year engineering student exploring robotics and CAD design. Loving Potch campus life!',
+    modules: ['MTHS111', 'INGN111', 'FSKS111', 'CMPG115'],
+    status: 'online',
+    manualStatus: 'online',
+    isVerified: true,
+    manualVerified: true,
+    friends: [],
+    geoLat: -26.6808,
+    geoLng: 27.0920,
+    geoSource: 'manual',
+    locationName: 'Faculty of Engineering',
+    photoURL: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&h=300&fit=crop&crop=faces',
+    demoPosts: []
+  }
+};
+
+const NWU_DEMO_GUEST_PROFILE = {
+  id: 'nwu_faculty_guest',
+  uid: 'nwu_faculty_guest',
+  displayName: 'NWU Faculty Observer',
+  firstName: 'Faculty',
+  lastName: 'Observer',
+  email: 'faculty.review@mynwu.ac.za',
+  university: 'NWU',
+  campus: 'Potchefstroom',
+  address: 'Potchefstroom Campus',
+  major: 'Academic Affairs & Faculty Observer',
+  year: 'Staff / Faculty',
+  bio: 'Official North-West University institutional evaluation session. Exploring Unino student success modules, safety radar, and peer learning networks.',
+  modules: ['CMPG121', 'BMAN111', 'ACCF111', 'JURI111', 'MTHS111'],
+  status: 'online',
+  manualStatus: 'online',
+  manualVerified: true,
+  isVerified: true,
+  friends: ['nwu_katlego_molefe'],
+  friendRequests: [],
+  sentRequests: [],
+  blockedUsers: [],
+  blockedBy: [],
+  allowAnonymousMessages: false,
+  showFriendsCount: false,
+  joinedAt: { seconds: Math.floor(Date.now() / 1000) },
+  photoURL: ''
+};
+
+function initNwuDemoSession() {
+  _sessionRecoveryInFlight = false;
+  _isNwuDemoMode = true;
+  _isAdmin = false;
+
+  state.user = {
+    uid: 'nwu_faculty_guest',
+    displayName: 'NWU Faculty Observer',
+    email: 'faculty.review@mynwu.ac.za',
+    emailVerified: true,
+    isAnonymous: true,
+    isDemo: true,
+    getIdToken: async () => ''
+  };
+
+  state.profile = { ...NWU_DEMO_GUEST_PROFILE };
+  state.manualStatus = 'online';
+  state.status = 'online';
+  VERIFIED_UIDS.add('nwu_faculty_guest');
+  VERIFIED_UIDS.add('nwu_katlego_molefe');
+  VERIFIED_UIDS.add('nwu_anke_vandermerwe');
+  VERIFIED_UIDS.add('nwu_sipho_dlamini');
+  VERIFIED_UIDS.add('nwu_zandile_khumalo');
+
+  enterApp();
+  markBootReady('NWU Institutional Preview');
+}
+window.initNwuDemoSession = initNwuDemoSession;
+
+function listenForDemoNotifications() {
+  _notifications = [
+    {
+      id: 'demo_notif_1',
+      title: 'NWU Institutional Preview',
+      body: 'Welcome to Unino! You are exploring the live campus platform in staff evaluation mode.',
+      createdAt: { seconds: Math.floor(Date.now() / 1000) - 300 },
+      read: false,
+      type: 'system'
+    },
+    {
+      id: 'demo_notif_2',
+      title: 'CMPG121 Study Squad',
+      body: 'Katlego Molefe shared tutorial preparation slides for CMPG121.',
+      createdAt: { seconds: Math.floor(Date.now() / 1000) - 1800 },
+      read: true,
+      type: 'group'
+    }
+  ];
+  _dmUnreadCount = 1;
+  refreshChatBadge();
+  updateNotifBadge();
+}
+
+function openNwuDemoProfileModal() {
+  const modalHtml = `
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="nwu-demo-badge-pill">NWU Institutional Preview</span>
+      </div>
+      <button class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body nwu-demo-modal-body">
+      <div class="nwu-demo-modal-intro">
+        <div class="nwu-demo-modal-icon">🏛️</div>
+        <div>
+          <h3>NWU Faculty & Staff Evaluation</h3>
+          <p>You bypassed student login to review Unino's live campus experience. Under POPIA compliance, you are browsing in guest mode without a personal student account.</p>
+        </div>
+      </div>
+
+      <div class="nwu-demo-section-title">Explore Sample Student Profiles</div>
+      <p class="nwu-demo-section-sub">Tap any profile to view their academic modules, verified university badge, residences, and peer study groups:</p>
+      
+      <div class="nwu-demo-profiles-list">
+        <div class="nwu-demo-profile-card" onclick="closeModal(); openProfile('nwu_katlego_molefe');">
+          <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=faces" class="nwu-demo-card-avatar" alt="">
+          <div class="nwu-demo-card-info">
+            <div class="nwu-demo-card-name">Katlego Molefe <span class="verified-badge-inline">✓</span></div>
+            <div class="nwu-demo-card-sub">BSc Information Technology · 3rd Year</div>
+            <div class="nwu-demo-card-tags">
+              <span class="module-chip-mini">CMPG121 Tutor</span>
+              <span class="module-chip-mini">Patria Res</span>
+            </div>
+          </div>
+          <span class="nwu-demo-card-arrow">→</span>
+        </div>
+
+        <div class="nwu-demo-profile-card" onclick="closeModal(); openProfile('nwu_anke_vandermerwe');">
+          <img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=120&h=120&fit=crop&crop=faces" class="nwu-demo-card-avatar" alt="">
+          <div class="nwu-demo-card-info">
+            <div class="nwu-demo-card-name">Anke van der Merwe <span class="verified-badge-inline">✓</span></div>
+            <div class="nwu-demo-card-sub">BCom Chartered Accountancy · 2nd Year</div>
+            <div class="nwu-demo-card-tags">
+              <span class="module-chip-mini">ACCF111</span>
+              <span class="module-chip-mini">Heide Res</span>
+            </div>
+          </div>
+          <span class="nwu-demo-card-arrow">→</span>
+        </div>
+
+        <div class="nwu-demo-profile-card" onclick="closeModal(); openProfile('nwu_sipho_dlamini');">
+          <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=faces" class="nwu-demo-card-avatar" alt="">
+          <div class="nwu-demo-card-info">
+            <div class="nwu-demo-card-name">Sipho Dlamini <span class="verified-badge-inline">✓</span></div>
+            <div class="nwu-demo-card-sub">LLB Faculty of Law · 4th Year</div>
+            <div class="nwu-demo-card-tags">
+              <span class="module-chip-mini">JURI111</span>
+              <span class="module-chip-mini">Veritas Res</span>
+            </div>
+          </div>
+          <span class="nwu-demo-card-arrow">→</span>
+        </div>
+
+        <div class="nwu-demo-profile-card" onclick="closeModal(); openProfile('nwu_zandile_khumalo');">
+          <img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=120&h=120&fit=crop&crop=faces" class="nwu-demo-card-avatar" alt="">
+          <div class="nwu-demo-card-info">
+            <div class="nwu-demo-card-name">Zandile Khumalo <span class="verified-badge-inline">✓</span></div>
+            <div class="nwu-demo-card-sub">BEng Mechanical Engineering · 1st Year</div>
+            <div class="nwu-demo-card-tags">
+              <span class="module-chip-mini">MTHS111</span>
+              <span class="module-chip-mini">Wag-'n-Bietjie</span>
+            </div>
+          </div>
+          <span class="nwu-demo-card-arrow">→</span>
+        </div>
+      </div>
+
+      <div class="nwu-demo-section-title" style="margin-top:18px">Quick Campus Navigation</div>
+      <div class="nwu-demo-actions-grid">
+        <button class="nwu-demo-quick-btn" onclick="closeModal(); navigate('explore');">
+          <span class="nwu-demo-quick-icon">🗺️</span>
+          <div><strong>Campus Radar</strong><span>Explore NWU landmarks & student pins</span></div>
+        </button>
+        <button class="nwu-demo-quick-btn" onclick="closeModal(); navigate('chat'); state.lastMsgTab = 'groups'; loadGroups();">
+          <span class="nwu-demo-quick-icon">📚</span>
+          <div><strong>Study Squads</strong><span>Review curriculum module groups</span></div>
+        </button>
+        <button class="nwu-demo-quick-btn" onclick="closeModal(); navigate('hustle');">
+          <span class="nwu-demo-quick-icon">🛒</span>
+          <div><strong>Marketplace</strong><span>Student textbook & gear listings</span></div>
+        </button>
+        <button class="nwu-demo-quick-btn" onclick="closeModal(); openProfile('nwu_faculty_guest');">
+          <span class="nwu-demo-quick-icon">👤</span>
+          <div><strong>Observer Profile</strong><span>View institutional preview profile</span></div>
+        </button>
+      </div>
+
+      <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--text-tertiary)">Need to test with a real student account?</span>
+        <button class="btn-outline btn-sm" onclick="closeModal(); exitNwuDemoMode();">Exit Demo / Log In</button>
+      </div>
+    </div>
+  `;
+  openModal(modalHtml);
+}
+window.openNwuDemoProfileModal = openNwuDemoProfileModal;
+
+function renderNwuDemoDMList() {
+  const container = $('#msg-tab-content'); if (!container) return;
+  container.innerHTML = `
+    <div class="nwu-demo-chat-notice">
+      <div class="nwu-demo-notice-icon">🔒</div>
+      <div>
+        <strong>POPIA Protected Messaging Simulator</strong>
+        <p>Real student private conversations are encrypted and restricted to authenticated student devices. Explore simulated peer tutor chats and module study groups below.</p>
+      </div>
+    </div>
+    <div class="convo-list" id="convo-list">
+      <div class="convo-item unread" onclick="openNwuDemoChat('katlego')">
+        <div class="convo-avatar">
+          <div class="avatar-md" style="background:#5F27CD;color:#fff">KM</div>
+          <span class="online-indicator"></span>
+        </div>
+        <div class="convo-info">
+          <div class="convo-name">Katlego Molefe <span class="verified-badge-inline">✓</span></div>
+          <div class="convo-last-msg">Good day! Tutorial slides and lab prep notes are uploaded.</div>
+        </div>
+        <div class="convo-right">
+          <div class="convo-time">Just now</div>
+          <div class="convo-unread-badge">1</div>
+        </div>
+      </div>
+      <div class="convo-item" onclick="openNwuDemoChat('squad')">
+        <div class="convo-avatar">
+          <div class="avatar-md group-avatar-icon">📚</div>
+        </div>
+        <div class="convo-info">
+          <div class="convo-name">CMPG121 Study Squad A</div>
+          <div class="convo-last-msg">Anke: Shared the past paper summary in files!</div>
+        </div>
+        <div class="convo-right">
+          <div class="convo-time">12m ago</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">5 members</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+window.renderNwuDemoDMList = renderNwuDemoDMList;
+
+function openNwuDemoChat(type) {
+  closeModal();
+  showScreen('chat-view');
+  const chatTopName = $('#chat-top-name');
+  const chatTopStatus = $('#chat-top-status');
+  const chatMsgs = $('#chat-msgs');
+  const chatBackBtn = $('#chat-back');
+  if (chatBackBtn) chatBackBtn.onclick = () => { showScreen('app'); navigate('chat'); };
+
+  if (type === 'katlego') {
+    if (chatTopName) chatTopName.innerHTML = 'Katlego Molefe <span class="verified-badge-inline">✓</span>';
+    if (chatTopStatus) chatTopStatus.innerHTML = '<span class="status-dot online"></span> Online · CMPG121 Peer Tutor';
+    if (chatMsgs) {
+      chatMsgs.innerHTML = `
+        <div class="chat-system-msg">🔒 POPIA Protected · Simulated Peer Tutoring Demo</div>
+        <div class="chat-bubble peer">
+          <div class="chat-bubble-text">Hi! Welcome to the CMPG121 study squad. Feel free to ask any questions about Java objects, recursion, or test preparation! 📚💻</div>
+          <div class="chat-bubble-time">10:14 AM</div>
+        </div>
+        <div class="chat-bubble peer">
+          <div class="chat-bubble-text">I\\'ve uploaded the tutorial 3 notes to the group files as well.</div>
+          <div class="chat-bubble-time">10:15 AM</div>
+        </div>
+      `;
+    }
+  } else {
+    if (chatTopName) chatTopName.innerHTML = 'CMPG121 Study Squad A';
+    if (chatTopStatus) chatTopStatus.innerHTML = '<span class="status-dot online"></span> 5 members · Structured Programming';
+    if (chatMsgs) {
+      chatMsgs.innerHTML = `
+        <div class="chat-system-msg">🔒 POPIA Protected · Simulated Module Study Squad</div>
+        <div class="chat-bubble peer">
+          <div class="chat-sender-name">Anke van der Merwe</div>
+          <div class="chat-bubble-text">Hey everyone, don\\'t forget the assignment 2 submission deadline is Friday 23:59 on eFundi!</div>
+          <div class="chat-bubble-time">09:30 AM</div>
+        </div>
+        <div class="chat-bubble peer">
+          <div class="chat-sender-name">Katlego Molefe</div>
+          <div class="chat-bubble-text">I\\'ll be at Ferdinand Postma Library at 14:00 if anyone needs help debugging unit tests.</div>
+          <div class="chat-bubble-time">09:42 AM</div>
+        </div>
+      `;
+    }
+  }
+
+  // Setup input send action
+  const sendBtn = $('#chat-send-btn');
+  const chatInput = $('#chat-input');
+  if (sendBtn && chatInput) {
+    sendBtn.onclick = () => {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble me';
+      bubble.innerHTML = `<div class="chat-bubble-text">${esc(text)}</div><div class="chat-bubble-time">Just now</div>`;
+      chatMsgs.appendChild(bubble);
+      chatMsgs.scrollTop = chatMsgs.scrollHeight;
+
+      setTimeout(() => {
+        const reply = document.createElement('div');
+        reply.className = 'chat-bubble peer';
+        reply.innerHTML = `<div class="chat-bubble-text">Thanks for testing Unino! Real NWU students connect directly through their verified @mynwu.ac.za accounts.</div><div class="chat-bubble-time">Just now</div>`;
+        chatMsgs.appendChild(reply);
+        chatMsgs.scrollTop = chatMsgs.scrollHeight;
+      }, 1200);
+    };
+  }
+}
+window.openNwuDemoChat = openNwuDemoChat;
+
 const _reactionNoticeCooldown = new Map();
 let _campusPlacePointsCache = [];
 const _destinationSearchCache = new Map();
@@ -5184,6 +5667,10 @@ function initAuth() {
 
   // AUTH STATE
   auth.onAuthStateChanged(async user => {
+    if (isNwuDemoActive() && (!user || user.isAnonymous)) {
+      initNwuDemoSession();
+      return;
+    }
     if (user) {
       _sessionRecoveryInFlight = false;
       try {
@@ -5246,6 +5733,10 @@ function initAuth() {
 
       enterApp();
     } else {
+      if (isNwuDemoActive()) {
+        initNwuDemoSession();
+        return;
+      }
       if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
       if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
       if (_groupAlertUnsub) { _groupAlertUnsub(); _groupAlertUnsub = null; }
@@ -5346,14 +5837,18 @@ function enterApp() {
   navigate('feed');
   setTimeout(() => markBootReady('Loaded'), 220);
   listenForVerifiedUsers();
-  listenForNotifications();
-  listenForUnreadDMs();
-  listenForGroupAlerts();
-  setupPresenceTracking();
+  if (!state.user?.isDemo) {
+    listenForNotifications();
+    listenForUnreadDMs();
+    listenForGroupAlerts();
+    setupPresenceTracking();
+    maybePromptForGpsLocation();
+    checkForAppUpdate();
+  } else {
+    listenForDemoNotifications();
+  }
   listenForOnlineCount();
   cleanupExpiredStories();
-  maybePromptForGpsLocation();
-  checkForAppUpdate();
 }
 
 let _onlineCountSub = null;
@@ -5482,6 +5977,16 @@ function _updateDMTabBadge() {
 function setupHeader() {
   const el = $('#hdr-avatar');
   if (!el || !state.profile) return;
+  if (isNwuDemoActive()) {
+    el.innerHTML = `<div class="header-nwu-avatar" title="NWU Institutional Preview"><span class="header-nwu-tag">NWU</span><span class="header-presence-dot is-online"></span></div>`;
+    el.style.background = 'transparent';
+    el.classList.add('has-presence');
+    el.onclick = event => {
+      event.stopPropagation();
+      openNwuDemoProfileModal();
+    };
+    return;
+  }
   const p = state.profile;
   if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot"></span>`; el.style.background = 'transparent'; }
   else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot"></span>`; el.style.background = colorFor(p.displayName); }
@@ -6259,6 +6764,17 @@ function renderFeed() {
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
+      ${isNwuDemoActive() ? `
+      <div class="nwu-demo-feed-banner">
+        <div class="nwu-demo-banner-pill">🎓 NWU Institutional Evaluation</div>
+        <div class="nwu-demo-banner-title">Live Campus Experience (Staff Review)</div>
+        <div class="nwu-demo-banner-sub">Bypassed login to explore the live student feed, module tags & campus radar in official guest mode. Real student accounts and private DMs are protected.</div>
+        <div class="nwu-demo-banner-actions">
+          <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Sample Student Profiles</button>
+          <button class="btn-xs btn-outline" onclick="navigate('explore')">Campus Radar</button>
+          <button class="btn-xs btn-outline" onclick="exitNwuDemoMode()">Exit Demo / Login</button>
+        </div>
+      </div>` : ''}
       <div id="feed-refresh-banner" class="feed-refresh-banner" style="${_feedIsRefreshing ? 'display:flex' : 'display:none'}">
         <span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span>
         <span>Refreshing feed…</span>
@@ -8934,6 +9450,10 @@ function setupFeedVideoAutoplay() {
 
 // ─── Like ────────────────────────────────────────
 async function toggleLike(pid) {
+  if (isNwuDemoActive()) {
+    toast('Simulated reaction (Institutional Preview)');
+    return;
+  }
   window._lastLikedPost = pid;
   await reactToPost(pid, '❤️', 'feed');
 }
@@ -9169,6 +9689,10 @@ function clearCommentReply() {
 }
 
 async function postComment(postId) {
+  if (isNwuDemoActive()) {
+    toast('Institutional Preview: Comments are read-only for demo reviewers.');
+    return;
+  }
   if (_sendingComment) return; // Prevent double-sends
   _sendingComment = true;
   const input = $('#comment-input');
@@ -9898,6 +10422,11 @@ No</textarea></div>
     refreshLocationUI();
     refreshPollUI();
     if ($('#create-submit')) $('#create-submit').onclick = async () => {
+      if (isNwuDemoActive()) {
+        closeModal();
+        toast('Institutional Preview: Creating live posts is disabled in demo mode.');
+        return;
+      }
       const text = $('#create-text').value.trim();
       const moderation = applySoftKeywordFilterText(text);
       const safeText = moderation.text;
@@ -10124,9 +10653,20 @@ async function loadExploreUsers() {
     const blockedBy = new Set(state.profile.blockedBy || []);
     const myFriends = new Set(state.profile.friends || []);
 
-    allExploreUsers = snap.docs
+    let rawUsers = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id))
+      .filter(u => u.id !== state.user.uid && !blockedUsers.has(u.id) && !blockedBy.has(u.id));
+
+    if (isNwuDemoActive() && typeof DEMO_STUDENT_PROFILES !== 'undefined') {
+      const demoUsers = Object.values(DEMO_STUDENT_PROFILES);
+      demoUsers.forEach(du => {
+        if (!rawUsers.some(bu => bu.id === du.id)) {
+          rawUsers.unshift({ ...du });
+        }
+      });
+    }
+
+    allExploreUsers = rawUsers
       .map(u => {
         const uModules = normalizeModules(u.modules || []);
         const shared = myModules.filter(m => uModules.includes(m));
@@ -16381,6 +16921,10 @@ function loadDMList() {
   const container = $('#msg-tab-content'); if (!container) return;
   updateArchiveFabState();
   syncMessagesStoriesVisibility();
+  if (isNwuDemoActive()) {
+    renderNwuDemoDMList();
+    return;
+  }
   container.innerHTML = `<div class="convo-list" id="convo-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
 
   unsub();
@@ -17221,6 +17765,10 @@ async function openChat(convoId) {
 }
 
 async function startChat(uid, name, photo) {
+  if (isNwuDemoActive()) {
+    openNwuDemoChat('katlego');
+    return;
+  }
   if (uid === state.user.uid) return toast("That's you!");
   const myFriends = state.profile.friends || [];
   if (!myFriends.includes(uid)) return toast('Add as friend first to message');
@@ -17492,7 +18040,9 @@ async function openProfile(uid) {
   try {
     let user;
     if (uid === state.user.uid) { user = state.profile; }
-    else {
+    else if (typeof DEMO_STUDENT_PROFILES !== 'undefined' && DEMO_STUDENT_PROFILES[uid]) {
+      user = DEMO_STUDENT_PROFILES[uid];
+    } else {
       const doc = await db.collection('users').doc(uid).get();
       if (!doc.exists) throw new Error('Not found');
       user = { id: doc.id, ...doc.data() };
@@ -17508,17 +18058,21 @@ async function openProfile(uid) {
 
     let posts = [];
     try {
-      const pSnap = await db.collection('posts').where('authorId', '==', uid).limit(20).get();
-      posts = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      posts.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      if (typeof DEMO_STUDENT_PROFILES !== 'undefined' && DEMO_STUDENT_PROFILES[uid]) {
+        posts = DEMO_STUDENT_PROFILES[uid].demoPosts || [];
+      } else {
+        const pSnap = await db.collection('posts').where('authorId', '==', uid).limit(20).get();
+        posts = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        posts.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-      // Filter logic: If not me and not friend, hide friends-only posts
-      if (uid !== state.user.uid) {
-        const isFriend = (state.profile.friends || []).includes(uid);
-        if (!isFriend) {
-          posts = posts.filter(p => p.visibility !== 'friends');
+        // Filter logic: If not me and not friend, hide friends-only posts
+        if (uid !== state.user.uid) {
+          const isFriend = (state.profile.friends || []).includes(uid);
+          if (!isFriend) {
+            posts = posts.filter(p => p.visibility !== 'friends');
+          }
+          posts = posts.filter(p => !p.isAnonymous);
         }
-        posts = posts.filter(p => !p.isAnonymous);
       }
     } catch (e) { console.error('Posts', e); }
 
@@ -17555,9 +18109,15 @@ async function openProfile(uid) {
 
         <div class="profile-actions">
           ${isMe
-            ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
-               <button class="btn-secondary" onclick="doLogout()">Log Out</button>`
-            : (() => {
+            ? (isNwuDemoActive()
+                ? `<button class="btn-primary" onclick="openNwuDemoProfileModal()">Explore Sample Student Profiles</button>
+                   <button class="btn-secondary" onclick="exitNwuDemoMode()">Exit Demo / Login</button>`
+                : `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+                   <button class="btn-secondary" onclick="doLogout()">Log Out</button>`)
+            : (isNwuDemoActive()
+                ? `<button class="btn-primary" onclick="openNwuDemoChat('katlego')"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Message (Demo)</button>
+                   <button class="btn-secondary" onclick="toast('Institutional Preview: Peer networking simulated.')">+ Friend</button>`
+                : (() => {
                 const isFriend = (state.profile.friends || []).includes(uid);
                 const isPending = (state.profile.sentRequests || []).includes(uid);
                 const theyRequested = (state.profile.friendRequests || []).some(r => r.uid === uid);
@@ -17576,7 +18136,7 @@ async function openProfile(uid) {
                   ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
                   : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
                 return `${msgBtn}\n               ${friendBtn}`;
-              })()}
+              })())}
         </div>
       </div>
 
@@ -18102,6 +18662,10 @@ async function loadBlockedUsersList() {
 
 // ─── Edit Profile (with modules & course autocomplete) ─────────────────
 function editProfile() {
+  if (isNwuDemoActive()) {
+    toast('Institutional Preview: Profile editing is disabled in demo mode.');
+    return;
+  }
   const p = state.profile || {};
   let currentModules = [...normalizeModules(p.modules || [])];
   let currentMajor = (p.major || p.course || '').trim();
@@ -21040,14 +21604,17 @@ function checkLandlordPortalHash() {
     const params = new URLSearchParams(hash.split('?')[1] || '');
     const resId = params.get('id') || params.get('resId') || '';
     window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
-  } else if (hash.startsWith('#nwu-demo') || hash.startsWith('#demo')) {
-    window.location.href = `${cleanBase}nwu-demo.html`;
+  } else if (hash.includes('nwu_demo') || hash.includes('nwu-demo') || hash === '#demo') {
+    if (!state.user || state.user?.isDemo) {
+      initNwuDemoSession();
+    }
   }
 }
 
   // Expose globals for inline onclick
   Object.assign(window, {
     navigate, openProfile, openCreateModal, openSellModal,
+    openNwuDemoProfileModal, openNwuDemoChat, exitNwuDemoMode, initNwuDemoSession,
     toggleLike, openComments, postComment, viewImage,
     startChat, openChat, closeModal, editProfile, doLogout, toast,
     showPostOptions, confirmDeletePost, deletePost, openProductDetail,
