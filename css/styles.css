@@ -363,6 +363,79 @@ input, select, textarea, button {
   font-weight: 600;
 }
 
+/* ── Auth APK Download (Web Only) ────────────────────────── */
+.web-only {
+  display: block;
+}
+.is-native .web-only,
+html.is-native .web-only {
+  display: none !important;
+}
+
+.auth-apk-wrap {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.auth-apk-divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 12px 0 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.auth-apk-divider::before,
+.auth-apk-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-apk-divider span {
+  padding: 0 10px;
+}
+
+.apk-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: all var(--transition);
+}
+
+.apk-download-btn:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.apk-download-btn svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
 /* Utility: Dot */
 .dot {
   width: 8px;

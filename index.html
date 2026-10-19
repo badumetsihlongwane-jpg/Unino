@@ -9,13 +9,24 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=79">
+  <link rel="stylesheet" href="css/styles.css?v=80">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="unino-icon-light.png?v=51" id="theme-favicon">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <script>
+    (function() {
+      try {
+        var cap = window.Capacitor;
+        var isNat = !!(cap && (typeof cap.isNativePlatform === 'function' ? cap.isNativePlatform() : (cap.getPlatform && cap.getPlatform() !== 'web')));
+        document.documentElement.classList.add(isNat ? 'is-native' : 'is-web');
+      } catch(e) {
+        document.documentElement.classList.add('is-web');
+      }
+    })();
+  </script>
 </head>
 <body>
 
@@ -44,6 +55,13 @@
       </div>
       <button type="submit" class="btn-accent w100" id="l-btn">Log In</button>
       <p class="switch-text">No account? <a href="#" id="to-signup">Sign Up</a></p>
+      <div class="auth-apk-wrap web-only">
+        <div class="auth-apk-divider"><span>or get the android app</span></div>
+        <a href="https://unibo.lookerdywane.workers.dev" target="_blank" rel="noopener noreferrer" class="apk-download-btn" id="login-apk-download-btn" download>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download APK</span>
+        </a>
+      </div>
     </form>
     <form id="signup-form" class="auth-form" autocomplete="off">
       <!-- Multi-Step Progress Tracker -->
@@ -101,6 +119,13 @@
 
         <button type="button" class="btn-accent w100" id="s-next-1" style="margin-top:8px">Continue to Academics →</button>
         <p class="switch-text">Already registered? <a href="#" id="to-login">Log In</a></p>
+        <div class="auth-apk-wrap web-only">
+          <div class="auth-apk-divider"><span>or get the android app</span></div>
+          <a href="https://unibo.lookerdywane.workers.dev" target="_blank" rel="noopener noreferrer" class="apk-download-btn" id="signup-apk-download-btn" download>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Download APK</span>
+          </a>
+        </div>
       </div>
 
       <!-- ─── SLIDE 2: Academics & Modules ─── -->
@@ -452,6 +477,6 @@
 <script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="js/firebase-config.js?v=67"></script>
-<script src="js/app.js?v=79"></script>
+<script src="js/app.js?v=80"></script>
 </body>
 </html>

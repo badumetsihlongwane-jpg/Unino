@@ -1458,6 +1458,8 @@ function maybeNotifyForGeneralNotifications(notifications = []) {
 async function initNativeShell() {
   if (_nativeShellReady || !isNativeApp()) return;
   _nativeShellReady = true;
+  document.documentElement.classList.add('is-native');
+  document.documentElement.classList.remove('is-web');
   if (window.UninoNativeBridge && typeof window.UninoNativeBridge.getNavigationBarInset === 'function') {
     try {
       const navInset = window.UninoNativeBridge.getNavigationBarInset();
@@ -4598,6 +4600,12 @@ function initAuth() {
     e.preventDefault();
     $('#signup-form').classList.remove('active');
     $('#login-form').classList.add('active');
+  });
+
+  $$('.apk-download-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toast('Starting Unibo APK download…');
+    });
   });
 
   // LOGIN
@@ -19631,6 +19639,9 @@ async function adminSendBroadcast() {
 //  INIT
 // ══════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  const isWeb = !isNativeApp();
+  document.documentElement.classList.toggle('is-web', isWeb);
+  document.documentElement.classList.toggle('is-native', !isWeb);
   initTheme();
   initAuth();
   initNativeShell().catch(() => {});
