@@ -21034,12 +21034,14 @@ async function submitLandlordPhotos() {
 
 function checkLandlordPortalHash() {
   const hash = window.location.hash || '';
+  const basePath = window.location.pathname.replace(/index\.html$/, '');
+  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
   if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
     const params = new URLSearchParams(hash.split('?')[1] || '');
     const resId = params.get('id') || params.get('resId') || '';
-    const basePath = window.location.pathname.replace(/index\.html$/, '');
-    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
     window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
+  } else if (hash.startsWith('#nwu-demo') || hash.startsWith('#demo')) {
+    window.location.href = `${cleanBase}nwu-demo.html`;
   }
 }
 

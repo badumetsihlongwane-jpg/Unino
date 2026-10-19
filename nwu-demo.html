@@ -1,0 +1,2045 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Unibo — NWU University Staff Interactive Showcase & Demo</title>
+  <meta name="description" content="Official NWU Staff Demonstration Environment. Explore sample student profiles, academic module connections, campus feed, messaging, pinned locations, and walking event routing with 100% synthetic demo data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="unino-icon-light.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <style>
+    :root, [data-theme="light"] {
+      --bg: #F8F9FC;
+      --card-bg: #FFFFFF;
+      --card-alt: #F1F3F9;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --text-subtle: #94A3B8;
+      --nwu-purple: #5F27CD;
+      --nwu-purple-hover: #481BB3;
+      --nwu-purple-light: rgba(95, 39, 205, 0.08);
+      --nwu-purple-glow: rgba(95, 39, 205, 0.18);
+      --accent: #5F27CD;
+      --accent-hover: #481BB3;
+      --success: #10B981;
+      --success-light: #ECFDF5;
+      --warning: #F59E0B;
+      --warning-light: #FEF3C7;
+      --border: #E2E8F0;
+      --border-subtle: #EDF2F7;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.06), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+      --shadow-lg: 0 20px 35px -5px rgba(95, 39, 205, 0.12), 0 10px 15px -5px rgba(15, 23, 42, 0.04);
+      --header-bg: rgba(255, 255, 255, 0.92);
+      --phone-border: #1E293B;
+    }
+
+    [data-theme="dark"] {
+      --bg: #0B0F19;
+      --card-bg: #131B2E;
+      --card-alt: #1E293B;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --text-subtle: #64748B;
+      --nwu-purple: #8B5CF6;
+      --nwu-purple-hover: #A78BFA;
+      --nwu-purple-light: rgba(139, 92, 246, 0.15);
+      --nwu-purple-glow: rgba(139, 92, 246, 0.25);
+      --accent: #8B5CF6;
+      --accent-hover: #A78BFA;
+      --success: #34D399;
+      --success-light: rgba(52, 211, 153, 0.15);
+      --warning: #FBBF24;
+      --warning-light: rgba(251, 191, 36, 0.15);
+      --border: #1E293B;
+      --border-subtle: #192237;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
+      --shadow-lg: 0 20px 35px -5px rgba(139, 92, 246, 0.2);
+      --header-bg: rgba(19, 27, 46, 0.92);
+      --phone-border: #334155;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; transition: background 0.2s, color 0.2s; }
+
+    /* Top Notice Bar: POPIA & Staff Sandbox Guarantee */
+    .compliance-bar {
+      background: linear-gradient(90deg, #5F27CD, #3B82F6);
+      color: #FFFFFF;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 8px 16px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      z-index: 60;
+    }
+
+    /* Navigation Header */
+    .top-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--header-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .top-header-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px var(--nwu-purple-glow);
+    }
+    .brand-info h1 {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nwu-tag {
+      font-size: 11px;
+      font-weight: 800;
+      color: #FFFFFF;
+      background: #5F27CD;
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .brand-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-toggle {
+      background: var(--card-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-toggle:hover {
+      background: var(--nwu-purple-light);
+      border-color: var(--nwu-purple);
+      color: var(--nwu-purple);
+    }
+
+    /* Sub Navigation Tabs */
+    .nav-tabs-wrap {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      scrollbar-width: none;
+      position: sticky;
+      top: 65px;
+      z-index: 45;
+    }
+    .nav-tabs-wrap::-webkit-scrollbar { display: none; }
+    .nav-tabs-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      gap: 4px;
+    }
+    .nav-tab-btn {
+      padding: 14px 18px;
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .nav-tab-btn:hover {
+      color: var(--text);
+    }
+    .nav-tab-btn.active {
+      color: var(--nwu-purple);
+      border-bottom-color: var(--nwu-purple);
+    }
+
+    /* Main Showcase Container */
+    .showcase-container {
+      max-width: 1240px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 20px 80px;
+      flex: 1;
+      transition: max-width 0.3s ease;
+    }
+
+    /* View Mode: Phone Frame Toggle */
+    .view-mode-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .view-mode-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .mode-switch-group {
+      display: inline-flex;
+      background: var(--card-alt);
+      border-radius: 999px;
+      padding: 3px;
+      border: 1px solid var(--border);
+    }
+    .mode-switch-btn {
+      border: none;
+      background: transparent;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-switch-btn.active {
+      background: var(--card-bg);
+      color: var(--nwu-purple);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Tab Section Panels */
+    .tab-section {
+      display: none;
+    }
+    .tab-section.active {
+      display: block;
+      animation: fadeIn 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── Hero Overview Card ─── */
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(95, 39, 205, 0.12) 0%, rgba(59, 130, 246, 0.1) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-banner::after {
+      content: 'NWU';
+      position: absolute;
+      right: 20px;
+      bottom: -30px;
+      font-size: 120px;
+      font-weight: 900;
+      color: rgba(95, 39, 205, 0.05);
+      pointer-events: none;
+      letter-spacing: -0.05em;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--nwu-purple);
+      color: #FFFFFF;
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .hero-title {
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 12px;
+    }
+    .hero-desc {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 780px;
+    }
+
+    /* Pillars Grid */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+    .pillar-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .pillar-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+      border-color: var(--nwu-purple);
+    }
+    .pillar-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--nwu-purple-light);
+      color: var(--nwu-purple);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+    .pillar-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .pillar-text {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ─── Profile Switcher & Detail Card ─── */
+    .profile-showcase-wrap {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 860px) {
+      .profile-showcase-wrap { grid-template-columns: 1fr; }
+    }
+
+    .profile-list-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      height: fit-content;
+    }
+    .profile-list-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 8px 12px 14px;
+    }
+    .student-item-btn {
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .student-item-btn:hover {
+      background: var(--card-alt);
+    }
+    .student-item-btn.active {
+      background: var(--nwu-purple-light);
+      border-color: var(--nwu-purple);
+    }
+    .student-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #CBD5E1;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #FFFFFF;
+      flex-shrink: 0;
+    }
+    .student-item-name {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .student-item-major {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .profile-detail-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .profile-cover {
+      height: 120px;
+      background: linear-gradient(135deg, #5F27CD, #3B82F6);
+      position: relative;
+    }
+    .profile-cover-tag {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: rgba(0, 0, 0, 0.45);
+      color: #FFFFFF;
+      backdrop-filter: blur(8px);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+    }
+    .profile-body {
+      padding: 0 24px 24px;
+      position: relative;
+    }
+    .profile-avatar-wrap {
+      margin-top: -46px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+    .profile-avatar-lg {
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      border: 4px solid var(--card-bg);
+      background: #475569;
+      font-size: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #FFFFFF;
+      font-weight: 800;
+      box-shadow: var(--shadow);
+    }
+    .verified-student-badge {
+      background: #10B981;
+      color: #FFFFFF;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 5px 12px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .profile-header-info h2 {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .profile-subline {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .profile-bio {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--card-alt);
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+    }
+
+    .profile-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .meta-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+    .meta-box-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .meta-box-val {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* Modules Bubbles */
+    .module-chips-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .mod-pill {
+      background: var(--nwu-purple-light);
+      color: var(--nwu-purple);
+      border: 1px solid rgba(95, 39, 205, 0.25);
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 12.5px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mod-pill:hover {
+      background: var(--nwu-purple);
+      color: #FFFFFF;
+    }
+
+    /* ─── Feed & Posts ─── */
+    .feed-layout {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    .feed-filter-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+      scrollbar-width: none;
+    }
+    .feed-filter-bar::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 7px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .filter-chip.active {
+      background: var(--nwu-purple);
+      color: #FFFFFF;
+      border-color: var(--nwu-purple);
+    }
+
+    .post-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .post-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .post-author-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .post-author-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #475569;
+      color: #FFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+    }
+    .post-author-name {
+      font-size: 14.5px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .post-author-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .post-tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--card-alt);
+      color: var(--text-muted);
+    }
+    .post-tag.academic { background: var(--nwu-purple-light); color: var(--nwu-purple); }
+    .post-tag.anon { background: rgba(245, 158, 11, 0.12); color: #D97706; }
+    .post-content {
+      font-size: 14.5px;
+      line-height: 1.6;
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+    .post-actions-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+    }
+    .post-action-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .post-action-btn:hover, .post-action-btn.active {
+      color: var(--nwu-purple);
+    }
+    .post-action-btn.liked {
+      color: #EF4444;
+    }
+
+    /* Comment Thread in Post */
+    .post-comments-thread {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+      display: none;
+    }
+    .post-comments-thread.open {
+      display: block;
+    }
+    .comment-item {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .comment-bubble {
+      background: var(--card-alt);
+      padding: 8px 12px;
+      border-radius: 12px;
+      flex: 1;
+    }
+    .comment-bubble-author {
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    /* ─── Messaging Simulator ─── */
+    .messaging-simulator-wrap {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: 600px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    @media (max-width: 768px) {
+      .messaging-simulator-wrap { grid-template-columns: 1fr; height: 680px; }
+      .chat-threads-pane { display: none; }
+      .chat-threads-pane.active-mobile { display: block; }
+    }
+    .chat-threads-pane {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      background: var(--card-alt);
+    }
+    .threads-hdr {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 800;
+      font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .threads-tabs {
+      display: flex;
+      padding: 8px;
+      gap: 6px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .ttab-btn {
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: transparent;
+      cursor: pointer;
+    }
+    .ttab-btn.active {
+      background: var(--nwu-purple-light);
+      color: var(--nwu-purple);
+    }
+    .threads-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .thread-item {
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      transition: background 0.15s;
+    }
+    .thread-item:hover, .thread-item.active {
+      background: var(--card-bg);
+    }
+    .thread-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .thread-item-name {
+      font-size: 13.5px;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+    .thread-item-preview {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Active Chat View */
+    .active-chat-pane {
+      display: flex;
+      flex-direction: column;
+      background: var(--card-bg);
+    }
+    .chat-pane-hdr {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .chat-partner-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .chat-messages-scroll {
+      flex: 1;
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--bg);
+    }
+    .msg-bubble {
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.5;
+      position: relative;
+    }
+    .msg-bubble.incoming {
+      align-self: flex-start;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+    .msg-bubble.outgoing {
+      align-self: flex-end;
+      background: var(--nwu-purple);
+      color: #FFFFFF;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-time {
+      font-size: 10px;
+      color: var(--text-subtle);
+      margin-top: 4px;
+      text-align: right;
+    }
+    .msg-bubble.outgoing .msg-time {
+      color: rgba(255, 255, 255, 0.75);
+    }
+    .chat-input-row {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      background: var(--card-bg);
+    }
+    .chat-input-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card-alt);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    .btn-send {
+      background: var(--nwu-purple);
+      color: #FFF;
+      border: none;
+      border-radius: 999px;
+      padding: 0 18px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* ─── Module Connections Engine ─── */
+    .modules-explorer-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .module-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .module-card-hdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .module-code-badge {
+      background: var(--nwu-purple-light);
+      color: var(--nwu-purple);
+      font-size: 15px;
+      font-weight: 800;
+      padding: 5px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(95, 39, 205, 0.25);
+    }
+    .module-card h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .module-card-faculty {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .module-stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      background: var(--card-alt);
+      padding: 12px;
+      border-radius: var(--radius-md);
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .module-stat-val { font-size: 17px; font-weight: 800; color: var(--text); }
+    .module-stat-lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+
+    /* ─── Campus Map & Event Routing ─── */
+    .map-showcase-wrap {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px;
+      height: 640px;
+    }
+    @media (max-width: 900px) {
+      .map-showcase-wrap { grid-template-columns: 1fr; height: auto; }
+    }
+    .map-pane {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      position: relative;
+      height: 100%;
+      min-height: 480px;
+    }
+    #nwu-map {
+      width: 100%;
+      height: 100%;
+    }
+    .map-nav-sidebar {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .route-form-group label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .route-select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card-alt);
+      color: var(--text);
+      font-size: 13.5px;
+      font-weight: 600;
+      outline: none;
+    }
+    .route-summary-card {
+      background: var(--card-alt);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      border-left: 4px solid var(--nwu-purple);
+    }
+    .route-stat-time {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--nwu-purple);
+    }
+    .route-stat-distance {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .step-list {
+      list-style: none;
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .step-item {
+      font-size: 12.5px;
+      line-height: 1.4;
+      display: flex;
+      gap: 8px;
+      color: var(--text);
+    }
+    .step-bullet {
+      color: var(--nwu-purple);
+      font-weight: 800;
+    }
+
+    /* Custom Map Marker Styling */
+    .nwu-marker-bubble {
+      background: #5F27CD;
+      color: #FFF;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      border: 2px solid #FFF;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .nwu-marker-bubble.res { background: #E11D48; }
+    .nwu-marker-bubble.food { background: #D97706; }
+    .nwu-marker-bubble.event { background: #059669; }
+
+    /* Footer */
+    .showcase-footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 20px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+      background: var(--card-bg);
+      margin-top: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top POPIA & Staff Sandbox Guarantee Bar -->
+  <div class="compliance-bar">
+    <span>🔒 <strong>NWU University Staff Sandbox</strong> • 100% Synthetic Fictional Data • Zero real student profiles or messages accessed • POPIA Compliant</span>
+  </div>
+
+  <!-- Top Navigation Header -->
+  <header class="top-header">
+    <div class="top-header-inner">
+      <div class="brand-wrap">
+        <img src="unino-icon-light.png" alt="Unibo" class="brand-logo">
+        <div class="brand-info">
+          <h1>Unibo <span class="nwu-tag">NWU Campus</span></h1>
+          <div class="brand-sub">University Administration & Staff Interactive Preview</div>
+        </div>
+      </div>
+      <div class="header-controls">
+        <button class="btn-toggle" id="theme-toggle" title="Toggle Light/Dark Theme">
+          <span id="theme-icon">🌙</span> <span id="theme-label">Dark</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sub Navigation Tabs -->
+  <nav class="nav-tabs-wrap">
+    <div class="nav-tabs-inner">
+      <button class="nav-tab-btn active" data-tab="overview">
+        <span>🏛</span> Platform Overview
+      </button>
+      <button class="nav-tab-btn" data-tab="profiles">
+        <span>👤</span> Student Profiles
+      </button>
+      <button class="nav-tab-btn" data-tab="feed">
+        <span>📰</span> Campus Feed & Culture
+      </button>
+      <button class="nav-tab-btn" data-tab="messaging">
+        <span>💬</span> Messaging & Study Groups
+      </button>
+      <button class="nav-tab-btn" data-tab="modules">
+        <span>📚</span> Module Connections
+      </button>
+      <button class="nav-tab-btn" data-tab="map">
+        <span>🗺</span> Campus Map & Event Routing
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Showcase Container -->
+  <main class="showcase-container">
+
+    <!-- View Mode Switcher -->
+    <div class="view-mode-bar">
+      <div class="view-mode-status">
+        <span>💡</span>
+        <span>Viewing live interactive components in <strong>Full Portal Mode</strong></span>
+      </div>
+      <div class="mode-switch-group">
+        <button class="mode-switch-btn active" id="btn-desktop-view">Full Portal View</button>
+        <button class="mode-switch-btn" id="btn-phone-view">📱 Student Mobile Frame</button>
+      </div>
+    </div>
+
+    <!-- TAB 1: OVERVIEW & VALUE PROPOSITION -->
+    <section class="tab-section active" id="tab-overview">
+      <div class="hero-banner">
+        <div class="hero-badge">NWU Digital Campus Initiative</div>
+        <h2 class="hero-title">Connecting NWU Students Academically, Socially & Geographically</h2>
+        <p class="hero-desc">
+          Unibo is a purpose-built campus connection platform designed to increase student retention, combat academic isolation, and provide safe navigation across North-West University campuses. Explore all platform capabilities below using interactive fictional datasets.
+        </p>
+      </div>
+
+      <div class="pillars-grid">
+        <div class="pillar-card" onclick="switchShowcaseTab('modules')">
+          <div class="pillar-icon">📚</div>
+          <h3 class="pillar-title">Academic Module Connections</h3>
+          <p class="pillar-text">Students enrolled in the same NWU modules (e.g. CMPG121, BMAN111) are automatically grouped into peer study squads and past exam resource exchanges.</p>
+        </div>
+        <div class="pillar-card" onclick="switchShowcaseTab('map')">
+          <div class="pillar-icon">📍</div>
+          <h3 class="pillar-title">Campus Radar & Event Routing</h3>
+          <p class="pillar-text">Turn-by-turn walking navigation between NWU lecture halls, residences, and cafeterias using verified campus map coordinates and lit pathway safety routing.</p>
+        </div>
+        <div class="pillar-card" onclick="switchShowcaseTab('feed')">
+          <div class="pillar-icon">🛡</div>
+          <h3 class="pillar-title">Verified Domain Safety</h3>
+          <p class="pillar-text">Only official @mynwu.ac.za student emails can register. AI moderation and profanity filters prevent cyberbullying while allowing healthy peer advice.</p>
+        </div>
+        <div class="pillar-card" onclick="switchShowcaseTab('messaging')">
+          <div class="pillar-icon">💬</div>
+          <h3 class="pillar-title">Safe Direct & Group Messaging</h3>
+          <p class="pillar-text">End-to-end peer direct messaging with anonymous advice modes and dedicated course group collaboration rooms.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: SAMPLE STUDENT PROFILES -->
+    <section class="tab-section" id="tab-profiles">
+      <div style="margin-bottom:20px">
+        <h2 style="font-size:20px;font-weight:800;margin-bottom:6px">Sample NWU Student Profiles</h2>
+        <p style="font-size:14px;color:var(--text-muted)">Select a student below to inspect their academic degrees, enrolled modules, verified badges, and residence connections.</p>
+      </div>
+
+      <div class="profile-showcase-wrap">
+        <!-- Student Selector Sidebar -->
+        <div class="profile-list-card">
+          <div class="profile-list-title">Demo Student Profiles</div>
+          <div id="student-list-container"></div>
+        </div>
+
+        <!-- Student Detail Viewer -->
+        <div class="profile-detail-card" id="student-detail-container"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: CAMPUS FEED & POSTS -->
+    <section class="tab-section" id="tab-feed">
+      <div class="feed-layout">
+        <div style="margin-bottom:18px">
+          <h2 style="font-size:20px;font-weight:800;margin-bottom:6px">Campus Feed & Content Stream</h2>
+          <p style="font-size:14px;color:var(--text-muted)">Explore sample peer announcements, study group requests, textbook exchanges, and moderated student confessions.</p>
+        </div>
+
+        <!-- Category Filters -->
+        <div class="feed-filter-bar">
+          <button class="filter-chip active" onclick="filterDemoFeed('all')">All Posts</button>
+          <button class="filter-chip" onclick="filterDemoFeed('academic')">📚 Academic Study</button>
+          <button class="filter-chip" onclick="filterDemoFeed('events')">🎭 Campus Life & Events</button>
+          <button class="filter-chip" onclick="filterDemoFeed('marketplace')">🛒 Textbooks & Res</button>
+          <button class="filter-chip" onclick="filterDemoFeed('anon')">👻 Anonymous Peer Advice</button>
+        </div>
+
+        <!-- Posts List -->
+        <div id="demo-feed-container"></div>
+      </div>
+    </section>
+
+    <!-- TAB 4: MESSAGING & STUDY GROUPS -->
+    <section class="tab-section" id="tab-messaging">
+      <div style="margin-bottom:18px">
+        <h2 style="font-size:20px;font-weight:800;margin-bottom:6px">Interactive Messaging Simulator</h2>
+        <p style="font-size:14px;color:var(--text-muted)">Test both 1-on-1 Direct Messaging (with peer tutoring notes) and Course Assignment Channels. Type a message below to test live student replies!</p>
+      </div>
+
+      <div class="messaging-simulator-wrap">
+        <!-- Thread List -->
+        <div class="chat-threads-pane">
+          <div class="threads-hdr">
+            <span>Conversations</span>
+            <span style="font-size:11.5px;color:var(--nwu-purple);font-weight:700">Demo Active</span>
+          </div>
+          <div class="threads-tabs">
+            <button class="ttab-btn active" id="ttab-dm" onclick="switchChatType('dm')">Direct Messages</button>
+            <button class="ttab-btn" id="ttab-grp" onclick="switchChatType('grp')">Module Study Groups</button>
+          </div>
+          <div class="threads-list" id="chat-threads-list"></div>
+        </div>
+
+        <!-- Active Chat Pane -->
+        <div class="active-chat-pane">
+          <div class="chat-pane-hdr">
+            <div class="chat-partner-info" id="chat-header-info"></div>
+            <div style="font-size:11.5px;background:var(--success-light);color:var(--success);padding:3px 10px;border-radius:999px;font-weight:700">
+              Online
+            </div>
+          </div>
+          <div class="chat-messages-scroll" id="chat-messages-scroll"></div>
+          <form class="chat-input-row" id="demo-chat-form" onsubmit="handleSendDemoMsg(event)">
+            <input type="text" id="demo-chat-input" placeholder="Type a message (e.g. 'Can I get chapter 4 notes?')..." autocomplete="off">
+            <button type="submit" class="btn-send">Send</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: MODULE CONNECTIONS ENGINE -->
+    <section class="tab-section" id="tab-modules">
+      <div style="margin-bottom:20px">
+        <h2 style="font-size:20px;font-weight:800;margin-bottom:6px">NWU Curriculum Module Directory</h2>
+        <p style="font-size:14px;color:var(--text-muted)">Unibo connects students enrolled in identical courses into structured study cohorts, lowering academic dropouts.</p>
+      </div>
+
+      <div class="modules-explorer-grid" id="modules-grid-container"></div>
+    </section>
+
+    <!-- TAB 6: CAMPUS MAP & EVENT ROUTING -->
+    <section class="tab-section" id="tab-map">
+      <div style="margin-bottom:18px">
+        <h2 style="font-size:20px;font-weight:800;margin-bottom:6px">Interactive Campus Map, Pins & Route Navigation</h2>
+        <p style="font-size:14px;color:var(--text-muted)">Simulate student navigation between campus buildings, residences, and event hubs with live walking time calculations.</p>
+      </div>
+
+      <div class="map-showcase-wrap">
+        <!-- Map Canvas -->
+        <div class="map-pane">
+          <div id="nwu-map"></div>
+        </div>
+
+        <!-- Navigation Sidebar -->
+        <div class="map-nav-sidebar">
+          <h3 style="font-size:16px;font-weight:800">Campus Route Navigator</h3>
+
+          <div class="route-form-group">
+            <label for="route-from">Starting Point (Origin)</label>
+            <select class="route-select" id="route-from" onchange="calculateDemoRoute()">
+              <option value="patria">🏠 Patria Residence</option>
+              <option value="heide">🏠 Heide Residence</option>
+              <option value="veritas">🏠 Veritas Residence</option>
+              <option value="engineering">🔬 Engineering Complex</option>
+            </select>
+          </div>
+
+          <div class="route-form-group">
+            <label for="route-to">Destination Building / Event</label>
+            <select class="route-select" id="route-to" onchange="calculateDemoRoute()">
+              <option value="library" selected>📚 Ferdinand Postma Library</option>
+              <option value="admin">🏛 Joon van Rooy Administration</option>
+              <option value="sports">🏉 Fanie du Toit Sports Grounds (Varsity Cup)</option>
+              <option value="eish">☕ Eish! Student Diner</option>
+            </select>
+          </div>
+
+          <div class="route-summary-card" id="route-summary-box">
+            <div class="route-stat-time" id="route-time">6 min walk</div>
+            <div class="route-stat-distance" id="route-dist">480m direct campus pedestrian route</div>
+            <div style="font-size:12px;color:var(--success);font-weight:700;margin-top:6px">
+              ✓ Lit Campus Pathway (High Security Zone)
+            </div>
+            <ul class="step-list" id="route-steps">
+              <li class="step-item"><span class="step-bullet">•</span> Depart from Patria Residence (Campus Men Residence)</li>
+              <li class="step-item"><span class="step-bullet">•</span> Follow lit student pathway toward Central Quad (~240m)</li>
+              <li class="step-item"><span class="step-bullet">•</span> Arrive safely at Ferdinand Postma Library East Entry</li>
+            </ul>
+          </div>
+
+          <div style="background:var(--card-alt);padding:12px;border-radius:var(--radius-sm);font-size:12px;color:var(--text-muted);line-height:1.5">
+            <strong>Campus Radar Pins:</strong> Click any pin on the map to view real-time location details, student study sessions, and safety assistance beacons.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="showcase-footer">
+    <p>Unibo &copy; 2026 • Private University Staff Showcase • Strictly Fictional Synthetic Demonstration Data</p>
+  </footer>
+
+  <!-- Leaflet Map Script -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+  <!-- Interactive Showcase Data & Logic -->
+  <script>
+    const DEMO_STUDENTS = [
+      {
+        id: 'student-1',
+        name: 'Katlego Molefe',
+        major: 'BSc Information Technology',
+        year: '3rd Year',
+        residence: 'Patria Residence',
+        avatarBg: '#5F27CD',
+        initials: 'KM',
+        email: '34891024@mynwu.ac.za',
+        verified: true,
+        role: 'Peer Academic Mentor · IT Society',
+        bio: 'Passionate about full-stack dev and building software solutions for campus life. Enrolled in 4 IT modules this semester. Feel free to reach out about CMPG practicals!',
+        modules: ['CMPG121', 'CMPG211', 'ITRW222', 'MTHS111'],
+        postsCount: 14,
+        squadsCount: 3
+      },
+      {
+        id: 'student-2',
+        name: 'Anke van der Merwe',
+        major: 'BCom Accounting Sciences',
+        year: '2nd Year',
+        residence: 'Heide Residence',
+        avatarBg: '#059669',
+        initials: 'AV',
+        email: '36214589@mynwu.ac.za',
+        verified: true,
+        role: 'Golden Key Honour Society Member',
+        bio: 'Accounting major and coffee enthusiast. Always studying at Drakenstein cafe or the 2nd floor library study pods. Organizing tutorial prep sessions weekly!',
+        modules: ['ACCF111', 'ACCF211', 'BMAN111', 'ECON112'],
+        postsCount: 9,
+        squadsCount: 4
+      },
+      {
+        id: 'student-3',
+        name: 'Sipho Dlamini',
+        major: 'LLB Law',
+        year: '4th Year (Finalist)',
+        residence: 'Veritas Residence',
+        avatarBg: '#DC2626',
+        initials: 'SD',
+        email: '31948201@mynwu.ac.za',
+        verified: true,
+        role: 'NWU Law Clinic Student Volunteer',
+        bio: 'Moot court finalist & legal scholar. Advocating student rights, legal education, and peer tutoring. Hit me up for jurisprudence & contract notes.',
+        modules: ['JURI111', 'JURI221', 'IURI311', 'STRA111'],
+        postsCount: 22,
+        squadsCount: 2
+      },
+      {
+        id: 'student-4',
+        name: 'Zandile Khumalo',
+        major: 'BEng Mechanical Engineering',
+        year: '1st Year',
+        residence: 'Wanda Residence',
+        avatarBg: '#D97706',
+        initials: 'ZK',
+        email: '39481230@mynwu.ac.za',
+        verified: true,
+        role: 'Women in STEM NWU Member',
+        bio: 'First year engineering student figuring out applied math and physics mechanics! Building fun robotics side projects on weekends.',
+        modules: ['INGN111', 'MTHS111', 'CMPG111', 'PHYS111'],
+        postsCount: 5,
+        squadsCount: 2
+      }
+    ];
+
+    const DEMO_POSTS = [
+      {
+        id: 'post-1',
+        author: 'Katlego Molefe',
+        authorInitials: 'KM',
+        authorBg: '#5F27CD',
+        time: '35m ago',
+        category: 'academic',
+        tagText: '📚 Academic Study',
+        tagClass: 'academic',
+        content: 'Anyone forming a study squad for CMPG121 Practical Test next Tuesday? We booked Study Room 204 at Ferdinand Postma Library from 14:00 - 17:00. DM me or join our module study group! 💻👨‍💻',
+        likes: 18,
+        liked: false,
+        commentsCount: 3,
+        comments: [
+          { author: 'Anke van der Merwe', text: 'Can 2nd year IT students join? Need a refresher on algorithms!' },
+          { author: 'Sipho Dlamini', text: 'Great initiative guys. Keep grinding!' },
+          { author: 'Katlego Molefe', text: 'Of course Anke, all welcome!' }
+        ]
+      },
+      {
+        id: 'post-2',
+        author: 'NWU Student Life Committee',
+        authorInitials: 'SL',
+        authorBg: '#3B82F6',
+        time: '2h ago',
+        category: 'events',
+        tagText: '🎭 Campus Life & Events',
+        tagClass: 'academic',
+        content: '🎉 NWU Spring Cultural Fest kicks off this Friday at the Amphitheatre! Live campus DJs, student society food stalls, and inter-residence talent showcase. Free entry for all verified @mynwu.ac.za students! See you there! 🇿🇦',
+        likes: 64,
+        liked: false,
+        commentsCount: 2,
+        comments: [
+          { author: 'Zandile Khumalo', text: 'Wanda Res is performing! Super excited!' },
+          { author: 'Anke van der Merwe', text: 'What time do the food stalls open?' }
+        ]
+      },
+      {
+        id: 'post-3',
+        author: 'Anke van der Merwe',
+        authorInitials: 'AV',
+        authorBg: '#059669',
+        time: '4h ago',
+        category: 'marketplace',
+        tagText: '🛒 Marketplace',
+        tagClass: '',
+        content: 'Selling *Calculus: Early Transcendentals (8th Ed)* required for MTHS111/121. Mint condition, zero highlighter marks, includes formula cheatsheets. R380 (bookstore is R750). Can meet at Eish! diner for handover.',
+        likes: 12,
+        liked: false,
+        commentsCount: 1,
+        comments: [
+          { author: 'Zandile Khumalo', text: 'Hey Anke! I need this for INGN111 math. Can I collect at 13:00?' }
+        ]
+      },
+      {
+        id: 'post-4',
+        author: 'Campus Ghost #A402',
+        authorInitials: '👻',
+        authorBg: '#475569',
+        time: '6h ago',
+        category: 'anon',
+        tagText: '👻 Anonymous Peer Advice',
+        tagClass: 'anon',
+        content: 'Semester test week is genuinely heavy, but please remember your health and sleep matter just as much as your marks. Take walks outside, drink water, and lean on your study groups. You got this everyone 💜',
+        likes: 92,
+        liked: false,
+        commentsCount: 2,
+        comments: [
+          { author: 'Katlego Molefe', text: 'Needed to read this today. Thank you!' },
+          { author: 'Sipho Dlamini', text: 'Solid reminder. Take it one day at a time.' }
+        ]
+      }
+    ];
+
+    const DEMO_MODULES = [
+      {
+        code: 'CMPG121',
+        title: 'Structured Programming',
+        faculty: 'Faculty of Natural & Agricultural Sciences',
+        students: 142,
+        squads: 8,
+        desc: 'Fundamental algorithms, flowcharts, data structures, and foundational C++/Java programming paradigms.'
+      },
+      {
+        code: 'BMAN111',
+        title: 'Introduction to Business Management',
+        faculty: 'Faculty of Economic & Management Sciences',
+        students: 215,
+        squads: 12,
+        desc: 'Core principles of organizational structures, strategic enterprise planning, and modern SA business dynamics.'
+      },
+      {
+        code: 'ACCF111',
+        title: 'Financial Accounting: Principles & Systems',
+        faculty: 'Faculty of Economic & Management Sciences',
+        students: 188,
+        squads: 6,
+        desc: 'General ledger accounting, IFRS reporting compliance, and corporate financial balance sheet compilation.'
+      },
+      {
+        code: 'JURI111',
+        title: 'Introduction to South African Law',
+        faculty: 'Faculty of Law',
+        students: 95,
+        squads: 4,
+        desc: 'Sources of South African law, constitutional jurisprudence, human rights principles, and court procedure.'
+      },
+      {
+        code: 'MTHS111',
+        title: 'Introductory Algebra & Analysis',
+        faculty: 'Faculty of Engineering / Sciences',
+        students: 260,
+        squads: 15,
+        desc: 'Differential calculus, vector geometry, limits, and algebraic modeling for science and engineering.'
+      },
+      {
+        code: 'ECON112',
+        title: 'Basic Microeconomics',
+        faculty: 'Faculty of Economic & Management Sciences',
+        students: 170,
+        squads: 7,
+        desc: 'Price elasticity, consumer behavior theory, supply and demand equilibria in emerging African markets.'
+      }
+    ];
+
+    const DEMO_CHAT_THREADS = {
+      dm: [
+        {
+          id: 'dm-1',
+          name: 'Katlego Molefe',
+          avatarBg: '#5F27CD',
+          initials: 'KM',
+          preview: 'Sent you the practical 3 guidelines!',
+          time: '12:30',
+          messages: [
+            { from: 'them', text: 'Hey Anke! Did you manage to solve the recursion problem in tutorial 4?', time: '12:28' },
+            { from: 'me', text: 'Hey Katlego! Yes, used the helper method we covered in Tuesday lecture.', time: '12:29' },
+            { from: 'them', text: 'Awesome! Sent you the practical 3 guidelines just in case.', time: '12:30' }
+          ]
+        },
+        {
+          id: 'dm-2',
+          name: 'Sipho Dlamini',
+          avatarBg: '#DC2626',
+          initials: 'SD',
+          preview: 'See you at the library study room at 15:00',
+          time: 'Yesterday',
+          messages: [
+            { from: 'them', text: 'Hey! Are we still meeting for the jurisprudence review session?', time: 'Yesterday' },
+            { from: 'me', text: 'Yes, booked the 2nd floor room.', time: 'Yesterday' },
+            { from: 'them', text: 'See you at the library study room at 15:00', time: 'Yesterday' }
+          ]
+        }
+      ],
+      grp: [
+        {
+          id: 'grp-1',
+          name: 'CMPG121 — Study Squad A',
+          avatarBg: '#3B82F6',
+          initials: 'C1',
+          preview: 'Katlego: Pinned the semester test formula sheet 📌',
+          time: '11:15',
+          messages: [
+            { from: 'them', author: 'Katlego Molefe', text: 'Pinned the semester test formula sheet 📌', time: '11:15' },
+            { from: 'them', author: 'Zandile Khumalo', text: 'Thanks Katlego! Are we practicing past papers tonight?', time: '11:18' },
+            { from: 'me', author: 'You', text: 'Yes! Starting at 19:00 on Discord & Study Room.', time: '11:20' }
+          ]
+        },
+        {
+          id: 'grp-2',
+          name: 'Patria & Heide Res Study Circle',
+          avatarBg: '#10B981',
+          initials: 'PH',
+          preview: 'Coffee run to Eish! before 14:00 lecture',
+          time: '09:40',
+          messages: [
+            { from: 'them', author: 'Anke van der Merwe', text: 'Coffee run to Eish! before 14:00 lecture, anyone want anything?', time: '09:40' }
+          ]
+        }
+      ]
+    };
+
+    let currentTab = 'overview';
+    let currentStudentId = 'student-1';
+    let currentChatType = 'dm';
+    let currentThreadIndex = 0;
+    let nwuMapInstance = null;
+    let activeRoutePolyline = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initTabNavigation();
+      initThemeToggle();
+      initViewModeToggle();
+      renderStudentsList();
+      renderStudentDetail(currentStudentId);
+      renderDemoFeed('all');
+      renderChatThreads();
+      renderActiveChat();
+      renderModulesGrid();
+    });
+
+    function initTabNavigation() {
+      document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          switchShowcaseTab(btn.dataset.tab);
+        });
+      });
+    }
+
+    function switchShowcaseTab(tabKey) {
+      currentTab = tabKey;
+      document.querySelectorAll('.nav-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tabKey);
+      });
+      document.querySelectorAll('.tab-section').forEach(sec => {
+        sec.classList.toggle('active', sec.id === ('tab-' + tabKey));
+      });
+      if (tabKey === 'map') {
+        setTimeout(initOrResizeCampusMap, 150);
+      }
+    }
+
+    function initThemeToggle() {
+      const btn = document.getElementById('theme-toggle');
+      const icon = document.getElementById('theme-icon');
+      const label = document.getElementById('theme-label');
+
+      btn.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+        const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', nextTheme);
+        icon.textContent = nextTheme === 'dark' ? '☀️' : '🌙';
+        label.textContent = nextTheme === 'dark' ? 'Light' : 'Dark';
+      });
+    }
+
+    function initViewModeToggle() {
+      const btnDesktop = document.getElementById('btn-desktop-view');
+      const btnPhone = document.getElementById('btn-phone-view');
+      const container = document.querySelector('.showcase-container');
+
+      btnDesktop.addEventListener('click', () => {
+        btnDesktop.classList.add('active');
+        btnPhone.classList.remove('active');
+        container.style.maxWidth = '1240px';
+        if (nwuMapInstance) setTimeout(() => nwuMapInstance.invalidateSize(), 200);
+      });
+
+      btnPhone.addEventListener('click', () => {
+        btnPhone.classList.add('active');
+        btnDesktop.classList.remove('active');
+        container.style.maxWidth = '460px';
+        if (nwuMapInstance) setTimeout(() => nwuMapInstance.invalidateSize(), 200);
+      });
+    }
+
+    function renderStudentsList() {
+      const container = document.getElementById('student-list-container');
+      if (!container) return;
+
+      container.innerHTML = DEMO_STUDENTS.map(st => `
+        <button class="student-item-btn ${st.id === currentStudentId ? 'active' : ''}" onclick="selectStudent('${st.id}')">
+          <div class="student-avatar" style="background:${st.avatarBg}">${st.initials}</div>
+          <div style="flex:1;min-width:0">
+            <div class="student-item-name">${st.name} ${st.verified ? '<span title="Verified NWU Student">✓</span>' : ''}</div>
+            <div class="student-item-major">${st.major} · ${st.year}</div>
+          </div>
+        </button>
+      `).join('');
+    }
+
+    function selectStudent(studentId) {
+      currentStudentId = studentId;
+      renderStudentsList();
+      renderStudentDetail(studentId);
+    }
+
+    function renderStudentDetail(studentId) {
+      const st = DEMO_STUDENTS.find(s => s.id === studentId) || DEMO_STUDENTS[0];
+      const container = document.getElementById('student-detail-container');
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="profile-cover">
+          <div class="profile-cover-tag">${st.residence}</div>
+        </div>
+        <div class="profile-body">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar-lg" style="background:${st.avatarBg}">${st.initials}</div>
+            <div class="verified-student-badge">
+              <span>🛡</span> Verified NWU Student
+            </div>
+          </div>
+
+          <div class="profile-header-info">
+            <h2>${st.name}</h2>
+            <div class="profile-subline">
+              <span>🎓 ${st.major}</span>
+              <span>•</span>
+              <span>📅 ${st.year}</span>
+              <span>•</span>
+              <span>📧 ${st.email}</span>
+            </div>
+          </div>
+
+          <div class="profile-bio">
+            <strong>About Me:</strong><br>
+            ${st.bio}
+          </div>
+
+          <div class="profile-meta-grid">
+            <div class="meta-box">
+              <div class="meta-box-label">Campus Residence</div>
+              <div class="meta-box-val">🏠 ${st.residence}</div>
+            </div>
+            <div class="meta-box">
+              <div class="meta-box-label">Academic Leadership</div>
+              <div class="meta-box-val">⭐ ${st.role}</div>
+            </div>
+            <div class="meta-box">
+              <div class="meta-box-label">Active Study Squads</div>
+              <div class="meta-box-val">👥 ${st.squadsCount} Study Groups</div>
+            </div>
+            <div class="meta-box">
+              <div class="meta-box-label">Peer Shared Modules</div>
+              <div class="meta-box-val" style="color:var(--nwu-purple)">🔗 2 Modules Shared</div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:12px;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">
+              Enrolled NWU Modules (Semester Active)
+            </div>
+            <div class="module-chips-row">
+              ${st.modules.map(m => `<span class="mod-pill" onclick="switchShowcaseTab('modules')">${m}</span>`).join('')}
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:24px">
+            <button class="btn-toggle" style="background:var(--nwu-purple);color:#FFF;border-color:var(--nwu-purple)" onclick="switchShowcaseTab('messaging')">
+              💬 Direct Message ${st.name.split(' ')[0]}
+            </button>
+            <button class="btn-toggle" onclick="alert('Synthetic Action: Added to NWU peer study circle.')">
+              + Add to Study Squad
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDemoFeed(category = 'all') {
+      const container = document.getElementById('demo-feed-container');
+      if (!container) return;
+
+      const posts = category === 'all'
+        ? DEMO_POSTS
+        : DEMO_POSTS.filter(p => p.category === category);
+
+      container.innerHTML = posts.map(post => `
+        <div class="post-card" id="card-${post.id}">
+          <div class="post-header">
+            <div class="post-author-wrap">
+              <div class="post-author-avatar" style="background:${post.authorBg}">${post.authorInitials}</div>
+              <div>
+                <div class="post-author-name">
+                  ${post.author}
+                  ${post.category !== 'anon' ? '<span style="color:#10B981;font-size:12px">✓</span>' : ''}
+                </div>
+                <div class="post-author-meta">${post.time} • NWU Student</div>
+              </div>
+            </div>
+            <span class="post-tag ${post.tagClass}">${post.tagText}</span>
+          </div>
+
+          <div class="post-content">${post.content}</div>
+
+          <div class="post-actions-bar">
+            <button class="post-action-btn ${post.liked ? 'liked' : ''}" onclick="toggleDemoLike('${post.id}')">
+              <span>${post.liked ? '❤️' : '🤍'}</span>
+              <span id="likes-${post.id}">${post.likes}</span> Likes
+            </button>
+            <button class="post-action-btn" onclick="toggleCommentsThread('${post.id}')">
+              <span>💬</span> ${post.comments.length} Comments
+            </button>
+            <button class="post-action-btn" onclick="alert('Moderation Demo: Post verified safe by automated NWU community guidelines.')">
+              <span>🛡</span> Verified
+            </button>
+          </div>
+
+          <div class="post-comments-thread" id="comments-${post.id}">
+            ${post.comments.map(c => `
+              <div class="comment-item">
+                <div class="comment-bubble">
+                  <div class="comment-bubble-author">${c.author}</div>
+                  <div>${c.text}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function filterDemoFeed(category) {
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      if (window.event && window.event.target) window.event.target.classList.add('active');
+      renderDemoFeed(category);
+    }
+
+    function toggleDemoLike(postId) {
+      const post = DEMO_POSTS.find(p => p.id === postId);
+      if (!post) return;
+      post.liked = !post.liked;
+      post.likes += post.liked ? 1 : -1;
+      const countEl = document.getElementById(`likes-${postId}`);
+      if (countEl) countEl.textContent = post.likes;
+      const card = document.getElementById(`card-${postId}`);
+      const btn = card?.querySelector('.post-action-btn');
+      if (btn) {
+        btn.classList.toggle('liked', post.liked);
+        btn.querySelector('span').textContent = post.liked ? '❤️' : '🤍';
+      }
+    }
+
+    function toggleCommentsThread(postId) {
+      const el = document.getElementById(`comments-${postId}`);
+      if (el) el.classList.toggle('open');
+    }
+
+    function switchChatType(type) {
+      currentChatType = type;
+      currentThreadIndex = 0;
+      document.getElementById('ttab-dm').classList.toggle('active', type === 'dm');
+      document.getElementById('ttab-grp').classList.toggle('active', type === 'grp');
+      renderChatThreads();
+      renderActiveChat();
+    }
+
+    function renderChatThreads() {
+      const container = document.getElementById('chat-threads-list');
+      if (!container) return;
+
+      const threads = DEMO_CHAT_THREADS[currentChatType] || [];
+      container.innerHTML = threads.map((th, idx) => `
+        <div class="thread-item ${idx === currentThreadIndex ? 'active' : ''}" onclick="selectThread(${idx})">
+          <div class="student-avatar" style="background:${th.avatarBg}">${th.initials}</div>
+          <div class="thread-item-info">
+            <div class="thread-item-name">
+              <span>${th.name}</span>
+              <span style="font-size:10px;color:var(--text-subtle);font-weight:400">${th.time}</span>
+            </div>
+            <div class="thread-item-preview">${th.preview}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function selectThread(idx) {
+      currentThreadIndex = idx;
+      renderChatThreads();
+      renderActiveChat();
+    }
+
+    function renderActiveChat() {
+      const threads = DEMO_CHAT_THREADS[currentChatType] || [];
+      const th = threads[currentThreadIndex] || threads[0];
+      const hdr = document.getElementById('chat-header-info');
+      const scroll = document.getElementById('chat-messages-scroll');
+      if (!th || !hdr || !scroll) return;
+
+      hdr.innerHTML = `
+        <div class="student-avatar" style="background:${th.avatarBg};width:36px;height:36px;font-size:14px">${th.initials}</div>
+        <div>
+          <div style="font-size:14px;font-weight:800">${th.name}</div>
+          <div style="font-size:11.5px;color:var(--text-muted)">${currentChatType === 'dm' ? 'Verified Student • NWU Peer' : '24 Module Members Connected'}</div>
+        </div>
+      `;
+
+      scroll.innerHTML = th.messages.map(m => `
+        <div class="msg-bubble ${m.from === 'me' ? 'outgoing' : 'incoming'}">
+          ${m.author && m.from !== 'me' ? `<div style="font-size:11px;font-weight:800;color:var(--nwu-purple);margin-bottom:2px">${m.author}</div>` : ''}
+          <div>${m.text}</div>
+          <div class="msg-time">${m.time} ${m.from === 'me' ? '✓✓' : ''}</div>
+        </div>
+      `).join('');
+
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    function handleSendDemoMsg(e) {
+      e.preventDefault();
+      const input = document.getElementById('demo-chat-input');
+      const text = input?.value.trim();
+      if (!text) return;
+
+      const threads = DEMO_CHAT_THREADS[currentChatType] || [];
+      const th = threads[currentThreadIndex];
+      if (!th) return;
+
+      th.messages.push({ from: 'me', text, time: 'Just now' });
+      input.value = '';
+      renderActiveChat();
+
+      setTimeout(() => {
+        const replies = [
+          'Got it! Reviewing the assignment repo now.',
+          'Awesome, thanks for sharing! See you in class.',
+          'I uploaded the notes to our module hub folder!',
+          'Sounds great, let me know if you need any other solutions.'
+        ];
+        const randomReply = replies[Math.floor(Math.random() * replies.length)];
+        th.messages.push({
+          from: 'them',
+          author: th.name,
+          text: randomReply,
+          time: 'Just now'
+        });
+        renderActiveChat();
+      }, 1200);
+    }
+
+    function renderModulesGrid() {
+      const container = document.getElementById('modules-grid-container');
+      if (!container) return;
+
+      container.innerHTML = DEMO_MODULES.map(m => `
+        <div class="module-card">
+          <div class="module-card-hdr">
+            <span class="module-code-badge">${m.code}</span>
+            <span style="font-size:11.5px;color:var(--success);font-weight:700">● Live Semester</span>
+          </div>
+          <h3>${m.title}</h3>
+          <div class="module-card-faculty">${m.faculty}</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">${m.desc}</p>
+          <div class="module-stats-row">
+            <div>
+              <div class="module-stat-val">${m.students}</div>
+              <div class="module-stat-lbl">Connected Students</div>
+            </div>
+            <div>
+              <div class="module-stat-val">${m.squads}</div>
+              <div class="module-stat-lbl">Active Study Squads</div>
+            </div>
+          </div>
+          <button class="btn-toggle" style="width:100%;justify-content:center" onclick="alert('Module Study Squad: Connecting enrolled ${m.code} students...')">
+            Explore ${m.code} Study Cohorts →
+          </button>
+        </div>
+      `).join('');
+    }
+
+    const CAMPUS_COORDS = {
+      center: [-26.6830, 27.0945],
+      landmarks: [
+        { id: 'library', name: 'Ferdinand Postma Library', type: 'academic', emoji: '📚', lat: -26.6820, lng: 27.0929, desc: 'Central University Study Hub & 24/7 Computer Labs' },
+        { id: 'admin', name: 'Joon van Rooy Building', type: 'academic', emoji: '🏛', lat: -26.6828, lng: 27.0955, desc: 'University Administration & Academic Registrar' },
+        { id: 'eish', name: 'Eish! Student Diner', type: 'food', emoji: '☕', lat: -26.6855, lng: 27.0935, desc: 'Student Dining, Cafeteria & Social Quad' },
+        { id: 'sports', name: 'Fanie du Toit Sports Complex', type: 'event', emoji: '🏉', lat: -26.6850, lng: 27.0975, desc: 'Varsity Cup Stadium, Athletics & Sports Gymnasium' },
+        { id: 'patria', name: 'Patria Residence', type: 'res', emoji: '🏠', lat: -26.6865, lng: 27.0965, desc: 'Campus Men Residence' },
+        { id: 'heide', name: 'Heide Residence', type: 'res', emoji: '🏠', lat: -26.6815, lng: 27.0968, desc: 'Campus Ladies Residence' },
+        { id: 'veritas', name: 'Veritas Residence', type: 'res', emoji: '🏠', lat: -26.6872, lng: 27.0930, desc: 'Campus Senior Residence' },
+        { id: 'engineering', name: 'Engineering Complex', type: 'academic', emoji: '🔬', lat: -26.6833, lng: 27.0915, desc: 'Faculty of Engineering & Robotics Labs' }
+      ]
+    };
+
+    function initOrResizeCampusMap() {
+      const mapEl = document.getElementById('nwu-map');
+      if (!mapEl) return;
+
+      if (!nwuMapInstance && typeof L !== 'undefined') {
+        nwuMapInstance = L.map('nwu-map', {
+          center: CAMPUS_COORDS.center,
+          zoom: 16,
+          zoomControl: true
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors • NWU Campus Map'
+        }).addTo(nwuMapInstance);
+
+        CAMPUS_COORDS.landmarks.forEach(lm => {
+          const customHtml = `<div class="nwu-marker-bubble ${lm.type}">${lm.emoji} ${lm.name.split(' ')[0]}</div>`;
+          const customIcon = L.divIcon({
+            html: customHtml,
+            className: 'nwu-div-icon',
+            iconSize: [120, 28],
+            iconAnchor: [60, 14]
+          });
+
+          const marker = L.marker([lm.lat, lm.lng], { icon: customIcon }).addTo(nwuMapInstance);
+          marker.bindPopup(`
+            <div style="font-family:'Plus Jakarta Sans',sans-serif;padding:6px">
+              <h4 style="font-size:14px;font-weight:800;margin-bottom:4px">${lm.emoji} ${lm.name}</h4>
+              <p style="font-size:12px;color:#64748B;line-height:1.4">${lm.desc}</p>
+            </div>
+          `);
+        });
+
+        calculateDemoRoute();
+      } else if (nwuMapInstance) {
+        nwuMapInstance.invalidateSize();
+      }
+    }
+
+    function calculateDemoRoute() {
+      if (!nwuMapInstance || typeof L === 'undefined') return;
+
+      const fromId = document.getElementById('route-from')?.value || 'patria';
+      const toId = document.getElementById('route-to')?.value || 'library';
+
+      const origin = CAMPUS_COORDS.landmarks.find(l => l.id === fromId);
+      const destination = CAMPUS_COORDS.landmarks.find(l => l.id === toId);
+
+      if (!origin || !destination) return;
+
+      if (activeRoutePolyline) {
+        nwuMapInstance.removeLayer(activeRoutePolyline);
+        activeRoutePolyline = null;
+      }
+
+      const midLat = (origin.lat + destination.lat) / 2 + 0.0004;
+      const midLng = (origin.lng + destination.lng) / 2 - 0.0003;
+
+      const routePoints = [
+        [origin.lat, origin.lng],
+        [midLat, midLng],
+        [destination.lat, destination.lng]
+      ];
+
+      activeRoutePolyline = L.polyline(routePoints, {
+        color: '#5F27CD',
+        weight: 5,
+        opacity: 0.85,
+        dashArray: '8, 8',
+        lineCap: 'round'
+      }).addTo(nwuMapInstance);
+
+      nwuMapInstance.fitBounds(activeRoutePolyline.getBounds(), { padding: [50, 50] });
+
+      const distanceM = Math.round(Math.hypot(origin.lat - destination.lat, origin.lng - destination.lng) * 111000);
+      const walkingMins = Math.max(2, Math.round(distanceM / 75));
+
+      document.getElementById('route-time').textContent = `${walkingMins} min walk`;
+      document.getElementById('route-dist').textContent = `${distanceM}m direct campus pedestrian route`;
+
+      const stepsList = document.getElementById('route-steps');
+      if (stepsList) {
+        stepsList.innerHTML = `
+          <li class="step-item"><span class="step-bullet">•</span> Depart from ${origin.name} (${origin.desc})</li>
+          <li class="step-item"><span class="step-bullet">•</span> Follow lit student pathway toward Central Quad (~${Math.round(distanceM / 2)}m)</li>
+          <li class="step-item"><span class="step-bullet">•</span> Arrive safely at ${destination.name}</li>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
