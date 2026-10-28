@@ -5716,6 +5716,187 @@ body.image-view-open .modal-bg {
   letter-spacing: 0.5px;
   margin-bottom: 12px;
 }
+.admin-help {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0 0 10px;
+}
+.admin-timetable-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.admin-timetable-item {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+.admin-timetable-item div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.admin-timetable-item span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-danger-sm {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 8px;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+.timetable-page {
+  padding: 18px 16px 96px;
+}
+.timetable-page .page-heading {
+  margin-bottom: 18px;
+}
+.timetable-page h1 {
+  font-size: 28px;
+  margin: 2px 0 5px;
+}
+.timetable-page .muted,
+.timetable-summary h2 {
+  color: var(--text-secondary);
+}
+.timetable-switcher {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+}
+.timetable-switch-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 10px 5px;
+}
+.timetable-switch-btn.active {
+  background: var(--bg-secondary);
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  color: var(--accent);
+}
+.timetable-switch-btn span {
+  background: var(--accent-light);
+  border-radius: 10px;
+  font-size: 10px;
+  margin-left: 2px;
+  padding: 2px 5px;
+}
+.timetable-summary {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.timetable-summary h2 {
+  font-size: 18px;
+  margin: 3px 0 0;
+}
+.timetable-source {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  max-width: 42%;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timetable-list {
+  display: grid;
+  gap: 10px;
+}
+.timetable-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.15fr 1.3fr 1fr;
+  padding: 13px 12px;
+}
+.timetable-card-date,
+.timetable-card-main,
+.timetable-card-venue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+}
+.timetable-card-date strong,
+.timetable-card-main strong {
+  font-size: 13px;
+}
+.timetable-card-date span,
+.timetable-card-main span,
+.timetable-card-venue span,
+.timetable-card-venue small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.timetable-card-venue {
+  align-items: flex-end;
+  text-align: right;
+}
+.timetable-empty,
+.timetable-loading {
+  color: var(--text-secondary);
+  padding: 44px 18px;
+  text-align: center;
+}
+.timetable-empty h3 {
+  color: var(--text-primary);
+  margin: 8px 0 5px;
+}
+.timetable-empty p {
+  font-size: 13px;
+  margin: 0;
+}
+.timetable-empty-icon {
+  font-size: 30px;
+}
+.timetable-loading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+@media (max-width: 560px) {
+  .timetable-card {
+    grid-template-columns: 1fr 1fr;
+  }
+  .timetable-card-venue {
+    align-items: flex-start;
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
 
 /* ══════════════════════════════════════════════════
    CAMPUS MAP & EVENTS

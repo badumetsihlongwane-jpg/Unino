@@ -192,6 +192,13 @@ service cloud.firestore {
       allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid) || isAdmin();
     }
 
+    // ─── ACADEMIC TIMETABLES ───────────────────────
+    match /timetables/{timetableId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin();
+    }
+
     // ─── STATS ──────────────────────────────────────
     match /stats/{doc} {
       allow read: if true;

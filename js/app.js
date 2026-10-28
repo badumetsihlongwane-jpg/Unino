@@ -17,7 +17,7 @@ const FieldVal = firebase.firestore.FieldValue;
 const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
-const APP_VERSION = 47;
+const APP_VERSION = 48;
 
 // ─── Admin / Official Account ────────────────────
 const ADMIN_EMAIL = 'admin@mynwu.ac.za';
@@ -4691,7 +4691,7 @@ function unsub() { state.unsubs.forEach(fn => fn()); state.unsubs = []; }
 function cacheCurrentPageView(page) {
   const content = document.getElementById('content');
   const node = content?.firstElementChild;
-  if (!content || !node || !['feed', 'explore', 'hustle', 'chat'].includes(page)) return;
+  if (!content || !node || !['feed', 'explore', 'timetable', 'hustle', 'chat'].includes(page)) return;
   _pageViewCache.set(page, { node, scrollTop: content.scrollTop || 0 });
   content.replaceChildren();
 }
@@ -6347,7 +6347,7 @@ function bindFeedCollapsibleChrome() {
 }
 
 function setupNav() {
-  const navPages = ['feed', 'explore', 'hustle', 'chat'];
+  const navPages = ['feed', 'explore', 'timetable', 'hustle', 'chat'];
   const nav = document.getElementById('nav');
   bindFeedCollapsibleChrome();
 
@@ -6572,6 +6572,7 @@ function navigate(page, options = {}) {
     switch (page) {
       case 'feed': renderFeed(); break;
       case 'explore': renderExplore(); break;
+      case 'timetable': renderTimetable(); break;
       case 'hustle': renderHustle(); break;
       case 'chat': renderMessages(); break;
     }
@@ -6579,6 +6580,175 @@ function navigate(page, options = {}) {
   // Push state for navigation
   if (_inAppBackInit && state.user && pushHistory) {
     history.pushState({ app: true, screen: 'app', page, msgTab: state.lastMsgTab }, '');
+  }
+}
+
+// ─── Timetable ────────────────────────────────────
+let _timetableMode = 'auto';
+
+function timetableDateValue(value) {
+  const parsed = new Date(String(value || '').replace(/\//g, '-'));
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function timetableDateLabel(value) {
+  const parsed = new Date(String(value || '').replace(/\//g, '-'));
+  return Number.isNaN(parsed.getTime()) ? String(value || 'Date TBC') : parsed.toLocaleDateString(undefined, {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+}
+
+function timetableTimeLabel(value) {
+  const text = String(value || '').trim();
+  return text.replace(/:00$/, '');
+}
+
+function renderTimetableRows(rows = []) {
+  if (!rows.length) return '<div class="timetable-empty"><div class="timetable-empty-icon">🗓️</div><h3>No timetable entries</h3><p>Your normal timetable will appear here when it is available.</p></div>';
+  return `<div class="timetable-list">${rows
+    .sort((a, b) => timetableDateValue(a.date) - timetableDateValue(b.date) || String(a.time).localeCompare(String(b.time)))
+    .map(row => `
+      <article class="timetable-card">
+        <div class="timetable-card-date"><strong>${esc(timetableDateLabel(row.date))}</strong><span>${esc(timetableTimeLabel(row.time))}</span></div>
+        <div class="timetable-card-main"><strong>${esc(row.module || 'Module')}</strong><span>Paper ${esc(row.paper || '—')} · ${esc(row.duration || 'Duration TBC')}</span></div>
+        <div class="timetable-card-venue"><span>${esc(row.venue || 'Venue TBC')}</span>${row.allocation ? `<small>${esc(row.allocation)}</small>` : ''}</div>
+      </article>
+    `).join('')}</div>`;
+}
+
+function timetableHasUpcoming(rows = []) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return rows.some(row => timetableDateValue(row.date) >= today.getTime());
+}
+
+function timetableModeLabel(mode) {
+  return mode === 'exams' ? 'Exam timetable' : mode === 'assessments' ? 'Assessment timetable' : 'Normal timetable';
+}
+
+async function loadTimetableData() {
+  const snap = await db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get();
+  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function renderTimetable() {
+  const content = $('#content');
+  if (!content) return;
+  content.innerHTML = `<section class="timetable-page"><div class="page-heading"><div><p class="eyebrow">Academic calendar</p><h1>Timetable</h1><p class="muted">Keep your classes, assessments and exams in one place.</p></div></div><div id="timetable-body"><div class="timetable-loading"><span class="inline-spinner"></span> Loading timetable…</div></div></section>`;
+  try {
+    const docs = await loadTimetableData();
+    const exams = docs.filter(doc => doc.kind === 'exams');
+    const assessments = docs.filter(doc => doc.kind === 'assessments');
+    const examRows = exams.flatMap(doc => doc.rows || []);
+    const assessmentRows = assessments.flatMap(doc => doc.rows || []);
+    const mode = _timetableMode === 'auto'
+      ? (timetableHasUpcoming(examRows) ? 'exams' : timetableHasUpcoming(assessmentRows) ? 'assessments' : 'normal')
+      : _timetableMode;
+    const rows = mode === 'exams' ? examRows : mode === 'assessments' ? assessmentRows : [];
+    const latest = (mode === 'exams' ? exams : assessments)[0];
+    const body = $('#timetable-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="timetable-switcher">
+        <button class="timetable-switch-btn ${mode === 'exams' ? 'active' : ''}" data-mode="exams">Exams${examRows.length ? ` <span>${examRows.length}</span>` : ''}</button>
+        <button class="timetable-switch-btn ${mode === 'assessments' ? 'active' : ''}" data-mode="assessments">Assessments${assessmentRows.length ? ` <span>${assessmentRows.length}</span>` : ''}</button>
+        <button class="timetable-switch-btn ${mode === 'normal' ? 'active' : ''}" data-mode="normal">Normal</button>
+      </div>
+      <div class="timetable-summary"><div><span class="eyebrow">${esc(timetableModeLabel(mode))}</span><h2>${mode === 'normal' ? 'Your regular timetable' : `${rows.length} upcoming ${mode === 'exams' ? 'exam' : 'assessment'}${rows.length === 1 ? '' : 's'}`}</h2></div>${latest?.fileName ? `<span class="timetable-source">From ${esc(latest.fileName)}</span>` : ''}</div>
+      ${renderTimetableRows(rows)}
+    `;
+    body.querySelectorAll('.timetable-switch-btn').forEach(button => {
+      button.onclick = () => { _timetableMode = button.dataset.mode; renderTimetable(); };
+    });
+  } catch (error) {
+    console.error('Could not load timetable:', error);
+    const body = $('#timetable-body');
+    if (body) body.innerHTML = '<div class="timetable-empty"><h3>Timetable unavailable</h3><p>We could not load the timetable. Please try again.</p></div>';
+  }
+}
+
+function parseTimetableText(text) {
+  const rows = [];
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  const rowPattern = /(\S+)\s+(\S+)\s+(\d{4}[/-]\d{1,2}[/-]\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+?)(?=\s+\S+\s+\S+\s+\d{4}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}|$)/g;
+  for (const match of normalized.matchAll(rowPattern)) {
+    const line = match[0];
+    if (/module\s+code/i.test(line)) continue;
+    const tail = match[5];
+    const durationMatch = tail.match(/\b\d+\s*(?:hours?|hrs?|minutes?|mins?)\b/i);
+    const venueMatch = tail.match(/\b[A-Za-z]{1,6}[-_][A-Za-z0-9_-]+\b/);
+    const duration = durationMatch?.[0] || '';
+    const venue = venueMatch?.[0] || '';
+    const allocation = tail.replace(duration, '').replace(venue, '').trim();
+    rows.push({ module: match[1].toUpperCase(), paper: match[2], date: match[3].replace(/-/g, '/'), time: match[4], duration, venue, allocation });
+  }
+  return rows;
+}
+
+function fileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read PDF'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractTimetablePdf(file) {
+  if (!window.pdfjsLib) throw new Error('PDF reader is unavailable');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(' '));
+  }
+  return parseTimetableText(pages.join('\n'));
+}
+
+async function adminUploadTimetable() {
+  if (!_isAdmin) return toast('Admin only');
+  const file = $('#admin-timetable-file')?.files?.[0];
+  const kind = $('#admin-timetable-kind')?.value;
+  if (!file || file.type !== 'application/pdf') return toast('Choose a PDF timetable');
+  const button = $('#admin-timetable-upload');
+  if (button) button.disabled = true;
+  try {
+    const rows = await extractTimetablePdf(file);
+    if (!rows.length) return toast('No timetable rows found in this PDF');
+    const pdfData = await fileAsDataUrl(file);
+    if (pdfData.length > 900000) return toast('PDF is too large to store. Please use a PDF under 675 KB.');
+    await db.collection('timetables').add({
+      kind,
+      fileName: file.name,
+      pdfData,
+      rows,
+      uploadedBy: state.user.uid,
+      uploadedAt: FieldVal.serverTimestamp(),
+      createdAt: FieldVal.serverTimestamp()
+    });
+    toast(`${kind === 'exams' ? 'Exam' : 'Assessment'} timetable uploaded`);
+    openAdminPanel();
+  } catch (error) {
+    console.error('Timetable upload failed:', error);
+    toast(error.message || 'Could not process timetable PDF');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function adminDeleteTimetable(id) {
+  if (!_isAdmin || !id) return;
+  if (!window.confirm('Delete this timetable upload?')) return;
+  try {
+    await db.collection('timetables').doc(id).delete();
+    toast('Timetable deleted');
+    openAdminPanel();
+  } catch (error) {
+    console.error('Timetable deletion failed:', error);
+    toast('Could not delete timetable');
   }
 }
 
@@ -20018,14 +20188,25 @@ async function openAdminPanel() {
         <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--primary);border-color:var(--primary)" onclick="showAdminRelaunchDateShift()">🔄 Relaunch: Refresh All Dates to Today</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">Kill Switch: Wipe Data</button>
       </div>
+      <div class="admin-section">
+        <h4>Academic timetables</h4>
+        <p class="admin-help">Upload a PDF containing module code, paper, date, session, duration and venue.</p>
+        <div class="admin-timetable-form">
+          <select id="admin-timetable-kind"><option value="exams">Exams</option><option value="assessments">Assessments</option></select>
+          <input id="admin-timetable-file" type="file" accept="application/pdf">
+          <button id="admin-timetable-upload" class="btn-accent btn-full" onclick="adminUploadTimetable()">Upload PDF</button>
+        </div>
+        <div id="admin-timetable-list"><div class="inline-spinner" style="margin:16px auto"></div></div>
+      </div>
     </div>
   `);
   try {
-    const [usersSnap, postsSnap, groupsSnap, asgSnap] = await Promise.all([
+    const [usersSnap, postsSnap, groupsSnap, asgSnap, timetableSnap] = await Promise.all([
       db.collection('users').get(),
       db.collection('posts').get(),
       db.collection('groups').get(),
-      db.collection('assignmentGroups').get()
+      db.collection('assignmentGroups').get(),
+      db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get()
     ]);
     const statsEl = $('#admin-stats');
     if (statsEl) {
@@ -20037,7 +20218,18 @@ async function openAdminPanel() {
           <div class="admin-stat-card"><div class="admin-stat-num">${postsSnap.size}</div><div class="admin-stat-label">Total Posts</div></div>
           <div class="admin-stat-card"><div class="admin-stat-num">${groupsSnap.size}</div><div class="admin-stat-label">Groups</div></div>
           <div class="admin-stat-card"><div class="admin-stat-num">${asgSnap.size}</div><div class="admin-stat-label">Groups</div></div>
+          <div class="admin-stat-card"><div class="admin-stat-num">${timetableSnap.size}</div><div class="admin-stat-label">Timetables</div></div>
         </div>`;
+    }
+    const timetableList = $('#admin-timetable-list');
+    if (timetableList) {
+      const uploads = timetableSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      timetableList.innerHTML = uploads.length ? uploads.map(upload => `
+        <div class="admin-timetable-item">
+          <div><strong>${esc(upload.kind === 'exams' ? 'Exam' : 'Assessment')} timetable</strong><span>${esc(upload.fileName || 'PDF')} · ${(upload.rows || []).length} rows</span></div>
+          <button class="btn-danger-sm" onclick="adminDeleteTimetable('${upload.id}')">Delete</button>
+        </div>
+      `).join('') : '<p class="admin-help">No timetable PDFs uploaded yet.</p>';
     }
   } catch (e) { console.error(e); }
 }
@@ -21661,6 +21853,7 @@ function checkLandlordPortalHash() {
     openMessageActionSheet, reactToMessage, deleteMessage,
     toggleVN, seekVN,
     openAdminPanel, adminViewAllGroups, adminViewAllUsers, adminVerifyUser, doVerifyUser,
+    adminUploadTimetable, adminDeleteTimetable,
     adminModeratePosts, adminDeletePost, adminBroadcastPrompt, adminSendBroadcast,
     reportPost, submitPostReport, showAdminDataClear, adminDataClearStepTwo, doAdminDataClear,
     showAdminRelaunchDateShift, doAdminRelaunchDateShift,
