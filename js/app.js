@@ -6627,8 +6627,45 @@ function timetableModeLabel(mode) {
 }
 
 async function loadTimetableData() {
-  const snap = await db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let snap;
+  try {
+    snap = await db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get();
+  } catch (error) {
+    // A missing composite/index configuration must not hide an uploaded exam PDF.
+    console.warn('Timetable ordering unavailable; retrying without order:', error);
+    snap = await db.collection('timetables').limit(20).get();
+  }
+  return snap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => {
+      const aTime = a.createdAt?.toMillis?.() || Date.parse(a.uploadedAt || '') || 0;
+      const bTime = b.createdAt?.toMillis?.() || Date.parse(b.uploadedAt || '') || 0;
+      return bTime - aTime;
+    });
+}
+
+function isExamTimetable(upload = {}) {
+  return /exam/i.test(String(upload.kind || upload.type || upload.title || upload.fileName || ''));
+}
+
+function flattenExamRows(uploads = []) {
+  return uploads.filter(isExamTimetable).flatMap(upload => upload.rows || []);
+}
+
+async function openExamTimetableModal() {
+  openModal('<div class="modal-header"><h2>Exam Timetable</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div><div class="modal-body timetable-modal-body"><div class="timetable-loading"><span class="inline-spinner"></span> Loading exam timetable…</div></div>');
+  try {
+    const rows = flattenExamRows(await loadTimetableData());
+    const body = document.querySelector('#modal-inner .timetable-modal-body');
+    if (!body) return;
+    body.innerHTML = rows.length
+      ? `<p class="timetable-sub" style="margin:0 0 12px">Published exam entries</p>${renderTimetableRows(rows)}`
+      : '<div class="timetable-empty"><div class="timetable-empty-icon">📝</div><h3>No exam timetable published</h3><p>The exam timetable upload could not be found yet. Please try again later.</p></div>';
+  } catch (error) {
+    console.error('Could not load exam timetable:', error);
+    const body = document.querySelector('#modal-inner .timetable-modal-body');
+    if (body) body.innerHTML = '<div class="timetable-empty"><h3>Exam timetable unavailable</h3><p>We could not load the published exam timetable. Please try again.</p></div>';
+  }
 }
 
 async function renderTimetable() {
@@ -15690,6 +15727,13 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     return;
   }
   const targetUser = state.profile || {};
+  let timetableUploads = [];
+  try {
+    timetableUploads = await loadTimetableData();
+  } catch (error) {
+    console.error('Could not load published timetables:', error);
+  }
+  const examRows = flattenExamRows(timetableUploads);
 
   const enrolledModules = normalizeModules(targetUser.modules || []);
   const allTimetable = await loadWeeklyTimetable();
@@ -15753,6 +15797,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     // Actions bar: Add custom class, view hidden/removed classes, reset
     const actionsBarHtml = isMe ? `
       <div class="timetable-actions-bar">
+        <button type="button" class="timetable-action-pill" id="tt-view-exams-btn" title="View the published exam timetable">
+          📝 View Exam Timetable${examRows.length ? ` (${examRows.length})` : ''}
+        </button>
         <button type="button" class="timetable-action-pill" id="tt-add-class-btn" title="Add a custom class, tutorial, or lab session">
           + Add Class
         </button>
@@ -16676,6 +16723,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
         updateTimetableAlertPreference(alertSelect.value);
       };
     }
+
+    modal.querySelector('#tt-view-exams-btn')?.addEventListener('click', () => {
+      openExamTimetableModal();
+    });
 
     // Always jump / auto-scroll to current (Now) or upcoming (Next) lecture
     const activeCard = modal.querySelector('.timetable-card.is-now') || modal.querySelector('.timetable-card.is-next');
@@ -21866,7 +21917,7 @@ function checkLandlordPortalHash() {
     runAppwriteBackendDiagnostics, sendAppwritePing, runNotificationDiagnostics, sendDebugLocalNotification, sendGatewayNotificationProbe, runShadowSyncProbe,
     toggleAppwriteMirror, setAppwriteMirrorEnabled,
     openPinnedPostOnRadar, routeToMapPointEncoded, openCreateEventAtMapPointEncoded, clearMapDestination, routeFromMapDestination, previewMapPoint,
-    openTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
+    openTimetableModal, openExamTimetableModal, locateTimetableVenue, updateTimetableAlertPreference, checkUpcomingLectureAlerts, saveModuleGroup, saveUserTimetableStream, resolveEffectiveGroup, inferFacultyFromMajor,
     getStoredTimetableCustomizations, saveTimetableCustomizations, getTimetableSlotId, getEffectiveUserSlots,
     voteOnPollEncoded, voteOnPoll,
     openResidencesView, closeResidencesView, toggleResidencesViewMode, locateResidenceOnMap, openResidenceDetail, hideResidenceMapPreview,
