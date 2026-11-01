@@ -6610,7 +6610,7 @@ function renderTimetableRows(rows = []) {
     .map(row => `
       <article class="timetable-card">
         <div class="timetable-card-date"><strong>${esc(timetableDateLabel(row.date))}</strong><span>${esc(timetableTimeLabel(row.time))}</span></div>
-        <div class="timetable-card-main"><strong>${esc(row.module || 'Module')}</strong><span>Paper ${esc(row.paper || '—')} · ${esc(row.duration || 'Duration TBC')}</span></div>
+        <div class="timetable-card-main"><strong>${esc(getTimetableRowModule(row) || 'Module')}</strong><span>Paper ${esc(row.paper || '—')} · ${esc(row.duration || 'Duration TBC')}</span></div>
         <div class="timetable-card-venue"><span>${esc(row.venue || 'Venue TBC')}</span>${row.allocation ? `<small>${esc(row.allocation)}</small>` : ''}</div>
       </article>
     `).join('')}</div>`;
@@ -6648,19 +6648,43 @@ function isExamTimetable(upload = {}) {
   return /exam/i.test(String(upload.kind || upload.type || upload.title || upload.fileName || ''));
 }
 
-function flattenExamRows(uploads = []) {
-  return uploads.filter(isExamTimetable).flatMap(upload => upload.rows || []);
+function getEnrolledModuleKeys(profile = state.profile) {
+  const rawModules = Array.isArray(profile?.modules)
+    ? profile.modules
+    : String(profile?.modules || '').split(',');
+  return new Set(normalizeModules(rawModules));
+}
+
+function getTimetableRowModule(row = {}) {
+  return row.module || row.moduleCode || row.courseCode || row.subject || row.code || '';
+}
+
+function filterExamRowsForUser(rows = [], profile = state.profile) {
+  const enrolledModules = getEnrolledModuleKeys(profile);
+  if (!enrolledModules.size) return [];
+  return rows.filter(row => enrolledModules.has(normalizeModules([getTimetableRowModule(row)])[0]));
+}
+
+function flattenExamRows(uploads = [], profile = state.profile) {
+  return filterExamRowsForUser(
+    uploads.filter(isExamTimetable).flatMap(upload => upload.rows || []),
+    profile
+  );
 }
 
 async function openExamTimetableModal() {
   openModal('<div class="modal-header"><h2>Exam Timetable</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div><div class="modal-body timetable-modal-body"><div class="timetable-loading"><span class="inline-spinner"></span> Loading exam timetable…</div></div>');
+  $('#modal-bg')?.querySelector('.modal-sheet')?.classList.add('modal-sheet-timetable');
   try {
+    const enrolledModules = getEnrolledModuleKeys();
     const rows = flattenExamRows(await loadTimetableData());
     const body = document.querySelector('#modal-inner .timetable-modal-body');
     if (!body) return;
     body.innerHTML = rows.length
       ? `<p class="timetable-sub" style="margin:0 0 12px">Published exam entries</p>${renderTimetableRows(rows)}`
-      : '<div class="timetable-empty"><div class="timetable-empty-icon">📝</div><h3>No exam timetable published</h3><p>The exam timetable upload could not be found yet. Please try again later.</p></div>';
+      : enrolledModules.size
+        ? '<div class="timetable-empty"><div class="timetable-empty-icon">📝</div><h3>No exams found for your modules</h3><p>Published exams are matched against the modules saved in your profile. Add or update your modules if they are missing.</p></div>'
+        : '<div class="timetable-empty"><div class="timetable-empty-icon">📚</div><h3>Add your modules first</h3><p>We use your enrolled modules to show only your exam entries.</p><button type="button" class="btn-primary btn-sm" onclick="closeModal();editProfile()">✏️ Add Enrolled Modules</button></div>';
   } catch (error) {
     console.error('Could not load exam timetable:', error);
     const body = document.querySelector('#modal-inner .timetable-modal-body');
@@ -6674,12 +6698,12 @@ async function renderTimetable() {
   content.innerHTML = `<section class="timetable-page"><div class="page-heading"><div><p class="eyebrow">Academic calendar</p><h1>Timetable</h1><p class="muted">Keep your classes, assessments and exams in one place.</p></div></div><div id="timetable-body"><div class="timetable-loading"><span class="inline-spinner"></span> Loading timetable…</div></div></section>`;
   try {
     const docs = await loadTimetableData();
-    const exams = docs.filter(doc => doc.kind === 'exams');
+    const exams = docs.filter(isExamTimetable);
     const assessments = docs.filter(doc => doc.kind === 'assessments');
-    const examRows = exams.flatMap(doc => doc.rows || []);
+    const examRows = flattenExamRows(exams);
     const assessmentRows = assessments.flatMap(doc => doc.rows || []);
     const mode = _timetableMode === 'auto'
-      ? (timetableHasUpcoming(examRows) ? 'exams' : timetableHasUpcoming(assessmentRows) ? 'assessments' : 'normal')
+      ? (examRows.length ? 'exams' : assessmentRows.length ? 'assessments' : 'normal')
       : _timetableMode;
     const rows = mode === 'exams' ? examRows : mode === 'assessments' ? assessmentRows : [];
     const latest = (mode === 'exams' ? exams : assessments)[0];
@@ -6691,7 +6715,7 @@ async function renderTimetable() {
         <button class="timetable-switch-btn ${mode === 'assessments' ? 'active' : ''}" data-mode="assessments">Assessments${assessmentRows.length ? ` <span>${assessmentRows.length}</span>` : ''}</button>
         <button class="timetable-switch-btn ${mode === 'normal' ? 'active' : ''}" data-mode="normal">Normal</button>
       </div>
-      <div class="timetable-summary"><div><span class="eyebrow">${esc(timetableModeLabel(mode))}</span><h2>${mode === 'normal' ? 'Your regular timetable' : `${rows.length} upcoming ${mode === 'exams' ? 'exam' : 'assessment'}${rows.length === 1 ? '' : 's'}`}</h2></div>${latest?.fileName ? `<span class="timetable-source">From ${esc(latest.fileName)}</span>` : ''}</div>
+      <div class="timetable-summary"><div><span class="eyebrow">${esc(timetableModeLabel(mode))}</span><h2>${mode === 'normal' ? 'Your regular timetable' : `${rows.length} ${mode === 'exams' ? 'exam' : 'assessment'}${rows.length === 1 ? '' : 's'} for your modules`}</h2></div>${latest?.fileName ? `<span class="timetable-source">From ${esc(latest.fileName)}</span>` : ''}</div>
       ${renderTimetableRows(rows)}
     `;
     body.querySelectorAll('.timetable-switch-btn').forEach(button => {

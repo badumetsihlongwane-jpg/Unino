@@ -10702,8 +10702,13 @@ body {
   overflow: hidden !important;
   display: flex;
   flex-direction: column;
+  height: min(90vh, 760px);
   max-height: min(90vh, 760px);
   padding: 0;
+}
+
+.modal-sheet-timetable > .modal-header {
+  flex-shrink: 0;
 }
 
 .timetable-modal-wrapper {
@@ -10798,6 +10803,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   flex: 1;
