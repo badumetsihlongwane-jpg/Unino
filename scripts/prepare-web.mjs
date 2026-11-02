@@ -5,7 +5,7 @@ const rootDir = process.cwd();
 const distDir = join(rootDir, 'dist');
 
 // Strictly whitelisted directories and files needed for production web and Capacitor assets
-const includeDirs = ['css', 'js', 'data', 'worker'];
+const includeDirs = ['css', 'js', 'data', 'worker', 'unibo.social'];
 const includeFiles = [
   'index.html',
   'landlord.html',
