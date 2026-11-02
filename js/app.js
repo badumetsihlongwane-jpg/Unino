@@ -4926,6 +4926,15 @@ let _loadingWeeklyTimetablePromise = null;
 async function loadWeeklyTimetable() {
   if (_nwuWeeklyTimetable && Object.keys(_nwuWeeklyTimetable).length) return _nwuWeeklyTimetable;
   if (_loadingWeeklyTimetablePromise) return _loadingWeeklyTimetablePromise;
+  try {
+    const cached = JSON.parse(localStorage.getItem('unino-weekly-timetable') || 'null');
+    if (cached && typeof cached === 'object' && Object.keys(cached).length) {
+      _nwuWeeklyTimetable = cached;
+      return _nwuWeeklyTimetable;
+    }
+  } catch (error) {
+    console.warn('Could not read offline weekly timetable:', error);
+  }
   _loadingWeeklyTimetablePromise = (async () => {
     const candidatePaths = [
       'data/nwu_timetable_weekly.json',
@@ -4938,6 +4947,11 @@ async function loadWeeklyTimetable() {
         const res = await fetch(p);
         if (res.ok) {
           _nwuWeeklyTimetable = await res.json();
+          try {
+            localStorage.setItem('unino-weekly-timetable', JSON.stringify(_nwuWeeklyTimetable));
+          } catch (error) {
+            console.warn('Could not save offline weekly timetable:', error);
+          }
           return _nwuWeeklyTimetable;
         }
       } catch (_) {}
@@ -5699,8 +5713,17 @@ function initAuth() {
           await auth.signOut().catch(() => {});
           return;
         }
-        state.profile = { id: user.uid, displayName: user.displayName, email: user.email, status: 'online', modules: [] };
+        const cachedAcademic = readCachedAcademicProfile(user.uid);
+        state.profile = {
+          id: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          status: 'online',
+          modules: [],
+          ...(cachedAcademic || {})
+        };
       }
+      cacheAcademicProfile(state.profile);
       state.manualStatus = state.profile.manualStatus || state.profile.status || 'online';
       state.status = state.profile.status || state.manualStatus;
       // Admin detection
@@ -6627,25 +6650,123 @@ function timetableModeLabel(mode) {
 }
 
 async function loadTimetableData() {
-  let snap;
-  try {
-    snap = await db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get();
-  } catch (error) {
-    // A missing composite/index configuration must not hide an uploaded exam PDF.
-    console.warn('Timetable ordering unavailable; retrying without order:', error);
-    snap = await db.collection('timetables').limit(20).get();
+  if (navigator.onLine === false) {
+    _timetableDataSource = 'offline';
+    return getCachedTimetableUploads();
   }
-  return snap.docs
-    .map(doc => ({ id: doc.id, ...doc.data() }))
-    .sort((a, b) => {
-      const aTime = a.createdAt?.toMillis?.() || Date.parse(a.uploadedAt || '') || 0;
-      const bTime = b.createdAt?.toMillis?.() || Date.parse(b.uploadedAt || '') || 0;
-      return bTime - aTime;
-    });
+  try {
+    let snap;
+    try {
+      snap = await db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get();
+    } catch (error) {
+      // A missing composite/index configuration must not hide an uploaded exam PDF.
+      console.warn('Timetable ordering unavailable; retrying without order:', error);
+      snap = await db.collection('timetables').limit(20).get();
+    }
+    const uploads = snap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || Date.parse(a.uploadedAt || '') || 0;
+        const bTime = b.createdAt?.toMillis?.() || Date.parse(b.uploadedAt || '') || 0;
+        return bTime - aTime;
+      });
+    if (uploads.length) {
+      writeAcademicCache(uploads);
+      _timetableDataSource = 'network';
+    }
+    return uploads;
+  } catch (error) {
+    console.warn('Using saved offline timetable:', error);
+    _timetableDataSource = 'offline';
+    return getCachedTimetableUploads();
+  }
 }
 
 function isExamTimetable(upload = {}) {
   return /exam/i.test(String(upload.kind || upload.type || upload.title || upload.fileName || ''));
+}
+
+const TIMETABLE_CACHE_VERSION = 1;
+let _timetableDataSource = 'network';
+
+function getAcademicCacheKey(uid = state.user?.uid) {
+  return uid ? `unino-academic-timetable-${uid}` : '';
+}
+
+function readAcademicCache(uid = state.user?.uid) {
+  const key = getAcademicCacheKey(uid);
+  if (!key) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed?.version === TIMETABLE_CACHE_VERSION ? parsed : null;
+  } catch (error) {
+    console.warn('Could not read offline timetable cache:', error);
+    return null;
+  }
+}
+
+function writeAcademicCache(uploads = [], profile = state.profile) {
+  const key = getAcademicCacheKey();
+  if (!key) return;
+  const filteredUploads = uploads
+    .filter(isExamTimetable)
+    .map(upload => ({
+      id: upload.id || '',
+      kind: upload.kind || upload.type || 'exams',
+      fileName: upload.fileName || upload.title || 'Exam timetable',
+      rows: filterExamRowsForUser(upload.rows || [], profile)
+    }))
+    .filter(upload => upload.rows.length);
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      version: TIMETABLE_CACHE_VERSION,
+      savedAt: new Date().toISOString(),
+      modules: Array.from(getEnrolledModuleKeys(profile)),
+      examUploads: filteredUploads
+    }));
+  } catch (error) {
+    console.warn('Could not save offline timetable cache:', error);
+  }
+}
+
+function getCachedTimetableUploads(profile = state.profile) {
+  const cached = readAcademicCache();
+  if (!cached) return [];
+  const modules = getEnrolledModuleKeys(profile);
+  if (!modules.size) return [];
+  return (cached.examUploads || []).map(upload => ({
+    ...upload,
+    rows: filterExamRowsForUser(upload.rows || [], profile)
+  })).filter(upload => upload.rows.length);
+}
+
+function cacheAcademicProfile(profile = state.profile) {
+  const uid = state.user?.uid;
+  if (!uid || !profile) return;
+  const key = `${getAcademicCacheKey(uid)}-profile`;
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      version: TIMETABLE_CACHE_VERSION,
+      modules: Array.isArray(profile.modules) ? profile.modules : [],
+      timetableCustomizations: profile.timetableCustomizations || null,
+      timetableStream: profile.timetableStream || '',
+      moduleGroups: profile.moduleGroups || {}
+    }));
+  } catch (error) {
+    console.warn('Could not save offline academic profile:', error);
+  }
+}
+
+function readCachedAcademicProfile(uid = state.user?.uid) {
+  const key = uid ? `${getAcademicCacheKey(uid)}-profile` : '';
+  if (!key) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed?.version === TIMETABLE_CACHE_VERSION ? parsed : null;
+  } catch (error) {
+    console.warn('Could not read offline academic profile:', error);
+    return null;
+  }
 }
 
 function getEnrolledModuleKeys(profile = state.profile) {
@@ -15524,6 +15645,7 @@ function saveTimetableCustomizations(customizations) {
 
   if (state.profile) {
     state.profile.timetableCustomizations = clean;
+    cacheAcademicProfile(state.profile);
   }
 
   if (state.user?.uid) {
@@ -19493,6 +19615,7 @@ function editProfile() {
       }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
+      cacheAcademicProfile(state.profile);
       updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
       if (identityChanged) syncAnonIdentityInConversations(anonIdentity).catch(() => {});
