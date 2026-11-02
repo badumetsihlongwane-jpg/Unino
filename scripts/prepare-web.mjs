@@ -8,6 +8,9 @@ const distDir = join(rootDir, 'dist');
 const includeDirs = ['css', 'js', 'data', 'worker', 'unibo.social'];
 const includeFiles = [
   'index.html',
+  'design1.html',
+  'design2.html',
+  'design3.html',
   'landlord.html',
   'nwu-demo.html',
   'favicon.png',

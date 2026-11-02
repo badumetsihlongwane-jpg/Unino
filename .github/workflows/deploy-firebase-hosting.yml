@@ -9,6 +9,8 @@ on:
       - '.github/workflows/deploy-firebase-hosting.yml'
       - 'css/**'
       - 'index.html'
+      - 'design*.html'
+      - 'unibo.social/**'
       - 'js/**'
       - 'scripts/**'
       - 'worker/**'
