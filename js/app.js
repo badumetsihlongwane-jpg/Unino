@@ -298,7 +298,7 @@ const NWU_DEMO_GUEST_PROFILE = {
   address: 'Potchefstroom Campus',
   major: 'Academic Affairs & Faculty Observer',
   year: 'Staff / Faculty',
-  bio: 'Official North-West University institutional evaluation session. Exploring Unino student success modules, safety radar, and peer learning networks.',
+  bio: 'Official North-West University institutional evaluation session. Exploring Unibo student success modules, safety radar, and peer learning networks.',
   modules: ['CMPG121', 'BMAN111', 'ACCF111', 'JURI111', 'MTHS111'],
   status: 'online',
   manualStatus: 'online',
@@ -349,7 +349,7 @@ function listenForDemoNotifications() {
     {
       id: 'demo_notif_1',
       title: 'NWU Institutional Preview',
-      body: 'Welcome to Unino! You are exploring the live campus platform in staff evaluation mode.',
+      body: 'Welcome to Unibo! You are exploring the live campus platform in staff evaluation mode.',
       createdAt: { seconds: Math.floor(Date.now() / 1000) - 300 },
       read: false,
       type: 'system'
@@ -381,7 +381,7 @@ function openNwuDemoProfileModal() {
         <div class="nwu-demo-modal-icon">🏛️</div>
         <div>
           <h3>NWU Faculty & Staff Evaluation</h3>
-          <p>You bypassed student login to review Unino's live campus experience. Under POPIA compliance, you are browsing in guest mode without a personal student account.</p>
+          <p>You bypassed student login to review Unibo's live campus experience. Under POPIA compliance, you are browsing in guest mode without a personal student account.</p>
         </div>
       </div>
 
@@ -577,7 +577,7 @@ function openNwuDemoChat(type) {
       setTimeout(() => {
         const reply = document.createElement('div');
         reply.className = 'chat-bubble peer';
-        reply.innerHTML = `<div class="chat-bubble-text">Thanks for testing Unino! Real NWU students connect directly through their verified @mynwu.ac.za accounts.</div><div class="chat-bubble-time">Just now</div>`;
+        reply.innerHTML = `<div class="chat-bubble-text">Thanks for testing Unibo! Real NWU students connect directly through their verified @mynwu.ac.za accounts.</div><div class="chat-bubble-time">Just now</div>`;
         chatMsgs.appendChild(reply);
         chatMsgs.scrollTop = chatMsgs.scrollHeight;
       }, 1200);
@@ -800,7 +800,7 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
       : notifType === 'group' ? 'group'
       : 'app');
   const from = data.from && typeof data.from === 'object' ? data.from : {};
-  const pushTitle = String(from.name || 'Unino').trim() || 'Unino';
+  const pushTitle = String(from.name || 'Unibo').trim() || 'Unibo';
   const pushBody = String(data.text || 'You have a new notification').trim() || 'You have a new notification';
   const bridgePayload = {
     mode,
@@ -1752,7 +1752,7 @@ async function initNativePushNotifications() {
     pushNotifications.addListener('pushNotificationReceived', notification => {
       // System tray delivery is handled exclusively by Appwrite FCM and UninoFirebaseMessagingService.
       // Avoid scheduling a duplicate local notification here.
-      console.log('Push notification received:', notification?.title || 'Unino');
+      console.log('Push notification received:', notification?.title || 'Unibo');
     });
 
     pushNotifications.addListener('pushNotificationActionPerformed', event => {
@@ -4717,8 +4717,8 @@ function restoreCachedPageView(page) {
 //  THEME
 // ══════════════════════════════════════════════════
 const THEME_ASSETS = {
-  light: { icon: `unino-icon-light.png?v=${APP_VERSION}`, themeColor: '#FFFFFF' },
-  dark: { icon: `unino-icon-dark.png?v=${APP_VERSION}`, themeColor: '#12121F' }
+  light: { icon: 'new_logo.png', themeColor: '#FFFFFF' },
+  dark: { icon: 'new_logo.png', themeColor: '#12121F' }
 };
 
 function applyThemeAssets(theme = document.documentElement.getAttribute('data-theme') || 'light') {
@@ -8934,7 +8934,7 @@ function openGoLiveModal() {
       console.error('Camera access denied:', err);
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         toast(isNativeApp()
-          ? 'Camera blocked — open Settings → Apps → Unino → Permissions and enable Camera & Microphone'
+          ? 'Camera blocked — open Settings → Apps → Unibo → Permissions and enable Camera & Microphone'
           : 'Camera access denied. Allow camera in your browser settings and reload');
       } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
         toast('No camera found on this device');
@@ -19653,7 +19653,7 @@ async function ensureMicrophoneStream() {
   } catch (err) {
     if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
       toast(isNativeApp()
-        ? 'Microphone blocked — open Settings → Apps → Unino → Permissions and enable Microphone'
+        ? 'Microphone blocked — open Settings → Apps → Unibo → Permissions and enable Microphone'
         : 'Microphone access denied. Allow microphone in your browser settings');
     } else {
       toast('Could not access microphone');

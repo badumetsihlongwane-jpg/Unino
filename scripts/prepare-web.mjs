@@ -14,6 +14,7 @@ const includeFiles = [
   'landlord.html',
   'nwu-demo.html',
   'favicon.png',
+  'new_logo.png',
   'unino-icon.png',
   'unino-icon-light.png',
   'unino-icon-dark.png',

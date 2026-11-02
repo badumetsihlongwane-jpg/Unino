@@ -39,7 +39,7 @@ export const MarketplaceFeature = {
     grid.innerHTML = items.map(item => `
       <div class="market-card" data-action="view-item" data-item-id="${escAttr(item.$id)}">
         <div class="market-img-wrap">
-          <img src="${escAttr(item.imageUrl || 'unino-icon.png')}" alt="${escAttr(item.title)}" loading="lazy">
+          <img src="${escAttr(item.imageUrl || 'new_logo.png')}" alt="${escAttr(item.title)}" loading="lazy">
           <span class="market-price-tag">R${esc(item.price)}</span>
         </div>
         <div class="market-info">
@@ -72,7 +72,7 @@ export const MarketplaceFeature = {
         <button class="icon-btn" onclick="closeModal()">&times;</button>
       </div>
       <div class="modal-body" style="padding:16px">
-        <img src="${escAttr(item.imageUrl || 'unino-icon.png')}" style="width:100%;max-height:260px;object-fit:cover;border-radius:12px;margin-bottom:12px">
+        <img src="${escAttr(item.imageUrl || 'new_logo.png')}" style="width:100%;max-height:260px;object-fit:cover;border-radius:12px;margin-bottom:12px">
         <div style="font-size:20px;font-weight:800;color:var(--accent);margin-bottom:8px">R${esc(item.price)}</div>
         <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px">${esc(item.description || 'No description provided.')}</p>
         <button class="btn-primary btn-full" onclick="alert('Contacting seller...')">Message Seller</button>
