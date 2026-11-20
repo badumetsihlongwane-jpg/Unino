@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <title>Unibo — NWU Campus, Connected</title>
   <meta name="description" content="NWU campus social app: feed, stories, study groups, marketplace, messaging & more.">
-  <meta name="theme-color" content="#FFFFFF" id="theme-color-meta">
+  <meta name="theme-color" content="#F6F7FB" id="theme-color-meta">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <link rel="stylesheet" href="css/styles.css?v=82">
+  <link rel="stylesheet" href="css/styles.css?v=83">
+  <link rel="stylesheet" href="css/unibo-redesign.css?v=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -33,7 +34,7 @@
 <!-- ══ SPLASH ══ -->
 <div id="splash" class="screen active">
   <div class="splash-inner">
-    <div class="splash-logo brand-logo-shell"><img src="new_logo.png" alt="Unibo" class="brand-logo-img brand-logo-xl" data-theme-logo></div>
+    <div class="splash-logo brand-logo-shell"><div class="unibo-brand-mark unibo-brand-mark-xl"><img src="new_logo.png" alt="Unibo" class="brand-logo-img" data-theme-logo></div></div>
     <h1 class="splash-title">Unibo</h1>
     <div class="spinner"></div><div class="splash-status">Starting Unibo…</div>
   </div>
@@ -43,9 +44,15 @@
 <div id="auth-screen" class="screen">
   <div class="auth-wrap">
     <div class="auth-hero">
-      <div class="auth-emoji brand-logo-shell"><img src="new_logo.png" alt="Unibo" class="brand-logo-img brand-logo-lg" data-theme-logo></div>
+      <div class="auth-emoji brand-logo-shell"><div class="unibo-brand-mark unibo-brand-mark-lg"><img src="new_logo.png" alt="Unibo" class="brand-logo-img" data-theme-logo></div></div>
       <h1>Unibo</h1>
-      <p>NWU Campus, Connected</p>
+      <p>Your living NWU campus — people, places, events, hustle &amp; study in one space.</p>
+      <div class="auth-campus-pills" aria-hidden="true">
+        <span>Campus Pulse</span>
+        <span>Map &amp; Events</span>
+        <span>Hustle</span>
+        <span>650+ Residences</span>
+      </div>
     </div>
     <form id="login-form" class="auth-form active" autocomplete="off">
       <input type="email" id="l-email" placeholder="University email" required>
@@ -292,14 +299,25 @@
   <!-- Header -->
   <header id="hdr">
     <div class="hdr-l">
-      <span class="hdr-logo hdr-wordmark" aria-label="Unibo">Unibo</span>
+      <button type="button" class="hdr-brand-btn" id="hdr-brand-btn" aria-label="Unibo Home">
+        <span class="unibo-brand-mark unibo-brand-mark-sm"><img src="new_logo.png" alt="" data-theme-logo></span>
+        <span class="hdr-logo hdr-wordmark">Unibo</span>
+      </button>
+      <button type="button" class="hdr-live-pill" id="hdr-live-pill" title="Students active on campus">
+        <span class="pulse-dot"></span>
+        <span id="hdr-count">–</span>
+        <span class="hdr-live-label">live</span>
+      </button>
     </div>
     <div class="hdr-r">
-      <button class="icon-btn" id="theme-btn" aria-label="Theme">
+      <button class="icon-btn hdr-video-btn" id="hdr-video-btn" aria-label="Clips and Live" title="Clips &amp; Live">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      </button>
+      <button class="icon-btn" id="theme-btn" aria-label="Theme" title="Switch theme">
         <svg class="ic-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         <svg class="ic-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <button class="icon-btn" id="notif-btn" aria-label="Notifications">
+      <button class="icon-btn" id="notif-btn" aria-label="Notifications" title="Notifications">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         <span class="badge-dot" id="notif-dot" style="display:none"></span>
       </button>
@@ -307,24 +325,79 @@
     </div>
   </header>
 
-  <!-- Content -->
-  <main id="content"></main>
+  <div class="app-shell-body">
+    <!-- Desktop Left Navigation Rail -->
+    <aside id="desktop-rail" class="desktop-rail" aria-label="Primary campus navigation">
+      <div class="rail-section">
+        <div class="rail-section-label">Campus</div>
+        <button type="button" class="rail-btn active" data-p="feed">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Campus Feed</span>
+        </button>
+        <button type="button" class="rail-btn" data-p="explore">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+          <span>Explore &amp; Map</span>
+        </button>
+        <button type="button" class="rail-btn" data-p="hustle">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span>Hustle Market</span>
+        </button>
+        <button type="button" class="rail-btn" data-p="chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Messages &amp; Groups</span>
+          <span class="rail-badge" id="rail-chat-badge"></span>
+        </button>
+      </div>
 
-  <!-- Bottom Nav -->
+      <div class="rail-section">
+        <div class="rail-section-label">Around NWU</div>
+        <button type="button" class="rail-btn" data-portal="residences">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/></svg>
+          <span>Residences</span>
+          <span class="rail-meta">650</span>
+        </button>
+        <button type="button" class="rail-btn" data-portal="video">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          <span>Clips &amp; Live</span>
+        </button>
+        <button type="button" class="rail-btn" data-portal="timetable">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>My Schedule</span>
+        </button>
+        <button type="button" class="rail-btn" data-portal="profile">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>My Profile</span>
+        </button>
+      </div>
+
+      <button type="button" class="btn-primary rail-create-btn" data-p="create">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Share with Campus</span>
+      </button>
+    </aside>
+
+    <!-- Content -->
+    <main id="content"></main>
+
+    <!-- Desktop Right Campus Pulse Rail -->
+    <aside id="campus-pulse-rail" class="campus-pulse-rail" aria-label="Live Campus Pulse"></aside>
+  </div>
+
+  <!-- Bottom Nav (Mobile) -->
   <nav id="nav">
     <button class="nav-btn active" data-p="feed">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      <span>Feed</span>
+      <span>Campus</span>
     </button>
     <button class="nav-btn" data-p="explore">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
       <span>Explore</span>
     </button>
-    <button class="nav-btn nav-plus" data-p="create">
+    <button class="nav-btn nav-plus" data-p="create" aria-label="Create">
       <div class="plus-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
     </button>
     <button class="nav-btn" data-p="hustle">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
       <span>Hustle</span>
     </button>
     <button class="nav-btn" data-p="chat">
@@ -416,9 +489,9 @@
 <div id="residences-view" class="screen">
   <header class="sub-hdr residences-hdr">
     <button class="icon-btn" id="residences-back" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-    <div class="sub-hdr-info residences-hdr-info">
-      <h3 style="margin:0;font-size:15px;font-weight:700">NWU Residences</h3>
-      <span style="font-size:11px;color:var(--text-secondary);font-weight:500">Mahikeng Campus & Accredited 2026</span>
+    <div class="residences-hdr-info">
+      <h3>NWU Residences</h3>
+      <span>Mahikeng Campus &amp; Accredited 2026</span>
     </div>
     <button type="button" class="btn-sm btn-outline residences-view-toggle" id="residences-view-toggle" title="Switch between Map and List view">
       <span id="residences-view-toggle-icon">🗺️</span> <span id="residences-view-toggle-text">Map</span>
@@ -478,6 +551,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="js/firebase-config.js?v=67"></script>
-<script src="js/app.js?v=82"></script>
+<script src="js/app.js?v=83"></script>
 </body>
 </html>

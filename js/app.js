@@ -14,7 +14,7 @@ const _dmChatViewCache = new Map();
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const FieldVal = firebase.firestore.FieldValue;
-const COLORS = ['#6C5CE7','#8B5CF6','#A855F7','#7C3AED','#6366F1','#818CF8','#C084FC','#D946EF','#E879F9','#A78BFA'];
+const COLORS = ['#6C5CE7', '#8B5CF6', '#A855F7', '#7C3AED', '#6366F1', '#818CF8', '#C084FC', '#D946EF', '#E879F9', '#A78BFA'];
 
 // ─── App Version ─────────────────────────────────
 const APP_VERSION = 48;
@@ -114,9 +114,9 @@ function isNwuDemoActive() {
   const hash = (window.location.hash || '').toLowerCase();
   const search = (window.location.search || '').toLowerCase();
   const match = hash.includes('nwu_demo') || hash.includes('nwu-demo') || hash === '#demo' ||
-                search.includes('nwu_demo') || search.includes('nwu-demo') || search.includes('demo=nwu') || search.includes('demo=1');
+    search.includes('nwu_demo') || search.includes('nwu-demo') || search.includes('demo=nwu') || search.includes('demo=1');
   if (match) {
-    try { sessionStorage.setItem('unino_nwu_demo_mode', 'true'); } catch (_) {}
+    try { sessionStorage.setItem('unino_nwu_demo_mode', 'true'); } catch (_) { }
     _isNwuDemoMode = true;
     return true;
   }
@@ -125,20 +125,20 @@ function isNwuDemoActive() {
       _isNwuDemoMode = true;
       return true;
     }
-  } catch (_) {}
+  } catch (_) { }
   return false;
 }
 
 function exitNwuDemoMode() {
   _isNwuDemoMode = false;
-  try { sessionStorage.removeItem('unino_nwu_demo_mode'); } catch (_) {}
+  try { sessionStorage.removeItem('unino_nwu_demo_mode'); } catch (_) { }
   try {
     const url = new URL(window.location.href);
     url.hash = '';
     url.searchParams.delete('nwu_demo');
     url.searchParams.delete('demo');
     window.history.replaceState(null, '', url.pathname + (url.search || ''));
-  } catch (_) {}
+  } catch (_) { }
   state.user = null;
   state.profile = null;
   unsub();
@@ -622,7 +622,7 @@ async function recoverInvalidSession(err, context = 'Firebase startup') {
   console.error(`${context}:`, err);
   if (_sessionRecoveryInFlight) return true;
   _sessionRecoveryInFlight = true;
-  try { await auth.signOut(); } catch (_) {}
+  try { await auth.signOut(); } catch (_) { }
   state.user = null;
   state.profile = null;
   VERIFIED_UIDS.clear();
@@ -794,11 +794,11 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const kind = notifPayload.kind
     || (notifPayload.convoId ? 'dm'
       : notifPayload.groupId ? 'group'
-      : notifPayload.streamId ? 'live'
-      : notifPayload.postId ? 'post'
-      : notifType === 'message' ? 'dm'
-      : notifType === 'group' ? 'group'
-      : 'app');
+        : notifPayload.streamId ? 'live'
+          : notifPayload.postId ? 'post'
+            : notifType === 'message' ? 'dm'
+              : notifType === 'group' ? 'group'
+                : 'app');
   const from = data.from && typeof data.from === 'object' ? data.from : {};
   const pushTitle = String(from.name || 'Unibo').trim() || 'Unibo';
   const pushBody = String(data.text || 'You have a new notification').trim() || 'You have a new notification';
@@ -1053,7 +1053,7 @@ async function runNotificationDiagnostics() {
     } else {
       try {
         if (Notification.permission === 'default') await Notification.requestPermission();
-      } catch (_) {}
+      } catch (_) { }
       lines.push(`browser notification permission=${Notification.permission}`);
       sendDebugLocalNotification();
       lines.push('sent browser/local test notification');
@@ -1508,7 +1508,7 @@ function queueNativeFcmTokenHint(token = '') {
   if (!hinted || hinted.length < 20) return;
   _nativePendingFcmToken = hinted;
   _nativePushToken = hinted;
-  try { localStorage.setItem('unino-cached-fcm-token', hinted); } catch (_) {}
+  try { localStorage.setItem('unino-cached-fcm-token', hinted); } catch (_) { }
   if (state.user?.uid) {
     savePushTokenForCurrentUser(hinted).catch(err => {
       console.warn('savePushTokenForCurrentUser error:', err);
@@ -1534,23 +1534,23 @@ async function syncNativeStatusBar() {
   const statusBar = getCapacitorPlugin('StatusBar');
   if (!statusBar) return;
   const darkTheme = document.documentElement.getAttribute('data-theme') === 'dark';
-  try { await statusBar.setOverlaysWebView({ overlay: false }); } catch (e) {}
-  try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) {}
+  try { await statusBar.setOverlaysWebView({ overlay: false }); } catch (e) { }
+  try { await statusBar.setBackgroundColor({ color: darkTheme ? '#12121F' : '#FFFFFF' }); } catch (e) { }
   const styleEnum = statusBar.Style || {};
   const targetStyle = darkTheme
     ? (styleEnum.Light || 'LIGHT')
     : (styleEnum.Dark || 'DARK');
-  try { await statusBar.setStyle({ style: targetStyle }); } catch (e) {}
+  try { await statusBar.setStyle({ style: targetStyle }); } catch (e) { }
 }
 
 async function savePushTokenForCurrentUser(token) {
   if (!token || !state.user?.uid) return;
   _nativePushToken = token;
   try {
-    try { localStorage.setItem('unino-cached-fcm-token', token); } catch (_) {}
+    try { localStorage.setItem('unino-cached-fcm-token', token); } catch (_) { }
     const previousOwner = localStorage.getItem('unino-push-owner') || '';
     if (previousOwner && previousOwner !== state.user.uid) {
-      await db.collection('users').doc(previousOwner).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
+      await db.collection('users').doc(previousOwner).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => { });
     }
     await db.collection('users').doc(state.user.uid).collection('pushTokens').doc(tokenDocId(token)).set({
       token,
@@ -1569,8 +1569,8 @@ async function savePushTokenForCurrentUser(token) {
 async function removePushTokenForUser(userId, token = _nativePushToken) {
   if (!userId || !token) return;
   try {
-    await db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => {});
-    syncPushTokenWithAppwrite('delete', userId, token).catch(() => {});
+    await db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => { });
+    syncPushTokenWithAppwrite('delete', userId, token).catch(() => { });
     if ((localStorage.getItem('unino-push-owner') || '') === userId) localStorage.removeItem('unino-push-owner');
   } catch (e) {
     console.warn('Push token cleanup failed:', e);
@@ -1662,11 +1662,11 @@ function handleAppBackAction(options = {}) {
 
   if ($('#settings-view')?.classList.contains('active')) {
     showScreen('app');
-  if (_pendingNativeNotificationOpen) {
-    const pendingOpen = { ..._pendingNativeNotificationOpen };
-    _pendingNativeNotificationOpen = null;
-    setTimeout(() => handleNativeNotificationOpen(pendingOpen.extra || pendingOpen, pendingOpen.actionId || 'tap'), 200);
-  }
+    if (_pendingNativeNotificationOpen) {
+      const pendingOpen = { ..._pendingNativeNotificationOpen };
+      _pendingNativeNotificationOpen = null;
+      setTimeout(() => handleNativeNotificationOpen(pendingOpen.extra || pendingOpen, pendingOpen.actionId || 'tap'), 200);
+    }
     return true;
   }
 
@@ -1698,7 +1698,7 @@ async function scheduleLocalNotification(notification) {
       try {
         const opts = { body: notification.body, icon: notification.largeIcon || '/icons/icon-192.png', tag: String(notification.id) };
         new Notification(notification.title, opts);
-      } catch (_) {}
+      } catch (_) { }
     }
     return;
   }
@@ -1788,7 +1788,7 @@ function refreshPushRegistration(force = false) {
   const ageMs = Date.now() - (_nativePushLastRegisterAt || 0);
   // Refresh every 6 hours to reduce stale-token delivery failures.
   if (force || !_nativePushLastRegisterAt || ageMs > 6 * 60 * 60 * 1000) {
-    initNativePushNotifications().catch(() => {});
+    initNativePushNotifications().catch(() => { });
   }
 }
 
@@ -1804,7 +1804,7 @@ async function requestLocalNotificationPermission() {
       _nativeLocalNotificationsReady = false;
     }
   } else if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-    try { await Notification.requestPermission(); } catch (_) {}
+    try { await Notification.requestPermission(); } catch (_) { }
   }
 }
 
@@ -1949,7 +1949,7 @@ async function initNativeShell() {
       if (navInset > 0) document.documentElement.style.setProperty('--native-safe-bottom', `${navInset}px`);
       const statusInset = window.UninoNativeBridge.getStatusBarInset();
       if (statusInset > 0) document.documentElement.style.setProperty('--native-status-bar', `${statusInset}px`);
-    } catch (_) {}
+    } catch (_) { }
   }
   await syncNativeStatusBar();
 
@@ -1989,7 +1989,7 @@ async function initNativeShell() {
         importance: 4,
         visibility: 1
       });
-    } catch (e) {}
+    } catch (e) { }
     try {
       await localNotifications.registerActionTypes({
         types: [
@@ -2008,7 +2008,7 @@ async function initNativeShell() {
           }
         ]
       });
-    } catch (e) {}
+    } catch (e) { }
 
     if (!_nativeNotificationListenersBound) {
       _nativeNotificationListenersBound = true;
@@ -2064,7 +2064,7 @@ function resolvePostAuthorPhoto(post = {}) {
   db.collection('users').doc(post.authorId).get().then(doc => {
     _authorPhotoCache[post.authorId] = doc.exists ? (doc.data().photoURL || null) : null;
     updateFeedAuthorAvatars(post.authorId);
-  }).catch(() => {});
+  }).catch(() => { });
   return null;
 }
 
@@ -2123,7 +2123,7 @@ function scrollToLatest(msgsEl) {
 }
 
 function setupViewportFollow(msgsEl) {
-  if (!msgsEl || !window.visualViewport) return () => {};
+  if (!msgsEl || !window.visualViewport) return () => { };
   let vvTimer;
   const onVv = () => {
     clearTimeout(vvTimer);
@@ -2230,10 +2230,10 @@ function getNearbySignal(meProfile = {}, otherProfile = {}) {
     const distanceKm = distanceKmBetween(myCoords, theirCoords);
     const score = distanceKm <= 0.35 ? 5
       : distanceKm <= 0.75 ? 4
-      : distanceKm <= 1.5 ? 3
-      : distanceKm <= 3 ? 2
-      : distanceKm <= 5 ? 1
-      : 0;
+        : distanceKm <= 1.5 ? 3
+          : distanceKm <= 3 ? 2
+            : distanceKm <= 5 ? 1
+              : 0;
     return { score, distanceKm, source: 'gps' };
   }
   return {
@@ -2465,7 +2465,7 @@ function formatConversationLastMessage(raw = '', convo = {}, viewerUid = '', oth
     const senderId = parts[1] || '';
     const targetSenderId = parts[2] || '';
     let emoji = parts[3] || '❤️';
-    try { emoji = decodeURIComponent(emoji); } catch (_) {}
+    try { emoji = decodeURIComponent(emoji); } catch (_) { }
     if (senderId === viewerUid) return `You reacted ${emoji}`;
     if (targetSenderId === viewerUid) return `${otherName || 'They'} reacted ${emoji} to your message`;
     return `${otherName || 'They'} reacted ${emoji}`;
@@ -2684,7 +2684,7 @@ async function routeToEventLocation(eventDoc = {}) {
       routeToMapPoint(lat, lng, locationMeta.label || fallbackQuery);
       return true;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return false;
 }
@@ -2696,7 +2696,7 @@ async function routeToEventLocationById(eventId = '') {
     try {
       const doc = await db.collection('events').doc(eventId).get();
       if (doc.exists) eventDoc = { id: doc.id, ...doc.data() };
-    } catch (_) {}
+    } catch (_) { }
   }
   if (!eventDoc) {
     toast('Event not found');
@@ -2794,7 +2794,7 @@ async function reactToPost(postId, emoji, source = 'feed') {
       emoji,
       nextReaction: result.nextReaction || '',
       reactedAt: Date.now()
-    }).catch(() => {});
+    }).catch(() => { });
     if (result.nextReaction && result.before.authorId && result.before.authorId !== state.user?.uid) {
       addNotification(result.before.authorId, 'like', 'reacted to your post', { postId });
     }
@@ -2905,7 +2905,7 @@ async function reactToComment(postId, commentId, emoji, source = 'feed') {
       commentId,
       emoji,
       reactedAt: Date.now()
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (e) {
     if (previous) {
       _commentStateCache[commentId] = previous;
@@ -3100,7 +3100,7 @@ async function syncThreadLastMessage(scope, primaryId, collection = '') {
       else lastMessage = latest.text || '';
     }
     await parentRef.set({ lastMessage, updatedAt: FieldVal.serverTimestamp() }, { merge: true });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 async function deleteMessage(scope, primaryId, messageId, collection = '') {
@@ -3634,7 +3634,7 @@ function flushSeenPosts() {
       keys.slice(0, keys.length - 500).forEach(k => delete _cachedSeenPosts[k]);
     }
     localStorage.setItem('unino_seen_posts', JSON.stringify(_cachedSeenPosts));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function markPostSeen(postId) {
@@ -3693,7 +3693,7 @@ async function openMentionProfileByHandle(handle = '') {
       openProfile(hit.id);
       return;
     }
-  } catch (_) {}
+  } catch (_) { }
   toast('Profile not found');
 }
 
@@ -3905,7 +3905,7 @@ async function openAnonPostActions(uid, postId = null) {
     if (userDoc.exists && !allowAnonymousDMsFor(userDoc.data() || {})) {
       return toast('This user only accepts messages from friends');
     }
-  } catch (_) {}
+  } catch (_) { }
   openModal(`
     <div class="modal-body" style="padding:20px 18px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
@@ -4056,9 +4056,9 @@ function toggleVN(id) {
     el.classList.remove('playing');
     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
   }
-          if (uid === state.user.uid) {
-            setTimeout(() => refreshBackendDebugStatus(), 0);
-          }
+  if (uid === state.user.uid) {
+    setTimeout(() => refreshBackendDebugStatus(), 0);
+  }
 }
 
 function seekVN(e, id) {
@@ -4413,7 +4413,7 @@ function initPlayer(id) {
         vid.muted = false;
         if (volSlider && (!Number.isFinite(parseFloat(volSlider.value)) || parseFloat(volSlider.value) <= 0)) volSlider.value = '1';
       }
-      vid.play().catch(() => {});
+      vid.play().catch(() => { });
     } else {
       vid.pause();
     }
@@ -4717,8 +4717,8 @@ function restoreCachedPageView(page) {
 //  THEME
 // ══════════════════════════════════════════════════
 const THEME_ASSETS = {
-  light: { icon: 'new_logo.png', themeColor: '#FFFFFF' },
-  dark: { icon: 'new_logo.png', themeColor: '#12121F' }
+  light: { icon: 'new_logo.png', themeColor: '#F5F6FB' },
+  dark: { icon: 'new_logo.png', themeColor: '#090A13' }
 };
 
 function applyThemeAssets(theme = document.documentElement.getAttribute('data-theme') || 'light') {
@@ -4764,13 +4764,13 @@ function initTheme() {
   const saved = localStorage.getItem('unino-theme') || 'light';
   document.documentElement.setAttribute('data-theme', saved);
   applyThemeAssets(saved);
-  syncNativeStatusBar().catch(() => {});
+  syncNativeStatusBar().catch(() => { });
   $('#theme-btn')?.addEventListener('click', () => {
     const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('unino-theme', next);
     applyThemeAssets(next);
-    syncNativeStatusBar().catch(() => {});
+    syncNativeStatusBar().catch(() => { });
   });
 }
 
@@ -4841,7 +4841,7 @@ async function loadCoursesCatalogue() {
           _nwuCoursesCatalogue = await res.json();
           return _nwuCoursesCatalogue;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     _nwuCoursesCatalogue = {};
     return _nwuCoursesCatalogue;
@@ -4911,9 +4911,9 @@ if (typeof window !== 'undefined') {
   window.POPULAR_CAMPUS_MODULES = POPULAR_CAMPUS_MODULES;
   window.POPULAR_NWU_DEGREES = POPULAR_NWU_DEGREES;
   if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(() => { loadCoursesCatalogue().catch(() => {}); });
+    window.requestIdleCallback(() => { loadCoursesCatalogue().catch(() => { }); });
   } else {
-    setTimeout(() => { loadCoursesCatalogue().catch(() => {}); }, 1200);
+    setTimeout(() => { loadCoursesCatalogue().catch(() => { }); }, 1200);
   }
 }
 
@@ -4954,7 +4954,7 @@ async function loadWeeklyTimetable() {
           }
           return _nwuWeeklyTimetable;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     _nwuWeeklyTimetable = {};
     return _nwuWeeklyTimetable;
@@ -4965,9 +4965,9 @@ async function loadWeeklyTimetable() {
 if (typeof window !== 'undefined') {
   window.loadWeeklyTimetable = loadWeeklyTimetable;
   if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(() => { loadWeeklyTimetable().catch(() => {}); });
+    window.requestIdleCallback(() => { loadWeeklyTimetable().catch(() => { }); });
   } else {
-    setTimeout(() => { loadWeeklyTimetable().catch(() => {}); }, 2500);
+    setTimeout(() => { loadWeeklyTimetable().catch(() => { }); }, 2500);
   }
 }
 
@@ -5039,7 +5039,7 @@ function initAuth() {
         db.collection('users').doc(auth.currentUser.uid).update({
           isVerified: true,
           emailVerifiedAt: FieldVal.serverTimestamp()
-        }).catch(() => {});
+        }).catch(() => { });
         state.user = auth.currentUser;
         enterApp();
       } else {
@@ -5084,7 +5084,7 @@ function initAuth() {
 
   $('#verify-logout-btn')?.addEventListener('click', async () => {
     sessionStorage.removeItem('unibo_simulate_unverified');
-    await auth.signOut().catch(() => {});
+    await auth.signOut().catch(() => { });
     showScreen('auth-screen');
   });
 
@@ -5158,7 +5158,7 @@ function initAuth() {
     if (step === 2) {
       loadCoursesCatalogue().then(() => {
         setupSignupCourseAndModuleFlow();
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     const authScreen = $('#auth-screen');
@@ -5245,7 +5245,7 @@ function initAuth() {
 
   $('#to-signup')?.addEventListener('click', () => {
     setSignupStep(1);
-    loadCoursesCatalogue().catch(() => {});
+    loadCoursesCatalogue().catch(() => { });
   });
 
   // Gesture-aware tap vs scroll detector for mobile touchscreens
@@ -5621,7 +5621,7 @@ function initAuth() {
       toast('Account created! A verification link was sent to your NWU email.');
       _signupModules = [];
       setSignupStep(1);
-      db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => {});
+      db.collection('stats').doc('global').set({ totalUsers: FieldVal.increment(1) }, { merge: true }).catch(() => { });
       btn.disabled = false; btn.textContent = '🚀 Complete Sign Up';
     } catch (err) {
       toast(friendlyErr(err.code));
@@ -5696,7 +5696,7 @@ function initAuth() {
       const isAdminUser = isAdminLoginEmail(user.email || '');
       if (!isStudentEmail(user.email || '') && !isAdminUser) {
         toast('Enter a valid 7 or 8-digit NWU student email (e.g. 12345678@mynwu.ac.za)');
-        await auth.signOut().catch(() => {});
+        await auth.signOut().catch(() => { });
         return;
       }
       state.user = user;
@@ -5710,7 +5710,7 @@ function initAuth() {
         if (isPermissionDeniedError(err)) {
           console.error('Profile load denied:', err);
           toast('Could not access your profile. Log in again.');
-          await auth.signOut().catch(() => {});
+          await auth.signOut().catch(() => { });
           return;
         }
         const cachedAcademic = readCachedAcademicProfile(user.uid);
@@ -5760,7 +5760,7 @@ function initAuth() {
         initNwuDemoSession();
         return;
       }
-      if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
+      if (_nativePushToken && state.user?.uid) removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => { });
       if (verifiedUsersUnsub) { verifiedUsersUnsub(); verifiedUsersUnsub = null; }
       if (_groupAlertUnsub) { _groupAlertUnsub(); _groupAlertUnsub = null; }
       if (notifUnsub) { notifUnsub(); notifUnsub = null; }
@@ -5787,15 +5787,17 @@ function initAuth() {
   // One-time fetch instead of permanent listener for auth screen count
   db.collection('stats').doc('global').get().then(doc => {
     const el = $('#auth-count'); if (el && !state.user) el.textContent = '0';
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 function friendlyErr(code) {
-  return { 'auth/user-not-found':'Account not found','auth/wrong-password':'Incorrect password',
-    'auth/email-already-in-use':'Email already registered','auth/weak-password':'Password too weak',
-    'auth/invalid-email':'Invalid email','auth/invalid-login-credentials':'Incorrect email or password',
-    'auth/too-many-requests':'Too many attempts. Wait a bit and try again.',
-    'auth/network-request-failed':'Network issue' }[code] || 'Something went wrong';
+  return {
+    'auth/user-not-found': 'Account not found', 'auth/wrong-password': 'Incorrect password',
+    'auth/email-already-in-use': 'Email already registered', 'auth/weak-password': 'Password too weak',
+    'auth/invalid-email': 'Invalid email', 'auth/invalid-login-credentials': 'Incorrect email or password',
+    'auth/too-many-requests': 'Too many attempts. Wait a bit and try again.',
+    'auth/network-request-failed': 'Network issue'
+  }[code] || 'Something went wrong';
 }
 
 // ══════════════════════════════════════════════════
@@ -5819,7 +5821,7 @@ function checkForAppUpdate() {
       (link ? `<a href="${encodeURI(link)}" target="_blank" rel="noopener">${label}</a>` : '') +
       `<button onclick="this.parentElement.remove()">&times;</button>`;
     document.body.appendChild(banner);
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 function showEmailVerificationScreen(user) {
@@ -5842,7 +5844,7 @@ function enterApp() {
   const content = $('#content');
   if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
   setupHeader(); setupNav();
-  initNativeShell().catch(() => {});
+  initNativeShell().catch(() => { });
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
     initNativePushNotifications();
@@ -5888,7 +5890,9 @@ async function refreshOnlineCount() {
     const authEl = $('#auth-count'); if (authEl && state.user) authEl.textContent = count;
     const headerEl = $('#hdr-count'); if (headerEl) headerEl.textContent = count;
     const feedEl = $('#feed-online'); if (feedEl) feedEl.textContent = count;
-  } catch (_) {}
+    window._lastOnlineCount = count;
+    renderCampusPulseSidebar();
+  } catch (_) { }
 }
 
 function listenForOnlineCount() {
@@ -5907,6 +5911,11 @@ function refreshChatBadge() {
   if (badge) {
     badge.textContent = total || '';
     badge.style.display = total ? 'flex' : 'none';
+  }
+  const railBadge = document.getElementById('rail-chat-badge');
+  if (railBadge) {
+    railBadge.textContent = total || '';
+    railBadge.style.display = total ? 'inline-flex' : 'none';
   }
   const asgBadge = document.getElementById('asg-tab-badge');
   if (asgBadge) {
@@ -5969,7 +5978,7 @@ function listenForUnreadDMs() {
       _dmUnreadCount = total;
       maybeNotifyForUnreadDMs(conversations);
       refreshChatBadge();
-    }, () => {});
+    }, () => { });
 }
 
 function listenForGroupAlerts() {
@@ -5984,7 +5993,7 @@ function listenForGroupAlerts() {
       updateNotifBadge();
       const dd = $('#notif-dropdown');
       if (dd && dd.style.display !== 'none' && dd.style.display !== '') loadNotifications();
-    }, () => {});
+    }, () => { });
 }
 
 function _updateDMTabBadge() {
@@ -5994,21 +6003,163 @@ function _updateDMTabBadge() {
     snap.docs.forEach(d => { total += (d.data().unread || {})[uid] || 0; });
     const b = document.getElementById('dm-tab-badge');
     if (b) { b.textContent = total || ''; b.style.display = total ? 'inline-flex' : 'none'; }
-  }).catch(() => {});
+  }).catch(() => { });
+}
+
+function setCampusVibe(mode = 'online') {
+  const valid = ['online', 'study', 'offline'].includes(mode) ? mode : 'online';
+  state.manualStatus = valid;
+  _lastActivityAt = Date.now();
+  state.status = valid;
+  updateStatusUI();
+  refreshPresence(true).catch(() => { });
+  renderCampusPulseSidebar();
+  const labels = { online: 'Online & active', study: 'In Study Mode', offline: 'Appearing Offline' };
+  toast(`Campus vibe: ${labels[valid]}`);
+}
+window.setCampusVibe = setCampusVibe;
+
+function openExploreTab(tab = 'radar') {
+  exploreView = ['radar', 'list', 'events', 'places'].includes(tab) ? tab : 'radar';
+  if (state.page !== 'explore') {
+    navigate('explore');
+  } else {
+    syncExploreToggleButtons();
+    renderExploreView();
+  }
+}
+window.openExploreTab = openExploreTab;
+
+function openMessagesTab(tab = 'dm') {
+  state.lastMsgTab = ['dm', 'groups', 'archived'].includes(tab) ? tab : 'dm';
+  if (state.page !== 'chat') {
+    navigate('chat', { refresh: true });
+  } else {
+    renderMessages();
+  }
+}
+window.openMessagesTab = openMessagesTab;
+
+function renderCampusPulseSidebar() {
+  const host = document.getElementById('campus-pulse-rail');
+  if (!host || !state.profile) return;
+  const vibe = state.status || state.manualStatus || 'online';
+  const onlineCount = window._lastOnlineCount || 1;
+  const posts = Array.isArray(state.posts) ? state.posts : [];
+  const tagCounts = new Map();
+  posts.forEach(post => {
+    (post.moduleTags || []).forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1));
+    getPostHashTags(post).forEach(t => {
+      const key = `#${t}`;
+      tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
+    });
+  });
+  const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const events = (Array.isArray(allCampusEvents) ? allCampusEvents : []).slice(0, 3);
+
+  host.innerHTML = `
+    <div class="pulse-widget">
+      <div class="pulse-widget-head">
+        <h3>Campus Pulse</h3>
+        <span style="font-size:11.5px;font-weight:800;color:var(--green)">● ${onlineCount} live</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary)">Set your vibe on campus</div>
+      <div class="pulse-vibe-row">
+        <button type="button" class="pulse-vibe-pill ${vibe === 'online' ? 'active' : ''}" onclick="setCampusVibe('online')">🟢 Active</button>
+        <button type="button" class="pulse-vibe-pill ${vibe === 'study' ? 'active' : ''}" onclick="setCampusVibe('study')">📚 Study</button>
+        <button type="button" class="pulse-vibe-pill ${vibe === 'offline' ? 'active' : ''}" onclick="setCampusVibe('offline')">🌙 Quiet</button>
+      </div>
+    </div>
+
+    <div class="pulse-widget">
+      <div class="pulse-widget-head">
+        <h3>What's On</h3>
+        <button type="button" class="pulse-widget-link" onclick="openExploreTab('events')">See all →</button>
+      </div>
+      ${events.length ? events.map(ev => {
+    const meta = getEventLocationMeta(ev);
+    const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
+    return `
+          <button type="button" class="pulse-event-item" onclick="openEventDetail('${ev.id || ''}')">
+            <div class="pulse-event-dot">${thumb ? `<img src="${thumb}" alt="">` : '🎉'}</div>
+            <div class="pulse-event-copy">
+              <strong>${esc(ev.title || 'Campus Event')}</strong>
+              <span>${esc(ev.date || 'Upcoming')}${meta.label ? ` · ${esc(meta.label)}` : ''}</span>
+            </div>
+          </button>`;
+  }).join('') : `
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-bottom:10px">No upcoming campus events posted yet.</div>
+        <button type="button" class="btn-outline btn-sm w100" onclick="openCreateModal('event')">+ Host a Campus Event</button>
+      `}
+    </div>
+
+    ${topTags.length ? `
+    <div class="pulse-widget">
+      <div class="pulse-widget-head">
+        <h3>Trending on Campus</h3>
+        <span style="font-size:11px;color:var(--text-tertiary)">Live</span>
+      </div>
+      <div class="pulse-tags-wrap">
+        ${topTags.map(([label]) => label.startsWith('#')
+    ? `<button type="button" class="pulse-tag-chip" onclick="openTagFeed('${escJs(label.slice(1))}')">${esc(label)}</button>`
+    : `<button type="button" class="pulse-tag-chip" onclick="openModuleFeed('${escJs(label)}')">${esc(label)}</button>`
+  ).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="pulse-widget">
+      <div class="pulse-widget-head">
+        <h3>Campus Portals</h3>
+      </div>
+      <div class="pulse-shortcut-grid">
+        <button type="button" class="pulse-shortcut-btn" onclick="openResidencesView()">
+          <strong>🏠 Residences</strong>
+          <span>650+ NWU stays</span>
+        </button>
+        <button type="button" class="pulse-shortcut-btn" onclick="openExploreTab('places')">
+          <strong>🗺️ Hotspots</strong>
+          <span>Campus map &amp; routes</span>
+        </button>
+        <button type="button" class="pulse-shortcut-btn" onclick="openMessagesTab('groups')">
+          <strong>👥 Squads</strong>
+          <span>Study &amp; event chats</span>
+        </button>
+        <button type="button" class="pulse-shortcut-btn" onclick="openTimetableModal(state.user?.uid)">
+          <strong>🗓️ Classes</strong>
+          <span>Schedule &amp; exams</span>
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 function setupHeader() {
   const el = $('#hdr-avatar');
   if (!el || !state.profile) return;
   const p = state.profile;
-  if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot"></span>`; el.style.background = 'transparent'; }
-  else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot"></span>`; el.style.background = colorFor(p.displayName); }
+  if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot ${state.status === 'online' ? 'is-online' : ''}"></span>`; el.style.background = 'transparent'; }
+  else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot ${state.status === 'online' ? 'is-online' : ''}"></span>`; el.style.background = colorFor(p.displayName); }
   el.classList.add('has-presence');
   el.onclick = event => {
     event.stopPropagation();
     if (document.getElementById('header-profile-menu')) closeHeaderProfileMenu();
     else openHeaderProfileMenu();
   };
+  const brandBtn = $('#hdr-brand-btn');
+  if (brandBtn) {
+    brandBtn.onclick = () => {
+      if (state.page === 'feed') triggerFeedInstantRefresh();
+      else navigate('feed', { refresh: false, restoreFeed: true });
+    };
+  }
+  const livePill = $('#hdr-live-pill');
+  if (livePill) {
+    livePill.onclick = () => openExploreTab('radar');
+  }
+  const videoBtn = $('#hdr-video-btn');
+  if (videoBtn) {
+    videoBtn.onclick = () => openVideoHub();
+  }
   // Admin panel button
   const existingAdmin = document.getElementById('admin-btn');
   if (_isAdmin && !existingAdmin) {
@@ -6018,6 +6169,7 @@ function setupHeader() {
     btn.onclick = () => openAdminPanel();
     document.querySelector('.hdr-r')?.insertBefore(btn, el);
   }
+  renderCampusPulseSidebar();
 }
 
 function closeHeaderProfileMenu() {
@@ -6035,26 +6187,41 @@ function openHeaderProfileMenu() {
   const menu = document.createElement('div');
   menu.id = 'header-profile-menu';
   menu.className = 'header-profile-menu';
-  const isOnline = state.status === 'online';
+  const vibe = state.status || state.manualStatus || 'online';
+  const isOnline = vibe === 'online';
   const locEnabled = isLocationSharingEnabled(state.profile);
+  const anonEnabled = allowAnonymousDMsFor(state.profile);
   const isDemo = isNwuDemoActive();
   menu.innerHTML = `
     <div class="header-profile-summary">
       <div class="header-profile-menu-avatar">${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
-      <div>
-        <strong>${esc(state.profile.displayName || 'Student')} ${isDemo ? '<span style="font-size:10px;padding:2px 6px;background:rgba(95,39,205,0.15);color:#5F27CD;border-radius:6px;font-weight:700">GUEST</span>' : ''}</strong>
-        <span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${isOnline ? 'Online' : 'Offline'}</span>
+      <div style="min-width:0;flex:1">
+        <div class="header-profile-name-row">
+          <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(state.profile.displayName || 'Student')}</strong>
+          ${isDemo ? '<span class="header-profile-guest-tag">GUEST</span>' : ''}
+        </div>
+        <span><i class="presence-indicator ${isOnline ? 'is-online' : ''}"></i>${vibe === 'study' ? 'Studying' : isOnline ? 'Online on campus' : 'Quiet / Offline'}</span>
       </div>
     </div>
-    <button type="button" data-action="profile"><span>◎</span> View profile</button>
-    <button type="button" data-action="timetable"><span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg></span> My Timetable</button>
-    <button type="button" data-action="location-toggle"><span>${locEnabled ? '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'}</span> Location sharing: <strong>${locEnabled ? 'ON' : 'OFF (Hidden)'}</strong></button>
-    <button type="button" data-action="anon-toggle"><span><svg viewBox="0 0 24 24"><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg></span> Allow anon messages: ${allowAnonymousDMsFor(state.profile) ? 'ON' : 'OFF (Private)'}</button>
-    <button type="button" data-action="presence"><span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/><circle cx="12" cy="12" r="9"/></svg></span> ${state.manualStatus === 'offline' ? 'Set online' : 'Go offline'}</button>
-    <button type="button" data-action="residences"><span><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg></span> NWU Residences</button>
+    <div class="header-vibe-switcher" role="group" aria-label="Campus status">
+      <button type="button" class="header-vibe-btn ${vibe === 'online' ? 'active' : ''}" data-vibe="online"><i class="header-vibe-dot online"></i>Online</button>
+      <button type="button" class="header-vibe-btn ${vibe === 'study' ? 'active' : ''}" data-vibe="study"><i class="header-vibe-dot study"></i>Studying</button>
+      <button type="button" class="header-vibe-btn ${vibe === 'offline' ? 'active' : ''}" data-vibe="offline"><i class="header-vibe-dot offline"></i>Offline</button>
+    </div>
+    <button type="button" data-action="profile"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span> View profile</button>
+    <button type="button" data-action="residences"><span><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/></svg></span> NWU Residences <span class="menu-pill-meta">650</span></button>
+    <button type="button" data-action="timetable"><span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> My Timetable</button>
+    <button type="button" data-action="location-toggle"><span><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span> Radar location <span class="menu-pill-meta ${locEnabled ? 'is-on' : ''}">${locEnabled ? 'ON' : 'OFF'}</span></button>
+    <button type="button" data-action="anon-toggle"><span><svg viewBox="0 0 24 24"><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg></span> Anon messages <span class="menu-pill-meta ${anonEnabled ? 'is-on' : ''}">${anonEnabled ? 'ON' : 'OFF'}</span></button>
     <button type="button" data-action="signout" class="profile-menu-danger"><span><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span> ${isDemo ? 'Exit Demo / Sign In' : 'Sign out'}</button>
   `;
   host.appendChild(menu);
+  menu.querySelectorAll('.header-vibe-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setCampusVibe(btn.dataset.vibe || 'online');
+      closeHeaderProfileMenu();
+    });
+  });
   menu.querySelector('[data-action="profile"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openProfile(state.user.uid); });
   menu.querySelector('[data-action="timetable"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openTimetableModal(state.user.uid); });
   menu.querySelector('[data-action="location-toggle"]')?.addEventListener('click', () => {
@@ -6067,13 +6234,6 @@ function openHeaderProfileMenu() {
     setAllowAnonymousMessages(nextVal);
     closeHeaderProfileMenu();
   });
-  menu.querySelector('[data-action="presence"]')?.addEventListener('click', () => {
-    state.manualStatus = state.manualStatus === 'offline' ? 'online' : 'offline';
-    _lastActivityAt = Date.now();
-    refreshPresence(true).catch(() => {});
-    closeHeaderProfileMenu();
-    toast(state.manualStatus === 'offline' ? 'You are offline' : 'You are online');
-  });
   menu.querySelector('[data-action="residences"]')?.addEventListener('click', () => { closeHeaderProfileMenu(); openResidencesView(); });
   menu.querySelector('[data-action="signout"]')?.addEventListener('click', () => {
     closeHeaderProfileMenu();
@@ -6084,7 +6244,7 @@ function openHeaderProfileMenu() {
     }
   });
   _headerProfileMenuClose = event => {
-    if (!menu.contains(event.target) && event.target !== $('#hdr-avatar')) closeHeaderProfileMenu();
+    if (!menu.contains(event.target) && event.target !== $('#hdr-avatar') && !$('#hdr-avatar')?.contains(event.target)) closeHeaderProfileMenu();
   };
   document.addEventListener('pointerdown', _headerProfileMenuClose, true);
 }
@@ -6133,7 +6293,7 @@ function hideFeedLoadscreen() {
 
 function clearFeedPostFocus(event, postId) {
   if (event) {
-    try { event.stopPropagation(); event.preventDefault(); } catch (_) {}
+    try { event.stopPropagation(); event.preventDefault(); } catch (_) { }
   }
   _feedFocusedPostId = '';
   _feedFocusLockUntil = 0;
@@ -6251,7 +6411,7 @@ async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previo
 }
 
 async function triggerFeedInstantRefresh(btn) {
-  try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) {}
+  try { if (navigator.vibrate) navigator.vibrate(20); } catch (_) { }
   if (btn) {
     btn.classList.add('nav-pulse');
     setTimeout(() => btn.classList.remove('nav-pulse'), 350);
@@ -6292,7 +6452,7 @@ async function triggerFeedInstantRefresh(btn) {
 
   // Reshuffle discover rails dynamically
   loadDiscoverPeople({ force: true });
-  loadCampusEvents().catch(() => {});
+  loadCampusEvents().catch(() => { });
   loadFeedLiveSpotlight();
 
   try {
@@ -6380,36 +6540,59 @@ function setupNav() {
     nav.addEventListener('pointerdown', e => e.stopPropagation());
   }
 
+  const handleNavClick = (btn, p) => {
+    if (p === 'create') return openCreateModal();
+    if (p === state.page) {
+      if (p === 'feed') return triggerFeedInstantRefresh(btn);
+      if (p === 'chat') {
+        const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
+        const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
+        if (inGroupView || inDmView || state.lastMsgTab !== 'dm') {
+          state.lastMsgTab = 'dm';
+          showScreen('app');
+          navigate('chat', { refresh: true, pushHistory: false });
+        } else {
+          const contentEl = document.getElementById('content');
+          if (contentEl) contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+          loadDMList();
+        }
+      }
+      return;
+    }
+    if (p === 'chat') state.lastMsgTab = 'dm';
+    navigate(p, { refresh: false, restoreFeed: p === 'feed' });
+  };
+
   let swipeStart = null;
   $$('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const p = btn.dataset.p;
-      if (p === 'create') return openCreateModal();
-      if (p === state.page) {
-        if (p === 'feed') {
-          return triggerFeedInstantRefresh(btn);
-        }
-        if (p === 'chat') {
-          const inGroupView = !!document.getElementById('group-chat-view')?.classList.contains('active');
-          const inDmView = !!document.getElementById('chat-view')?.classList.contains('active');
-          if (inGroupView || inDmView || state.lastMsgTab !== 'dm') {
-            state.lastMsgTab = 'dm';
-            showScreen('app');
-            navigate('chat', { refresh: true, pushHistory: false });
-          } else {
-            const contentEl = document.getElementById('content');
-            if (contentEl) contentEl.scrollTo({ top: 0, behavior: 'smooth' });
-            loadDMList();
-          }
-        }
-        return;
-      }
-      if (p === 'chat') state.lastMsgTab = 'dm';
-      navigate(p, { refresh: false, restoreFeed: p === 'feed' });
-    });
+      handleNavClick(btn, btn.dataset.p);
+    };
   });
+
+  // Wire desktop left rail buttons
+  const rail = document.getElementById('desktop-rail');
+  if (rail && !rail.dataset.bound) {
+    rail.dataset.bound = '1';
+    rail.querySelectorAll('[data-p]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleNavClick(btn, btn.dataset.p);
+      });
+    });
+    rail.querySelectorAll('[data-portal]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const portal = btn.dataset.portal;
+        if (portal === 'residences') openResidencesView();
+        else if (portal === 'video') openVideoHub();
+        else if (portal === 'timetable') openTimetableModal(state.user?.uid);
+        else if (portal === 'profile') openProfile(state.user?.uid);
+      });
+    });
+  }
   if (nav && !nav.dataset.swipeReady) {
     nav.dataset.swipeReady = '1';
     nav.addEventListener('touchstart', event => {
@@ -6439,9 +6622,9 @@ function setupStatusPill() {
   const pill = $('#status-pill'); if (!pill) return;
   updateStatusUI();
   pill.onclick = async () => {
-    const modes = ['online','study','offline'];
+    const modes = ['online', 'study', 'offline'];
     state.manualStatus = modes[(modes.indexOf(state.manualStatus) + 1) % 3];
-    refreshPresence(true).catch(() => {});
+    refreshPresence(true).catch(() => { });
     toast('Status: ' + state.manualStatus.charAt(0).toUpperCase() + state.manualStatus.slice(1));
   };
 }
@@ -6455,6 +6638,13 @@ function updateStatusUI() {
     else { pill.classList.add('offline'); dot.classList.add('gray'); txt.textContent = 'Offline'; }
   }
   document.querySelector('#hdr-avatar .header-presence-dot')?.classList.toggle('is-online', state.status === 'online');
+  const feedVibe = document.getElementById('feed-vibe-chip');
+  if (feedVibe) {
+    const v = state.status || state.manualStatus || 'online';
+    feedVibe.className = `campus-vibe-chip ${v === 'online' ? 'vibe-online' : v === 'study' ? 'vibe-study' : ''}`;
+    feedVibe.innerHTML = v === 'study' ? '📚 Studying' : v === 'offline' ? '🌙 Quiet' : '🟢 Online';
+  }
+  renderCampusPulseSidebar();
 }
 
 let _lastActivityAt = Date.now();
@@ -6481,13 +6671,13 @@ async function refreshPresence(force = false) {
 
 function markActivity() {
   _lastActivityAt = Date.now();
-  if (state.manualStatus === 'online' && state.status !== 'online') refreshPresence().catch(() => {});
+  if (state.manualStatus === 'online' && state.status !== 'online') refreshPresence().catch(() => { });
 }
 
 function setupPresenceTracking() {
   if (!_presenceListenersAdded) {
     _presenceListenersAdded = true;
-    ['mousemove','keydown','click','touchstart','scroll'].forEach(evt => {
+    ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(evt => {
       document.addEventListener(evt, markActivity, { passive: true });
     });
     document.addEventListener('visibilitychange', () => {
@@ -6497,11 +6687,11 @@ function setupPresenceTracking() {
         flushSeenPosts();
         if (state.manualStatus === 'online') {
           _lastActivityAt = 0;
-          refreshPresence(true).catch(() => {});
+          refreshPresence(true).catch(() => { });
         }
       } else {
         markActivity();
-        refreshPresence(true).catch(() => {});
+        refreshPresence(true).catch(() => { });
       }
     });
   }
@@ -6512,11 +6702,11 @@ function setupPresenceTracking() {
   }
   clearInterval(_presenceTimer);
   _presenceTimer = setInterval(() => {
-    refreshPresence().catch(() => {});
-    checkUpcomingLectureAlerts().catch(() => {});
+    refreshPresence().catch(() => { });
+    checkUpcomingLectureAlerts().catch(() => { });
   }, 30000);
-  refreshPresence(true).catch(() => {});
-  setTimeout(() => checkUpcomingLectureAlerts().catch(() => {}), 3000);
+  refreshPresence(true).catch(() => { });
+  setTimeout(() => checkUpcomingLectureAlerts().catch(() => { }), 3000);
 }
 
 // ─── Navigation ──────────────────────────────────
@@ -6558,7 +6748,7 @@ function navigate(page, options = {}) {
   cancelVoiceRecord('nav');
 
   // Clean up audio cache
-  Object.values(_vnAudios).forEach(a => { try { a.pause(); a.src = ''; } catch (_) {} });
+  Object.values(_vnAudios).forEach(a => { try { a.pause(); a.src = ''; } catch (_) { } });
   Object.keys(_vnAudios).forEach(k => delete _vnAudios[k]);
 
   // Prune caches to prevent unbounded growth
@@ -6583,6 +6773,7 @@ function navigate(page, options = {}) {
     _feedRestorePendingPaint = !!restoreFeed && _feedScrollTop > 0;
   }
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.p === page));
+  $$('#desktop-rail .rail-btn[data-p]').forEach(b => b.classList.toggle('active', b.dataset.p === page));
   document.querySelector(`.nav-btn[data-p="${page}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   if (restoreCached && restoreCachedPageView(page)) {
     if (page === 'feed') requestAnimationFrame(() => setupFeedVideoAutoplay());
@@ -6990,7 +7181,7 @@ function renderFeedPeopleSuggestions(query) {
     box.style.display = 'block';
     box.dataset.ready = '1';
     _feedPeopleSuggestLastQuery = q;
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 function filterFeedPosts(posts = [], query = _feedSearchQuery) {
@@ -7062,8 +7253,59 @@ function focusFeedPostCard(postId, behavior = 'smooth') {
   return true;
 }
 
+let _feedLens = 'all';
+
+function setFeedLens(lens = 'all') {
+  const valid = ['all', 'trending', 'buzz', 'media', 'study', 'friends'];
+  _feedLens = valid.includes(lens) ? lens : 'all';
+  $$('.feed-lens-chip').forEach(btn => btn.classList.toggle('active', btn.dataset.lens === _feedLens));
+  renderFeedResults(state.posts || []);
+}
+window.setFeedLens = setFeedLens;
+
+function cycleCampusVibe() {
+  const modes = ['online', 'study', 'offline'];
+  const cur = state.status || state.manualStatus || 'online';
+  const next = modes[(modes.indexOf(cur) + 1) % modes.length];
+  setCampusVibe(next);
+}
+window.cycleCampusVibe = cycleCampusVibe;
+
+function getCampusGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getDemoFallbackPosts() {
+  if (typeof DEMO_STUDENT_PROFILES === 'undefined') return [];
+  return Object.values(DEMO_STUDENT_PROFILES).flatMap(u =>
+    (u.demoPosts || []).map(p => ({ ...p, authorPhoto: p.authorPhoto || u.photoURL || null }))
+  );
+}
+
+function applyFeedLensFilter(posts = [], lens = _feedLens) {
+  const list = Array.isArray(posts) ? [...posts] : [];
+  if (lens === 'trending') {
+    return list.sort((a, b) =>
+      (getReactionSummary(b.reactions, b.likes || []).total + (b.commentsCount || 0) * 2) -
+      (getReactionSummary(a.reactions, a.likes || []).total + (a.commentsCount || 0) * 2)
+    );
+  }
+  if (lens === 'buzz') return list.filter(p => !!p.isAnonymous || !!p.poll);
+  if (lens === 'media') return list.filter(p => !!(p.imageURL || (p.imageURLs && p.imageURLs.length) || p.videoURL || p.mediaType === 'video'));
+  if (lens === 'study') return list.filter(p => (p.moduleTags && p.moduleTags.length) || /#(?:study|exam|test|notes|tutorial|assignment)/i.test(p.content || ''));
+  if (lens === 'friends') {
+    const friends = new Set(state.profile?.friends || []);
+    return list.filter(p => p.authorId === state.user?.uid || friends.has(p.authorId));
+  }
+  return list;
+}
+
 function renderFeedResults(posts = []) {
-  const filtered = filterFeedPosts(posts, _feedSearchQuery);
+  const searchFiltered = filterFeedPosts(posts, _feedSearchQuery);
+  const filtered = _feedSearchQuery ? searchFiltered : applyFeedLensFilter(searchFiltered, _feedLens);
   const postsHost = $('#feed-posts');
   if (postsHost) postsHost.classList.toggle('feed-search-active', !!_feedSearchQuery);
   const meta = $('#feed-search-meta');
@@ -7083,16 +7325,16 @@ function renderFeedResults(posts = []) {
     if (trends) trends.innerHTML = '';
     if (rail) rail.innerHTML = '';
   } else {
-    const trends = $('#module-trends');
-    if (trends) trends.innerHTML = '';
+    renderModuleTrends(posts);
     renderTrendingPostsRail(posts);
   }
 
   renderPosts(filtered);
+  renderCampusPulseSidebar();
 }
 
 // ══════════════════════════════════════════════════
-//  FEED — Clean with unified Discover tabs
+//  FEED — Living Campus Square & Discovery Stream
 // ══════════════════════════════════════════════════
 function renderFeed() {
   resetFeedSeeds(); // new random order every time feed is opened / refreshed
@@ -7107,62 +7349,134 @@ function renderFeed() {
   };
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
+  const firstName = (p.firstName || (p.displayName || 'Student').split(' ')[0] || 'Student').trim();
+  const campusLabel = [p.university || 'NWU', p.campus || p.address || 'Campus'].filter(Boolean).join(' · ');
+  const vibe = state.status || state.manualStatus || 'online';
+  const vibeClass = vibe === 'online' ? 'vibe-online' : vibe === 'study' ? 'vibe-study' : '';
+  const vibeLabel = vibe === 'study' ? '📚 Studying' : vibe === 'offline' ? '🌙 Quiet' : '🟢 Online';
+
   c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
+      <div class="campus-hero-strip">
+        <div class="campus-hero-copy">
+          <h2>${getCampusGreeting()}, ${esc(firstName)}</h2>
+          <div class="campus-hero-sub">${esc(campusLabel)} · What's moving around you</div>
+        </div>
+        <button type="button" id="feed-vibe-chip" class="campus-vibe-chip ${vibeClass}" onclick="cycleCampusVibe()" title="Tap to switch your campus status">
+          ${vibeLabel}
+        </button>
+      </div>
+
       <div class="feed-toolbar home-toolbar">
         <div class="search-bar feed-search-bar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="feed-search-input" placeholder="Search posts or #hashtags" value="${esc(_feedSearchQuery)}">
+          <input type="text" id="feed-search-input" placeholder="Search campus posts, #tags, people or modules…" value="${esc(_feedSearchQuery)}">
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
+
       ${isNwuDemoActive() ? `
       <div class="nwu-demo-feed-banner">
-        <div class="nwu-demo-banner-pill">🎓 NWU Institutional Evaluation</div>
-        <div class="nwu-demo-banner-title">Live Campus Experience (Staff Review)</div>
-        <div class="nwu-demo-banner-sub">Bypassed login to explore the live student feed, module tags & campus radar in official guest mode. Real student accounts and private DMs are protected.</div>
-        <div class="nwu-demo-banner-actions">
-          <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Sample Student Profiles</button>
-          <button class="btn-xs btn-outline" onclick="navigate('explore')">Campus Radar</button>
-          <button class="btn-xs btn-outline" onclick="exitNwuDemoMode()">Exit Demo / Login</button>
+        <div class="nwu-demo-top-row">
+          <div class="nwu-demo-banner-pill">🎓 NWU Staff Preview</div>
+          <div class="nwu-demo-banner-actions">
+            <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Sample Profiles</button>
+            <button class="btn-xs btn-outline" onclick="openExploreTab('radar')">Radar</button>
+            <button class="btn-xs btn-outline" onclick="exitNwuDemoMode()">Sign In</button>
+          </div>
         </div>
       </div>` : ''}
+
       <div id="feed-refresh-banner" class="feed-refresh-banner" style="${_feedIsRefreshing ? 'display:flex' : 'display:none'}">
         <span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span>
-        <span>Refreshing feed…</span>
+        <span>Refreshing campus…</span>
       </div>
 
-      <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
-        <div class="discover-tabs">
-          <button class="discover-tab active" data-dt="people">👥 People</button>
-          <button class="discover-tab" data-dt="events">Events</button>
+      <!-- Around Campus Quick-Discovery Doorways -->
+      <div class="campus-doorways-rail" role="navigation" aria-label="Around campus shortcuts">
+        <button type="button" class="campus-doorway-pill" onclick="openExploreTab('radar')">
+          <span class="campus-doorway-icon">🗺️</span><span>Campus Map</span>
+        </button>
+        <button type="button" class="campus-doorway-pill tone-amber" onclick="openExploreTab('events')">
+          <span class="campus-doorway-icon">🎉</span><span>Events</span>
+        </button>
+        <button type="button" class="campus-doorway-pill tone-emerald" onclick="openResidencesView()">
+          <span class="campus-doorway-icon">🏠</span><span>Residences</span>
+        </button>
+        <button type="button" class="campus-doorway-pill tone-rose" onclick="openVideoHub()">
+          <span class="campus-doorway-icon">🎬</span><span>Clips &amp; Live</span>
+        </button>
+        <button type="button" class="campus-doorway-pill tone-blue" onclick="openMessagesTab('groups')">
+          <span class="campus-doorway-icon">👥</span><span>Study Squads</span>
+        </button>
+        <button type="button" class="campus-doorway-pill" onclick="openTimetableModal(state.user?.uid)">
+          <span class="campus-doorway-icon">🗓️</span><span>My Classes</span>
+        </button>
+      </div>
+
+      <!-- Campus Stories Rail -->
+      <div class="feed-stories-wrap">
+        <div class="feed-section-label-row">
+          <span>Campus Stories</span>
+          <button type="button" onclick="openStoryCreator()">+ Add story</button>
         </div>
-        <div class="discover-content" id="discover-content">
-          ${shouldDelayDiscover
-            ? '<div class="discover-empty"><span>⏳</span><p>Loading your feed…</p></div>'
-            : '<div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>'}
+        <div class="stories-row feed-stories-row" id="stories-row">
+          <div class="story-item add-story" onclick="openStoryCreator()">
+            <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
+            <div class="story-name">Your story</div>
+          </div>
         </div>
       </div>
 
       <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
-      <div class="create-post-prompt" onclick="openCreateModal()">
-        ${avatar(p.displayName, p.photoURL, 'avatar-md')}
-        <div class="placeholder-text">What's on your mind?</div>
-        <div class="prompt-actions"><span class="prompt-action">+</span></div>
+      <!-- Campus Composer Card with Intent Shortcuts -->
+      <div class="create-post-prompt campus-composer-card">
+        <div class="composer-card-top" onclick="openCreateModal('post')">
+          ${avatar(p.displayName, p.photoURL, 'avatar-md')}
+          <div class="composer-card-input">Share a moment, question, or campus tip…</div>
+        </div>
+        <div class="composer-quick-intents">
+          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { pickMedia: true })">📷 Photo / Video</button>
+          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { openPoll: true })">📊 Poll</button>
+          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { anon: true })">👻 Whisper</button>
+          <button type="button" class="composer-intent-btn" onclick="openCreateModal('event')">🎉 Event</button>
+        </div>
       </div>
 
-      <div id="module-trends"></div>
+      <!-- Discover Campus: People & Events Deck -->
+      <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
+        <div class="discover-deck-head">
+          <div class="discover-deck-title">Discover Campus</div>
+          <div class="discover-tabs">
+            <button class="discover-tab active" data-dt="people">People</button>
+            <button class="discover-tab" data-dt="events">Events</button>
+          </div>
+        </div>
+        <div class="discover-content" id="discover-content">
+          ${shouldDelayDiscover
+      ? '<div class="discover-empty"><span>⏳</span><p>Loading campus…</p></div>'
+      : '<div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>'}
+        </div>
+      </div>
 
       <div id="feed-trending-posts"></div>
+      <div id="module-trends"></div>
+
+      <!-- Feed Discovery Lenses -->
+      <div class="feed-lenses-bar" role="tablist" aria-label="Filter campus stream">
+        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">🔥 Trending</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">👻 Campus Buzz</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">📸 Media</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">📚 Study &amp; Modules</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">🤝 Friends</button>
+      </div>
 
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
       </div>
-      <button class="reels-fab" onclick="openVideoHub()" title="Video Hub">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="#fff" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="none" stroke="#fff" stroke-width="2"/></svg>
-      </button>
     </div>
   `;
 
@@ -7177,6 +7491,8 @@ function renderFeed() {
     };
   });
 
+  loadStories();
+
   if (!shouldDelayDiscover) {
     loadDiscoverPeople();
     loadFeedLiveSpotlight();
@@ -7185,9 +7501,10 @@ function renderFeed() {
     renderFeedResults(state.posts);
   }
   loadCampusEvents().then(() => {
+    renderCampusPulseSidebar();
     if (Date.now() < _feedFocusLockUntil) return;
     if (Array.isArray(state.posts) && state.posts.length) renderFeedResults(state.posts);
-  }).catch(() => {});
+  }).catch(() => { });
 
   const searchInput = $('#feed-search-input');
   if (searchInput) {
@@ -7213,7 +7530,10 @@ function renderFeed() {
     .onSnapshot(async snap => {
       const myFriends = state.profile.friends || [];
       const uid = state.user.uid;
-      const allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let allPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!allPosts.length && isNwuDemoActive()) {
+        allPosts = getDemoFallbackPosts();
+      }
       const expiredPinned = [];
       const activePosts = allPosts.filter(post => {
         const expiry = post.locationPing?.expiresAt?.toDate ? post.locationPing.expiresAt.toDate() : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
@@ -7221,7 +7541,7 @@ function renderFeed() {
         if (isExpiredPinned) expiredPinned.push(post.id);
         return !isExpiredPinned;
       });
-      expiredPinned.forEach(pid => db.collection('posts').doc(pid).delete().catch(() => {}));
+      expiredPinned.forEach(pid => db.collection('posts').doc(pid).delete().catch(() => { }));
       // Filter: show public posts, own posts, and friends-only posts from friends
       const visible = activePosts.filter(post => {
         if (isPostShadowHiddenForViewer(post, uid)) return false;
@@ -7250,7 +7570,7 @@ function renderFeed() {
         }
       }
 
-      const scored = await curateAndRankFeedPosts(activePosts, {
+      const scored = await curateAndRankFeedPosts(visible, {
         forceReorder: _feedIsRefreshing,
         previousOrder,
         isNearTop
@@ -7362,12 +7682,20 @@ function renderFeed() {
       c.style.opacity = '';
       _feedRestorePendingPaint = false;
       ensureDiscoverLoaded();
+      if (isNwuDemoActive()) {
+        const fallback = getDemoFallbackPosts();
+        if (fallback.length) {
+          state.posts = fallback;
+          renderFeedResults(fallback);
+          return;
+        }
+      }
       const postsEl = document.getElementById('feed-posts');
       if (postsEl) {
         postsEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>Could not load posts</h3><p>${isInvalidSessionError(err) ? 'Your session expired. Log in again.' : (isPermissionDeniedError(err) ? 'This account cannot load posts right now.' : 'Reopen the app or try again in a moment.')}</p></div>`;
       }
       if (isInvalidSessionError(err)) {
-        recoverInvalidSession(err, 'Feed listener denied').catch(() => {});
+        recoverInvalidSession(err, 'Feed listener denied').catch(() => { });
       }
     });
   state.unsubs.push(u);
@@ -7450,8 +7778,8 @@ function loadDiscoverPeople(options = {}) {
       const tag = u.sharedModules?.length
         ? `🔗 ${u.sharedModules.length} shared module${u.sharedModules.length > 1 ? 's' : ''}`
         : Number.isFinite(u.distanceKm) ? `📍 ${u.distanceKm.toFixed(1)} km away`
-        : u.nearbyScore > 0 ? '📍 Nearby area'
-        : u.major ? `📚 ${esc(u.major)}` : '';
+          : u.nearbyScore > 0 ? '📍 Nearby area'
+            : u.major ? `📚 ${esc(u.major)}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
       const isFriend = (state.profile.friends || []).includes(u.id);
       const isPending = (state.profile.sentRequests || []).includes(u.id);
@@ -7500,8 +7828,8 @@ function loadDiscoverEvents() {
       const locName = locationMeta.label || ev.location || '?';
       const nearLabel = Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng)
         && getLocationDistanceBoost({ lat: locationMeta.lat, lng: locationMeta.lng }) > 0
-          ? ' · Near you'
-          : '';
+        ? ' · Near you'
+        : '';
       const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
       const goingCount = (ev.going || []).length;
       const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
@@ -7525,8 +7853,8 @@ function loadDiscoverEvents() {
 function cleanupExpiredStories() {
   const cutoff = new Date();
   db.collection('stories').where('expiresAt', '<=', cutoff).limit(50).get()
-    .then(snap => { snap.docs.forEach(d => d.ref.delete().catch(() => {})); })
-    .catch(() => {});
+    .then(snap => { snap.docs.forEach(d => d.ref.delete().catch(() => { })); })
+    .catch(() => { });
 }
 
 let _storiesUnsub = null;
@@ -7622,7 +7950,7 @@ function clearStoryMediaSelection() {
 
 function openStoryCreator() {
   let bgColor = '#6C5CE7';
-  const bgOptions = ['#6C5CE7','#A855F7','#7C3AED','#D946EF','#FF6B6B','#00BA88','#3B82F6','#FF9F43'];
+  const bgOptions = ['#6C5CE7', '#A855F7', '#7C3AED', '#D946EF', '#FF6B6B', '#00BA88', '#3B82F6', '#FF9F43'];
   window._storyFile = null;
   window._storyVideoFile = null;
   openModal(`
@@ -7748,7 +8076,7 @@ function bindStoryNavTarget(el, dir) {
 async function viewStory(userId, focusStoryId = '') {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   try {
-    const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt','desc').get();
+    const snap = await db.collection('stories').where('expiresAt', '>', cutoff).orderBy('expiresAt', 'desc').get();
     const byUser = {};
     const myFriends = state.profile.friends || [];
     snap.docs.forEach(d => {
@@ -7757,7 +8085,7 @@ async function viewStory(userId, focusStoryId = '') {
       if (s.authorId !== state.user.uid && !myFriends.includes(s.authorId)) return;
       // Delete expired stories encountered (cleanup)
       if (s.expiresAt?.toDate && s.expiresAt.toDate() < new Date()) {
-        db.collection('stories').doc(d.id).delete().catch(() => {});
+        db.collection('stories').doc(d.id).delete().catch(() => { });
         return;
       }
       if (!byUser[s.authorId]) byUser[s.authorId] = [];
@@ -7886,7 +8214,7 @@ function showStoryFrame() {
 
   // Mark as viewed
   if (!(story.viewedBy || []).includes(state.user.uid)) {
-    db.collection('stories').doc(story.id).update({ viewedBy: FieldVal.arrayUnion(state.user.uid) }).catch(() => {});
+    db.collection('stories').doc(story.id).update({ viewedBy: FieldVal.arrayUnion(state.user.uid) }).catch(() => { });
   }
 
   // Auto-advance timer
@@ -7944,7 +8272,7 @@ function resumeStoryViewer(autoAdvanceMs = 5000) {
   storyViewerData.paused = false;
   $('#story-viewer')?.classList.remove('is-paused');
   const vid = $('#story-viewer-content video');
-  if (vid && vid.paused) vid.play().catch(() => {});
+  if (vid && vid.paused) vid.play().catch(() => { });
   clearTimeout(storyViewerData.timer);
   const dur = wasPaused ? (storyViewerData.remainingMs || 1000) : autoAdvanceMs;
   storyViewerData.frameStartTime = Date.now();
@@ -7962,9 +8290,9 @@ async function openStoryInsights(storyId = '') {
     await ensureUserContextCache(ids, { force: false });
     const renderRows = (arr = [], kind = 'Viewed') => arr.length
       ? arr.map(uid => {
-          const info = getResolvedUserIdentity(uid, 'User', null);
-          return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
-        }).join('')
+        const info = getResolvedUserIdentity(uid, 'User', null);
+        return `<button class="cluster-user-row" onclick="closeModal();openProfile('${uid}')">${avatar(info.name, info.photo, 'avatar-sm')}<span>${esc(info.name)}</span><small style="margin-left:auto;color:var(--text-secondary)">${kind}</small></button>`;
+      }).join('')
       : `<div class="empty-state" style="padding:10px 0"><p>No one yet</p></div>`;
     openModal(`
       <div class="modal-header"><h2>Story activity</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -8322,33 +8650,33 @@ function renderFeedInlineSuggestionRail(users = []) {
         <h3>Suggestions</h3>
       </div>
       <div class="suggested-list">${picks.map(user => {
-        const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
-        const displayName = resolved.name || user.displayName || 'User';
-        const meta = formatUserMetaLine(user, 44);
-        const isFriend = (state.profile?.friends || []).includes(user.id);
-        const isPending = (state.profile?.sentRequests || []).includes(user.id);
-        const action = isFriend
-          ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
-          : isPending
-            ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-            : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${escJs(displayName)}','${escJs(user.photoURL || '')}', this)">Add</button>`;
-          return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
+    const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
+    const displayName = resolved.name || user.displayName || 'User';
+    const meta = formatUserMetaLine(user, 44);
+    const isFriend = (state.profile?.friends || []).includes(user.id);
+    const isPending = (state.profile?.sentRequests || []).includes(user.id);
+    const action = isFriend
+      ? `<button class="btn-sm btn-outline" onclick="event.stopPropagation();startChat('${user.id}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
+      : isPending
+        ? `<button class="btn-sm btn-outline" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
+        : `<button type="button" class="btn-sm btn-primary" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${user.id}','${escJs(displayName)}','${escJs(user.photoURL || '')}', this)">Add</button>`;
+    return `<div class="suggested-card" onclick="if(event.target.closest('button')) return; openProfile('${user.id}')">
           ${avatar(displayName, user.photoURL, 'avatar-lg')}
           <div class="suggested-card-name">${esc(displayName)}</div>
           <div class="suggested-card-meta" title="${esc(formatUserMetaLine(user, 120))}">${esc(meta)}${user.gender ? ` · ${esc(user.gender)}` : ''}</div>
           ${action}
         </div>`;
-      }).join('')}
+  }).join('')}
       ${eventPicks.map(ev => {
-        const locationMeta = getEventLocationMeta(ev);
-        const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
-        return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
+    const locationMeta = getEventLocationMeta(ev);
+    const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
+    return `<div class="suggested-card suggested-card-event" onclick="openEventDetail('${ev.id || ''}')">
           ${thumb ? `<img src="${thumb}" class="suggested-event-thumb" loading="lazy">` : '<div class="suggested-event-emoji" aria-hidden="true"></div>'}
           <div class="suggested-card-name">${esc(ev.title || 'Campus event')}</div>
           <div class="suggested-card-meta">${esc(locationMeta.label || ev.location || 'Event')}</div>
           <button class="btn-sm btn-outline" onclick="event.preventDefault();event.stopPropagation();openEventDetail('${ev.id || ''}')">Open</button>
         </div>`;
-      }).join('')}</div>
+  }).join('')}</div>
     </div>`;
 }
 
@@ -8419,8 +8747,8 @@ function renderPosts(posts) {
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
-            ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
-            : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
+        ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
+        : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
             <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
@@ -8477,7 +8805,7 @@ function renderPosts(posts) {
   }
 
   el.innerHTML = postCards.join('');
-  primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => {});
+  primeMediaCache((posts || []).flatMap(post => [post.imageURL, post.videoURL]).filter(Boolean), 8).catch(() => { });
   el.classList.remove('feed-ready');
   requestAnimationFrame(() => el.classList.add('feed-ready'));
   const activeFocusId = _pendingFeedFocusPostId || (Date.now() < _feedFocusLockUntil ? _feedFocusedPostId : '');
@@ -8566,10 +8894,10 @@ function loadFeedLiveSpotlight() {
         </div>
         <div class="feed-live-row">
           ${picks.map(stream => {
-            const isOwn = stream.hostUid === state.user?.uid;
-            const viewers = Number(stream.currentViewerCount || 0);
-            const cover = stream.thumbnailUrl || stream.hostPhotoURL || '';
-            return `
+        const isOwn = stream.hostUid === state.user?.uid;
+        const viewers = Number(stream.currentViewerCount || 0);
+        const cover = stream.thumbnailUrl || stream.hostPhotoURL || '';
+        return `
               <button type="button" class="feed-live-card" onclick="openLiveStreamFromFeed('${stream.id}', ${isOwn ? 'true' : 'false'})">
                 <div class="feed-live-media">
                   ${cover ? `<img src="${cover}" alt="">` : `<div class="feed-live-fallback">${avatar(stream.hostName || 'Live', stream.hostPhotoURL || null, 'avatar-lg')}</div>`}
@@ -8580,7 +8908,7 @@ function loadFeedLiveSpotlight() {
                   <div class="feed-live-card-meta">${esc(stream.hostName || 'User')} · ${viewers} watching</div>
                 </div>
               </button>`;
-          }).join('')}
+      }).join('')}
         </div>
       `;
     })
@@ -8648,7 +8976,7 @@ function closeVideoHub() {
       endedAt: FieldVal.serverTimestamp(),
       endedReason: 'host_ended',
       updatedAt: FieldVal.serverTimestamp()
-    }).catch(() => {});
+    }).catch(() => { });
     Object.values(_viewerPeerConns).forEach(pc => pc.close());
     _viewerPeerConns = {};
     if (_hostStream) { _hostStream.getTracks().forEach(t => t.stop()); _hostStream = null; }
@@ -8659,7 +8987,7 @@ function closeVideoHub() {
   if (_hostPeerConn) { _hostPeerConn.close(); _hostPeerConn = null; }
   if (_liveViewerPresenceId) {
     // Best-effort mark viewer as inactive
-    db.collection('liveStreams').doc(_liveViewingStreamId || '_').collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
+    db.collection('liveStreams').doc(_liveViewingStreamId || '_').collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => { });
     _liveViewerPresenceId = null;
     _liveViewingStreamId = null;
   }
@@ -8708,15 +9036,15 @@ function renderClipsContent(body) {
   body.innerHTML = `
     <div class="reels-scroll" id="reels-scroll">
       ${_reelVideos.map((p, i) => {
-        const url = p.videoURL || p.imageURL;
-        const liked = (p.likes || []).includes(state.user.uid);
-        const myReaction = getUserReaction(p.reactions, p.likes || []);
-        const lc = getReactionSummary(p.reactions, p.likes || []).total;
-        const cc = p.commentsCount || 0;
-        const reelIdentity = p.isAnonymous
-          ? { name: getAnonymousLabelForPost(p), photo: null }
-          : getResolvedUserIdentity(p.authorId, p.authorName || 'User', p.authorPhoto || null);
-        return `
+    const url = p.videoURL || p.imageURL;
+    const liked = (p.likes || []).includes(state.user.uid);
+    const myReaction = getUserReaction(p.reactions, p.likes || []);
+    const lc = getReactionSummary(p.reactions, p.likes || []).total;
+    const cc = p.commentsCount || 0;
+    const reelIdentity = p.isAnonymous
+      ? { name: getAnonymousLabelForPost(p), photo: null }
+      : getResolvedUserIdentity(p.authorId, p.authorName || 'User', p.authorPhoto || null);
+    return `
         <div class="reel-slide" data-idx="${i}" data-post-id="${p.id}">
           <video class="reel-video" src="${url}" loop playsinline preload="metadata" muted></video>
           <div class="reel-overlay-bottom">
@@ -8745,7 +9073,7 @@ function renderClipsContent(body) {
           </div>
           <div class="reel-play-toggle" onclick="toggleReelPlay(this)"></div>
         </div>`;
-      }).join('')}
+  }).join('')}
     </div>
   `;
 
@@ -8757,7 +9085,7 @@ function renderClipsContent(body) {
       if (!video) return;
       if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
         video.muted = false;
-        video.play().catch(() => {});
+        video.play().catch(() => { });
       } else {
         video.pause();
       }
@@ -8767,7 +9095,7 @@ function renderClipsContent(body) {
 
   requestAnimationFrame(() => {
     const firstVid = scrollEl.querySelector('.reel-slide:first-child .reel-video');
-    if (firstVid) { firstVid.muted = false; firstVid.play().catch(() => {}); }
+    if (firstVid) { firstVid.muted = false; firstVid.play().catch(() => { }); }
   });
 }
 
@@ -8785,7 +9113,7 @@ function toggleReelPlay(overlay) {
   if (!vid) return;
   if (vid.paused) {
     vid.muted = false;
-    vid.play().catch(() => {});
+    vid.play().catch(() => { });
     overlay.classList.remove('paused');
   } else {
     vid.pause();
@@ -8925,7 +9253,7 @@ function openGoLiveModal() {
       const prevVideo = document.getElementById('live-preview-video');
       if (prevVideo) {
         prevVideo.srcObject = stream;
-        prevVideo.play().catch(() => {});
+        prevVideo.play().catch(() => { });
         const placeholder = document.getElementById('live-preview-placeholder');
         if (placeholder) placeholder.style.display = 'none';
       }
@@ -9087,7 +9415,7 @@ async function switchLiveCamera() {
 
     await Promise.all(Object.values(_viewerPeerConns).map(async pc => {
       const videoSender = pc.getSenders().find(sender => sender.track?.kind === 'video');
-      if (videoSender) await videoSender.replaceTrack(newVideoTrack).catch(() => {});
+      if (videoSender) await videoSender.replaceTrack(newVideoTrack).catch(() => { });
     }));
 
     const oldVideoTracks = _hostStream?.getVideoTracks?.() || [];
@@ -9096,9 +9424,9 @@ async function switchLiveCamera() {
     if (hostVideo) {
       hostVideo.srcObject = _hostStream;
       hostVideo.classList.toggle('host-cam', _hostFacingMode === 'user');
-      await hostVideo.play?.().catch(() => {});
+      await hostVideo.play?.().catch(() => { });
     }
-    oldVideoTracks.forEach(track => { try { track.stop(); } catch (_) {} });
+    oldVideoTracks.forEach(track => { try { track.stop(); } catch (_) { } });
   } catch (e) {
     console.error('Camera switch error:', e);
     toast('Could not switch camera');
@@ -9171,11 +9499,11 @@ async function joinLiveStream(streamId) {
     db.collection('liveStreams').doc(streamId).collection('viewers').doc(uid).update({
       lastSeenAt: FieldVal.serverTimestamp(),
       isActive: true
-    }).catch(() => {});
+    }).catch(() => { });
   }, 30000);
 
   // Increment total views
-  db.collection('liveStreams').doc(streamId).update({ totalViews: FieldVal.increment(1) }).catch(() => {});
+  db.collection('liveStreams').doc(streamId).update({ totalViews: FieldVal.increment(1) }).catch(() => { });
 
   // WebRTC: create offer to host
   connectToHost(streamId);
@@ -9221,7 +9549,7 @@ function listenForViewerOffers(streamId) {
               targetUid: viewerUid,
               candidate: e.candidate.toJSON(),
               createdAt: FieldVal.serverTimestamp()
-            }).catch(() => {});
+            }).catch(() => { });
           }
         };
 
@@ -9269,7 +9597,7 @@ async function connectToHost(streamId) {
     if (video && e.streams[0]) {
       video.srcObject = e.streams[0];
       video.muted = false;
-      video.play().catch(() => {});
+      video.play().catch(() => { });
       const overlay = document.getElementById('live-connecting');
       if (overlay) overlay.style.display = 'none';
     }
@@ -9283,7 +9611,7 @@ async function connectToHost(streamId) {
         targetUid: 'host',
         candidate: e.candidate.toJSON(),
         createdAt: FieldVal.serverTimestamp()
-      }).catch(() => {});
+      }).catch(() => { });
     }
   };
 
@@ -9302,9 +9630,9 @@ async function connectToHost(streamId) {
               senderUid: uid,
               sdp: { type: offer.type, sdp: offer.sdp },
               createdAt: FieldVal.serverTimestamp()
-            }).catch(() => {});
+            }).catch(() => { });
           });
-        }).catch(() => {});
+        }).catch(() => { });
         return;
       }
       const overlay = document.getElementById('live-connecting');
@@ -9408,7 +9736,7 @@ async function endLiveStream(streamId) {
 async function leaveLiveStream(streamId) {
   if (_hostPeerConn) { _hostPeerConn.close(); _hostPeerConn = null; }
   if (_liveViewerPresenceId) {
-    db.collection('liveStreams').doc(streamId).collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => {});
+    db.collection('liveStreams').doc(streamId).collection('viewers').doc(_liveViewerPresenceId).update({ isActive: false }).catch(() => { });
     _liveViewerPresenceId = null;
   }
   _liveViewingStreamId = null;
@@ -9476,8 +9804,8 @@ function sendLiveReaction(streamId) {
     uid: state.user.uid,
     type: '❤️',
     createdAt: FieldVal.serverTimestamp()
-  }).catch(() => {});
-  db.collection('liveStreams').doc(streamId).update({ reactionCount: FieldVal.increment(1) }).catch(() => {});
+  }).catch(() => { });
+  db.collection('liveStreams').doc(streamId).update({ reactionCount: FieldVal.increment(1) }).catch(() => { });
 }
 
 function subscribeLiveReactions(streamId) {
@@ -9517,15 +9845,15 @@ function startViewerCountUpdater(streamId, isHost) {
           db.collection('liveStreams').doc(streamId).update({
             currentViewerCount: count,
             peakViewerCount: FieldVal.increment(0) // we'll handle peak separately
-          }).catch(() => {});
+          }).catch(() => { });
           // Update peak
           db.collection('liveStreams').doc(streamId).get().then(doc => {
             if (doc.exists && count > (doc.data().peakViewerCount || 0)) {
-              doc.ref.update({ peakViewerCount: count }).catch(() => {});
+              doc.ref.update({ peakViewerCount: count }).catch(() => { });
             }
-          }).catch(() => {});
+          }).catch(() => { });
         }
-      }).catch(() => {});
+      }).catch(() => { });
   };
   updateCount();
   if (_liveViewerCountTimer) clearInterval(_liveViewerCountTimer);
@@ -9539,7 +9867,7 @@ async function openReelComments(postId, options = {}) {
   const existing = document.getElementById('reel-comments-panel');
   const prevList = existing?.querySelector('#reel-comments-list');
   const prevListScroll = prevList ? prevList.scrollTop : 0;
-  
+
   _pendingReelCommentImageFile = null;
   _reelCommentReplyTo = null;
 
@@ -9692,13 +10020,13 @@ async function postReelComment(postId) {
   const input = document.getElementById('reel-comment-input');
   const sendBtn = input?.parentElement?.querySelector('.send-btn');
   if (sendBtn) sendBtn.disabled = true;
-  
+
   const text = input?.value.trim();
   const imgFile = _pendingReelCommentImageFile;
-  if (!text && !imgFile) { 
+  if (!text && !imgFile) {
     _sendingReelComment = false;
     if (sendBtn) sendBtn.disabled = false;
-    return; 
+    return;
   }
   input.value = '';
   const replyTo = _reelCommentReplyTo ? _reelCommentReplyTo.id : null;
@@ -9787,7 +10115,7 @@ function setupFeedVideoAutoplay() {
         }
         _currentlyPlayingFeedVideo = vid;
         vid.muted = true;
-        vid.play().catch(() => {});
+        vid.play().catch(() => { });
       } else {
         if (_currentlyPlayingFeedVideo === vid) {
           vid.pause();
@@ -9851,11 +10179,11 @@ async function openComments(postId, options = {}) {
 
   const topLevel = comments.filter(c => !c.replyTo);
   const replies = comments.filter(c => c.replyTo);
-  
+
   // Sort: Top (likes) -> Newest
-  topLevel.sort((a,b) => b.likeCount - a.likeCount || (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+  topLevel.sort((a, b) => b.likeCount - a.likeCount || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   // Replies: Chronological
-  replies.sort((a,b) => (a.createdAt?.seconds||0) - (b.createdAt?.seconds||0));
+  replies.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
   const replyMap = {};
   replies.forEach(r => {
@@ -9878,23 +10206,23 @@ async function openComments(postId, options = {}) {
   _commentAnonChoice = forceAnon ? true : (supportsAnonChoice ? true : false);
 
   function renderComment(c, isReply = false) {
-     const liked = (c.likes || []).includes(state.user.uid);
-     const myReaction = getUserReaction(c.reactions, c.likes || []);
-     const cReplies = replyMap[c.id] || [];
-     const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
-     const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
-     const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
-     const target = c.replyTo ? commentById[c.replyTo] : null;
-     const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
-     const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
-     const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
-     const profileClick = hiddenIdentity && c.authorId !== state.user.uid
-       ? `onclick="openAnonPostActions('${c.authorId}')"`
-       : hiddenIdentity ? '' : `onclick="closeModal();openProfile('${c.authorId}')"`;
-     const authorClickStyle = (hiddenIdentity && c.authorId === state.user.uid) ? '' : 'style="cursor:pointer"';
-     const reactionBadgeHtml = renderCommentReactionBadge(c.reactions, c.likes || [], postId, c.id);
-     
-     return `
+    const liked = (c.likes || []).includes(state.user.uid);
+    const myReaction = getUserReaction(c.reactions, c.likes || []);
+    const cReplies = replyMap[c.id] || [];
+    const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
+    const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
+    const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
+    const target = c.replyTo ? commentById[c.replyTo] : null;
+    const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
+    const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
+    const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
+    const profileClick = hiddenIdentity && c.authorId !== state.user.uid
+      ? `onclick="openAnonPostActions('${c.authorId}')"`
+      : hiddenIdentity ? '' : `onclick="closeModal();openProfile('${c.authorId}')"`;
+    const authorClickStyle = (hiddenIdentity && c.authorId === state.user.uid) ? '' : 'style="cursor:pointer"';
+    const reactionBadgeHtml = renderCommentReactionBadge(c.reactions, c.likes || [], postId, c.id);
+
+    return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-post-id="${postId}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col" ${profileClick} ${authorClickStyle}>
           ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
@@ -9910,7 +10238,7 @@ async function openComments(postId, options = {}) {
            </div>
            <div class="comment-actions-row">
              <span class="comment-time">${timeAgo(c.createdAt)}</span>
-             <button class="c-act like-only ${liked?'liked':''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)" title="Like comment">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
+             <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)" title="Like comment">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
              <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
              <button class="c-act c-reply-btn" onclick="setCommentReply('${c.id}','${escJs(displayName)}')">Reply</button>
            </div>
@@ -10051,13 +10379,13 @@ async function postComment(postId) {
   const input = $('#comment-input');
   const sendBtn = input?.parentElement?.querySelector('.send-btn');
   if (sendBtn) sendBtn.disabled = true;
-  
+
   const text = input?.value.trim();
   const imgFile = _pendingCommentImageFile;
-  if (!text && !imgFile) { 
+  if (!text && !imgFile) {
     _sendingComment = false;
     if (sendBtn) sendBtn.disabled = false;
-    return; 
+    return;
   }
   input.value = '';
   const replyTo = _commentReplyTo ? _commentReplyTo.id : null;
@@ -10093,7 +10421,7 @@ async function postComment(postId) {
       createdAt: new Date().toISOString()
     });
     await db.collection('posts').doc(postId).update({ commentsCount: FieldVal.increment(1) });
-    
+
     if (postData) addNotification(postData.authorId, 'comment', 'commented on your post', { postId }, { anonymous: commentAnon });
 
     // Silent UI update: append new comment without rebuilding modal.
@@ -10192,7 +10520,7 @@ function inferDownloadFilename(url = '', fallbackBase = 'unino-media') {
     const clean = String(url || '').split('?')[0].split('#')[0];
     const last = clean.split('/').pop() || '';
     if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return last;
-  } catch (_) {}
+  } catch (_) { }
   const fallback = String(fallbackBase || 'unino-media')
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/-+/g, '-')
@@ -10441,9 +10769,9 @@ async function primeMediaCache(urls = [], limit = 6) {
       try {
         const resp = await fetch(url, { cache: 'no-store', mode: 'cors' });
         if (resp.ok) await cache.put(url, resp.clone());
-      } catch (_) {}
+      } catch (_) { }
     }));
-  } catch (_) {}
+  } catch (_) { }
 }
 function openGallery(urls, startIdx = 0) {
   _galleryUrls = urls || [];
@@ -10494,10 +10822,12 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
     const mi = $('#modal-inner');
     if (!mi) return;
     mi.innerHTML = `
-    <div class="modal-header create-modal-header"><div><h2>New post</h2><p class="create-modal-subtitle">Share something useful with campus</p></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
+    <div class="modal-header create-modal-header"><div><h2>Share with Campus</h2><p class="create-modal-subtitle">Post a moment, host an event, sell on Hustle, or add a story</p></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
     <div class="create-tabs">
-      <button class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
-      <button class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">Event</button>
+      <button type="button" class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
+      <button type="button" class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">🎉 Event</button>
+      <button type="button" class="create-tab" data-ct="sell">🛍️ Sell</button>
+      <button type="button" class="create-tab" data-ct="story">✨ Story</button>
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
@@ -10505,16 +10835,23 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
         <div class="create-author-main">
           <div id="create-author-avatar">${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}</div>
           <div>
-            <div id="create-author-name" style="font-weight:600">${esc(state.profile.displayName)}</div>
-            <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')}</div>
+            <div id="create-author-name" style="font-weight:700">${esc(state.profile.displayName)}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')} Campus</div>
           </div>
         </div>
         <div class="create-author-actions">
           <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
         </div>
       </div>
-      <textarea id="create-text" class="create-composer-text" placeholder="What is happening on campus?" aria-label="Post text"></textarea>
-      <div class="create-post-hint create-composer-helper">Add a module tag like #MATH301 to reach the right students.</div>
+      <textarea id="create-text" class="create-composer-text" placeholder="What is happening around campus?" aria-label="Post text"></textarea>
+      <div class="create-topic-chips" aria-label="Quick campus tags">
+        <button type="button" class="create-topic-chip" data-tag="#campuslife">#campuslife</button>
+        <button type="button" class="create-topic-chip" data-tag="#events">#events</button>
+        <button type="button" class="create-topic-chip" data-tag="#study">#study</button>
+        <button type="button" class="create-topic-chip" data-tag="#housing">#housing</button>
+        <button type="button" class="create-topic-chip" data-tag="#lostandfound">#lostandfound</button>
+      </div>
+      <div class="create-post-hint create-composer-helper">Tip: mention @friends or add a module code like #CMPG121 to reach classmates.</div>
       <div id="create-mention-suggestions" class="create-mention-suggestions" style="display:none"></div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
@@ -10522,15 +10859,15 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
       </div>
       <div class="create-post-actions-row create-composer-toolbar">
         <div class="create-post-actions-left">
-          <label class="add-photo-btn composer-tool-btn" title="Add media" aria-label="Add media"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
-          <button type="button" class="btn-outline composer-tool-btn" id="create-pin-location" title="Add location">⌖ <span>Location</span></button>
-          <button type="button" class="btn-outline composer-tool-btn" id="create-poll-btn" title="Add poll">☷ <span>Poll</span></button>
+          <label class="add-photo-btn composer-tool-btn" title="Add media" aria-label="Add media"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-pin-location" title="Add location">📍 <span>Pin</span></button>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-poll-btn" title="Add poll">📊 <span>Poll</span></button>
           <select id="create-visibility" class="composer-visibility" aria-label="Post visibility">
             <option value="public">🌍 Public</option>
             <option value="friends">👫 Friends</option>
           </select>
         </div>
-        <button class="btn-primary composer-submit" id="create-submit">Share post</button>
+        <button class="btn-primary composer-submit" id="create-submit">Share</button>
       </div>
       <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       <div id="create-poll-pill" class="create-poll-pill" style="display:none;margin-top:8px"></div>
@@ -10564,12 +10901,38 @@ No</textarea></div>
     // Wire tab switching
     $$('.create-tab').forEach(tab => {
       tab.onclick = () => {
-        createTab = tab.dataset.ct;
+        const next = tab.dataset.ct;
+        if (next === 'sell') { openSellModal(); return; }
+        if (next === 'story') { openStoryCreator(); return; }
+        createTab = next;
         renderCreateInner();
       };
     });
 
-    if (createTab === 'post') wirePostTab();
+    if (createTab === 'post') {
+      wirePostTab();
+      $$('.create-topic-chip').forEach(chip => {
+        chip.onclick = () => {
+          const inp = $('#create-text');
+          if (!inp) return;
+          const tag = chip.dataset.tag || '';
+          if (!tag) return;
+          if (!inp.value.toLowerCase().includes(tag.toLowerCase())) {
+            inp.value = (inp.value ? inp.value.trimEnd() + ' ' : '') + tag + ' ';
+          }
+          inp.focus();
+        };
+      });
+      if (presetData?.anon) {
+        $('#create-anon-toggle')?.click();
+      }
+      if (presetData?.openPoll) {
+        $('#create-poll-btn')?.click();
+      }
+      if (presetData?.pickMedia) {
+        setTimeout(() => $('#create-media-file')?.click(), 60);
+      }
+    }
     else wireEventTab();
   };
 
@@ -10610,7 +10973,7 @@ No</textarea></div>
     const refreshPollUI = () => {
       const pill = $('#create-poll-pill');
       const pollBtn = $('#create-poll-btn');
-      if (pollBtn) pollBtn.textContent = postPoll?.question ? '📊 Edit poll' : '📊 Poll';
+      if (pollBtn) pollBtn.innerHTML = postPoll?.question ? '📊 <span>Edit</span>' : '📊 <span>Poll</span>';
       if (!pill) return;
       if (!postPoll?.question) {
         pill.style.display = 'none';
@@ -10723,14 +11086,14 @@ No</textarea></div>
     }
     const createTextInput = $('#create-text');
     if (createTextInput) {
-      createTextInput.addEventListener('input', () => { renderMentionSuggestions().catch(() => {}); });
+      createTextInput.addEventListener('input', () => { renderMentionSuggestions().catch(() => { }); });
       createTextInput.addEventListener('blur', () => {
         setTimeout(() => {
           const box = $('#create-mention-suggestions');
           if (box) box.style.display = 'none';
         }, 120);
       });
-      createTextInput.addEventListener('focus', () => { renderMentionSuggestions().catch(() => {}); });
+      createTextInput.addEventListener('focus', () => { renderMentionSuggestions().catch(() => { }); });
     }
     if ($('#create-pin-location')) $('#create-pin-location').onclick = () => {
       if (!navigator.geolocation) return toast('Location is not available on this device');
@@ -10917,7 +11280,7 @@ No</textarea></div>
       const filesToUpload = [...(window._eventFiles || [])];
       window._eventFiles = [];
       closeModal(); toast('Creating event...');
-      const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)','linear-gradient(135deg,#7C3AED,#C084FC)','linear-gradient(135deg,#8B5CF6,#D946EF)','linear-gradient(135deg,#6366F1,#818CF8)','linear-gradient(135deg,#D946EF,#E879F9)'];
+      const gradients = ['linear-gradient(135deg,#6C5CE7,#A855F7)', 'linear-gradient(135deg,#7C3AED,#C084FC)', 'linear-gradient(135deg,#8B5CF6,#D946EF)', 'linear-gradient(135deg,#6366F1,#818CF8)', 'linear-gradient(135deg,#D946EF,#E879F9)'];
       try {
         let imageURLs = [];
         for (const f of filesToUpload) {
@@ -10962,19 +11325,22 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
-  if (!['radar', 'list'].includes(exploreView)) exploreView = 'radar';
+  if (!['radar', 'list', 'events', 'places'].includes(exploreView)) exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
+      <div class="explore-hub-head">
+        <div>
+          <h2>Explore Campus</h2>
+          <p>Discover people, live map, events &amp; places around NWU</p>
+        </div>
+        <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
+      </div>
       <div class="explore-toggle">
-        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-          Radar
-        </button>
-        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-          List
-        </button>
+        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">🗺️ Radar</button>
+        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">👥 People</button>
+        <button class="explore-toggle-btn ${exploreView === 'events' ? 'active' : ''}" data-v="events">🎉 Events</button>
+        <button class="explore-toggle-btn ${exploreView === 'places' ? 'active' : ''}" data-v="places">🏛️ Places</button>
       </div>
       <div id="explore-body">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -11067,7 +11433,90 @@ function openCampusMapView() {
 function renderExploreView() {
   syncExploreToggleButtons();
   if (exploreView === 'list') renderListView();
+  else if (exploreView === 'events') renderExploreEventsView();
+  else if (exploreView === 'places') renderExplorePlacesView();
   else renderRadarView();
+}
+
+function renderExploreEventsView() {
+  const body = $('#explore-body'); if (!body) return;
+  destroyRadarMapInstance();
+  const events = Array.isArray(allCampusEvents) ? allCampusEvents : [];
+  if (!events.length) {
+    body.innerHTML = `
+      <div style="padding:12px 16px 24px">
+        <div class="empty-state" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;padding:36px 20px">
+          <div class="empty-state-icon">🎉</div>
+          <h3>No upcoming campus events yet</h3>
+          <p style="margin-bottom:14px">Start a study meetup, society gathering, sports run, or hangout on campus.</p>
+          <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">+ Host Campus Event</button>
+        </div>
+      </div>`;
+    return;
+  }
+  const uid = state.user?.uid || '';
+  body.innerHTML = `
+    <div class="explore-events-grid">
+      ${events.map(ev => {
+    const meta = getEventLocationMeta(ev);
+    const locLabel = meta.label || ev.location || 'NWU Campus';
+    const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
+    const grad = ev.gradient || 'linear-gradient(135deg,#5B3DF5,#8B5CF6)';
+    const going = Array.isArray(ev.going) ? ev.going : [];
+    const amGoing = going.includes(uid);
+    return `
+          <article class="explore-event-card" onclick="openEventDetail('${ev.id || ''}')">
+            <div class="explore-event-cover" style="${thumb ? '' : `background:${grad}`}">
+              ${thumb ? `<img src="${thumb}" alt="${esc(ev.title || 'Event')}" loading="lazy">` : ''}
+              <span class="explore-event-date-pill">${esc(ev.date || 'Upcoming')}${ev.time ? ` · ${esc(ev.time)}` : ''}</span>
+            </div>
+            <div class="explore-event-body">
+              <div class="explore-event-title">${esc(ev.title || 'Campus Event')}</div>
+              <div class="explore-event-meta">📍 ${esc(locLabel)} · 👥 ${going.length} going</div>
+              <div class="explore-event-foot">
+                <button type="button" class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" onclick="event.stopPropagation();toggleEventGoing('${ev.id || ''}')">${amGoing ? '✓ Going' : "I'm Going"}</button>
+                <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation();routeToEventLocationById('${ev.id || ''}')">🧭 Route</button>
+              </div>
+            </div>
+          </article>`;
+  }).join('')}
+    </div>`;
+}
+
+function renderExplorePlacesView() {
+  const body = $('#explore-body'); if (!body) return;
+  destroyRadarMapInstance();
+  const eventsByLoc = {};
+  (allCampusEvents || []).forEach(ev => {
+    if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
+    eventsByLoc[ev.location].push(ev);
+  });
+  body.innerHTML = `
+    <div class="explore-residences-hero">
+      <div>
+        <h3>🏠 NWU Accredited Residences &amp; Housing</h3>
+        <p>Browse 650+ official on-campus &amp; 2026 accredited private residences with photos, room counts, distance &amp; interactive map.</p>
+      </div>
+      <button type="button" class="explore-residences-cta" onclick="openResidencesView()">Open Residences →</button>
+    </div>
+    <div style="padding:0 16px 10px;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:15px;font-weight:800">Campus Hotspots</h3>
+      <span style="font-size:12px;color:var(--text-secondary)">${CAMPUS_LOCATIONS.length} landmarks</span>
+    </div>
+    <div class="explore-places-grid">
+      ${CAMPUS_LOCATIONS.map(loc => {
+    const count = (eventsByLoc[loc.id] || []).length;
+    return `
+          <div class="explore-place-card" onclick="openLocationDetail('${loc.id}')">
+            <div class="explore-place-icon">${loc.emoji}</div>
+            <div class="explore-place-info">
+              <strong>${esc(loc.name)}</strong>
+              <span>${count ? `🎉 ${count} event${count > 1 ? 's' : ''} happening` : 'Tap for details & walking route'}</span>
+            </div>
+            <button type="button" class="btn-outline btn-xs" onclick="event.stopPropagation();routeToCampusLocation('${loc.id}')">Route</button>
+          </div>`;
+  }).join('')}
+    </div>`;
 }
 
 function refreshVisiblePage() {
@@ -11192,12 +11641,18 @@ function switchToExploreList(filter = 'all', queryRaw = '') {
 function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
   body.innerHTML = `
-    <div style="padding:0 16px 12px">
-      <div class="search-bar radar-search-wrap">
+    <div style="padding:0 16px 10px">
+      <div class="search-bar radar-search-wrap" style="margin-bottom:8px">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="radar-search" placeholder="Search people or location..." value="${esc(window._radarSearchQuery || '')}">
+        <input type="text" id="radar-search" placeholder="Search people, buildings, or places…" value="${esc(window._radarSearchQuery || '')}">
       </div>
       <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
+    </div>
+    <div class="radar-quick-actions">
+      <button type="button" class="radar-quick-btn" onclick="openCreateEvent()">📍 Pin Event</button>
+      <button type="button" class="radar-quick-btn" onclick="openResidencesView()">🏠 Residences Map</button>
+      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">🏛️ Campus Places</button>
+      <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">⌖ My Location</button>
     </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
@@ -11248,23 +11703,23 @@ function renderRadarView() {
           <div class="proximity-section">
             <div class="proximity-header"><h3>Campus Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
             ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
-              const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-              const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
-              const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-              return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+          const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+          const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+          const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+          return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
                 ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
                 <div class="event-scroll-title">${esc(ev.title)}</div>
                 <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
               </div>`;
-            }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+        }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
           </div>
         `;
       } else {
         dynamic.innerHTML = `
           <div class="radar-legend" style="padding:0 16px">
             <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-            <span><span class="legend-dot campus"></span> Nearby area (${nearbyUsers.length})</span>
-            <span><span class="legend-dot campus"></span> Same course (${courseUsers.length})</span>
+            <span><span class="legend-dot nearby"></span> Nearby area (${nearbyUsers.length})</span>
+            <span><span class="legend-dot course"></span> Same course (${courseUsers.length})</span>
             <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
             <span class="radar-precision-note">Solid pin = saved GPS · dashed pin = proximity estimate</span>
           </div>
@@ -11279,7 +11734,7 @@ function renderRadarView() {
             <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">View all</button></div>
             <div class="proximity-scroll">
               ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
-                : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
+            : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
             </div>
           </div>
 
@@ -11482,16 +11937,16 @@ function renderRadarView() {
 
 
 function destroyRadarMapInstance() {
-  (_mapLibreMarkers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
-  (_mapLibrePopups || []).forEach(popup => { try { popup.remove(); } catch (_) {} });
+  (_mapLibreMarkers || []).forEach(marker => { try { marker.remove(); } catch (_) { } });
+  (_mapLibrePopups || []).forEach(popup => { try { popup.remove(); } catch (_) { } });
   _mapLibreMarkers = [];
   _mapLibrePopups = [];
   if (_mapLibreMap) {
-    try { _mapLibreMap.remove(); } catch (_) {}
+    try { _mapLibreMap.remove(); } catch (_) { }
     _mapLibreMap = null;
   }
   if (_leafletMap) {
-    try { _leafletMap.remove(); } catch (_) {}
+    try { _leafletMap.remove(); } catch (_) { }
     _leafletMap = null;
   }
 }
@@ -11524,14 +11979,14 @@ function openRadarClusterPreview(encoded = '') {
     if (!users.length) return;
     openModal(`
       <div class="modal-header"><h2>Nearby people</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-      <div class="modal-body" style="padding:16px;display:grid;gap:10px">${users.slice(0,18).map(u => `
+      <div class="modal-body" style="padding:16px;display:grid;gap:10px">${users.slice(0, 18).map(u => `
         <button class="cluster-user-row" onclick="closeModal();showUserPreview('${u.id}')">
           ${avatar(u.displayName || 'User', u.photoURL || '', 'avatar-sm')}
           <span>${esc(u.displayName || 'User')}</span>
         </button>`).join('')}
       </div>
     `);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function attachMapLibreMarker(lng, lat, html, onClick) {
@@ -11601,7 +12056,7 @@ function syncRadarOverlayToUser() {
         x = Math.round(projected.x + (canvasRect.left - rect.left));
         y = Math.round(projected.y + (canvasRect.top - rect.top));
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   overlay.style.left = `${x}px`;
   overlay.style.top = `${y}px`;
@@ -11645,7 +12100,7 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
         if (!missingId || mapRef.hasImage(missingId)) return;
         try {
           mapRef.addImage(missingId, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
-        } catch (_) {}
+        } catch (_) { }
       });
       mapRef.on('load', () => {
         if (_mapLibreMap !== mapRef) return;
@@ -11671,11 +12126,11 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
               }
             }, labelLayerId);
           }
-        } catch (_) {}
+        } catch (_) { }
 
         if (_mapLibreMap !== mapRef) return;
-        try { mountCampusLocationLabels(mapRef); } catch (_) {}
-        mountCampusGeoJsonLayers(mapRef).catch(() => {});
+        try { mountCampusLocationLabels(mapRef); } catch (_) { }
+        mountCampusGeoJsonLayers(mapRef).catch(() => { });
         const locSharingOn = isLocationSharingEnabled(state.profile);
         if (locSharingOn) {
           attachMapLibreMarker(center.lng, center.lat, createMapLibreMarkerHTML('me'));
@@ -11752,8 +12207,8 @@ function proximityCard(u) {
   const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
   const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.join(', ')}`
     : u.proximity === 'course' ? `📚 ${esc(u.major)}`
-    : u.proximity === 'nearby' ? `📍 ${esc(u.address || 'Nearby')}`
-    : `🎓 ${esc(u.university || '')}`;
+      : u.proximity === 'nearby' ? `📍 ${esc(u.address || 'Nearby')}`
+        : `🎓 ${esc(u.university || '')}`;
   return `
     <div class="proximity-card" onclick="showUserPreview('${u.id}')">
       <div class="proximity-card-avatar">${avatar(u.displayName, u.photoURL, 'avatar-md')}${online}</div>
@@ -11802,9 +12257,9 @@ async function showUserPreview(uid) {
             <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Enrolled Modules (${modules.length})</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
               ${modules.slice(0, 12).map(m => isMe
-                ? `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${escJs(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`
-                : `<span class="module-chip clickable" onclick="closeModal();openModuleFeed('${escJs(m)}')" title="View discussions for ${esc(m)}">📖 ${esc(m)}</span>`
-              ).join('')}
+      ? `<span class="module-chip clickable" onclick="closeModal();openTimetableModal('${uid}','${escJs(m)}')" title="View timetable for ${esc(m)}">📖 ${esc(m)}</span>`
+      : `<span class="module-chip clickable" onclick="closeModal();openModuleFeed('${escJs(m)}')" title="View discussions for ${esc(m)}">📖 ${esc(m)}</span>`
+    ).join('')}
               ${modules.length > 12 ? `<span class="module-chip" style="opacity:0.6">+${modules.length - 12} more</span>` : ''}
             </div>
           </div>
@@ -11886,7 +12341,7 @@ async function renderExploreGrid(query = '', filter = 'all') {
           .map(u => ({ ...u, _searchScore: userSearchScore(u, rawQuery) }))
           .filter(u => u._searchScore > 0)
           .sort((a, b) => b._searchScore - a._searchScore || (a.displayName || '').localeCompare(b.displayName || ''));
-      } catch (_) {}
+      } catch (_) { }
     }
   }
   if (filter === 'nearby') users = users.filter(u => u.proximity === 'nearby');
@@ -11898,18 +12353,28 @@ async function renderExploreGrid(query = '', filter = 'all') {
     return;
   }
 
+  const myFriendsSet = new Set(state.profile?.friends || []);
+  const mySentSet = new Set(state.profile?.sentRequests || []);
   grid.innerHTML = users.map(u => {
     const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.length} shared`
       : u.proximity === 'nearby' ? '📍 Nearby area'
-      : u.proximity === 'course' ? '📚 Same course'
-      : u.university ? `🎓 ${esc(u.university)}` : '';
+        : u.proximity === 'course' ? '📚 Same course'
+          : u.university ? `🎓 ${esc(u.university)}` : '';
+    const isFriend = myFriendsSet.has(u.id);
+    const isPending = mySentSet.has(u.id);
+    const actionBtn = isFriend
+      ? `<button type="button" class="btn-outline user-card-action" onclick="event.stopPropagation();startChat('${u.id}','${escJs(u.displayName || 'User')}','${escJs(u.photoURL || '')}')">Message</button>`
+      : isPending
+        ? `<button type="button" class="btn-secondary user-card-action" disabled style="opacity:0.65">Pending…</button>`
+        : `<button type="button" class="btn-primary user-card-action" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName || 'User')}','${escJs(u.photoURL || '')}', this)">Add Friend</button>`;
     return `
-      <div class="user-card" onclick="openProfile('${u.id}')">
-        ${avatar(u.displayName, u.photoURL, 'avatar-lg')}
+      <div class="user-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
+        <div class="discover-card-avatar">${avatar(u.displayName, u.photoURL, 'avatar-lg')}${u.status === 'online' ? '<span class="online-dot"></span>' : ''}</div>
         <div class="user-card-name">${esc(u.displayName)}</div>
-        <div class="user-card-uni">${esc(u.major || '')}</div>
+        <div class="user-card-uni">${esc(u.major || 'Student')}</div>
         ${(u.modules || []).length ? `<div class="user-card-modules">${(u.modules || []).slice(0, 3).map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
         ${tag ? `<div class="user-card-distance">${tag}</div>` : ''}
+        ${actionBtn}
       </div>`;
   }).join('');
 }
@@ -11966,7 +12431,7 @@ async function loadCampusGeoJson() {
         if (!res.ok) continue;
         const data = await res.json();
         if (data && Array.isArray(data.features)) return data;
-      } catch (_) {}
+      } catch (_) { }
     }
     return null;
   })()
@@ -12422,7 +12887,7 @@ async function mountCampusGeoJsonLayers(map) {
 
     const marker = attachMapLibreMarker(lng, lat, badgeHTML, () => {
       if (activePopup) {
-        try { activePopup.remove(); } catch (_) {}
+        try { activePopup.remove(); } catch (_) { }
         activePopup = null;
       }
       const bEventsNow = getEventsForVenue(name, lat, lng);
@@ -12490,9 +12955,9 @@ async function mountCampusGeoJsonLayers(map) {
       for (let i = 0; i < placedBoxes.length; i++) {
         const p = placedBoxes[i];
         if (!(rect.right + buffer < p.left ||
-              rect.left - buffer > p.right ||
-              rect.bottom + buffer < p.top ||
-              rect.top - buffer > p.bottom)) {
+          rect.left - buffer > p.right ||
+          rect.bottom + buffer < p.top ||
+          rect.top - buffer > p.bottom)) {
           collides = true;
           break;
         }
@@ -12536,7 +13001,7 @@ async function mountCampusGeoJsonLayers(map) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const encodedName = encodeURIComponent(name);
     if (activePopup) {
-      try { activePopup.remove(); } catch (_) {}
+      try { activePopup.remove(); } catch (_) { }
       activePopup = null;
     }
     const bEventsNow = getEventsForVenue(name, lat, lng);
@@ -12719,13 +13184,13 @@ function updateMapRoutePanel(summary = null) {
 function clearActiveMapRoute(options = {}) {
   const { clearPending = true } = options;
   if (_mapLibreMap && _activeMapRouteLayer === 'route-line') {
-    try { if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line'); } catch (_) {}
-    try { if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line'); } catch (_) {}
+    try { if (_mapLibreMap.getLayer('route-line')) _mapLibreMap.removeLayer('route-line'); } catch (_) { }
+    try { if (_mapLibreMap.getSource('route-line')) _mapLibreMap.removeSource('route-line'); } catch (_) { }
   } else if (_leafletMap && _activeMapRouteLayer) {
-    try { _leafletMap.removeLayer(_activeMapRouteLayer); } catch (_) {}
+    try { _leafletMap.removeLayer(_activeMapRouteLayer); } catch (_) { }
   }
   (_activeMapRouteMarkers || []).forEach(marker => {
-    try { marker?.remove ? marker.remove() : _leafletMap?.removeLayer(marker); } catch (_) {}
+    try { marker?.remove ? marker.remove() : _leafletMap?.removeLayer(marker); } catch (_) { }
   });
   _activeMapRouteLayer = null;
   _activeMapRouteMarkers = [];
@@ -12774,7 +13239,7 @@ async function drawPendingMapRouteOnCurrentMap() {
         source: 'route-line',
         paint: {
           'line-color': '#6C5CE7',
-          'line-width': ['interpolate',['linear'],['zoom'],15,5,18,8],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 15, 5, 18, 8],
           'line-opacity': 0.92
         }
       });
@@ -12908,7 +13373,7 @@ function routeToMapPointEncoded(lat, lng, encodedLabel = '') {
   let label = 'Destination';
   try {
     label = decodeURIComponent(String(encodedLabel || '')) || 'Destination';
-  } catch (_) {}
+  } catch (_) { }
   routeToMapPoint(lat, lng, label);
 }
 
@@ -12916,7 +13381,7 @@ function openCreateEventAtMapPointEncoded(lat, lng, encodedLabel = '') {
   let label = 'Pinned location';
   try {
     label = decodeURIComponent(String(encodedLabel || '')) || 'Pinned location';
-  } catch (_) {}
+  } catch (_) { }
   openCreateEventAtMapPoint(lat, lng, label);
 }
 
@@ -12948,7 +13413,7 @@ async function upsertEventChatGroup(eventData = {}) {
   if (!eventId) return;
   const members = Array.from(new Set((eventData.going || []).filter(Boolean)));
   if (!members.length) {
-    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => { });
     return;
   }
 
@@ -13038,8 +13503,8 @@ async function loadCampusEvents() {
       else upcoming.push(data);
     });
     if (expiredDocs.length) {
-      await Promise.all(expiredDocs.map(ref => ref.delete().catch(() => {})));
-      await Promise.all(expiredDocs.map(ref => db.collection('groups').doc(eventGroupId(ref.id)).delete().catch(() => {})));
+      await Promise.all(expiredDocs.map(ref => ref.delete().catch(() => { })));
+      await Promise.all(expiredDocs.map(ref => db.collection('groups').doc(eventGroupId(ref.id)).delete().catch(() => { })));
     }
     allCampusEvents = upcoming.sort((a, b) => eventStartTimeMs(a) - eventStartTimeMs(b));
   } catch (e) {
@@ -13083,11 +13548,11 @@ function renderCampusMapView() {
           <span style="font-size:12px;color:var(--text-tertiary)">${allCampusEvents.length} events</span>
         </div>
         ${allCampusEvents.length ? allCampusEvents.map(ev => {
-          const locationMeta = getEventLocationMeta(ev);
-          const goingCount = (ev.going || []).length;
-          const amGoing = (ev.going || []).includes(state.user.uid);
-          const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-          return `
+    const locationMeta = getEventLocationMeta(ev);
+    const goingCount = (ev.going || []).length;
+    const amGoing = (ev.going || []).includes(state.user.uid);
+    const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+    return `
             <div class="campus-event-card" onclick="openEventDetail('${ev.id || ''}')">
               <div class="campus-event-icon" style="background:${grad}" aria-hidden="true"></div>
               <div class="campus-event-info">
@@ -13101,7 +13566,7 @@ function renderCampusMapView() {
                 </div>
               </div>
             </div>`;
-        }).join('') : '<div class="empty-state"><h3>No events yet</h3><p>Be the first to create one!</p></div>'}
+  }).join('') : '<div class="empty-state"><h3>No events yet</h3><p>Be the first to create one!</p></div>'}
       </div>
     </div>
   `;
@@ -13194,7 +13659,7 @@ function initLeafletMap(eventsByLoc) {
           }
         }
       }).addTo(_leafletMap);
-    } catch (_) {}
+    } catch (_) { }
   });
 
   const myIcon = L.divIcon({
@@ -13254,15 +13719,15 @@ function openLocationDetail(locationId) {
       ${evts.length ? `
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">${evts.length} event${evts.length > 1 ? 's' : ''} at this location</p>
         ${evts.map(ev => {
-          const amGoing = (ev.going || []).includes(state.user.uid);
-          return `
+    const amGoing = (ev.going || []).includes(state.user.uid);
+    return `
           <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px">
             <div style="font-weight:700;font-size:15px">${esc(ev.title)}</div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">🕐 ${esc(ev.date || '')} at ${esc(ev.time || '')}</div>
-            <div style="font-size:12px;margin-top:4px">${(ev.going||[]).length} going ${amGoing ? '(including you ✓)' : ''}</div>
+            <div style="font-size:12px;margin-top:4px">${(ev.going || []).length} going ${amGoing ? '(including you ✓)' : ''}</div>
             ${ev.id ? `<button class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" style="margin-top:8px" onclick="toggleEventGoing('${ev.id}');closeModal()">${amGoing ? 'Cancel RSVP' : 'I\'m Going!'}</button>` : ''}
           </div>`;
-        }).join('')}
+  }).join('')}
       ` : `<div class="empty-state"><h3>No events here</h3><p>Nothing happening at ${esc(loc.name)} yet</p></div>`}
       <button class="btn-outline btn-full" style="margin-top:12px" onclick="closeModal();routeToCampusLocation('${locationId}')">🧭 Route Here</button>
       <button class="btn-primary btn-full" style="margin-top:10px" onclick="closeModal();openCreateEvent('${locationId}')">+ Create Event Here</button>
@@ -13342,8 +13807,8 @@ async function openEventDetail(eventId) {
           ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
         </button>
         ${hasLocationData
-          ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToEventLocationById('${ev.id}')">🧭 Route Here</button>`
-          : ''}
+        ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToEventLocationById('${ev.id}')">🧭 Route Here</button>`
+        : ''}
         ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
         ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
@@ -13359,7 +13824,7 @@ async function deleteEvent(eventId) {
     if (!doc.exists) return toast('Event not found');
     if (doc.data().createdBy !== state.user.uid) return toast('Only the creator can delete this event');
     await db.collection('events').doc(eventId).delete();
-    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => {});
+    await db.collection('groups').doc(eventGroupId(eventId)).delete().catch(() => { });
     closeModal();
     await loadCampusEvents();
     if (state.page === 'explore') renderExploreView();
@@ -13398,13 +13863,23 @@ async function toggleEventGoing(eventId) {
 // ══════════════════════════════════════════════════
 function renderHustle() {
   const c = $('#content');
+  const savedCount = (state.profile?.savedListings || []).length;
   c.innerHTML = `
     <div class="hustle-page">
-      <div class="hustle-header"><h2>Marketplace</h2><div class="hustle-header-actions"><button class="btn-outline btn-sm" onclick="openSavedCartView()">Saved</button><button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button></div></div>
-      <div style="padding:0 16px 12px">
-        <div class="search-bar">
+      <div class="hustle-header">
+        <div class="hustle-header-copy">
+          <h2>Hustle Market</h2>
+          <p>Buy, sell &amp; trade student essentials around NWU</p>
+        </div>
+        <div class="hustle-header-actions">
+          <button class="btn-outline btn-sm" id="hustle-saved-btn" onclick="openSavedCartView()">♥ Saved${savedCount ? ` (${savedCount})` : ''}</button>
+          <button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button>
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="search-bar" style="margin-bottom:0">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="hustle-search" placeholder="Search items...">
+          <input type="text" id="hustle-search" placeholder="Search textbooks, tech, snacks, services…">
         </div>
       </div>
       <div class="category-tabs">
@@ -13437,6 +13912,24 @@ function renderHustle() {
     };
   });
 }
+
+function toggleListingSaveQuick(itemId, btnEl) {
+  const savedSet = new Set(state.profile?.savedListings || []);
+  const wasSaved = savedSet.has(itemId);
+  if (wasSaved) {
+    removeSavedListingFromProfile(itemId);
+    if (btnEl) { btnEl.classList.remove('is-saved'); btnEl.textContent = '♡'; }
+  } else {
+    saveListingToProfile(itemId);
+    if (btnEl) { btnEl.classList.add('is-saved'); btnEl.textContent = '♥'; }
+  }
+  const savedBtn = document.getElementById('hustle-saved-btn');
+  if (savedBtn) {
+    const nextCount = Math.max(0, savedSet.size + (wasSaved ? -1 : 1));
+    savedBtn.textContent = `♥ Saved${nextCount ? ` (${nextCount})` : ''}`;
+  }
+}
+window.toggleListingSaveQuick = toggleListingSaveQuick;
 
 let _listingsUnsub = null;
 let _cachedListingsData = [];
@@ -13505,23 +13998,34 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🛒</div><h3>No listings yet</h3><p>Be the first to sell something!</p></div>`;
     return;
   }
-  grid.innerHTML = filtered.map(item => `
-    <div class="listing-card" onclick="openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
-      ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
-      <div class="listing-info">
-        <div class="listing-meta-tags">
-          ${item._isHot ? '<span class="listing-meta-tag hot">🔥 Hot</span>' : ''}
-          <span class="listing-meta-tag">⏳ ${timeAgo(item.createdAt)}</span>
-          <span class="listing-meta-tag">👀 ${item._views} views</span>
-          ${item._sellingFast ? '<span class="listing-meta-tag fast">⚡ Selling fast</span>' : ''}
+  const savedIds = new Set(state.profile?.savedListings || []);
+  grid.innerHTML = filtered.map(item => {
+    const isSaved = savedIds.has(item.id);
+    const nearby = _userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0;
+    return `
+    <div class="listing-card" onclick="if(event.target.closest('button')) return; openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
+      <div class="listing-media-wrap">
+        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
+        <div class="listing-overlay-badges">
+          ${item._sellingFast ? '<span class="listing-overlay-pill is-hot">⚡ Fast</span>' : item._isHot ? '<span class="listing-overlay-pill is-hot">🔥 Hot</span>' : ''}
         </div>
-        <div class="listing-price">R${esc(String(item.price))}</div>
-        <div class="listing-title">${esc(item.title)}</div>
-        <div class="listing-rating">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</div>
-        <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span>${esc(item.sellerName)}${(_userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0) ? ' · Nearby' : ''}</span></div>
+        <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? '♥' : '♡'}</button>
       </div>
-    </div>
-  `).join('');
+      <div class="listing-info">
+        <div class="listing-price-row">
+          <div class="listing-price">R${esc(String(item.price))}</div>
+          <span class="listing-time-subtle">${timeAgo(item.createdAt)}</span>
+        </div>
+        <div class="listing-title">${esc(item.title)}</div>
+        <div class="listing-sub-stats">
+          <span class="listing-rating" style="margin:0">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</span>
+          <span>·</span>
+          <span>${item._views} views</span>
+        </div>
+        <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sellerName)}${nearby ? ' · Nearby' : ''}</span></div>
+      </div>
+    </div>`;
+  }).join('');
   window._hustleItems = {};
   filtered.forEach(i => window._hustleItems[i.id] = i);
 }
@@ -13639,7 +14143,7 @@ function shareListingCard(itemId) {
   if (!item) return;
   const text = `${item.title} · R${item.price} on Unibo`;
   if (navigator.share) {
-    navigator.share({ title: item.title, text }).catch(() => {});
+    navigator.share({ title: item.title, text }).catch(() => { });
   } else {
     navigator.clipboard?.writeText(text).then(() => toast('Listing info copied')).catch(() => toast('Share not available'));
   }
@@ -13745,7 +14249,7 @@ function openProductDetail(itemId) {
       </div>
       <div style="display:flex;gap:12px;margin-top:16px">
         ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
-          `<button class="btn-primary" style="flex:1" id="hustle-buy-btn" onclick="hustleBuyInterest('${itemId}')">
+      `<button class="btn-primary" style="flex:1" id="hustle-buy-btn" onclick="hustleBuyInterest('${itemId}')">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             I'm Interested
           </button>`}
@@ -13769,7 +14273,7 @@ function openProductDetail(itemId) {
       const sellerDistanceText = sellerCoordsLive ? formatDistanceText(distanceKmBetween(myCoords, sellerCoordsLive)) : '';
       const target = document.getElementById('product-distance-meta');
       if (target) target.textContent = sellerDistanceText ? `· 📍 ${sellerDistanceText}` : '';
-    }).catch(() => {});
+    }).catch(() => { });
   }
 }
 
@@ -14059,11 +14563,11 @@ function renderInteractivePoll(poll = {}, scope = 'post', primaryId = '', messag
       ${poll.question ? `<div class="poll-question">${esc(poll.question)}</div>` : ''}
       <div class="poll-options">
         ${options.map(opt => {
-          const count = Object.values(voters).filter(v => v === opt).length;
-          const pct = total ? Math.round((count / total) * 100) : 0;
-          const encodedOpt = encodeURIComponent(opt || '');
-          return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 10 : 0, pct)}%"></span></button>`;
-        }).join('')}
+    const count = Object.values(voters).filter(v => v === opt).length;
+    const pct = total ? Math.round((count / total) * 100) : 0;
+    const encodedOpt = encodeURIComponent(opt || '');
+    return `<button class="poll-option ${myVote === opt ? 'active' : ''}" data-opt="${esc(opt)}" onclick="voteOnPollEncoded('${scope}','${primaryId}','${messageId}','${encodedOpt}')"><span class="poll-option-main"><span class="poll-option-text">${esc(opt)}</span><span class="poll-option-meta">${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span></span><span class="poll-option-fill" style="width:${Math.max(myVote === opt ? 10 : 0, pct)}%"></span></button>`;
+  }).join('')}
       </div>
       <div class="poll-footer">${isFeedPoll ? (myVote ? `Voted: <strong>${esc(myVote)}</strong>` : 'Tap an option to vote') : totalLabel}</div>
     </div>`;
@@ -14225,7 +14729,7 @@ function openLocationPinPreview(encoded = '') {
         </div>
       </div>
     `);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function openPinnedMapPreview(lat, lng, label = 'Pinned location') {
@@ -14273,7 +14777,7 @@ async function openGroupChat(groupId, collection = 'groups') {
     if (msgs) msgs.innerHTML = '<div style="text-align:center;padding:32px"><span class="inline-spinner"></span></div>';
     _gchatViewportCleanup = setupViewportFollow(msgs);
     gchatUnsub = db.collection(collection).doc(groupId)
-      .collection('messages').orderBy('createdAt','asc').limit(100)
+      .collection('messages').orderBy('createdAt', 'asc').limit(100)
       .onSnapshot(snap => {
         const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         _gMsgLookup = new Map(messages.map(m => [m.id, m]));
@@ -14410,7 +14914,7 @@ async function openGroupChat(groupId, collection = 'groups') {
         const gName = gData.groupTitle || gData.assignmentTitle || gData.name || 'Group';
         const msgSummary = audioURL ? 'sent a voice message' : imageURL ? 'sent a photo' : (safeText || 'sent a message');
         gMembers.forEach(targetId => {
-          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, { groupId, collection, kind: 'group' }).catch(() => {});
+          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, { groupId, collection, kind: 'group' }).catch(() => { });
         });
       } catch (e) { console.error(e); }
     };
@@ -14518,10 +15022,32 @@ async function joinGroup(groupId) {
 
 function renderMessages() {
   const c = $('#content');
-  const inGroupsView = state.lastMsgTab === 'groups';
+  const activeTab = state.lastMsgTab || 'dm';
+  const anonEnabled = allowAnonymousDMsFor(state.profile || {});
   c.innerHTML = `
     <div class="messages-page">
-      <div class="messages-header"><h2>Messages</h2><div class="messages-header-actions"><button class="btn-outline btn-sm" id="messages-groups-toggle" title="Open groups">${inGroupsView ? 'Chats' : 'Groups'}</button><button class="icon-btn anon-pref-btn" id="messages-anon-pref" title="Anonymous message setting"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg></button></div></div>
+      <div class="messages-header">
+        <h2>Messages</h2>
+        <div class="messages-header-actions">
+          <button type="button" class="messages-anon-pill ${anonEnabled ? 'is-on' : ''}" id="messages-anon-pref" title="Anonymous message privacy">
+            <span>👻</span><span id="messages-anon-label">${anonEnabled ? 'Anon: ON' : 'Anon: OFF'}</span>
+          </button>
+        </div>
+      </div>
+      <div class="messages-tabs-bar" role="tablist" aria-label="Message views">
+        <button type="button" class="messages-tab-btn ${activeTab === 'dm' ? 'active' : ''}" data-mt="dm">
+          <span>Chats</span>
+          <span class="messages-tab-badge" id="dm-tab-badge"></span>
+        </button>
+        <button type="button" class="messages-tab-btn ${activeTab === 'groups' ? 'active' : ''}" data-mt="groups">
+          <span>Groups &amp; Study</span>
+          <span class="messages-tab-badge" id="asg-tab-badge"></span>
+        </button>
+        <button type="button" class="messages-tab-btn ${activeTab === 'archived' ? 'active' : ''}" data-mt="archived">
+          <span>Archived</span>
+          <span class="messages-tab-badge" id="archive-fab-badge"></span>
+        </button>
+      </div>
       <div class="stories-row messages-stories-row" id="messages-stories-row">
         <div class="story-item add-story" onclick="openStoryCreator()">
           <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
@@ -14533,10 +15059,6 @@ function renderMessages() {
           <div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div>
         </div>
       </div>
-      <button class="archive-fab" id="archive-fab" onclick="toggleArchiveDmView()" aria-label="Archived chats" title="Show archived chats">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-        <span class="archive-fab-badge" id="archive-fab-badge" style="display:none"></span>
-      </button>
     </div>
   `;
   // Compute DM unread count for the tab badge
@@ -14547,18 +15069,26 @@ function renderMessages() {
     anonPrefBtn.onclick = openAnonDmSettings;
     updateAnonPrefButton('messages-anon-pref');
   }
-  const groupsToggleBtn = $('#messages-groups-toggle');
-  if (groupsToggleBtn) {
-    groupsToggleBtn.onclick = toggleMessagesGroupsView;
-  }
-  if (!inGroupsView) loadStories();
+  $$('.messages-tab-btn').forEach(btn => {
+    btn.onclick = () => {
+      const next = btn.dataset.mt || 'dm';
+      if (state.lastMsgTab === next) return;
+      state.lastMsgTab = next;
+      updateMessagesGroupsToggle();
+      updateArchiveFabState();
+      syncMessagesStoriesVisibility();
+      if (next === 'groups') loadGroups();
+      else if (next === 'archived') loadArchivedDMList();
+      else loadDMList();
+    };
+  });
+  if (activeTab !== 'groups') loadStories();
   bindMessagesScrollEffects();
   syncMessagesStoriesVisibility();
 
-  const restoreTab = state.lastMsgTab || 'dm';
-  if (restoreTab === 'archived') {
+  if (activeTab === 'archived') {
     loadArchivedDMList();
-  } else if (restoreTab === 'groups') {
+  } else if (activeTab === 'groups') {
     loadGroups();
   } else {
     loadDMList();
@@ -14571,15 +15101,16 @@ function renderMessages() {
 function syncMessagesStoriesVisibility() {
   const page = document.querySelector('.messages-page');
   const row = document.getElementById('messages-stories-row');
-  const hideStories = state.lastMsgTab === 'groups';
+  const hideStories = state.lastMsgTab !== 'dm';
   if (page) page.classList.toggle('stories-collapsed', hideStories);
   if (row) row.style.display = hideStories ? 'none' : '';
 }
 
 function updateMessagesGroupsToggle() {
-  const btn = $('#messages-groups-toggle');
-  if (!btn) return;
-  btn.textContent = state.lastMsgTab === 'groups' ? 'Chats' : 'Groups';
+  const cur = state.lastMsgTab || 'dm';
+  $$('.messages-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mt === cur);
+  });
 }
 
 function toggleMessagesGroupsView() {
@@ -14611,12 +15142,7 @@ function toggleArchiveDmView() {
 }
 
 function updateArchiveFabState() {
-  const fab = $('#archive-fab');
-  if (!fab) return;
-  const active = state.lastMsgTab === 'archived';
-  fab.classList.toggle('active', active);
-  fab.title = active ? 'Back to DMs' : 'Show archived chats';
-  fab.setAttribute('aria-pressed', active ? 'true' : 'false');
+  updateMessagesGroupsToggle();
 }
 
 function refreshCurrentMessageList() {
@@ -14679,7 +15205,7 @@ function bindMessagesScrollEffects() {
 function loadGroupList() {
   const container = $('#msg-tab-content'); if (!container) return;
   container.innerHTML = `<div style="padding:12px 16px"><button class="btn-primary btn-full" onclick="openCreateGroup()">+ New Group</button></div><div class="convo-list" id="group-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>`;
-  db.collection('groups').orderBy('updatedAt','desc').limit(30).get().then(snap => {
+  db.collection('groups').orderBy('updatedAt', 'desc').limit(30).get().then(snap => {
     const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const el = $('#group-list');
     if (!groups.length) {
@@ -14699,7 +15225,7 @@ function loadGroupList() {
           </div>
           <div class="convo-right">
             <div class="convo-time">${timeAgo(g.updatedAt)}</div>
-            <div style="font-size:11px;color:var(--text-tertiary)">${(g.members||[]).length} members</div>
+            <div style="font-size:11px;color:var(--text-tertiary)">${(g.members || []).length} members</div>
           </div>
         </div>`;
     }).join('');
@@ -14824,20 +15350,20 @@ async function loadAsgList(filter = 'my') {
           </div>
           <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
           <div class="asg-card-meta">
-            <span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span>
+            <span>\ud83d\udc65 ${(g.members || []).length}/${g.maxSize || 10}</span>
             <span>\u00b7</span>
             <span>${g.joinMode === 'open' ? '\ud83d\udd13 Open' : g.joinMode === 'invite' ? '\ud83d\udd12 Invite' : '\ud83e\udd16 Auto-fill'}</span>
             ${g.dueDate ? `<span>\u00b7 \ud83d\udcc5 ${esc(g.dueDate)}</span>` : ''}
           </div>
           ${canSeeMembers ? `<div class="asg-card-members">
-            ${(g.members||[]).slice(0,5).map(mid => {
-              const mName = (g.memberNames||{})[mid] || '?';
-              return avatar(mName, (g.memberPhotos||{})[mid] || null, 'avatar-sm');
-            }).join('')}
-            ${(g.members||[]).length > 5 ? `<span class="asg-more">+${(g.members||[]).length - 5}</span>` : ''}
+            ${(g.members || []).slice(0, 5).map(mid => {
+        const mName = (g.memberNames || {})[mid] || '?';
+        return avatar(mName, (g.memberPhotos || {})[mid] || null, 'avatar-sm');
+      }).join('')}
+            ${(g.members || []).length > 5 ? `<span class="asg-more">+${(g.members || []).length - 5}</span>` : ''}
           </div>` : ''}
           ${hasConflict && isMember ? '<div class="asg-conflict">\u26a0\ufe0f 1 person you preferred not to work with is in this group</div>' : ''}
-          <div class="asg-card-host">Created by ${esc((g.memberNames||{})[g.createdBy] || 'Someone')} \u00b7 ${timeAgo(g.createdAt)}</div>
+          <div class="asg-card-host">Created by ${esc((g.memberNames || {})[g.createdBy] || 'Someone')} \u00b7 ${timeAgo(g.createdAt)}</div>
         </div>`;
     }).join('');
   } catch (e) { console.error(e); el.innerHTML = '<div class="empty-state"><h3>Could not load</h3></div>'; }
@@ -14936,8 +15462,8 @@ async function openGroupDetail(groupId) {
     let membersHtml = '';
     if (canSeeMembers) {
       membersHtml = (g.members || []).map(mid => {
-        const mName = (g.memberNames||{})[mid] || 'Unknown';
-        const mPhoto = (g.memberPhotos||{})[mid] || null;
+        const mName = (g.memberNames || {})[mid] || 'Unknown';
+        const mPhoto = (g.memberPhotos || {})[mid] || null;
         const isCreator = mid === g.createdBy;
         const warnMe = (myPrefs.dontWantUids || myPrefs.dontWant || []).includes(mid) && mid !== uid;
         return `
@@ -14951,13 +15477,13 @@ async function openGroupDetail(groupId) {
           </div>`;
       }).join('');
     } else {
-      membersHtml = `<p style="color:var(--text-tertiary);font-size:13px;padding:8px 0">\ud83d\udd12 Member details visible only to group members (${(g.members||[]).length} members)</p>`;
+      membersHtml = `<p style="color:var(--text-tertiary);font-size:13px;padding:8px 0">\ud83d\udd12 Member details visible only to group members (${(g.members || []).length} members)</p>`;
     }
 
     // Pending requests (host can see)
     let pendingHtml = '';
     if (isHost && (g.pendingRequests || []).length > 0) {
-      pendingHtml = `<div class="asg-section"><h4>Pending Requests</h4>${(g.pendingRequests||[]).map(r => `
+      pendingHtml = `<div class="asg-section"><h4>Pending Requests</h4>${(g.pendingRequests || []).map(r => `
         <div class="asg-member pending">
           <div class="asg-member-info"><div class="asg-member-name">${esc(r.name)}</div></div>
           <div style="display:flex;gap:6px">
@@ -15000,12 +15526,12 @@ async function openGroupDetail(groupId) {
       <div class="modal-body asg-detail">
         <div class="asg-detail-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
         <div class="asg-detail-meta">
-          <span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span>
+          <span>\ud83d\udc65 ${(g.members || []).length}/${g.maxSize || 10}</span>
           <span>${g.joinMode === 'open' ? '\ud83d\udd13 Open' : g.joinMode === 'invite' ? '\ud83d\udd12 Invite' : '\ud83e\udd16 Auto-fill'}</span>
           ${g.dueDate ? `<span>\ud83d\udcc5 Due: ${esc(g.dueDate)}</span>` : ''}
           <span>${g.visibility === 'friends' ? '\ud83d\udc6b Friends only' : '\ud83c\udf0d Public'}</span>
         </div>
-        <div class="asg-section"><h4>Members (${(g.members||[]).length})</h4>${membersHtml}</div>
+        <div class="asg-section"><h4>Members (${(g.members || []).length})</h4>${membersHtml}</div>
         ${pendingHtml}
         <div class="asg-actions">${actionsHtml}</div>
       </div>
@@ -15018,7 +15544,7 @@ async function joinAsg(groupId) {
   try {
     const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
     const g = gDoc.data();
-    if ((g.members||[]).length >= (g.maxSize||10)) return toast('Group is full');
+    if ((g.members || []).length >= (g.maxSize || 10)) return toast('Group is full');
     await db.collection('assignmentGroups').doc(groupId).update({
       members: FieldVal.arrayUnion(uid),
       [`memberNames.${uid}`]: state.profile.displayName,
@@ -15058,8 +15584,8 @@ async function approveAsgRequest(groupId, reqUid, reqName, reqPhoto) {
   try {
     const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
     const g = gDoc.data();
-    if ((g.members||[]).length >= (g.maxSize||10)) return toast('Group is full');
-    const newPending = (g.pendingRequests||[]).filter(r => r.uid !== reqUid);
+    if ((g.members || []).length >= (g.maxSize || 10)) return toast('Group is full');
+    const newPending = (g.pendingRequests || []).filter(r => r.uid !== reqUid);
     await db.collection('assignmentGroups').doc(groupId).update({
       members: FieldVal.arrayUnion(reqUid),
       [`memberNames.${reqUid}`]: reqName,
@@ -15077,7 +15603,7 @@ async function rejectAsgRequest(groupId, reqUid) {
     const gDoc = await db.collection('assignmentGroups').doc(groupId).get();
     const g = gDoc.data();
     const req = (g.pendingRequests || []).find(r => r.uid === reqUid);
-    const newPending = (g.pendingRequests||[]).filter(r => r.uid !== reqUid);
+    const newPending = (g.pendingRequests || []).filter(r => r.uid !== reqUid);
     await db.collection('assignmentGroups').doc(groupId).update({ pendingRequests: newPending });
     if (req?.uid) {
       addNotification(req.uid, 'group', `declined your request for ${g.groupTitle || g.assignmentTitle || g.moduleCode || 'a group'}`, { groupId, kind: 'asg_declined' });
@@ -15409,7 +15935,7 @@ async function ensureFriendDMConversation(otherUid, otherName, otherPhoto) {
   const snap = await db.collection('conversations').where('participants', 'array-contains', myUid).get();
   const existing = snap.docs.find(d => isConversationWithUser(d.data() || {}, otherUid, { anonymous: false }));
   if (existing) {
-    await existing.ref.set({ archived: FieldVal.arrayRemove(myUid, otherUid) }, { merge: true }).catch(() => {});
+    await existing.ref.set({ archived: FieldVal.arrayRemove(myUid, otherUid) }, { merge: true }).catch(() => { });
     return existing.id;
   }
   const ref = await db.collection('conversations').add({
@@ -15498,7 +16024,7 @@ function getStoredModuleGroups(targetUser) {
   try {
     const local = localStorage.getItem('unino-tt-groups');
     if (local) groups = JSON.parse(local) || {};
-  } catch (_) {}
+  } catch (_) { }
   if (targetUser?.moduleGroups && typeof targetUser.moduleGroups === 'object') {
     groups = { ...groups, ...targetUser.moduleGroups };
   }
@@ -15512,13 +16038,13 @@ function saveModuleGroups(mod, groups) {
   current[mod] = clean;
   try {
     localStorage.setItem('unino-tt-groups', JSON.stringify(current));
-  } catch (_) {}
+  } catch (_) { }
   if (state.profile) {
     state.profile.moduleGroups = current;
     if (state.user?.uid) {
       db.collection('users').doc(state.user.uid).set({
         moduleGroups: current
-      }, { merge: true }).catch(() => {});
+      }, { merge: true }).catch(() => { });
     }
   }
 }
@@ -15554,12 +16080,12 @@ async function saveUserTimetableStream(streamCode, enrolledModules = [], allTime
     state.profile.moduleGroups = current;
     try {
       localStorage.setItem('unino-tt-groups', JSON.stringify(current));
-    } catch (_) {}
+    } catch (_) { }
   } else if (isClearing) {
     state.profile.moduleGroups = {};
     try {
       localStorage.removeItem('unino-tt-groups');
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (state.user?.uid) {
@@ -15611,7 +16137,7 @@ function getStoredTimetableCustomizations(targetUser = state.profile) {
         custom.customSlots = Array.isArray(parsed.customSlots) ? parsed.customSlots : [];
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   if (targetUser?.timetableCustomizations && typeof targetUser.timetableCustomizations === 'object') {
     const remote = targetUser.timetableCustomizations;
@@ -15641,7 +16167,7 @@ function saveTimetableCustomizations(customizations) {
 
   try {
     localStorage.setItem('unino-tt-customizations', JSON.stringify(clean));
-  } catch (_) {}
+  } catch (_) { }
 
   if (state.profile) {
     state.profile.timetableCustomizations = clean;
@@ -15856,11 +16382,11 @@ function updateTimetableAlertPreference(pref) {
   localStorage.setItem('unino-tt-alert-pref', pref);
   db.collection('users').doc(state.user.uid).set({
     timetableAlerts: pref
-  }, { merge: true }).catch(() => {});
+  }, { merge: true }).catch(() => { });
   if (pref !== 'off') {
-    requestLocalNotificationPermission().catch(() => {});
+    requestLocalNotificationPermission().catch(() => { });
     toast(`Lecture reminders set: ${pref}m before classes ✓`);
-    setTimeout(() => checkUpcomingLectureAlerts().catch(() => {}), 500);
+    setTimeout(() => checkUpcomingLectureAlerts().catch(() => { }), 500);
   } else {
     toast('Lecture reminders turned off');
   }
@@ -15974,13 +16500,13 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           <div class="timetable-groups-row">
             <span class="timetable-group-label">${esc(currentFilterModule)} Streams:</span>
             ${availGroups.map(grp => {
-              const isSel = activeGroups.includes(grp);
-              return `
+          const isSel = activeGroups.includes(grp);
+          return `
                 <button type="button" class="timetable-group-pill ${isSel ? 'active' : ''}" data-modgroup="${esc(grp)}" title="Toggle stream ${esc(grp)}">
                   ${isSel ? '✓ ' : ''}${esc(grp)}
                 </button>
               `;
-            }).join('')}
+        }).join('')}
             <button type="button" class="timetable-group-pill ${allSelected ? 'active' : ''}" data-modgroup="__ALL__">All Streams</button>
           </div>
         `;
@@ -16014,13 +16540,13 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
               ${!activeStream ? '✓ ' : ''}All
             </button>
             ${streamOptions.map(str => {
-              const isSel = activeStream && (activeStream === str || matchStreamCode(str, activeStream) || matchStreamCode(activeStream, str));
-              return `
+          const isSel = activeStream && (activeStream === str || matchStreamCode(str, activeStream) || matchStreamCode(activeStream, str));
+          return `
                 <button type="button" class="timetable-group-pill ${isSel ? 'active' : ''}" data-globalstream="${esc(str)}" title="Apply stream code ${esc(str)} across all modules">
                   ${isSel ? '✓ ' : ''}${esc(str)}
                 </button>
               `;
-            }).join('')}
+        }).join('')}
             ${isMe ? `
               <button type="button" class="timetable-group-pill" id="tt-set-custom-stream-btn" title="Set a common stream code for all modules (e.g. 001, SME_00, 01)">
                 ✏️ ${activeStream ? esc(activeStream) : 'Set Code'}
@@ -16065,34 +16591,34 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       cardsHtml = `
         <div class="timetable-cards-list">
           ${daySlots.map(s => {
-            const startMin = parseMinutes(s.start);
-            const endMin = parseMinutes(s.end);
-            const isToday = s.day === todayName;
-            let statusPill = '';
-            let cardClass = '';
+        const startMin = parseMinutes(s.start);
+        const endMin = parseMinutes(s.end);
+        const isToday = s.day === todayName;
+        let statusPill = '';
+        let cardClass = '';
 
-            if (isToday) {
-              if (nowMinutes >= startMin && nowMinutes < endMin) {
-                statusPill = '<span class="timetable-status-pill now">● Now</span>';
-                cardClass = 'is-now';
-              } else if (nowMinutes < startMin && (startMin - nowMinutes <= 120)) {
-                statusPill = `<span class="timetable-status-pill next">in ${startMin - nowMinutes}m</span>`;
-                cardClass = 'is-next';
-              } else if (nowMinutes >= endMin) {
-                statusPill = '<span class="timetable-status-pill done">Finished</span>';
-              }
-            }
+        if (isToday) {
+          if (nowMinutes >= startMin && nowMinutes < endMin) {
+            statusPill = '<span class="timetable-status-pill now">● Now</span>';
+            cardClass = 'is-now';
+          } else if (nowMinutes < startMin && (startMin - nowMinutes <= 120)) {
+            statusPill = `<span class="timetable-status-pill next">in ${startMin - nowMinutes}m</span>`;
+            cardClass = 'is-next';
+          } else if (nowMinutes >= endMin) {
+            statusPill = '<span class="timetable-status-pill done">Finished</span>';
+          }
+        }
 
-            if (s.hasClash) {
-              cardClass += (cardClass ? ' ' : '') + 'has-clash';
-            }
+        if (s.hasClash) {
+          cardClass += (cardClass ? ' ' : '') + 'has-clash';
+        }
 
-            const durHours = ((endMin - startMin) / 60).toFixed(1).replace('.0', '');
-            const durText = `${durHours}h`;
-            const modAvailGroups = Array.from(new Set((allTimetable[s.module] || []).map(item => item.group).filter(Boolean)));
-            const hasMultipleGroups = modAvailGroups.length > 1;
+        const durHours = ((endMin - startMin) / 60).toFixed(1).replace('.0', '');
+        const durText = `${durHours}h`;
+        const modAvailGroups = Array.from(new Set((allTimetable[s.module] || []).map(item => item.group).filter(Boolean)));
+        const hasMultipleGroups = modAvailGroups.length > 1;
 
-            return `
+        return `
               <div class="timetable-card ${cardClass}" data-slot-id="${esc(s.id)}">
                 <div class="timetable-time-col">
                   <div class="timetable-time-start">${esc(s.start)}</div>
@@ -16134,7 +16660,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                 </div>
               </div>
             `;
-          }).join('')}
+      }).join('')}
         </div>
       `;
     }
@@ -16703,7 +17229,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           card.classList.remove('is-holding');
           pressTimer = null;
           if (navigator.vibrate) {
-            try { navigator.vibrate(40); } catch (_) {}
+            try { navigator.vibrate(40); } catch (_) { }
           }
           openSlotActions(slot);
         }, 450);
@@ -16992,7 +17518,7 @@ function listenForNotifications() {
     if (dd && dd.style.display !== 'none' && dd.style.display !== '') loadNotifications();
   }, err => {
     console.warn('User listener error:', err);
-    recoverInvalidSession(err, 'User profile listener denied').catch(() => {});
+    recoverInvalidSession(err, 'User profile listener denied').catch(() => { });
   });
 
   generalNotifUnsub = db.collection('users').doc(state.user.uid).collection('notifications')
@@ -17000,7 +17526,7 @@ function listenForNotifications() {
     .limit(30)
     .onSnapshot(snap => {
       _notifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      _notifications.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      _notifications.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       _notifications = _notifications.slice(0, 20);
       maybeNotifyForGeneralNotifications(bellNotifications(_notifications));
       updateNotifBadge();
@@ -17010,7 +17536,7 @@ function listenForNotifications() {
       console.warn('Notif listener error:', err);
       _notifications = [];
       updateNotifBadge();
-      recoverInvalidSession(err, 'Notifications listener denied').catch(() => {});
+      recoverInvalidSession(err, 'Notifications listener denied').catch(() => { });
     });
 }
 
@@ -17029,7 +17555,7 @@ function loadNotifications() {
   const requests = sanitizeFriendRequests(state.profile.friendRequests || []);
   const asgAlerts = _asgPendingAlerts;
   const notifs = bellNotifications(_notifications);
-  
+
   // Separate reveal requests (top priority)
   const revealRequests = notifs.filter(n => n.type === 'reveal_request');
   const otherNotifs = notifs.filter(n => n.type !== 'reveal_request');
@@ -17045,7 +17571,7 @@ function loadNotifications() {
   }
 
   let html = '<div class="notif-header"><h3>Notifications</h3><button class="notif-mark-all-btn" onclick="markAllBellNotifsRead()">Mark all read</button></div><div class="notif-scroll">';
-  
+
   // Show reveal requests FIRST (top priority)
   if (revealRequests.length) {
     html += `<div style="padding:8px 16px;font-weight:600;font-size:13px;color:var(--text-secondary)">🎭 Identity Reveal Requests</div>`;
@@ -17178,7 +17704,7 @@ async function markAllBellNotifsRead() {
     el.querySelector('.notif-unread-dot')?.remove();
   });
   await Promise.all(unreadIds.map(id =>
-    db.collection('users').doc(state.user.uid).collection('notifications').doc(id).update({ read: true }).catch(() => {})
+    db.collection('users').doc(state.user.uid).collection('notifications').doc(id).update({ read: true }).catch(() => { })
   ));
 }
 
@@ -17508,7 +18034,7 @@ function updateAnonUI(convo, uid, realName, realPhoto) {
           revealed: true,
           mutuallyRevealed: true,
           revealRequests: {}
-        }).then(() => syncConversationIdentities(convo._id)).catch(() => {});
+        }).then(() => syncConversationIdentities(convo._id)).catch(() => { });
       } else if (iRequested) {
         banner.innerHTML = `<span>⏳ Waiting for them to reveal too...</span>`;
         banner.className = 'anon-reveal-banner reveal-waiting';
@@ -17594,15 +18120,15 @@ async function requestReveal(convoId) {
       toast('🎉 Both agreed! Identities permanently revealed.');
       return;
     }
-    
+
     // Mark my reveal request
     await db.collection('conversations').doc(convoId).update({
       [`revealRequests.${uid}`]: true
     });
-    
+
     // Create notification for the other user
     await addNotification(otherUid, 'reveal_request', 'Someone wants to reveal their identity in an anonymous chat', { convoId }, { anonymous: true });
-    
+
     toast('Reveal request sent!');
   } catch (e) { toast('Failed'); console.error(e); }
 }
@@ -17655,7 +18181,10 @@ function updateAnonPrefButton(buttonId = 'messages-anon-pref') {
   const enabled = allowAnonymousDMsFor(state.profile || {});
   btn.classList.toggle('pref-on', enabled);
   btn.classList.toggle('pref-off', !enabled);
+  btn.classList.toggle('is-on', enabled);
   btn.title = enabled ? 'Anonymous messages allowed' : 'Anonymous messages disabled';
+  const lbl = btn.querySelector('#messages-anon-label');
+  if (lbl) lbl.textContent = enabled ? 'Anon: ON' : 'Anon: OFF';
 }
 
 function openAnonDmSettings() {
@@ -17710,7 +18239,7 @@ async function openChat(convoId) {
     const uid = state.user.uid;
     const idx = convo.participants.indexOf(uid) === 0 ? 1 : 0;
     const otherUid = convo.participants[idx];
-    ensureUserContextCache([otherUid]).catch(() => {});
+    ensureUserContextCache([otherUid]).catch(() => { });
     const resolvedIdentity = getResolvedUserIdentity(otherUid, (convo.participantNames || [])[idx] || 'User', (convo.participantPhotos || [])[idx] || null);
     const name = resolvedIdentity.name;
     const photo = resolvedIdentity.photo;
@@ -17730,7 +18259,7 @@ async function openChat(convoId) {
           convo.participantStatuses[otherUid] = udata.status;
           updateAnonUI(convo, uid, name, photo);
         }
-      }, () => {});
+      }, () => { });
     }
 
     // Listen for anonymous state changes in real-time
@@ -17744,7 +18273,7 @@ async function openChat(convoId) {
     });
 
     // Mark as read
-    db.collection('conversations').doc(convoId).set({ unread: { [uid]: 0 } }, { merge: true }).catch(() => {});
+    db.collection('conversations').doc(convoId).set({ unread: { [uid]: 0 } }, { merge: true }).catch(() => { });
 
     // Messages listener
     if (chatUnsub) chatUnsub();
@@ -17810,42 +18339,42 @@ async function openChat(convoId) {
             _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: previousScrollTop, atBottom: wasNearBottom });
           } else {
             let lastDateLabel = '';
-          msgs.innerHTML = messages.map((m, idx) => {
-            if (!m.deleted && m.type === 'message_reaction') return '';
-            const isMe = m.senderId === uid;
-            let content = '';
-            if (m.deleted || m.type === 'deleted') {
-              content = '<span class="msg-deleted">Message deleted</span>';
-            }
-            if (m.audioURL) content += renderVoiceMsg(m.audioURL);
-            if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
-            if (m.locationPin) content = renderLocationPinCard(m.locationPin);
-            if (m.imageURL) {
-              const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
-              if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
-              else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
-            }
-            // Handle shared post messages
-            const isSharedPost = (!m.deleted && m.type === 'share_post' && m.payload?.postId) || (!m.deleted && m.text && m.text.startsWith('shared post::'));
-            if (isSharedPost) {
-              const pl = m.payload || {};
-              const postId = pl.postId || (m.text ? m.text.replace('shared post::','').trim() : '');
-              let mediaPreview = '';
-              const mediaUrl = pl.mediaURL || '';
-              const isVid = pl.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(mediaUrl);
-              if (mediaUrl && isVid) {
-                mediaPreview = `<div style="position:relative;border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px;background:#000">
+            msgs.innerHTML = messages.map((m, idx) => {
+              if (!m.deleted && m.type === 'message_reaction') return '';
+              const isMe = m.senderId === uid;
+              let content = '';
+              if (m.deleted || m.type === 'deleted') {
+                content = '<span class="msg-deleted">Message deleted</span>';
+              }
+              if (m.audioURL) content += renderVoiceMsg(m.audioURL);
+              if (m.poll) content += renderInteractivePoll(m.poll, 'dm', convoId, m.id);
+              if (m.locationPin) content = renderLocationPinCard(m.locationPin);
+              if (m.imageURL) {
+                const isVideoMedia = m.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(m.imageURL || '');
+                if (isVideoMedia) content += `<video src="${m.imageURL}" class="msg-image" style="background:#000" controls playsinline preload="metadata"></video>`;
+                else content += `<img src="${m.imageURL}" class="msg-image" onclick="viewImage('${m.imageURL}')">`;
+              }
+              // Handle shared post messages
+              const isSharedPost = (!m.deleted && m.type === 'share_post' && m.payload?.postId) || (!m.deleted && m.text && m.text.startsWith('shared post::'));
+              if (isSharedPost) {
+                const pl = m.payload || {};
+                const postId = pl.postId || (m.text ? m.text.replace('shared post::', '').trim() : '');
+                let mediaPreview = '';
+                const mediaUrl = pl.mediaURL || '';
+                const isVid = pl.mediaType === 'video' || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(mediaUrl);
+                if (mediaUrl && isVid) {
+                  mediaPreview = `<div style="position:relative;border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px;background:#000">
                   <video class="inline-video-preview" src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block" preload="metadata" muted playsinline></video>
                   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3)">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
                 </div>`;
-              } else if (mediaUrl) {
-                mediaPreview = `<div style="border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px"><img src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
-              }
-              const snippetText = pl.content ? `<div class="shared-post-body">${esc(pl.content)}</div>` : '';
-              const authorLabel = pl.authorName ? `<span class="shared-post-author">by ${esc(pl.authorName)}</span>` : '';
-              content = `<div class="shared-post-card" onclick="viewPost('${postId}')">
+                } else if (mediaUrl) {
+                  mediaPreview = `<div style="border-radius:10px;overflow:hidden;margin-bottom:8px;max-height:140px"><img src="${esc(mediaUrl)}" style="width:100%;max-height:140px;object-fit:cover;display:block"></div>`;
+                }
+                const snippetText = pl.content ? `<div class="shared-post-body">${esc(pl.content)}</div>` : '';
+                const authorLabel = pl.authorName ? `<span class="shared-post-author">by ${esc(pl.authorName)}</span>` : '';
+                content = `<div class="shared-post-card" onclick="viewPost('${postId}')">
                 ${mediaPreview}
                 <div class="shared-post-header">
                   <span class="shared-post-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Shared Post</span>
@@ -17854,114 +18383,114 @@ async function openChat(convoId) {
                 ${snippetText}
                 <div class="shared-post-footer"><span>Tap to view post</span> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></div>
               </div>`;
-            } else if (!m.deleted && m.type === 'story_reply' && m.payload) {
-              const sp = m.payload;
-              let storyThumb = '';
-              if (sp.storyPreview && sp.storyType === 'photo') {
-                storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px;display:block">`;
-              } else if (sp.storyPreview && sp.storyType === 'video') {
-                storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;margin-bottom:6px;max-height:100px">
+              } else if (!m.deleted && m.type === 'story_reply' && m.payload) {
+                const sp = m.payload;
+                let storyThumb = '';
+                if (sp.storyPreview && sp.storyType === 'photo') {
+                  storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px;display:block">`;
+                } else if (sp.storyPreview && sp.storyType === 'video') {
+                  storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;margin-bottom:6px;max-height:100px">
                   <video src="${sp.storyPreview}" style="width:100%;max-height:100px;object-fit:cover;display:block" preload="metadata" muted></video>
                   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
                 </div>`;
-              }
-              const captionSnip = sp.storyCaption ? `<div style="font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.storyCaption)}</div>` : '';
-              content = `<div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:6px;border-left:3px solid var(--accent)">
+                }
+                const captionSnip = sp.storyCaption ? `<div style="font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sp.storyCaption)}</div>` : '';
+                content = `<div style="background:var(--bg-secondary);border-radius:8px;padding:8px;margin-bottom:6px;border-left:3px solid var(--accent)">
                 <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   <span style="font-size:11px;font-weight:600;color:var(--accent)">Replied to story</span>
                 </div>
                 ${storyThumb}${captionSnip}
               </div>${esc(m.text)}`;
-            } else if (!m.deleted && m.type === 'story_like') {
-              const sp = m.payload || {};
-              const otherShort = (name || 'They').split(' ')[0] || 'They';
-              const label = isMe ? '❤️ You liked their story' : `❤️ ${esc(otherShort)} liked your story`;
-              let storyThumb = '';
-              if (sp.storyPreview && sp.storyType === 'photo') {
-                storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;border-radius:6px;display:block">`;
-              } else if (sp.storyPreview && sp.storyType === 'video') {
-                storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;max-height:96px">
+              } else if (!m.deleted && m.type === 'story_like') {
+                const sp = m.payload || {};
+                const otherShort = (name || 'They').split(' ')[0] || 'They';
+                const label = isMe ? '❤️ You liked their story' : `❤️ ${esc(otherShort)} liked your story`;
+                let storyThumb = '';
+                if (sp.storyPreview && sp.storyType === 'photo') {
+                  storyThumb = `<img src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;border-radius:6px;display:block">`;
+                } else if (sp.storyPreview && sp.storyType === 'video') {
+                  storyThumb = `<div style="position:relative;border-radius:6px;overflow:hidden;max-height:96px">
                   <video src="${sp.storyPreview}" style="width:100%;max-height:96px;object-fit:cover;display:block" preload="metadata" muted></video>
                   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2)">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   </div>
                 </div>`;
+                }
+                const caption = sp.storyCaption ? `<div class="msg-system-reference">${esc(clampText(sp.storyCaption, 72))}</div>` : '';
+                const openAttr = sp.storyId ? ` onclick="event.stopPropagation();openStoryFromMessage('${sp.storyId}','${sp.storyAuthorId || ''}')"` : '';
+                const storyRef = storyThumb || caption || sp.storyId
+                  ? `<div class="msg-story-reference"${openAttr}>${storyThumb}${caption || (!storyThumb ? '<div class="msg-system-reference">Open story</div>' : '')}</div>`
+                  : '';
+                content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>${storyRef}`;
+              } else if (!m.deleted && m.type === 'message_reaction' && m.payload) {
+                const otherShort = (name || 'They').split(' ')[0] || 'They';
+                const reactionEmoji = esc(m.payload.emoji || '❤️');
+                const targetMine = m.payload.targetSenderId === uid;
+                const targetPreviewText = clampText(m.payload.targetPreview || summarizeMessageReference(_dmMsgLookup.get(m.payload.targetMessageId || '') || {}), 72);
+                const reference = m.payload.targetMessageId
+                  ? `<div class="msg-reply-snippet msg-system-reference" onclick="jumpToMessage('${m.payload.targetMessageId}','chat-msgs')">↩ ${esc(targetPreviewText)}</div>`
+                  : `<div class="msg-reply-snippet msg-system-reference">↩ ${esc(targetPreviewText)}</div>`;
+                const label = isMe
+                  ? `${reactionEmoji} You reacted to their message`
+                  : targetMine
+                    ? `${reactionEmoji} ${esc(otherShort)} reacted to your message`
+                    : `${reactionEmoji} ${esc(otherShort)} reacted`;
+                content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
+              } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
+                content += esc(m.text);
               }
-              const caption = sp.storyCaption ? `<div class="msg-system-reference">${esc(clampText(sp.storyCaption, 72))}</div>` : '';
-              const openAttr = sp.storyId ? ` onclick="event.stopPropagation();openStoryFromMessage('${sp.storyId}','${sp.storyAuthorId || ''}')"` : '';
-              const storyRef = storyThumb || caption || sp.storyId
-                ? `<div class="msg-story-reference"${openAttr}>${storyThumb}${caption || (!storyThumb ? '<div class="msg-system-reference">Open story</div>' : '')}</div>`
-                : '';
-              content = `<div class="msg-system-pill msg-system-pill-story">${label}</div>${storyRef}`;
-            } else if (!m.deleted && m.type === 'message_reaction' && m.payload) {
-              const otherShort = (name || 'They').split(' ')[0] || 'They';
-              const reactionEmoji = esc(m.payload.emoji || '❤️');
-              const targetMine = m.payload.targetSenderId === uid;
-              const targetPreviewText = clampText(m.payload.targetPreview || summarizeMessageReference(_dmMsgLookup.get(m.payload.targetMessageId || '') || {}), 72);
-              const reference = m.payload.targetMessageId
-                ? `<div class="msg-reply-snippet msg-system-reference" onclick="jumpToMessage('${m.payload.targetMessageId}','chat-msgs')">↩ ${esc(targetPreviewText)}</div>`
-                : `<div class="msg-reply-snippet msg-system-reference">↩ ${esc(targetPreviewText)}</div>`;
-              const label = isMe
-                ? `${reactionEmoji} You reacted to their message`
-                : targetMine
-                  ? `${reactionEmoji} ${esc(otherShort)} reacted to your message`
-                  : `${reactionEmoji} ${esc(otherShort)} reacted`;
-              content = `<div class="msg-system-pill msg-system-pill-reaction">${label}</div>${reference}`;
-            } else if (!m.deleted && m.text && !m.text.startsWith('shared post::')) {
-              content += esc(m.text);
-            }
-            const ts = m.createdAt || m.timestamp;
+              const ts = m.createdAt || m.timestamp;
 
-            // Date separator
-            let dateSep = '';
-            const curLabel = dateSeparatorLabel(ts);
-            if (curLabel && curLabel !== lastDateLabel) {
-              lastDateLabel = curLabel;
-              dateSep = `<div class="chat-date-sep"><span>${curLabel}</span></div>`;
-            }
+              // Date separator
+              let dateSep = '';
+              const curLabel = dateSeparatorLabel(ts);
+              if (curLabel && curLabel !== lastDateLabel) {
+                lastDateLabel = curLabel;
+                dateSep = `<div class="chat-date-sep"><span>${curLabel}</span></div>`;
+              }
 
-            // Delivery status for sent messages
-            let statusIcon = '';
-            if (isMe) {
-              const st = m.status || 'sent';
-              if (st === 'read') statusIcon = '<span class="msg-status read" title="Read">✓✓</span>';
-              else if (st === 'delivered') statusIcon = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
-              else statusIcon = '<span class="msg-status sent" title="Sent">✓</span>';
-            }
+              // Delivery status for sent messages
+              let statusIcon = '';
+              if (isMe) {
+                const st = m.status || 'sent';
+                if (st === 'read') statusIcon = '<span class="msg-status read" title="Read">✓✓</span>';
+                else if (st === 'delivered') statusIcon = '<span class="msg-status delivered" title="Delivered">✓✓</span>';
+                else statusIcon = '<span class="msg-status sent" title="Sent">✓</span>';
+              }
 
-            // Determine anonymous display
-            const senderAnon = m.senderAnon || false;
-            const liveIdentity = getResolvedUserIdentity(m.senderId, name, photo);
-            const displayName = (!isMe && senderAnon) ? 'Anonymous' : liveIdentity.name;
-            const displayPhoto = (!isMe && senderAnon) ? null : liveIdentity.photo;
-            const avatarHTML = senderAnon && !isMe
-              ? '<div class="avatar-xs anon-avatar">👻</div>'
-              : avatar(displayName, displayPhoto, 'avatar-xs');
+              // Determine anonymous display
+              const senderAnon = m.senderAnon || false;
+              const liveIdentity = getResolvedUserIdentity(m.senderId, name, photo);
+              const displayName = (!isMe && senderAnon) ? 'Anonymous' : liveIdentity.name;
+              const displayPhoto = (!isMe && senderAnon) ? null : liveIdentity.photo;
+              const avatarHTML = senderAnon && !isMe
+                ? '<div class="avatar-xs anon-avatar">👻</div>'
+                : avatar(displayName, displayPhoto, 'avatar-xs');
 
-            // Support both new and legacy replies: infer original sender from replyToId when needed.
-            const replyToSenderId = m.replyToSenderId || _dmMsgLookup.get(m.replyToId || '')?.senderId;
-            let replyDisplayName = 'Message';
-            if (replyToSenderId === uid) {
-              replyDisplayName = 'You';
-            } else if (replyToSenderId) {
-              const targetIdent = getResolvedUserIdentity(replyToSenderId, (name || 'User'));
-              const fName = (targetIdent.name || 'User').split(' ')[0] || 'User';
-              replyDisplayName = m.senderAnon ? 'Anonymous' : fName;
-            } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
-              replyDisplayName = m.replyToName.split(' ')[0];
-            } else {
-              replyDisplayName = (name || 'User').split(' ')[0] || 'User';
-            }
-            const bubbleSpecialCls = isSharedPost ? 'msg-bubble-shared-post' : (m.locationPin ? 'msg-bubble-pin' : '');
-            const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
-            const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
-            const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
-            const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
+              // Support both new and legacy replies: infer original sender from replyToId when needed.
+              const replyToSenderId = m.replyToSenderId || _dmMsgLookup.get(m.replyToId || '')?.senderId;
+              let replyDisplayName = 'Message';
+              if (replyToSenderId === uid) {
+                replyDisplayName = 'You';
+              } else if (replyToSenderId) {
+                const targetIdent = getResolvedUserIdentity(replyToSenderId, (name || 'User'));
+                const fName = (targetIdent.name || 'User').split(' ')[0] || 'User';
+                replyDisplayName = m.senderAnon ? 'Anonymous' : fName;
+              } else if (m.replyToName && m.replyToName !== 'Them' && m.replyToName !== 'me') {
+                replyDisplayName = m.replyToName.split(' ')[0];
+              } else {
+                replyDisplayName = (name || 'User').split(' ')[0] || 'User';
+              }
+              const bubbleSpecialCls = isSharedPost ? 'msg-bubble-shared-post' : (m.locationPin ? 'msg-bubble-pin' : '');
+              const newCls = (idx === messages.length - 1 && isMe) ? 'msg-new' : '';
+              const reactionSummary = renderReactionSummary(m.reactions || {}, [], 'msg-inline');
+              const allowReply = !m.deleted && !['story_like', 'message_reaction'].includes(m.type || '');
+              const replyBtnHtml = allowReply ? `<button class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="setDmReply('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg></button>` : '';
 
-            return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
+              return `${dateSep}<div class="msg-row ${isMe ? 'msg-row-sent' : 'msg-row-received'}" id="msg-${m.id}">
               ${!isMe ? `<div class="msg-avatar-wrap">${avatarHTML}</div>` : ''}
               ${isMe ? replyBtnHtml : ''}
               <div class="msg-stack ${isMe ? 'msg-stack-sent' : 'msg-stack-received'}">
@@ -17974,14 +18503,14 @@ async function openChat(convoId) {
               </div>
               ${!isMe ? replyBtnHtml : ''}
             </div>`;
-          }).join('');
-          primeInlineVideoPreviews(msgs);
-          bindMessageLongPress(msgs, 'dm', convoId);
-          _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: wasNearBottom ? 0 : previousScrollTop, atBottom: wasNearBottom });
-          if (wasNearBottom) scrollToLatest(msgs);
-          else msgs.scrollTop = previousScrollTop;
+            }).join('');
+            primeInlineVideoPreviews(msgs);
+            bindMessageLongPress(msgs, 'dm', convoId);
+            _dmChatViewCache.set(convoId, { html: msgs.innerHTML, scrollTop: wasNearBottom ? 0 : previousScrollTop, atBottom: wasNearBottom });
+            if (wasNearBottom) scrollToLatest(msgs);
+            else msgs.scrollTop = previousScrollTop;
+          }
         }
-      }
 
         // Mark incoming as read and atomically reset conversation unread count
         const incoming = messages.filter(m => m.senderId !== uid && m.status !== 'read');
@@ -17991,7 +18520,7 @@ async function openChat(convoId) {
             batch.update(db.collection('conversations').doc(convoId).collection('messages').doc(m.id), { status: 'read' });
           });
           batch.set(db.collection('conversations').doc(convoId), { unread: { [uid]: 0 } }, { merge: true });
-          batch.commit().catch(() => {});
+          batch.commit().catch(() => { });
         }
       });
 
@@ -18037,7 +18566,7 @@ async function openChat(convoId) {
           return;
         }
       }
-      
+
       const text = input.value.trim();
       const moderation = applySoftKeywordFilterText(text);
       const safeText = moderation.text;
@@ -18096,7 +18625,7 @@ async function openChat(convoId) {
           : imageURL
             ? (mediaType === 'video' ? '📹 Video' : (safeText ? `📷 Photo: ${safeText}` : '📷 Photo'))
             : clampText(safeText || 'New message', 100);
-        addNotification(otherUid, 'message', notifPreview, { convoId }).catch(() => {});
+        addNotification(otherUid, 'message', notifPreview, { convoId }).catch(() => { });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -18140,18 +18669,18 @@ async function startChat(uid, name, photo) {
   if (uid === state.user.uid) return toast("That's you!");
   const myFriends = state.profile.friends || [];
   if (!myFriends.includes(uid)) return toast('Add as friend first to message');
-  
+
   // Check if blocked
   const myBlocked = state.profile.blockedUsers || [];
   const blockedBy = state.profile.blockedBy || [];
   if (myBlocked.includes(uid)) return toast('You blocked this user');
   if (blockedBy.includes(uid)) return toast('Cannot message this user');
-  
+
   try {
     const snap = await db.collection('conversations').where('participants', 'array-contains', state.user.uid).get();
     const existing = snap.docs.find(d => isConversationWithUser(d.data() || {}, uid, { anonymous: false }));
     if (existing) {
-      await existing.ref.set({ archived: FieldVal.arrayRemove(state.user.uid, uid) }, { merge: true }).catch(() => {});
+      await existing.ref.set({ archived: FieldVal.arrayRemove(state.user.uid, uid) }, { merge: true }).catch(() => { });
       openChat(existing.id);
     }
     else {
@@ -18176,7 +18705,7 @@ const ANON_DAILY_LIMIT = 5;
 
 async function startAnonChat(uid, name, photo, forceNew = false, replyToPostId = null) {
   if (uid === state.user.uid) return toast("That's you!");
-  
+
   // Check if blocked (anon chats also blocked)
   const myBlocked = state.profile.blockedUsers || [];
   const blockedBy = state.profile.blockedBy || [];
@@ -18324,7 +18853,7 @@ async function deleteConvo(convoId) {
     if (!snap.exists) return;
     const convo = snap.data();
     const otherUid = convo.participants.find(p => p !== state.user.uid);
-    
+
     // If both users delete, remove from Firestore
     const deleted = convo.deletedBy || [];
     if (deleted.includes(otherUid)) {
@@ -18479,35 +19008,35 @@ async function openProfile(uid) {
 
         <div class="profile-actions">
           ${isMe
-            ? (isNwuDemoActive()
-                ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+        ? (isNwuDemoActive()
+          ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                    <button class="btn-secondary" onclick="openNwuDemoProfileModal()">Sample Profiles</button>
                    <button class="btn-outline" onclick="exitNwuDemoMode()">Exit Demo / Login</button>`
-                : `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
+          : `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                    <button class="btn-secondary" onclick="doLogout()">Log Out</button>`)
-            : (isNwuDemoActive()
-                ? `<button class="btn-primary" onclick="openNwuDemoChat('katlego')"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Message (Demo)</button>
+        : (isNwuDemoActive()
+          ? `<button class="btn-primary" onclick="openNwuDemoChat('katlego')"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Message (Demo)</button>
                    <button class="btn-secondary" onclick="toast('Institutional Preview: Peer networking simulated.')">+ Friend</button>`
-                : (() => {
-                const isFriend = (state.profile.friends || []).includes(uid);
-                const isPending = (state.profile.sentRequests || []).includes(uid);
-                const theyRequested = (state.profile.friendRequests || []).some(r => r.uid === uid);
-                let friendBtn = '';
-                if (isFriend) {
-                  friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Add Friend';this.className='btn-outline'">✓ Friends</button>`;
-                } else if (theyRequested) {
-                  friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
-                } else if (isPending) {
-                  friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
-                } else {
-                  friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', this)">Add Friend</button>`;
-                }
-                const isFriendForChat = isFriend;
-                const msgBtn = isFriendForChat
-                  ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
-                  : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
-                return `${msgBtn}\n               ${friendBtn}`;
-              })())}
+          : (() => {
+            const isFriend = (state.profile.friends || []).includes(uid);
+            const isPending = (state.profile.sentRequests || []).includes(uid);
+            const theyRequested = (state.profile.friendRequests || []).some(r => r.uid === uid);
+            let friendBtn = '';
+            if (isFriend) {
+              friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Add Friend';this.className='btn-outline'">✓ Friends</button>`;
+            } else if (theyRequested) {
+              friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
+            } else if (isPending) {
+              friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
+            } else {
+              friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', this)">Add Friend</button>`;
+            }
+            const isFriendForChat = isFriend;
+            const msgBtn = isFriendForChat
+              ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
+              : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
+            return `${msgBtn}\n               ${friendBtn}`;
+          })())}
         </div>
       </div>
 
@@ -18836,7 +19365,7 @@ async function doAdminDataClear() {
 
     toast('Kill switch complete. Data wiped.');
     navigate('feed');
-  setTimeout(() => markBootReady('Loaded'), 220);
+    setTimeout(() => markBootReady('Loaded'), 220);
   } catch (e) {
     console.error(e);
     toast('Wipe failed');
@@ -18997,7 +19526,7 @@ function renderProfilePhotos(posts) {
   const videos = posts
     .filter(p => p.videoURL || p.mediaType === 'video')
     .map(p => p.videoURL || p.imageURL);
-  const all = [...photos.map(u => ({ type:'img', url:u })), ...videos.map(u => ({ type:'vid', url:u }))];
+  const all = [...photos.map(u => ({ type: 'img', url: u })), ...videos.map(u => ({ type: 'vid', url: u }))];
   if (!all.length) return '<div class="empty-state"><h3>No photos yet</h3></div>';
   return `<div class="profile-photo-grid">${all.map(m => {
     if (m.type === 'img') {
@@ -19065,8 +19594,8 @@ function editProfile() {
       <div class="edit-avatar-section">
         <div class="edit-avatar-wrap" id="edit-avatar-preview" onclick="$('#edit-photo')?.click()" title="Click to change photo">
           ${p.photoURL
-            ? `<img src="${p.photoURL}" class="edit-avatar-img" alt="Avatar">`
-            : `<div class="edit-avatar-fallback">${initials(p.displayName || 'User')}</div>`}
+      ? `<img src="${p.photoURL}" class="edit-avatar-img" alt="Avatar">`
+      : `<div class="edit-avatar-fallback">${initials(p.displayName || 'User')}</div>`}
           <div class="edit-avatar-badge" aria-hidden="true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
@@ -19245,8 +19774,8 @@ function editProfile() {
           <div style="margin-top:4px">
             <strong>Email Status:</strong>
             ${state.user?.emailVerified
-              ? '<span style="color:#10b981;font-weight:600">✓ Verified NWU Student</span>'
-              : '<span style="color:#f59e0b;font-weight:600">⚠️ Unverified</span>'}
+      ? '<span style="color:#10b981;font-weight:600">✓ Verified NWU Student</span>'
+      : '<span style="color:#f59e0b;font-weight:600">⚠️ Unverified</span>'}
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -19601,7 +20130,7 @@ function editProfile() {
     try {
       if (isNwuDemoActive()) {
         if (newPhotoFile) {
-          try { updates.photoURL = URL.createObjectURL(newPhotoFile); } catch (_) {}
+          try { updates.photoURL = URL.createObjectURL(newPhotoFile); } catch (_) { }
         }
         Object.assign(state.profile, updates);
         setupHeader();
@@ -19618,10 +20147,10 @@ function editProfile() {
       cacheAcademicProfile(state.profile);
       updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
-      if (identityChanged) syncAnonIdentityInConversations(anonIdentity).catch(() => {});
+      if (identityChanged) syncAnonIdentityInConversations(anonIdentity).catch(() => { });
       if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
       setupHeader();
-      if (state.page === 'chat') { loadDMList().catch(() => {}); }
+      if (state.page === 'chat') { loadDMList().catch(() => { }); }
       closeModal();
       toast('Profile updated!');
       openProfile(state.user.uid);
@@ -19728,7 +20257,7 @@ function stopVoiceAndSend(ctx = '') {
 }
 
 async function doLogout() {
-  if (state.user?.uid && _nativePushToken) await removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => {});
+  if (state.user?.uid && _nativePushToken) await removePushTokenForUser(state.user.uid, _nativePushToken).catch(() => { });
   auth.signOut().then(() => window.location.reload());
 }
 
@@ -20088,7 +20617,7 @@ async function copyPostLink(postId, btn = null) {
       await navigator.clipboard.writeText(url);
       done();
       return;
-    } catch (_) {}
+    } catch (_) { }
   }
   const input = document.createElement('input');
   input.value = url;
@@ -20241,7 +20770,7 @@ async function shareToFriend(uid, name, postId, btn = null) {
           authorPhoto: pd.authorPhoto || pd.authorPhotoURL || ''
         };
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const snap = await db.collection('conversations').where('participants', 'array-contains', myId).get();
     let convo = snap.docs.find(d => (d.data().participants || []).includes(uid));
@@ -20352,19 +20881,19 @@ async function openQuoteRepost(postId) {
         });
         toast('Reposted!');
         navigate('feed');
-  setTimeout(() => markBootReady('Loaded'), 220);
+        setTimeout(() => markBootReady('Loaded'), 220);
       } catch (e) { toast('Failed'); console.error(e); }
     };
   } catch (e) { console.error(e); toast('Error loading post'); }
 }
 
 async function repost(postId) {
-   try {
-      const origRef = await db.collection('posts').doc(postId).get();
-      if(!origRef.exists) return;
-      const orig = origRef.data();
-      openQuoteRepost(postId);
-   } catch(e) { console.error(e); }
+  try {
+    const origRef = await db.collection('posts').doc(postId).get();
+    if (!origRef.exists) return;
+    const orig = origRef.data();
+    openQuoteRepost(postId);
+  } catch (e) { console.error(e); }
 }
 
 // ══════════════════════════════════════════════════
@@ -20447,7 +20976,7 @@ async function adminViewAllGroups() {
       <div class="asg-card" style="margin:8px 0;cursor:pointer" onclick="closeModal();openGroupDetail('${g.id}')">
         <div class="asg-card-top"><div class="asg-card-module">${esc(g.moduleCode || '?')}</div><span class="asg-badge ${g.status === 'archived' ? 'archived' : 'open'}">${g.status || 'open'}</span></div>
         <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
-        <div class="asg-card-meta"><span>\ud83d\udc65 ${(g.members||[]).length}/${g.maxSize||10}</span><span>\u00b7 ${timeAgo(g.createdAt)}</span></div>
+        <div class="asg-card-meta"><span>\ud83d\udc65 ${(g.members || []).length}/${g.maxSize || 10}</span><span>\u00b7 ${timeAgo(g.createdAt)}</span></div>
       </div>
     `).join('') : '<p style="padding:16px;color:var(--text-secondary)">No groups yet.</p>';
   } catch (e) { console.error(e); }
@@ -20480,7 +21009,7 @@ async function adminViewAllUsers() {
     $('#admin-users-list').innerHTML = renderAdminUsers(users);
     $('#admin-user-search').oninput = (e) => {
       const q = (e.target.value || '').toLowerCase();
-      const filtered = q ? users.map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : users;
+      const filtered = q ? users.map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email || '').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) })).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score).map(entry => entry.user) : users;
       $('#admin-users-list').innerHTML = renderAdminUsers(filtered);
     };
   } catch (e) { console.error(e); }
@@ -20506,7 +21035,7 @@ function adminVerifyUser() {
       try {
         const snap = await db.collection('users').limit(50).get();
         const users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email||'').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) }))
+          .map(u => ({ user: u, score: userSearchScore(u, q) + (((u.email || '').toLowerCase().includes(q.toLowerCase())) ? 80 : 0) }))
           .filter(entry => entry.score > 0)
           .sort((a, b) => b.score - a.score)
           .map(entry => entry.user);
@@ -20613,7 +21142,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.documentElement.classList.toggle('is-native', !isWeb);
   initTheme();
   initAuth();
-  initNativeShell().catch(() => {});
+  initNativeShell().catch(() => { });
   setupPullToRefresh();
   window.addEventListener('hashchange', checkLandlordPortalHash);
   setTimeout(checkLandlordPortalHash, 600);
@@ -20657,7 +21186,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Notifications dropdown toggle
   $('#notif-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    requestLocalNotificationPermission().catch(() => {});
+    requestLocalNotificationPermission().catch(() => { });
     const dd = $('#notif-dropdown');
     if (dd && dd.style.display !== 'none' && dd.style.display !== '') { closeNotifDropdown(); return; }
     loadNotifications();
@@ -20708,167 +21237,167 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { passive: true, capture: true });
   }
 
-// ══════════════════════════════════════════════════════════
-// NWU Residences & Accredited Housing Directory Module
-// ══════════════════════════════════════════════════════════
-let _residencesData = null;
-let _resViewMode = 'list';
-let _resFilterCategory = 'ALL';
-let _resFilterSuburb = 'ALL';
-let _resFilterRoom = 'ALL';
-let _resSearchQuery = '';
-let _resListLimit = 40;
-let _resMapInstance = null;
-let _resMarkers = [];
-let _selectedResidence = null;
+  // ══════════════════════════════════════════════════════════
+  // NWU Residences & Accredited Housing Directory Module
+  // ══════════════════════════════════════════════════════════
+  let _residencesData = null;
+  let _resViewMode = 'list';
+  let _resFilterCategory = 'ALL';
+  let _resFilterSuburb = 'ALL';
+  let _resFilterRoom = 'ALL';
+  let _resSearchQuery = '';
+  let _resListLimit = 40;
+  let _resMapInstance = null;
+  let _resMarkers = [];
+  let _selectedResidence = null;
 
-async function loadResidencesData() {
-  if (_residencesData && _residencesData.length) return _residencesData;
-  try {
-    const res = await fetch('data/approved_residences.json?v=72');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    _residencesData = data.residences || [];
+  async function loadResidencesData() {
+    if (_residencesData && _residencesData.length) return _residencesData;
+    try {
+      const res = await fetch('data/approved_residences.json?v=72');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      _residencesData = data.residences || [];
 
-    // Attach any locally cached photos instantly for 0ms paint
-    _residencesData.forEach(r => {
-      try {
-        const cached = localStorage.getItem('unino_res_media_' + r.id) ||
-                       localStorage.getItem('unibo_res_media_' + r.id) ||
-                       (r.accreditationNumber ? (localStorage.getItem('unino_res_media_' + r.accreditationNumber) || localStorage.getItem('unibo_res_media_' + r.accreditationNumber)) : null);
-        if (cached) {
-          const imgs = JSON.parse(cached);
-          if (Array.isArray(imgs) && imgs.length) r.images = imgs;
-        }
-      } catch (_) {}
-    });
-
-    // Cloud sync live landlord images in background from Firestore
-    syncResidenceMediaFromCloud().catch(() => {});
-
-    return _residencesData;
-  } catch (err) {
-    console.error('Failed to load residences data:', err);
-    toast('Could not load residences catalog');
-    return [];
-  }
-}
-
-async function syncResidenceMediaFromCloud() {
-  if (!_residencesData || !_residencesData.length) return;
-  try {
-    const snap = await db.collection('residence_media').get();
-    let updated = false;
-    snap.docs.forEach(doc => {
-      const data = doc.data();
-      const imgs = Array.isArray(data.images) ? data.images : [];
-      const target = _residencesData.find(r => r.id === doc.id || r.id === data.resId || (data.accreditationNumber && r.accreditationNumber === data.accreditationNumber));
-      if (target) {
-        if (imgs.length) target.images = imgs;
-        if (data.description) target.description = data.description;
-        if (data.pricing) target.pricing = data.pricing;
-        if (data.availability) target.availability = data.availability;
-        if (data.phone) target.phone = data.phone;
-        if (data.whatsapp) target.whatsapp = data.whatsapp;
-        if (data.email) target.email = data.email;
-        if (Array.isArray(data.amenities) && data.amenities.length) target.amenities = data.amenities;
-        if (data.managerName) target.managerName = data.managerName;
-        updated = true;
+      // Attach any locally cached photos instantly for 0ms paint
+      _residencesData.forEach(r => {
         try {
-          if (imgs.length) {
-            localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
-            localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
+          const cached = localStorage.getItem('unino_res_media_' + r.id) ||
+            localStorage.getItem('unibo_res_media_' + r.id) ||
+            (r.accreditationNumber ? (localStorage.getItem('unino_res_media_' + r.accreditationNumber) || localStorage.getItem('unibo_res_media_' + r.accreditationNumber)) : null);
+          if (cached) {
+            const imgs = JSON.parse(cached);
+            if (Array.isArray(imgs) && imgs.length) r.images = imgs;
           }
-        } catch (_) {}
-        if (window._currentOpenResId === target.id) {
-          window._currentDetailImages = target.images || [];
-          const box = document.getElementById('res-detail-media-box');
-          if (box && typeof buildResidenceDetailMediaHtml === 'function') {
-            box.innerHTML = buildResidenceDetailMediaHtml(target);
+        } catch (_) { }
+      });
+
+      // Cloud sync live landlord images in background from Firestore
+      syncResidenceMediaFromCloud().catch(() => { });
+
+      return _residencesData;
+    } catch (err) {
+      console.error('Failed to load residences data:', err);
+      toast('Could not load residences catalog');
+      return [];
+    }
+  }
+
+  async function syncResidenceMediaFromCloud() {
+    if (!_residencesData || !_residencesData.length) return;
+    try {
+      const snap = await db.collection('residence_media').get();
+      let updated = false;
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        const imgs = Array.isArray(data.images) ? data.images : [];
+        const target = _residencesData.find(r => r.id === doc.id || r.id === data.resId || (data.accreditationNumber && r.accreditationNumber === data.accreditationNumber));
+        if (target) {
+          if (imgs.length) target.images = imgs;
+          if (data.description) target.description = data.description;
+          if (data.pricing) target.pricing = data.pricing;
+          if (data.availability) target.availability = data.availability;
+          if (data.phone) target.phone = data.phone;
+          if (data.whatsapp) target.whatsapp = data.whatsapp;
+          if (data.email) target.email = data.email;
+          if (Array.isArray(data.amenities) && data.amenities.length) target.amenities = data.amenities;
+          if (data.managerName) target.managerName = data.managerName;
+          updated = true;
+          try {
+            if (imgs.length) {
+              localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
+              localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
+            }
+          } catch (_) { }
+          if (window._currentOpenResId === target.id) {
+            window._currentDetailImages = target.images || [];
+            const box = document.getElementById('res-detail-media-box');
+            if (box && typeof buildResidenceDetailMediaHtml === 'function') {
+              box.innerHTML = buildResidenceDetailMediaHtml(target);
+            }
           }
         }
+      });
+      if (updated) {
+        const listEl = $('#res-list-view');
+        if (listEl && listEl.children.length) {
+          renderResidencesList(getFilteredResidences());
+        }
       }
-    });
-    if (updated) {
-      const listEl = $('#res-list-view');
-      if (listEl && listEl.children.length) {
-        renderResidencesList(getFilteredResidences());
-      }
+    } catch (e) {
+      console.warn('Could not sync residence media:', e);
     }
-  } catch (e) {
-    console.warn('Could not sync residence media:', e);
   }
-}
 
-let _resEpochSeed = Math.random();
+  let _resEpochSeed = Math.random();
 
-function resetResSessionSeed() {
-  _resEpochSeed = Math.random();
-}
-
-async function openResidencesView() {
-  resetResSessionSeed();
-  showScreen('residences-view');
-
-  const backBtn = $('#residences-back');
-  if (backBtn) backBtn.onclick = closeResidencesView;
-
-  const toggleBtn = $('#residences-view-toggle');
-  if (toggleBtn) toggleBtn.onclick = toggleResidencesViewMode;
-
-  renderResidencesShell();
-  const list = await loadResidencesData();
-  populateResidencesSuburbs(list);
-  applyResidencesFilters();
-}
-
-function closeResidencesView() {
-  destroyResidencesMap();
-  showScreen('app');
-}
-
-function destroyResidencesMap() {
-  if (_resMarkers && _resMarkers.length) {
-    _resMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
-    _resMarkers = [];
+  function resetResSessionSeed() {
+    _resEpochSeed = Math.random();
   }
-  if (_resMapInstance) {
-    try { _resMapInstance.remove(); } catch (_) {}
-    _resMapInstance = null;
-  }
-}
 
-function toggleResidencesViewMode() {
-  _resViewMode = _resViewMode === 'list' ? 'map' : 'list';
-  updateResidencesToggleBtn();
-  const listView = $('#res-list-view');
-  const mapView = $('#res-map-view');
-  if (_resViewMode === 'map') {
-    if (listView) listView.style.display = 'none';
-    if (mapView) mapView.style.display = 'flex';
-    initResidencesMap();
-  } else {
-    if (listView) listView.style.display = 'block';
-    if (mapView) mapView.style.display = 'none';
-  }
-}
+  async function openResidencesView() {
+    resetResSessionSeed();
+    showScreen('residences-view');
 
-function updateResidencesToggleBtn() {
-  const iconEl = $('#residences-view-toggle-icon');
-  const textEl = $('#residences-view-toggle-text');
-  if (_resViewMode === 'list') {
-    if (iconEl) iconEl.textContent = '🗺️';
-    if (textEl) textEl.textContent = 'Map';
-  } else {
-    if (iconEl) iconEl.textContent = '📋';
-    if (textEl) textEl.textContent = 'List';
-  }
-}
+    const backBtn = $('#residences-back');
+    if (backBtn) backBtn.onclick = closeResidencesView;
 
-function renderResidencesShell() {
-  const body = $('#residences-body');
-  if (!body) return;
-  body.innerHTML = `
+    const toggleBtn = $('#residences-view-toggle');
+    if (toggleBtn) toggleBtn.onclick = toggleResidencesViewMode;
+
+    renderResidencesShell();
+    const list = await loadResidencesData();
+    populateResidencesSuburbs(list);
+    applyResidencesFilters();
+  }
+
+  function closeResidencesView() {
+    destroyResidencesMap();
+    showScreen('app');
+  }
+
+  function destroyResidencesMap() {
+    if (_resMarkers && _resMarkers.length) {
+      _resMarkers.forEach(m => { try { m.remove(); } catch (_) { } });
+      _resMarkers = [];
+    }
+    if (_resMapInstance) {
+      try { _resMapInstance.remove(); } catch (_) { }
+      _resMapInstance = null;
+    }
+  }
+
+  function toggleResidencesViewMode() {
+    _resViewMode = _resViewMode === 'list' ? 'map' : 'list';
+    updateResidencesToggleBtn();
+    const listView = $('#res-list-view');
+    const mapView = $('#res-map-view');
+    if (_resViewMode === 'map') {
+      if (listView) listView.style.display = 'none';
+      if (mapView) mapView.style.display = 'flex';
+      initResidencesMap();
+    } else {
+      if (listView) listView.style.display = 'block';
+      if (mapView) mapView.style.display = 'none';
+    }
+  }
+
+  function updateResidencesToggleBtn() {
+    const iconEl = $('#residences-view-toggle-icon');
+    const textEl = $('#residences-view-toggle-text');
+    if (_resViewMode === 'list') {
+      if (iconEl) iconEl.textContent = '🗺️';
+      if (textEl) textEl.textContent = 'Map';
+    } else {
+      if (iconEl) iconEl.textContent = '📋';
+      if (textEl) textEl.textContent = 'List';
+    }
+  }
+
+  function renderResidencesShell() {
+    const body = $('#residences-body');
+    if (!body) return;
+    body.innerHTML = `
     <div class="res-controls">
       <div class="res-search-row">
         <div class="res-search-box">
@@ -20911,220 +21440,220 @@ function renderResidencesShell() {
     </div>
   `;
 
-  // Bind controls with live auto-update and auto-fetch
-  const searchInput = $('#res-search-input');
-  const searchClear = $('#res-search-clear');
-  let searchDebounceTimer = null;
-  if (searchInput) {
-    searchInput.oninput = () => {
-      _resSearchQuery = searchInput.value;
-      const hasVal = _resSearchQuery.trim().length > 0;
-      if (searchClear) searchClear.style.display = hasVal ? 'block' : 'none';
-      clearTimeout(searchDebounceTimer);
-      searchDebounceTimer = setTimeout(async () => {
-        if (!_residencesData || !_residencesData.length) {
-          await loadResidencesData();
+    // Bind controls with live auto-update and auto-fetch
+    const searchInput = $('#res-search-input');
+    const searchClear = $('#res-search-clear');
+    let searchDebounceTimer = null;
+    if (searchInput) {
+      searchInput.oninput = () => {
+        _resSearchQuery = searchInput.value;
+        const hasVal = _resSearchQuery.trim().length > 0;
+        if (searchClear) searchClear.style.display = hasVal ? 'block' : 'none';
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(async () => {
+          if (!_residencesData || !_residencesData.length) {
+            await loadResidencesData();
+          }
+          _resListLimit = 40;
+          applyResidencesFilters();
+        }, 70);
+      };
+    }
+    if (searchClear) {
+      searchClear.onclick = () => {
+        _resSearchQuery = '';
+        if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+        searchClear.style.display = 'none';
+        _resListLimit = 40;
+        applyResidencesFilters();
+      };
+    }
+
+    $$('.res-category-pill').forEach(btn => {
+      btn.onclick = () => {
+        const cat = btn.dataset.cat;
+        const room = btn.dataset.room;
+        if (cat) {
+          $$('.res-category-pill[data-cat]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          _resFilterCategory = cat;
+        } else if (room) {
+          if (_resFilterRoom === room) {
+            _resFilterRoom = 'ALL';
+            btn.classList.remove('active');
+          } else {
+            $$('.res-category-pill[data-room]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _resFilterRoom = room;
+          }
         }
         _resListLimit = 40;
         applyResidencesFilters();
-      }, 70);
-    };
-  }
-  if (searchClear) {
-    searchClear.onclick = () => {
-      _resSearchQuery = '';
-      if (searchInput) { searchInput.value = ''; searchInput.focus(); }
-      searchClear.style.display = 'none';
-      _resListLimit = 40;
-      applyResidencesFilters();
-    };
-  }
+      };
+    });
 
-  $$('.res-category-pill').forEach(btn => {
-    btn.onclick = () => {
-      const cat = btn.dataset.cat;
-      const room = btn.dataset.room;
-      if (cat) {
-        $$('.res-category-pill[data-cat]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _resFilterCategory = cat;
-      } else if (room) {
-        if (_resFilterRoom === room) {
-          _resFilterRoom = 'ALL';
-          btn.classList.remove('active');
-        } else {
-          $$('.res-category-pill[data-room]').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          _resFilterRoom = room;
-        }
-      }
-      _resListLimit = 40;
-      applyResidencesFilters();
-    };
-  });
-
-  const suburbSelect = $('#res-suburb-select');
-  if (suburbSelect) {
-    suburbSelect.onchange = () => {
-      _resFilterSuburb = suburbSelect.value;
-      _resListLimit = 40;
-      applyResidencesFilters();
-    };
-  }
-
-  const recenterBtn = $('#res-map-recenter-btn');
-  if (recenterBtn) {
-    recenterBtn.onclick = () => {
-      if (_resMapInstance) {
-        _resMapInstance.flyTo({
-          center: [25.6080, -25.8275],
-          zoom: 15,
-          pitch: 45,
-          bearing: 0,
-          essential: true
-        });
-      }
-    };
-  }
-}
-
-function populateResidencesSuburbs(list) {
-  const select = $('#res-suburb-select');
-  if (!select) return;
-  const suburbs = new Set();
-  list.forEach(r => {
-    if (r.suburb && r.suburb !== 'NWU Mahikeng Campus') {
-      suburbs.add(r.suburb);
+    const suburbSelect = $('#res-suburb-select');
+    if (suburbSelect) {
+      suburbSelect.onchange = () => {
+        _resFilterSuburb = suburbSelect.value;
+        _resListLimit = 40;
+        applyResidencesFilters();
+      };
     }
-  });
-  const sorted = Array.from(suburbs).sort();
-  select.innerHTML = `
+
+    const recenterBtn = $('#res-map-recenter-btn');
+    if (recenterBtn) {
+      recenterBtn.onclick = () => {
+        if (_resMapInstance) {
+          _resMapInstance.flyTo({
+            center: [25.6080, -25.8275],
+            zoom: 15,
+            pitch: 45,
+            bearing: 0,
+            essential: true
+          });
+        }
+      };
+    }
+  }
+
+  function populateResidencesSuburbs(list) {
+    const select = $('#res-suburb-select');
+    if (!select) return;
+    const suburbs = new Set();
+    list.forEach(r => {
+      if (r.suburb && r.suburb !== 'NWU Mahikeng Campus') {
+        suburbs.add(r.suburb);
+      }
+    });
+    const sorted = Array.from(suburbs).sort();
+    select.innerHTML = `
     <option value="ALL">All Areas</option>
     <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
     ${sorted.map(s => `<option value="${esc(s)}" ${_resFilterSuburb === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
   `;
-}
-
-function residenceHasPhotos(res) {
-  if (!res) return false;
-  if (Array.isArray(res.images) && res.images.filter(Boolean).length > 0) return true;
-  if (Array.isArray(res.photos) && res.photos.filter(Boolean).length > 0) return true;
-  if (typeof res.imageUrl === 'string' && res.imageUrl.trim()) return true;
-  return false;
-}
-
-function getFilteredResidences() {
-  if (!_residencesData || !_residencesData.length) return [];
-  const raw = (_resSearchQuery || '').toLowerCase().trim();
-  const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
-
-  const list = _residencesData.filter(res => {
-    // Category filter
-    if (_resFilterCategory !== 'ALL' && res.type !== _resFilterCategory) return false;
-
-    // Suburb filter
-    if (_resFilterSuburb !== 'ALL' && res.suburb !== _resFilterSuburb) return false;
-
-    // Room type filter
-    if (_resFilterRoom === 'single' && (!res.singleRooms || res.singleRooms <= 0)) return false;
-    if (_resFilterRoom === 'sharing' && (!res.sharingRooms || res.sharingRooms <= 0)) return false;
-
-    // Smart multi-token search across all attributes
-    if (tokens.length) {
-      const searchBlob = [
-        res.name,
-        res.address,
-        res.suburb,
-        res.accreditationNumber,
-        res.building,
-        res.gender,
-        res.phone,
-        res.whatsapp,
-        res.landlord,
-        res.type === 'on_campus' ? 'on campus nwu' : 'private accredited landlord'
-      ].filter(Boolean).join(' ').toLowerCase();
-
-      const matchesAll = tokens.every(token => searchBlob.includes(token));
-      if (!matchesAll) return false;
-    }
-    return true;
-  });
-
-  // Sort: Residences with photos FIRST, then random per session
-  list.sort((a, b) => {
-    const aHasImg = residenceHasPhotos(a) ? 1 : 0;
-    const bHasImg = residenceHasPhotos(b) ? 1 : 0;
-    if (aHasImg !== bHasImg) {
-      return bHasImg - aHasImg;
-    }
-    const aRand = scoreSeed(`${a.id || a.name}:${_resEpochSeed}`);
-    const bRand = scoreSeed(`${b.id || b.name}:${_resEpochSeed}`);
-    return bRand - aRand;
-  });
-
-  return list;
-}
-
-function applyResidencesFilters() {
-  const filtered = getFilteredResidences();
-  const countBadge = $('#res-count-badge');
-  if (countBadge) {
-    countBadge.textContent = `${filtered.length}`;
   }
 
-  renderResidencesList(filtered);
+  function residenceHasPhotos(res) {
+    if (!res) return false;
+    if (Array.isArray(res.images) && res.images.filter(Boolean).length > 0) return true;
+    if (Array.isArray(res.photos) && res.photos.filter(Boolean).length > 0) return true;
+    if (typeof res.imageUrl === 'string' && res.imageUrl.trim()) return true;
+    return false;
+  }
 
-  if (_resViewMode === 'map') {
-    renderResidencesMapMarkers(filtered);
-    const query = (_resSearchQuery || '').trim();
-    if (query && filtered.length > 0 && _resMapInstance) {
-      if (filtered.length === 1) {
-        _resMapInstance.flyTo({
-          center: [filtered[0].lng, filtered[0].lat],
-          zoom: 16.5,
-          speed: 1.2
-        });
-      } else {
-        const bounds = new maplibregl.LngLatBounds();
-        filtered.slice(0, 30).forEach(r => bounds.extend([r.lng, r.lat]));
-        try {
-          _resMapInstance.fitBounds(bounds, {
-            padding: { top: 90, bottom: 90, left: 40, right: 40 },
-            maxZoom: 16.5,
-            duration: 700
+  function getFilteredResidences() {
+    if (!_residencesData || !_residencesData.length) return [];
+    const raw = (_resSearchQuery || '').toLowerCase().trim();
+    const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
+
+    const list = _residencesData.filter(res => {
+      // Category filter
+      if (_resFilterCategory !== 'ALL' && res.type !== _resFilterCategory) return false;
+
+      // Suburb filter
+      if (_resFilterSuburb !== 'ALL' && res.suburb !== _resFilterSuburb) return false;
+
+      // Room type filter
+      if (_resFilterRoom === 'single' && (!res.singleRooms || res.singleRooms <= 0)) return false;
+      if (_resFilterRoom === 'sharing' && (!res.sharingRooms || res.sharingRooms <= 0)) return false;
+
+      // Smart multi-token search across all attributes
+      if (tokens.length) {
+        const searchBlob = [
+          res.name,
+          res.address,
+          res.suburb,
+          res.accreditationNumber,
+          res.building,
+          res.gender,
+          res.phone,
+          res.whatsapp,
+          res.landlord,
+          res.type === 'on_campus' ? 'on campus nwu' : 'private accredited landlord'
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        const matchesAll = tokens.every(token => searchBlob.includes(token));
+        if (!matchesAll) return false;
+      }
+      return true;
+    });
+
+    // Sort: Residences with photos FIRST, then random per session
+    list.sort((a, b) => {
+      const aHasImg = residenceHasPhotos(a) ? 1 : 0;
+      const bHasImg = residenceHasPhotos(b) ? 1 : 0;
+      if (aHasImg !== bHasImg) {
+        return bHasImg - aHasImg;
+      }
+      const aRand = scoreSeed(`${a.id || a.name}:${_resEpochSeed}`);
+      const bRand = scoreSeed(`${b.id || b.name}:${_resEpochSeed}`);
+      return bRand - aRand;
+    });
+
+    return list;
+  }
+
+  function applyResidencesFilters() {
+    const filtered = getFilteredResidences();
+    const countBadge = $('#res-count-badge');
+    if (countBadge) {
+      countBadge.textContent = `${filtered.length}`;
+    }
+
+    renderResidencesList(filtered);
+
+    if (_resViewMode === 'map') {
+      renderResidencesMapMarkers(filtered);
+      const query = (_resSearchQuery || '').trim();
+      if (query && filtered.length > 0 && _resMapInstance) {
+        if (filtered.length === 1) {
+          _resMapInstance.flyTo({
+            center: [filtered[0].lng, filtered[0].lat],
+            zoom: 16.5,
+            speed: 1.2
           });
-        } catch (_) {}
+        } else {
+          const bounds = new maplibregl.LngLatBounds();
+          filtered.slice(0, 30).forEach(r => bounds.extend([r.lng, r.lat]));
+          try {
+            _resMapInstance.fitBounds(bounds, {
+              padding: { top: 90, bottom: 90, left: 40, right: 40 },
+              maxZoom: 16.5,
+              duration: 700
+            });
+          } catch (_) { }
+        }
       }
     }
   }
-}
 
-function renderResidencesList(filtered = getFilteredResidences()) {
-  const listEl = $('#res-list-view');
-  if (!listEl) return;
+  function renderResidencesList(filtered = getFilteredResidences()) {
+    const listEl = $('#res-list-view');
+    if (!listEl) return;
 
-  if (!filtered.length) {
-    listEl.innerHTML = `
+    if (!filtered.length) {
+      listEl.innerHTML = `
       <div style="text-align:center;padding:48px 16px;color:var(--text-secondary)">
         <div style="font-size:42px;margin-bottom:10px">🏢</div>
         <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px">No residences found</div>
         <p style="font-size:13px;max-width:320px;margin:0 auto">Try adjusting your filters, suburb selection, or search keywords.</p>
       </div>
     `;
-    return;
-  }
+      return;
+    }
 
-  const itemsToShow = filtered.slice(0, _resListLimit);
-  let html = itemsToShow.map(res => {
-    const isOnCampus = res.type === 'on_campus';
-    const badgeHtml = isOnCampus
-      ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
-      : `<span class="res-badge-private">✓ Accredited 2026</span>`;
+    const itemsToShow = filtered.slice(0, _resListLimit);
+    let html = itemsToShow.map(res => {
+      const isOnCampus = res.type === 'on_campus';
+      const badgeHtml = isOnCampus
+        ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
+        : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
-    const hasImages = Array.isArray(res.images) && res.images.length > 0;
-    let mediaHeader = '';
-    if (!hasImages) {
-      mediaHeader = `
+      const hasImages = Array.isArray(res.images) && res.images.length > 0;
+      let mediaHeader = '';
+      if (!hasImages) {
+        mediaHeader = `
         <div class="res-card-media" onclick="openResidenceDetail('${escJs(res.id)}')">
           <div class="res-card-placeholder">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
@@ -21138,8 +21667,8 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           </div>
         </div>
       `;
-    } else if (res.images.length === 1) {
-      mediaHeader = `
+      } else if (res.images.length === 1) {
+        mediaHeader = `
         <div class="res-card-media" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
           <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy">
           <div class="res-media-badges">
@@ -21148,8 +21677,8 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           </div>
         </div>
       `;
-    } else if (res.images.length === 2) {
-      mediaHeader = `
+      } else if (res.images.length === 2) {
+        mediaHeader = `
         <div class="res-card-media res-collage-2">
           <div class="res-collage-cell" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
             <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
@@ -21163,8 +21692,8 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           </div>
         </div>
       `;
-    } else {
-      mediaHeader = `
+      } else {
+        mediaHeader = `
         <div class="res-card-media res-collage-3">
           <div class="res-collage-main" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
             <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
@@ -21184,23 +21713,23 @@ function renderResidencesList(filtered = getFilteredResidences()) {
           </div>
         </div>
       `;
-    }
+      }
 
-    const waBtn = res.whatsapp ? `
+      const waBtn = res.whatsapp ? `
       <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
         💬 WhatsApp
       </a>
     ` : '';
 
-    const callBtn = res.phone ? `
+      const callBtn = res.phone ? `
       <a class="res-btn res-btn-call" href="tel:${res.phone}" onclick="event.stopPropagation()">
         📞 Call
       </a>
     ` : '';
 
-    const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+      const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
 
-    return `
+      return `
       <div class="res-card" onclick="openResidenceDetail('${escJs(res.id)}')">
         ${mediaHeader}
         <div class="res-card-body">
@@ -21236,155 +21765,155 @@ function renderResidencesList(filtered = getFilteredResidences()) {
         </div>
       </div>
     `;
-  }).join('');
+    }).join('');
 
-  if (filtered.length > _resListLimit) {
-    const remaining = filtered.length - _resListLimit;
-    html += `
+    if (filtered.length > _resListLimit) {
+      const remaining = filtered.length - _resListLimit;
+      html += `
       <button type="button" class="btn-outline w100" id="res-load-more-btn" style="margin:8px 0 24px;height:44px;font-size:13.5px;font-weight:600">
         Load More Residences (${remaining} remaining)
       </button>
     `;
-  }
-
-  listEl.innerHTML = html;
-
-  const loadMoreBtn = $('#res-load-more-btn');
-  if (loadMoreBtn) {
-    loadMoreBtn.onclick = () => {
-      _resListLimit += 40;
-      renderResidencesList(filtered);
-    };
-  }
-}
-
-function initResidencesMap() {
-  requestAnimationFrame(() => {
-    const el = document.getElementById('residences-map');
-    if (!el) return;
-
-    if (!_resMapInstance && typeof maplibregl !== 'undefined') {
-      _resMapInstance = new maplibregl.Map({
-        container: 'residences-map',
-        style: 'https://tiles.openfreemap.org/styles/bright',
-        center: [25.6080, -25.8275],
-        zoom: 14.5,
-        pitch: 40,
-        bearing: 0,
-        attributionControl: false
-      });
-
-      _resMapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
-
-      _resMapInstance.on('load', () => {
-        try {
-          if (!_resMapInstance.getSource('openfreemap')) {
-            _resMapInstance.addSource('openfreemap', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
-          }
-          if (!_resMapInstance.getLayer('3d-buildings')) {
-            _resMapInstance.addLayer({
-              id: '3d-buildings',
-              source: 'openfreemap',
-              'source-layer': 'building',
-              type: 'fill-extrusion',
-              minzoom: 15,
-              paint: {
-                'fill-extrusion-color': '#d9d3c9',
-                'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_height'], 0]],
-                'fill-extrusion-opacity': 0.6
-              }
-            });
-          }
-        } catch (_) {}
-      });
-
-      _resMapInstance.on('click', () => {
-        hideResidenceMapPreview();
-      });
     }
 
+    listEl.innerHTML = html;
+
+    const loadMoreBtn = $('#res-load-more-btn');
+    if (loadMoreBtn) {
+      loadMoreBtn.onclick = () => {
+        _resListLimit += 40;
+        renderResidencesList(filtered);
+      };
+    }
+  }
+
+  function initResidencesMap() {
+    requestAnimationFrame(() => {
+      const el = document.getElementById('residences-map');
+      if (!el) return;
+
+      if (!_resMapInstance && typeof maplibregl !== 'undefined') {
+        _resMapInstance = new maplibregl.Map({
+          container: 'residences-map',
+          style: 'https://tiles.openfreemap.org/styles/bright',
+          center: [25.6080, -25.8275],
+          zoom: 14.5,
+          pitch: 40,
+          bearing: 0,
+          attributionControl: false
+        });
+
+        _resMapInstance.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+
+        _resMapInstance.on('load', () => {
+          try {
+            if (!_resMapInstance.getSource('openfreemap')) {
+              _resMapInstance.addSource('openfreemap', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+            }
+            if (!_resMapInstance.getLayer('3d-buildings')) {
+              _resMapInstance.addLayer({
+                id: '3d-buildings',
+                source: 'openfreemap',
+                'source-layer': 'building',
+                type: 'fill-extrusion',
+                minzoom: 15,
+                paint: {
+                  'fill-extrusion-color': '#d9d3c9',
+                  'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, ['coalesce', ['get', 'render_height'], 0]],
+                  'fill-extrusion-opacity': 0.6
+                }
+              });
+            }
+          } catch (_) { }
+        });
+
+        _resMapInstance.on('click', () => {
+          hideResidenceMapPreview();
+        });
+      }
+
+      if (_resMapInstance) {
+        setTimeout(() => {
+          try { _resMapInstance.resize(); } catch (_) { }
+        }, 100);
+      }
+
+      renderResidencesMapMarkers(getFilteredResidences());
+    });
+  }
+
+  function renderResidencesMapMarkers(filtered = getFilteredResidences()) {
+    if (!_resMapInstance || typeof maplibregl === 'undefined') return;
+
+    _resMarkers.forEach(m => { try { m.remove(); } catch (_) { } });
+    _resMarkers = [];
+
+    // Limit active pins to 75 for peak rendering performance, ensuring selected res is included
+    const maxPins = 75;
+    let pinsToShow = filtered.slice(0, maxPins);
+    if (_selectedResidence && !pinsToShow.some(r => r.id === _selectedResidence.id)) {
+      pinsToShow.unshift(_selectedResidence);
+    }
+
+    pinsToShow.forEach(res => {
+      const el = document.createElement('div');
+      const isOnCampus = res.type === 'on_campus';
+      const isSelected = _selectedResidence && _selectedResidence.id === res.id;
+      el.className = `res-marker-pin ${isOnCampus ? 'nwu' : 'private'} ${isSelected ? 'active' : ''}`;
+      el.innerHTML = isOnCampus ? '🏛️' : '🏢';
+      el.title = `${res.name} (${res.distanceText})`;
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
+        el.classList.add('active');
+        selectResidenceOnMap(res);
+      });
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([res.lng, res.lat])
+        .addTo(_resMapInstance);
+      _resMarkers.push(marker);
+    });
+  }
+
+  function selectResidenceOnMap(res) {
+    _selectedResidence = res;
     if (_resMapInstance) {
-      setTimeout(() => {
-        try { _resMapInstance.resize(); } catch (_) {}
-      }, 100);
+      _resMapInstance.flyTo({
+        center: [res.lng, res.lat],
+        zoom: 16.5,
+        offset: [0, -70], // Shifts center slightly so pin is clearly visible above bottom sheet
+        essential: true
+      });
     }
-
-    renderResidencesMapMarkers(getFilteredResidences());
-  });
-}
-
-function renderResidencesMapMarkers(filtered = getFilteredResidences()) {
-  if (!_resMapInstance || typeof maplibregl === 'undefined') return;
-
-  _resMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
-  _resMarkers = [];
-
-  // Limit active pins to 75 for peak rendering performance, ensuring selected res is included
-  const maxPins = 75;
-  let pinsToShow = filtered.slice(0, maxPins);
-  if (_selectedResidence && !pinsToShow.some(r => r.id === _selectedResidence.id)) {
-    pinsToShow.unshift(_selectedResidence);
+    showResidenceMapPreview(res);
   }
 
-  pinsToShow.forEach(res => {
-    const el = document.createElement('div');
+  function showResidenceMapPreview(res) {
+    const sheet = $('#res-map-preview-sheet');
+    if (!sheet) return;
+
     const isOnCampus = res.type === 'on_campus';
-    const isSelected = _selectedResidence && _selectedResidence.id === res.id;
-    el.className = `res-marker-pin ${isOnCampus ? 'nwu' : 'private'} ${isSelected ? 'active' : ''}`;
-    el.innerHTML = isOnCampus ? '🏛️' : '🏢';
-    el.title = `${res.name} (${res.distanceText})`;
+    const badgeHtml = isOnCampus
+      ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
+      : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
-      el.classList.add('active');
-      selectResidenceOnMap(res);
-    });
-
-    const marker = new maplibregl.Marker({ element: el })
-      .setLngLat([res.lng, res.lat])
-      .addTo(_resMapInstance);
-    _resMarkers.push(marker);
-  });
-}
-
-function selectResidenceOnMap(res) {
-  _selectedResidence = res;
-  if (_resMapInstance) {
-    _resMapInstance.flyTo({
-      center: [res.lng, res.lat],
-      zoom: 16.5,
-      offset: [0, -70], // Shifts center slightly so pin is clearly visible above bottom sheet
-      essential: true
-    });
-  }
-  showResidenceMapPreview(res);
-}
-
-function showResidenceMapPreview(res) {
-  const sheet = $('#res-map-preview-sheet');
-  if (!sheet) return;
-
-  const isOnCampus = res.type === 'on_campus';
-  const badgeHtml = isOnCampus
-    ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
-    : `<span class="res-badge-private">✓ Accredited 2026</span>`;
-
-  const waBtn = res.whatsapp ? `
+    const waBtn = res.whatsapp ? `
     <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener">
       💬 WhatsApp
     </a>
   ` : '';
 
-  const callBtn = res.phone ? `
+    const callBtn = res.phone ? `
     <a class="res-btn res-btn-call" href="tel:${res.phone}">
       📞 Call
     </a>
   ` : '';
 
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+    const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
 
-  sheet.innerHTML = `
+    sheet.innerHTML = `
     <div class="res-preview-handle"></div>
     <button type="button" class="res-preview-close" onclick="hideResidenceMapPreview()" aria-label="Close preview">&times;</button>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-right:24px">
@@ -21423,30 +21952,30 @@ function showResidenceMapPreview(res) {
       </button>
     </div>
   `;
-  sheet.style.display = 'flex';
-}
-
-function hideResidenceMapPreview() {
-  const sheet = $('#res-map-preview-sheet');
-  if (sheet) sheet.style.display = 'none';
-  $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
-}
-
-function locateResidenceOnMap(id) {
-  const res = (_residencesData || []).find(r => r.id === id);
-  if (!res) return;
-  if (_resViewMode !== 'map') {
-    toggleResidencesViewMode();
+    sheet.style.display = 'flex';
   }
-  setTimeout(() => {
-    selectResidenceOnMap(res);
-  }, 150);
-}
 
-function buildResidenceDetailMediaHtml(res) {
-  const images = Array.isArray(res.images) ? res.images : [];
-  if (!images.length) {
-    return `
+  function hideResidenceMapPreview() {
+    const sheet = $('#res-map-preview-sheet');
+    if (sheet) sheet.style.display = 'none';
+    $$('.res-marker-pin').forEach(p => p.classList.remove('active'));
+  }
+
+  function locateResidenceOnMap(id) {
+    const res = (_residencesData || []).find(r => r.id === id);
+    if (!res) return;
+    if (_resViewMode !== 'map') {
+      toggleResidencesViewMode();
+    }
+    setTimeout(() => {
+      selectResidenceOnMap(res);
+    }, 150);
+  }
+
+  function buildResidenceDetailMediaHtml(res) {
+    const images = Array.isArray(res.images) ? res.images : [];
+    if (!images.length) {
+      return `
       <div class="res-card-placeholder" style="height:175px;border-radius:16px;border:1px solid var(--border);position:relative">
         <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
         <div class="res-placeholder-pill">
@@ -21454,13 +21983,13 @@ function buildResidenceDetailMediaHtml(res) {
         </div>
       </div>
     `;
-  }
+    }
 
-  const slidesHtml = images.map((img, idx) => `
+    const slidesHtml = images.map((img, idx) => `
     <img src="${esc(img)}" class="res-gallery-img" alt="${esc(res.name)}" onclick="openResidenceGallery('${escJs(res.id)}', ${idx})">
   `).join('');
 
-  const filmstripHtml = images.length > 1 ? `
+    const filmstripHtml = images.length > 1 ? `
     <div class="res-detail-filmstrip" id="res-detail-filmstrip">
       ${images.map((img, idx) => `
         <div class="res-filmstrip-thumb ${idx === 0 ? 'active' : ''}" onclick="scrollDetailGallery(${idx})">
@@ -21470,7 +21999,7 @@ function buildResidenceDetailMediaHtml(res) {
     </div>
   ` : '';
 
-  return `
+    return `
     <div style="display:flex;flex-direction:column;gap:8px">
       <div class="res-detail-media-wrap">
         <div class="res-detail-gallery" id="res-detail-gallery" onscroll="onResidenceGalleryScroll(this)">
@@ -21481,117 +22010,117 @@ function buildResidenceDetailMediaHtml(res) {
       ${filmstripHtml}
     </div>
   `;
-}
-
-function scrollDetailGallery(idx) {
-  const gal = document.getElementById('res-detail-gallery');
-  if (!gal) return;
-  gal.scrollTo({ left: gal.clientWidth * idx, behavior: 'smooth' });
-  updateDetailGalleryCounter(idx);
-}
-
-function onResidenceGalleryScroll(el) {
-  if (!el) return;
-  const idx = Math.round(el.scrollLeft / (el.clientWidth || 1));
-  updateDetailGalleryCounter(idx);
-}
-
-function updateDetailGalleryCounter(idx) {
-  const imgs = window._currentDetailImages || [];
-  const counter = document.getElementById('res-gallery-counter');
-  if (counter && imgs.length) {
-    counter.textContent = `📷 ${idx + 1} of ${imgs.length} (swipe)`;
   }
-  const thumbs = document.querySelectorAll('#res-detail-filmstrip .res-filmstrip-thumb');
-  thumbs.forEach((th, i) => {
-    if (i === idx) th.classList.add('active');
-    else th.classList.remove('active');
-  });
-}
 
-function openResidenceGallery(id, startIdx = 0) {
-  const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
-  let images = res?.images;
-  if (!images || !images.length) {
-    try {
-      const raw = localStorage.getItem('unino_res_media_' + id) ||
-                  localStorage.getItem('unibo_res_media_' + id) ||
-                  (res && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
-      if (raw) images = JSON.parse(raw);
-    } catch (_) {}
+  function scrollDetailGallery(idx) {
+    const gal = document.getElementById('res-detail-gallery');
+    if (!gal) return;
+    gal.scrollTo({ left: gal.clientWidth * idx, behavior: 'smooth' });
+    updateDetailGalleryCounter(idx);
   }
-  if (!images || !images.length) {
-    toast('No photos available yet');
-    return;
-  }
-  openGallery(images, startIdx);
-}
 
-async function openResidenceDetail(id) {
-  if (!_residencesData || !_residencesData.length) {
-    await loadResidencesData();
+  function onResidenceGalleryScroll(el) {
+    if (!el) return;
+    const idx = Math.round(el.scrollLeft / (el.clientWidth || 1));
+    updateDetailGalleryCounter(idx);
   }
-  const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
-  if (!res) return;
 
-  // Retrieve cached photos if not already on object
-  if (!res.images || !res.images.length) {
-    try {
-      const cached = localStorage.getItem('unino_res_media_' + res.id) ||
-                     localStorage.getItem('unibo_res_media_' + res.id) ||
-                     (res.accreditationNumber && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length) res.images = parsed;
-      }
-    } catch (_) {}
+  function updateDetailGalleryCounter(idx) {
+    const imgs = window._currentDetailImages || [];
+    const counter = document.getElementById('res-gallery-counter');
+    if (counter && imgs.length) {
+      counter.textContent = `📷 ${idx + 1} of ${imgs.length} (swipe)`;
+    }
+    const thumbs = document.querySelectorAll('#res-detail-filmstrip .res-filmstrip-thumb');
+    thumbs.forEach((th, i) => {
+      if (i === idx) th.classList.add('active');
+      else th.classList.remove('active');
+    });
   }
+
+  function openResidenceGallery(id, startIdx = 0) {
+    const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
+    let images = res?.images;
+    if (!images || !images.length) {
+      try {
+        const raw = localStorage.getItem('unino_res_media_' + id) ||
+          localStorage.getItem('unibo_res_media_' + id) ||
+          (res && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
+        if (raw) images = JSON.parse(raw);
+      } catch (_) { }
+    }
+    if (!images || !images.length) {
+      toast('No photos available yet');
+      return;
+    }
+    openGallery(images, startIdx);
+  }
+
+  async function openResidenceDetail(id) {
+    if (!_residencesData || !_residencesData.length) {
+      await loadResidencesData();
+    }
+    const res = (_residencesData || []).find(r => r.id === id || r.accreditationNumber === id);
+    if (!res) return;
+
+    // Retrieve cached photos if not already on object
+    if (!res.images || !res.images.length) {
+      try {
+        const cached = localStorage.getItem('unino_res_media_' + res.id) ||
+          localStorage.getItem('unibo_res_media_' + res.id) ||
+          (res.accreditationNumber && (localStorage.getItem('unino_res_media_' + res.accreditationNumber) || localStorage.getItem('unibo_res_media_' + res.accreditationNumber)));
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length) res.images = parsed;
+        }
+      } catch (_) { }
+    }
 
     window._currentOpenResId = res.id;
-  window._currentDetailImages = Array.isArray(res.images) ? [...res.images] : [];
+    window._currentDetailImages = Array.isArray(res.images) ? [...res.images] : [];
 
-  const isOnCampus = res.type === 'on_campus';
-  const badgeHtml = isOnCampus
-    ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus Residence</span>`
-    : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
+    const isOnCampus = res.type === 'on_campus';
+    const badgeHtml = isOnCampus
+      ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus Residence</span>`
+      : `<span class="res-badge-private">✓ Official NWU Accredited Landlord</span>`;
 
-  let availBadgeHtml = '';
-  if (res.availability === 'full') {
-    availBadgeHtml = '<span class="res-dist-pill" style="background:#FEE2E2;color:#DC2626;font-weight:700">🔴 Fully Booked</span>';
-  } else if (res.availability === 'limited') {
-    availBadgeHtml = '<span class="res-dist-pill" style="background:#FEF3C7;color:#D97706;font-weight:700">🟡 Limited Beds</span>';
-  } else if (res.availability === 'available') {
-    availBadgeHtml = '<span class="res-dist-pill" style="background:#ECFDF5;color:#059669;font-weight:700">🟢 Beds Available (2026)</span>';
-  }
+    let availBadgeHtml = '';
+    if (res.availability === 'full') {
+      availBadgeHtml = '<span class="res-dist-pill" style="background:#FEE2E2;color:#DC2626;font-weight:700">🔴 Fully Booked</span>';
+    } else if (res.availability === 'limited') {
+      availBadgeHtml = '<span class="res-dist-pill" style="background:#FEF3C7;color:#D97706;font-weight:700">🟡 Limited Beds</span>';
+    } else if (res.availability === 'available') {
+      availBadgeHtml = '<span class="res-dist-pill" style="background:#ECFDF5;color:#059669;font-weight:700">🟢 Beds Available (2026)</span>';
+    }
 
-  const waPrefill = `Hello ${res.name}, I saw your accredited accommodation on Unibo and would like to inquire about NSFAS/private room availability.`;
-  const waBtn = res.whatsapp ? `
+    const waPrefill = `Hello ${res.name}, I saw your accredited accommodation on Unibo and would like to inquire about NSFAS/private room availability.`;
+    const waBtn = res.whatsapp ? `
     <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=${encodeURIComponent(waPrefill)}" target="_blank" rel="noopener" style="flex:1;justify-content:center;height:44px;font-size:13.5px;font-weight:700">
       💬 WhatsApp Landlord
     </a>
   ` : '';
 
-  const callBtn = res.phone ? `
+    const callBtn = res.phone ? `
     <a class="res-btn res-btn-call" href="tel:${res.phone}" style="flex:1;justify-content:center;height:44px;font-size:13.5px;font-weight:700">
       📞 Call (${esc(res.phone)})
     </a>
   ` : '';
 
-  const emailBtn = res.email ? `
+    const emailBtn = res.email ? `
     <a class="res-btn" href="mailto:${res.email}?subject=Accommodation%20Inquiry%20-%20Unibo%20(${encodeURIComponent(res.name)})" style="width:100%;justify-content:center;height:38px;font-size:13px">
       ✉️ Email: ${esc(res.email)}
     </a>
   ` : '';
 
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
+    const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${res.lat},${res.lng}`;
 
-  const amenitiesHtml = (res.amenities && res.amenities.length ? res.amenities : [
-    '24/7 Security', 'Study Facilities', 'Water & Electricity', 'Safe Student Environment'
-  ]).map(a => `
+    const amenitiesHtml = (res.amenities && res.amenities.length ? res.amenities : [
+      '24/7 Security', 'Study Facilities', 'Water & Electricity', 'Safe Student Environment'
+    ]).map(a => `
     <div class="res-amenity-chip">✓ ${esc(a)}</div>
   `).join('');
 
-  const modalHtml = `
+    const modalHtml = `
     <div class="res-detail-sheet-wrap">
       <div id="res-detail-media-box">
         ${buildResidenceDetailMediaHtml(res)}
@@ -21705,93 +22234,93 @@ async function openResidenceDetail(id) {
     </div>
   `;
 
-  openModal(modalHtml);
+    openModal(modalHtml);
 
-  // Background fetch from Firestore to ensure newest uploaded photos and info are displayed immediately
-  if (typeof db !== 'undefined' && db && db.collection) {
-    db.collection('residence_media').doc(res.id).get().then(doc => {
-      let cloudImgs = null;
-      if (doc.exists && doc.data()) {
-        const d = doc.data();
-        if (Array.isArray(d.images) && d.images.length) res.images = d.images;
-        if (d.description) res.description = d.description;
-        if (d.pricing) res.pricing = d.pricing;
-        if (d.availability) res.availability = d.availability;
-        if (d.phone) res.phone = d.phone;
-        if (d.whatsapp) res.whatsapp = d.whatsapp;
-        if (d.email) res.email = d.email;
-        if (Array.isArray(d.amenities) && d.amenities.length) res.amenities = d.amenities;
-        cloudImgs = res.images;
-      } else if (res.accreditationNumber) {
-        return db.collection('residence_media').doc(res.accreditationNumber).get().then(doc2 => {
-          if (doc2.exists && doc2.data()) {
-            const d2 = doc2.data();
-            if (Array.isArray(d2.images) && d2.images.length) res.images = d2.images;
-            if (d2.description) res.description = d2.description;
-            if (d2.pricing) res.pricing = d2.pricing;
-            if (d2.availability) res.availability = d2.availability;
-            return res.images;
-          }
-          return null;
-        });
-      }
-      return cloudImgs;
-    }).then(cloudImgs => {
-      if (cloudImgs && cloudImgs.length) {
-        window._currentDetailImages = cloudImgs;
-        try {
-          localStorage.setItem('unino_res_media_' + res.id, JSON.stringify(cloudImgs));
-          localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(cloudImgs));
-        } catch (_) {}
-        if (window._currentOpenResId === res.id) {
-          const mediaBox = document.getElementById('res-detail-media-box');
-          if (mediaBox) mediaBox.innerHTML = buildResidenceDetailMediaHtml(res);
+    // Background fetch from Firestore to ensure newest uploaded photos and info are displayed immediately
+    if (typeof db !== 'undefined' && db && db.collection) {
+      db.collection('residence_media').doc(res.id).get().then(doc => {
+        let cloudImgs = null;
+        if (doc.exists && doc.data()) {
+          const d = doc.data();
+          if (Array.isArray(d.images) && d.images.length) res.images = d.images;
+          if (d.description) res.description = d.description;
+          if (d.pricing) res.pricing = d.pricing;
+          if (d.availability) res.availability = d.availability;
+          if (d.phone) res.phone = d.phone;
+          if (d.whatsapp) res.whatsapp = d.whatsapp;
+          if (d.email) res.email = d.email;
+          if (Array.isArray(d.amenities) && d.amenities.length) res.amenities = d.amenities;
+          cloudImgs = res.images;
+        } else if (res.accreditationNumber) {
+          return db.collection('residence_media').doc(res.accreditationNumber).get().then(doc2 => {
+            if (doc2.exists && doc2.data()) {
+              const d2 = doc2.data();
+              if (Array.isArray(d2.images) && d2.images.length) res.images = d2.images;
+              if (d2.description) res.description = d2.description;
+              if (d2.pricing) res.pricing = d2.pricing;
+              if (d2.availability) res.availability = d2.availability;
+              return res.images;
+            }
+            return null;
+          });
         }
-      }
-    }).catch(err => console.warn('Live residence media fetch error:', err));
+        return cloudImgs;
+      }).then(cloudImgs => {
+        if (cloudImgs && cloudImgs.length) {
+          window._currentDetailImages = cloudImgs;
+          try {
+            localStorage.setItem('unino_res_media_' + res.id, JSON.stringify(cloudImgs));
+            localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(cloudImgs));
+          } catch (_) { }
+          if (window._currentOpenResId === res.id) {
+            const mediaBox = document.getElementById('res-detail-media-box');
+            if (mediaBox) mediaBox.innerHTML = buildResidenceDetailMediaHtml(res);
+          }
+        }
+      }).catch(err => console.warn('Live residence media fetch error:', err));
+    }
   }
-}
 
-// ─── Landlord Photo Upload Portal ─────────────────────
-function copyLandlordUploadLink(id) {
-  const res = (_residencesData || []).find(r => r.id === id);
-  if (!res) return;
-  const basePath = window.location.pathname.replace(/index\.html$/, '');
-  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
-  const url = `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}`;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(() => {
-      toast('✓ Private landlord link copied to clipboard!');
-    }).catch(() => {
+  // ─── Landlord Photo Upload Portal ─────────────────────
+  function copyLandlordUploadLink(id) {
+    const res = (_residencesData || []).find(r => r.id === id);
+    if (!res) return;
+    const basePath = window.location.pathname.replace(/index\.html$/, '');
+    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+    const url = `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        toast('✓ Private landlord link copied to clipboard!');
+      }).catch(() => {
+        prompt('Landlord upload link:', url);
+      });
+    } else {
       prompt('Landlord upload link:', url);
-    });
-  } else {
-    prompt('Landlord upload link:', url);
-  }
-}
-
-function openLandlordPortal(targetId = '') {
-  const basePath = window.location.pathname.replace(/index\.html$/, '');
-  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
-  const url = targetId ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(targetId)}` : `${window.location.origin}${cleanBase}landlord.html`;
-  window.open(url, '_blank');
-}
-
-function renderLandlordPortalModal() {
-  const res = window._selectedLandlordRes;
-  const basePath = window.location.pathname.replace(/index\.html$/, '');
-  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
-  const shareUrl = res ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}` : `${window.location.origin}${cleanBase}landlord.html`;
-
-  let waHref = '';
-  if (res) {
-    const cleanPhone = (res.whatsapp || res.phone || '').replace(/[^0-9]/g, '');
-    const waNumber = cleanPhone.startsWith('0') ? '27' + cleanPhone.slice(1) : cleanPhone;
-    const waText = encodeURIComponent(`Hello! This is NWU Student Life (Unibo). Please upload 2-5 photos of your accredited residence *${res.name}* here so students can view your rooms on the campus platform: ${shareUrl} (No login or password needed). Thank you!`);
-    waHref = waNumber ? `https://wa.me/${waNumber}?text=${waText}` : '';
+    }
   }
 
-  const html = `
+  function openLandlordPortal(targetId = '') {
+    const basePath = window.location.pathname.replace(/index\.html$/, '');
+    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+    const url = targetId ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(targetId)}` : `${window.location.origin}${cleanBase}landlord.html`;
+    window.open(url, '_blank');
+  }
+
+  function renderLandlordPortalModal() {
+    const res = window._selectedLandlordRes;
+    const basePath = window.location.pathname.replace(/index\.html$/, '');
+    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+    const shareUrl = res ? `${window.location.origin}${cleanBase}landlord.html?id=${encodeURIComponent(res.id)}` : `${window.location.origin}${cleanBase}landlord.html`;
+
+    let waHref = '';
+    if (res) {
+      const cleanPhone = (res.whatsapp || res.phone || '').replace(/[^0-9]/g, '');
+      const waNumber = cleanPhone.startsWith('0') ? '27' + cleanPhone.slice(1) : cleanPhone;
+      const waText = encodeURIComponent(`Hello! This is NWU Student Life (Unibo). Please upload 2-5 photos of your accredited residence *${res.name}* here so students can view your rooms on the campus platform: ${shareUrl} (No login or password needed). Thank you!`);
+      waHref = waNumber ? `https://wa.me/${waNumber}?text=${waText}` : '';
+    }
+
+    const html = `
     <div class="landlord-portal-sheet">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div class="landlord-hero-title">
@@ -21847,17 +22376,17 @@ function renderLandlordPortalModal() {
     </div>
   `;
 
-  openModal(html);
-}
-
-function renderLandlordPhotosGridHtml() {
-  const existing = window._landlordPhotos || [];
-  const pending = window._landlordPendingFiles || [];
-  const total = existing.length + pending.length;
-  if (total === 0) {
-    return `<div style="text-align:center;padding:16px;font-size:12.5px;color:var(--text-secondary)">No photos added yet. Select photos above.</div>`;
+    openModal(html);
   }
-  return `
+
+  function renderLandlordPhotosGridHtml() {
+    const existing = window._landlordPhotos || [];
+    const pending = window._landlordPendingFiles || [];
+    const total = existing.length + pending.length;
+    if (total === 0) {
+      return `<div style="text-align:center;padding:16px;font-size:12.5px;color:var(--text-secondary)">No photos added yet. Select photos above.</div>`;
+    }
+    return `
     <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:14px 0 6px">
       Photos (${total})
     </div>
@@ -21876,145 +22405,145 @@ function renderLandlordPhotosGridHtml() {
       `).join('')}
     </div>
   `;
-}
-
-function handleLandlordFilesSelected(files) {
-  if (!files || !files.length) return;
-  Array.from(files).forEach(f => {
-    const previewUrl = URL.createObjectURL(f);
-    window._landlordPendingFiles.push({ file: f, previewUrl });
-  });
-  const container = document.getElementById('landlord-photos-container');
-  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
-}
-
-function deleteLandlordExistingPhoto(idx) {
-  window._landlordPhotos.splice(idx, 1);
-  const container = document.getElementById('landlord-photos-container');
-  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
-}
-
-function deleteLandlordPendingPhoto(idx) {
-  const item = window._landlordPendingFiles.splice(idx, 1)[0];
-  if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-  const container = document.getElementById('landlord-photos-container');
-  if (container) container.innerHTML = renderLandlordPhotosGridHtml();
-}
-
-function filterLandlordResOptions(query) {
-  const container = document.getElementById('landlord-res-options');
-  if (!container) return;
-  const q = (query || '').trim().toLowerCase();
-  if (q.length < 2) {
-    container.style.display = 'none';
-    return;
-  }
-  const matches = (_residencesData || []).filter(r => 
-    r.name.toLowerCase().includes(q) || 
-    (r.accreditationNumber && r.accreditationNumber.toLowerCase().includes(q)) ||
-    (r.address && r.address.toLowerCase().includes(q))
-  ).slice(0, 10);
-
-  if (!matches.length) {
-    container.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--text-secondary)">No residences found matching "${esc(query)}"</div>`;
-    container.style.display = 'block';
-    return;
   }
 
-  container.innerHTML = matches.map(r => `
+  function handleLandlordFilesSelected(files) {
+    if (!files || !files.length) return;
+    Array.from(files).forEach(f => {
+      const previewUrl = URL.createObjectURL(f);
+      window._landlordPendingFiles.push({ file: f, previewUrl });
+    });
+    const container = document.getElementById('landlord-photos-container');
+    if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+  }
+
+  function deleteLandlordExistingPhoto(idx) {
+    window._landlordPhotos.splice(idx, 1);
+    const container = document.getElementById('landlord-photos-container');
+    if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+  }
+
+  function deleteLandlordPendingPhoto(idx) {
+    const item = window._landlordPendingFiles.splice(idx, 1)[0];
+    if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    const container = document.getElementById('landlord-photos-container');
+    if (container) container.innerHTML = renderLandlordPhotosGridHtml();
+  }
+
+  function filterLandlordResOptions(query) {
+    const container = document.getElementById('landlord-res-options');
+    if (!container) return;
+    const q = (query || '').trim().toLowerCase();
+    if (q.length < 2) {
+      container.style.display = 'none';
+      return;
+    }
+    const matches = (_residencesData || []).filter(r =>
+      r.name.toLowerCase().includes(q) ||
+      (r.accreditationNumber && r.accreditationNumber.toLowerCase().includes(q)) ||
+      (r.address && r.address.toLowerCase().includes(q))
+    ).slice(0, 10);
+
+    if (!matches.length) {
+      container.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--text-secondary)">No residences found matching "${esc(query)}"</div>`;
+      container.style.display = 'block';
+      return;
+    }
+
+    container.innerHTML = matches.map(r => `
     <div style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectLandlordResidence('${escJs(r.id)}')">
       <div style="font-weight:700;font-size:13px;color:var(--text-primary)">${esc(r.name)}</div>
       <div style="font-size:11.5px;color:var(--text-secondary)">${esc(r.accreditationNumber || r.id)} · ${esc(r.suburb)}</div>
     </div>
   `).join('');
-  container.style.display = 'block';
-}
-
-function selectLandlordResidence(id) {
-  const res = (_residencesData || []).find(r => r.id === id);
-  if (!res) return;
-  window._selectedLandlordRes = res;
-  window._landlordPhotos = res.images ? [...res.images] : [];
-  renderLandlordPortalModal();
-}
-
-async function submitLandlordPhotos() {
-  const res = window._selectedLandlordRes;
-  if (!res) {
-    toast('Please select a residence first');
-    return;
-  }
-  const pending = window._landlordPendingFiles || [];
-  const existing = window._landlordPhotos || [];
-
-  if (existing.length === 0 && pending.length === 0) {
-    toast('Please select at least 1 photo to publish');
-    return;
+    container.style.display = 'block';
   }
 
-  const btn = document.getElementById('landlord-submit-btn');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="inline-spinner" style="width:16px;height:16px"></span> Publishing photos…';
+  function selectLandlordResidence(id) {
+    const res = (_residencesData || []).find(r => r.id === id);
+    if (!res) return;
+    window._selectedLandlordRes = res;
+    window._landlordPhotos = res.images ? [...res.images] : [];
+    renderLandlordPortalModal();
   }
 
-  try {
-    const uploadedUrls = [];
-    for (let i = 0; i < pending.length; i++) {
-      if (btn) btn.innerHTML = `<span class="inline-spinner" style="width:16px;height:16px"></span> Uploading ${i + 1}/${pending.length}…`;
-      const url = await uploadToR2(pending[i].file, 'residences');
-      uploadedUrls.push(url);
+  async function submitLandlordPhotos() {
+    const res = window._selectedLandlordRes;
+    if (!res) {
+      toast('Please select a residence first');
+      return;
+    }
+    const pending = window._landlordPendingFiles || [];
+    const existing = window._landlordPhotos || [];
+
+    if (existing.length === 0 && pending.length === 0) {
+      toast('Please select at least 1 photo to publish');
+      return;
     }
 
-    const finalImages = [...existing, ...uploadedUrls];
-
-    // Save to Firestore residence_media
-    await db.collection('residence_media').doc(res.id).set({
-      resId: res.id,
-      resName: res.name,
-      accreditationNumber: res.accreditationNumber || '',
-      images: finalImages,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedBy: state.user?.uid || 'landlord_portal'
-    }, { merge: true });
-
-    // Save to local cache
-    try {
-      localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(finalImages));
-    } catch (_) {}
-
-    // Update in memory
-    res.images = finalImages;
-
-    // Refresh list view
-    renderResidencesList(getFilteredResidences());
-
-    closeModal();
-    toast('✓ Residence photos published successfully!');
-  } catch (err) {
-    console.error('Failed to publish residence photos:', err);
-    toast('Upload failed: ' + (err.message || 'Please try again'));
+    const btn = document.getElementById('landlord-submit-btn');
     if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = 'Save & Publish Photos';
+      btn.disabled = true;
+      btn.innerHTML = '<span class="inline-spinner" style="width:16px;height:16px"></span> Publishing photos…';
     }
-  }
-}
 
-function checkLandlordPortalHash() {
-  const hash = window.location.hash || '';
-  const basePath = window.location.pathname.replace(/index\.html$/, '');
-  const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
-  if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
-    const params = new URLSearchParams(hash.split('?')[1] || '');
-    const resId = params.get('id') || params.get('resId') || '';
-    window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
-  } else if (hash.includes('nwu_demo') || hash.includes('nwu-demo') || hash === '#demo') {
-    if (!state.user || state.user?.isDemo) {
-      initNwuDemoSession();
+    try {
+      const uploadedUrls = [];
+      for (let i = 0; i < pending.length; i++) {
+        if (btn) btn.innerHTML = `<span class="inline-spinner" style="width:16px;height:16px"></span> Uploading ${i + 1}/${pending.length}…`;
+        const url = await uploadToR2(pending[i].file, 'residences');
+        uploadedUrls.push(url);
+      }
+
+      const finalImages = [...existing, ...uploadedUrls];
+
+      // Save to Firestore residence_media
+      await db.collection('residence_media').doc(res.id).set({
+        resId: res.id,
+        resName: res.name,
+        accreditationNumber: res.accreditationNumber || '',
+        images: finalImages,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: state.user?.uid || 'landlord_portal'
+      }, { merge: true });
+
+      // Save to local cache
+      try {
+        localStorage.setItem('unibo_res_media_' + res.id, JSON.stringify(finalImages));
+      } catch (_) { }
+
+      // Update in memory
+      res.images = finalImages;
+
+      // Refresh list view
+      renderResidencesList(getFilteredResidences());
+
+      closeModal();
+      toast('✓ Residence photos published successfully!');
+    } catch (err) {
+      console.error('Failed to publish residence photos:', err);
+      toast('Upload failed: ' + (err.message || 'Please try again'));
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = 'Save & Publish Photos';
+      }
     }
   }
-}
+
+  function checkLandlordPortalHash() {
+    const hash = window.location.hash || '';
+    const basePath = window.location.pathname.replace(/index\.html$/, '');
+    const cleanBase = basePath.endsWith('/') ? basePath : basePath + '/';
+    if (hash.startsWith('#upload-res') || hash.startsWith('#landlord-portal')) {
+      const params = new URLSearchParams(hash.split('?')[1] || '');
+      const resId = params.get('id') || params.get('resId') || '';
+      window.location.href = `${cleanBase}landlord.html?id=${encodeURIComponent(resId)}`;
+    } else if (hash.includes('nwu_demo') || hash.includes('nwu-demo') || hash === '#demo') {
+      if (!state.user || state.user?.isDemo) {
+        initNwuDemoSession();
+      }
+    }
+  }
 
   // Expose globals for inline onclick
   Object.assign(window, {
