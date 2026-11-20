@@ -4717,8 +4717,8 @@ function restoreCachedPageView(page) {
 //  THEME
 // ══════════════════════════════════════════════════
 const THEME_ASSETS = {
-  light: { icon: 'new_logo.png', themeColor: '#F5F6FB' },
-  dark: { icon: 'new_logo.png', themeColor: '#090A13' }
+  light: { icon: 'new_logo.png', themeColor: '#F7F7F9' },
+  dark: { icon: 'new_logo.png', themeColor: '#0B0C10' }
 };
 
 function applyThemeAssets(theme = document.documentElement.getAttribute('data-theme') || 'light') {
@@ -6040,19 +6040,48 @@ function openMessagesTab(tab = 'dm') {
 }
 window.openMessagesTab = openMessagesTab;
 
+function uiIcon(name, size = 15) {
+  const paths = {
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    bag: '<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+    sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/>',
+    ghost: '<path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v11l2.7-2 2.6 2 2.7-2 2.7 2 2.6-2 2.7 2V10a8 8 0 0 0-8-8z"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    poll: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+    compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    building: '<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M9 13h.01"/><path d="M15 13h.01"/><path d="M10 21v-4h4v4"/>',
+    map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+    locate: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
+    heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+    heartFill: '<path fill="currentColor" stroke="currentColor" d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+    book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+    moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+    dot: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+    video: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+    route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>'
+  };
+  return `<svg class="ui-ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.sparkle}</svg>`;
+}
+
 function renderCampusPulseSidebar() {
   const host = document.getElementById('campus-pulse-rail');
   if (!host || !state.profile) return;
   const vibe = state.status || state.manualStatus || 'online';
-  const onlineCount = window._lastOnlineCount || 1;
   const posts = Array.isArray(state.posts) ? state.posts : [];
   const tagCounts = new Map();
   posts.forEach(post => {
     (post.moduleTags || []).forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1));
-    getPostHashTags(post).forEach(t => {
-      const key = `#${t}`;
-      tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
-    });
+    getPostHashTags(post)
+      .filter(t => !/^[A-Z]{3,5}\d{3}$/.test(t.toUpperCase()))
+      .forEach(t => {
+        const key = `#${t}`;
+        tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
+      });
   });
   const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   const events = (Array.isArray(allCampusEvents) ? allCampusEvents : []).slice(0, 3);
@@ -6060,44 +6089,41 @@ function renderCampusPulseSidebar() {
   host.innerHTML = `
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Campus Pulse</h3>
-        <span style="font-size:11.5px;font-weight:800;color:var(--green)">● ${onlineCount} live</span>
+        <h3>Status</h3>
       </div>
-      <div style="font-size:12px;color:var(--text-secondary)">Set your vibe on campus</div>
       <div class="pulse-vibe-row">
-        <button type="button" class="pulse-vibe-pill ${vibe === 'online' ? 'active' : ''}" onclick="setCampusVibe('online')">🟢 Active</button>
-        <button type="button" class="pulse-vibe-pill ${vibe === 'study' ? 'active' : ''}" onclick="setCampusVibe('study')">📚 Study</button>
-        <button type="button" class="pulse-vibe-pill ${vibe === 'offline' ? 'active' : ''}" onclick="setCampusVibe('offline')">🌙 Quiet</button>
+        <button type="button" class="pulse-vibe-pill ${vibe === 'online' ? 'active' : ''}" onclick="setCampusVibe('online')">${uiIcon('dot', 12)} Active</button>
+        <button type="button" class="pulse-vibe-pill ${vibe === 'study' ? 'active' : ''}" onclick="setCampusVibe('study')">${uiIcon('book', 13)} Study</button>
+        <button type="button" class="pulse-vibe-pill ${vibe === 'offline' ? 'active' : ''}" onclick="setCampusVibe('offline')">${uiIcon('moon', 13)} Quiet</button>
       </div>
     </div>
 
     <div class="pulse-widget">
       <div class="pulse-widget-head">
         <h3>What's On</h3>
-        <button type="button" class="pulse-widget-link" onclick="openExploreTab('events')">See all →</button>
+        <button type="button" class="pulse-widget-link" onclick="openExploreTab('events')">See all</button>
       </div>
       ${events.length ? events.map(ev => {
     const meta = getEventLocationMeta(ev);
     const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
     return `
           <button type="button" class="pulse-event-item" onclick="openEventDetail('${ev.id || ''}')">
-            <div class="pulse-event-dot">${thumb ? `<img src="${thumb}" alt="">` : '🎉'}</div>
+            <div class="pulse-event-dot">${thumb ? `<img src="${thumb}" alt="">` : uiIcon('calendar', 15)}</div>
             <div class="pulse-event-copy">
               <strong>${esc(ev.title || 'Campus Event')}</strong>
               <span>${esc(ev.date || 'Upcoming')}${meta.label ? ` · ${esc(meta.label)}` : ''}</span>
             </div>
           </button>`;
   }).join('') : `
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-bottom:10px">No upcoming campus events posted yet.</div>
-        <button type="button" class="btn-outline btn-sm w100" onclick="openCreateModal('event')">+ Host a Campus Event</button>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-bottom:10px">No upcoming campus events yet.</div>
+        <button type="button" class="btn-outline btn-sm w100" onclick="openCreateModal('event')">Host an Event</button>
       `}
     </div>
 
     ${topTags.length ? `
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Trending on Campus</h3>
-        <span style="font-size:11px;color:var(--text-tertiary)">Live</span>
+        <h3>Trending</h3>
       </div>
       <div class="pulse-tags-wrap">
         ${topTags.map(([label]) => label.startsWith('#')
@@ -6109,23 +6135,23 @@ function renderCampusPulseSidebar() {
 
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Campus Portals</h3>
+        <h3>Campus</h3>
       </div>
       <div class="pulse-shortcut-grid">
         <button type="button" class="pulse-shortcut-btn" onclick="openResidencesView()">
-          <strong>🏠 Residences</strong>
+          <strong>${uiIcon('building', 14)} Residences</strong>
           <span>650+ NWU stays</span>
         </button>
         <button type="button" class="pulse-shortcut-btn" onclick="openExploreTab('places')">
-          <strong>🗺️ Hotspots</strong>
-          <span>Campus map &amp; routes</span>
+          <strong>${uiIcon('map', 14)} Hotspots</strong>
+          <span>Map &amp; routes</span>
         </button>
         <button type="button" class="pulse-shortcut-btn" onclick="openMessagesTab('groups')">
-          <strong>👥 Squads</strong>
-          <span>Study &amp; event chats</span>
+          <strong>${uiIcon('users', 14)} Squads</strong>
+          <span>Study &amp; group chats</span>
         </button>
         <button type="button" class="pulse-shortcut-btn" onclick="openTimetableModal(state.user?.uid)">
-          <strong>🗓️ Classes</strong>
+          <strong>${uiIcon('calendar', 14)} Classes</strong>
           <span>Schedule &amp; exams</span>
         </button>
       </div>
@@ -6151,10 +6177,6 @@ function setupHeader() {
       if (state.page === 'feed') triggerFeedInstantRefresh();
       else navigate('feed', { refresh: false, restoreFeed: true });
     };
-  }
-  const livePill = $('#hdr-live-pill');
-  if (livePill) {
-    livePill.onclick = () => openExploreTab('radar');
   }
   const videoBtn = $('#hdr-video-btn');
   if (videoBtn) {
@@ -6638,12 +6660,6 @@ function updateStatusUI() {
     else { pill.classList.add('offline'); dot.classList.add('gray'); txt.textContent = 'Offline'; }
   }
   document.querySelector('#hdr-avatar .header-presence-dot')?.classList.toggle('is-online', state.status === 'online');
-  const feedVibe = document.getElementById('feed-vibe-chip');
-  if (feedVibe) {
-    const v = state.status || state.manualStatus || 'online';
-    feedVibe.className = `campus-vibe-chip ${v === 'online' ? 'vibe-online' : v === 'study' ? 'vibe-study' : ''}`;
-    feedVibe.innerHTML = v === 'study' ? '📚 Studying' : v === 'offline' ? '🌙 Quiet' : '🟢 Online';
-  }
   renderCampusPulseSidebar();
 }
 
@@ -7303,6 +7319,22 @@ function applyFeedLensFilter(posts = [], lens = _feedLens) {
   return list;
 }
 
+let _feedDiscoverTab = 'people';
+
+function bindInlineFeedDiscoverTabs() {
+  const tabs = $$('#feed-posts .discover-tab');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.dt === _feedDiscoverTab);
+    tab.onclick = () => {
+      _feedDiscoverTab = tab.dataset.dt === 'events' ? 'events' : 'people';
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.dt === _feedDiscoverTab));
+      if (_feedDiscoverTab === 'people') loadDiscoverPeople();
+      else loadDiscoverEvents();
+    };
+  });
+}
+
 function renderFeedResults(posts = []) {
   const searchFiltered = filterFeedPosts(posts, _feedSearchQuery);
   const filtered = _feedSearchQuery ? searchFiltered : applyFeedLensFilter(searchFiltered, _feedLens);
@@ -7319,22 +7351,20 @@ function renderFeedResults(posts = []) {
     }
   }
 
-  if (_feedSearchQuery) {
-    const trends = $('#module-trends');
-    const rail = $('#feed-trending-posts');
-    if (trends) trends.innerHTML = '';
-    if (rail) rail.innerHTML = '';
-  } else {
-    renderModuleTrends(posts);
-    renderTrendingPostsRail(posts);
-  }
-
   renderPosts(filtered);
+
+  if (!_feedSearchQuery && _feedLens === 'all') {
+    bindInlineFeedDiscoverTabs();
+    if (_feedDiscoverTab === 'events') loadDiscoverEvents();
+    else loadDiscoverPeople();
+    renderTrendingPostsRail(posts);
+    renderModuleTrends(posts);
+  }
   renderCampusPulseSidebar();
 }
 
 // ══════════════════════════════════════════════════
-//  FEED — Living Campus Square & Discovery Stream
+//  FEED — Clean Stream & Interleaved Campus Discovery
 // ══════════════════════════════════════════════════
 function renderFeed() {
   resetFeedSeeds(); // new random order every time feed is opened / refreshed
@@ -7344,34 +7374,20 @@ function renderFeed() {
   const ensureDiscoverLoaded = () => {
     if (discoverLoaded) return;
     discoverLoaded = true;
-    loadDiscoverPeople();
+    if (_feedDiscoverTab === 'events') loadDiscoverEvents();
+    else loadDiscoverPeople();
     loadFeedLiveSpotlight();
   };
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
-  const firstName = (p.firstName || (p.displayName || 'Student').split(' ')[0] || 'Student').trim();
-  const campusLabel = [p.university || 'NWU', p.campus || p.address || 'Campus'].filter(Boolean).join(' · ');
-  const vibe = state.status || state.manualStatus || 'online';
-  const vibeClass = vibe === 'online' ? 'vibe-online' : vibe === 'study' ? 'vibe-study' : '';
-  const vibeLabel = vibe === 'study' ? '📚 Studying' : vibe === 'offline' ? '🌙 Quiet' : '🟢 Online';
 
   c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
-      <div class="campus-hero-strip">
-        <div class="campus-hero-copy">
-          <h2>${getCampusGreeting()}, ${esc(firstName)}</h2>
-          <div class="campus-hero-sub">${esc(campusLabel)} · What's moving around you</div>
-        </div>
-        <button type="button" id="feed-vibe-chip" class="campus-vibe-chip ${vibeClass}" onclick="cycleCampusVibe()" title="Tap to switch your campus status">
-          ${vibeLabel}
-        </button>
-      </div>
-
       <div class="feed-toolbar home-toolbar">
         <div class="search-bar feed-search-bar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="feed-search-input" placeholder="Search campus posts, #tags, people or modules…" value="${esc(_feedSearchQuery)}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="feed-search-input" placeholder="Search posts, #tags, people or modules…" value="${esc(_feedSearchQuery)}">
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
@@ -7379,9 +7395,9 @@ function renderFeed() {
       ${isNwuDemoActive() ? `
       <div class="nwu-demo-feed-banner">
         <div class="nwu-demo-top-row">
-          <div class="nwu-demo-banner-pill">🎓 NWU Staff Preview</div>
+          <div class="nwu-demo-banner-pill">NWU Preview</div>
           <div class="nwu-demo-banner-actions">
-            <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Sample Profiles</button>
+            <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Profiles</button>
             <button class="btn-xs btn-outline" onclick="openExploreTab('radar')">Radar</button>
             <button class="btn-xs btn-outline" onclick="exitNwuDemoMode()">Sign In</button>
           </div>
@@ -7390,88 +7406,34 @@ function renderFeed() {
 
       <div id="feed-refresh-banner" class="feed-refresh-banner" style="${_feedIsRefreshing ? 'display:flex' : 'display:none'}">
         <span class="inline-spinner" style="width:14px;height:14px;color:var(--accent)"></span>
-        <span>Refreshing campus…</span>
+        <span>Refreshing…</span>
       </div>
 
-      <!-- Around Campus Quick-Discovery Doorways -->
-      <div class="campus-doorways-rail" role="navigation" aria-label="Around campus shortcuts">
-        <button type="button" class="campus-doorway-pill" onclick="openExploreTab('radar')">
-          <span class="campus-doorway-icon">🗺️</span><span>Campus Map</span>
-        </button>
-        <button type="button" class="campus-doorway-pill tone-amber" onclick="openExploreTab('events')">
-          <span class="campus-doorway-icon">🎉</span><span>Events</span>
-        </button>
-        <button type="button" class="campus-doorway-pill tone-emerald" onclick="openResidencesView()">
-          <span class="campus-doorway-icon">🏠</span><span>Residences</span>
-        </button>
-        <button type="button" class="campus-doorway-pill tone-rose" onclick="openVideoHub()">
-          <span class="campus-doorway-icon">🎬</span><span>Clips &amp; Live</span>
-        </button>
-        <button type="button" class="campus-doorway-pill tone-blue" onclick="openMessagesTab('groups')">
-          <span class="campus-doorway-icon">👥</span><span>Study Squads</span>
-        </button>
-        <button type="button" class="campus-doorway-pill" onclick="openTimetableModal(state.user?.uid)">
-          <span class="campus-doorway-icon">🗓️</span><span>My Classes</span>
-        </button>
-      </div>
-
-      <!-- Campus Stories Rail -->
-      <div class="feed-stories-wrap">
-        <div class="feed-section-label-row">
-          <span>Campus Stories</span>
-          <button type="button" onclick="openStoryCreator()">+ Add story</button>
-        </div>
-        <div class="stories-row feed-stories-row" id="stories-row">
-          <div class="story-item add-story" onclick="openStoryCreator()">
-            <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
-            <div class="story-name">Your story</div>
-          </div>
-        </div>
+      <!-- Single-Row Filter & Campus Portal Bar -->
+      <div class="feed-lenses-bar" role="tablist" aria-label="Filter feed">
+        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">Trending</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">Buzz</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">Study</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">Media</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">Friends</button>
+        <span class="feed-lens-sep" aria-hidden="true"></span>
+        <button type="button" class="feed-lens-chip is-portal" onclick="openExploreTab('events')">${uiIcon('calendar', 13)} Events</button>
+        <button type="button" class="feed-lens-chip is-portal" onclick="openResidencesView()">${uiIcon('building', 13)} Residences</button>
+        <button type="button" class="feed-lens-chip is-portal" onclick="openTimetableModal(state.user?.uid)">${uiIcon('book', 13)} Classes</button>
       </div>
 
       <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
-      <!-- Campus Composer Card with Intent Shortcuts -->
-      <div class="create-post-prompt campus-composer-card">
-        <div class="composer-card-top" onclick="openCreateModal('post')">
-          ${avatar(p.displayName, p.photoURL, 'avatar-md')}
-          <div class="composer-card-input">Share a moment, question, or campus tip…</div>
+      <!-- Compact Single-Row Composer -->
+      <div class="create-post-prompt campus-composer-compact" onclick="openCreateModal('post')">
+        ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
+        <span class="composer-compact-input">What's on your mind?</span>
+        <div class="composer-compact-tools" onclick="event.stopPropagation()">
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 15)}</button>
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 15)}</button>
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 15)}</button>
         </div>
-        <div class="composer-quick-intents">
-          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { pickMedia: true })">📷 Photo / Video</button>
-          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { openPoll: true })">📊 Poll</button>
-          <button type="button" class="composer-intent-btn" onclick="openCreateModal('post', { anon: true })">👻 Whisper</button>
-          <button type="button" class="composer-intent-btn" onclick="openCreateModal('event')">🎉 Event</button>
-        </div>
-      </div>
-
-      <!-- Discover Campus: People & Events Deck -->
-      <div class="discover-section ${shouldDelayDiscover ? 'discover-section-pending' : ''}">
-        <div class="discover-deck-head">
-          <div class="discover-deck-title">Discover Campus</div>
-          <div class="discover-tabs">
-            <button class="discover-tab active" data-dt="people">People</button>
-            <button class="discover-tab" data-dt="events">Events</button>
-          </div>
-        </div>
-        <div class="discover-content" id="discover-content">
-          ${shouldDelayDiscover
-      ? '<div class="discover-empty"><span>⏳</span><p>Loading campus…</p></div>'
-      : '<div style="padding:20px;text-align:center"><span class="inline-spinner"></span></div>'}
-        </div>
-      </div>
-
-      <div id="feed-trending-posts"></div>
-      <div id="module-trends"></div>
-
-      <!-- Feed Discovery Lenses -->
-      <div class="feed-lenses-bar" role="tablist" aria-label="Filter campus stream">
-        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">🔥 Trending</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">👻 Campus Buzz</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">📸 Media</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">📚 Study &amp; Modules</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">🤝 Friends</button>
       </div>
 
       <div id="feed-posts">
@@ -7480,21 +7442,7 @@ function renderFeed() {
     </div>
   `;
 
-  // Wire discover tabs
-  $$('.discover-tab').forEach(tab => {
-    tab.onclick = () => {
-      $$('.discover-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      if (tab.dataset.dt === 'people') loadDiscoverPeople();
-      else loadDiscoverEvents();
-      if (!shouldDelayDiscover) loadFeedLiveSpotlight();
-    };
-  });
-
-  loadStories();
-
   if (!shouldDelayDiscover) {
-    loadDiscoverPeople();
     loadFeedLiveSpotlight();
   }
   if (Array.isArray(state.posts) && state.posts.length) {
@@ -7809,7 +7757,7 @@ function loadDiscoverEvents() {
   // Use allCampusEvents if loaded, otherwise fetch
   const renderEvts = (events) => {
     if (!events.length) {
-      el.innerHTML = `<div class="discover-empty"><span>Events</span><p>No events yet. Check the Campus map!</p></div>`;
+      el.innerHTML = `<div class="discover-empty" style="padding:18px 14px"><span style="color:var(--text-tertiary);display:inline-flex">${uiIcon('calendar', 22)}</span><p style="font-size:12.5px;margin-top:6px">No upcoming events yet. <button type="button" class="pulse-widget-link" style="text-decoration:underline;padding:0;margin-left:4px" onclick="openCreateModal('event')">Host one</button></p></div>`;
       return;
     }
     const interestProfile = buildInterestProfile();
@@ -7830,16 +7778,16 @@ function loadDiscoverEvents() {
         && getLocationDistanceBoost({ lat: locationMeta.lat, lng: locationMeta.lng }) > 0
         ? ' · Near you'
         : '';
-      const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+      const grad = ev.gradient || 'linear-gradient(135deg,#1D2030,#313652)';
       const goingCount = (ev.going || []).length;
       const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
       return `
         <div class="discover-card event-card" onclick="${ev.id ? `openEventDetail('${ev.id}')` : `toast('View on Campus map!')`}">
-          ${thumb ? `<img src="${thumb}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div class="event-card-placeholder" style="background:${grad};width:100%;height:120px;border-radius:var(--radius);margin-bottom:8px"></div>`}
+          ${thumb ? `<img src="${thumb}" style="width:100%;height:110px;object-fit:cover;border-radius:var(--radius);margin-bottom:8px">` : `<div class="event-card-placeholder" style="background:${grad};width:100%;height:110px;border-radius:var(--radius);margin-bottom:8px"></div>`}
           <div class="discover-card-name">${esc(ev.title)}</div>
           <div class="discover-card-meta">${esc(ev.date || '')} ${esc(ev.time || '')}</div>
-          <div class="discover-card-tag">📍 ${esc(locName)}${nearLabel}</div>
-          ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">👥 ${goingCount} going</div>` : ''}
+          <div class="discover-card-tag">${uiIcon('pin', 12)} ${esc(locName)}${nearLabel}</div>
+          ${goingCount ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;display:inline-flex;align-items:center;gap:4px">${uiIcon('users', 11)} ${goingCount} going</div>` : ''}
         </div>`;
     }).join('')}</div>`;
   };
@@ -8802,6 +8750,34 @@ function renderPosts(posts) {
       picks.forEach(p => _feedInlineSuggestedUserIds.add(p.id));
       _feedInlineSuggestionSlotsUsed += 1;
     }
+  }
+
+  // Interleave compact Discover Campus (People|Events) & Trending Now naturally inside the stream so posts appear immediately above the fold
+  if (!_feedSearchQuery && _feedLens === 'all' && postCards.length > 0) {
+    const discoverBlock = `
+      <div class="discover-section feed-inline-discover">
+        <div class="discover-deck-head">
+          <div class="discover-deck-title">Discover</div>
+          <div class="discover-tabs">
+            <button class="discover-tab ${_feedDiscoverTab === 'people' ? 'active' : ''}" data-dt="people">People</button>
+            <button class="discover-tab ${_feedDiscoverTab === 'events' ? 'active' : ''}" data-dt="events">Events</button>
+          </div>
+        </div>
+        <div class="discover-content" id="discover-content">
+          <div style="padding:16px;text-align:center"><span class="inline-spinner"></span></div>
+        </div>
+      </div>`;
+    const trendingSlot = `<div id="feed-trending-posts"></div>`;
+    const tagsSlot = `<div id="module-trends"></div>`;
+
+    // Insert from back to front so indices stay accurate
+    if (postCards.length >= 5) postCards.splice(5, 0, tagsSlot);
+    else postCards.push(tagsSlot);
+
+    if (postCards.length >= 3) postCards.splice(3, 0, trendingSlot);
+    else postCards.push(trendingSlot);
+
+    postCards.splice(Math.min(1, postCards.length), 0, discoverBlock);
   }
 
   el.innerHTML = postCards.join('');
@@ -10822,12 +10798,12 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
     const mi = $('#modal-inner');
     if (!mi) return;
     mi.innerHTML = `
-    <div class="modal-header create-modal-header"><div><h2>Share with Campus</h2><p class="create-modal-subtitle">Post a moment, host an event, sell on Hustle, or add a story</p></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
+    <div class="modal-header create-modal-header"><div><h2>Create</h2></div><button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button></div>
     <div class="create-tabs">
-      <button type="button" class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">📝 Post</button>
-      <button type="button" class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">🎉 Event</button>
-      <button type="button" class="create-tab" data-ct="sell">🛍️ Sell</button>
-      <button type="button" class="create-tab" data-ct="story">✨ Story</button>
+      <button type="button" class="create-tab ${createTab === 'post' ? 'active' : ''}" data-ct="post">${uiIcon('edit', 14)} Post</button>
+      <button type="button" class="create-tab ${createTab === 'event' ? 'active' : ''}" data-ct="event">${uiIcon('calendar', 14)} Event</button>
+      <button type="button" class="create-tab" data-ct="sell">${uiIcon('bag', 14)} Sell</button>
+      <button type="button" class="create-tab" data-ct="story">${uiIcon('sparkle', 14)} Story</button>
     </div>
     <div class="modal-body">
       ${createTab === 'post' ? `
@@ -10836,22 +10812,20 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
           <div id="create-author-avatar">${avatar(state.profile.displayName, state.profile.photoURL, 'avatar-md')}</div>
           <div>
             <div id="create-author-name" style="font-weight:700">${esc(state.profile.displayName)}</div>
-            <div style="font-size:12px;color:var(--text-secondary)">Posting to ${esc(state.profile.university || 'NWU')} Campus</div>
+            <div style="font-size:12px;color:var(--text-secondary)">${esc(state.profile.university || 'NWU')}</div>
           </div>
         </div>
         <div class="create-author-actions">
-          <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">👻 Anon off</button>
+          <button type="button" class="btn-outline create-anon-toggle" id="create-anon-toggle" aria-pressed="false" title="Toggle anonymous posting">${uiIcon('ghost', 14)} Anon off</button>
         </div>
       </div>
-      <textarea id="create-text" class="create-composer-text" placeholder="What is happening around campus?" aria-label="Post text"></textarea>
+      <textarea id="create-text" class="create-composer-text" placeholder="What's on your mind?" aria-label="Post text"></textarea>
       <div class="create-topic-chips" aria-label="Quick campus tags">
         <button type="button" class="create-topic-chip" data-tag="#campuslife">#campuslife</button>
         <button type="button" class="create-topic-chip" data-tag="#events">#events</button>
         <button type="button" class="create-topic-chip" data-tag="#study">#study</button>
         <button type="button" class="create-topic-chip" data-tag="#housing">#housing</button>
-        <button type="button" class="create-topic-chip" data-tag="#lostandfound">#lostandfound</button>
       </div>
-      <div class="create-post-hint create-composer-helper">Tip: mention @friends or add a module code like #CMPG121 to reach classmates.</div>
       <div id="create-mention-suggestions" class="create-mention-suggestions" style="display:none"></div>
       <div id="create-preview" class="media-preview" style="display:none">
         <div id="create-preview-content" class="collage-preview-grid"></div>
@@ -10859,15 +10833,15 @@ function openCreateModal(initialTab = 'post', presetData = {}) {
       </div>
       <div class="create-post-actions-row create-composer-toolbar">
         <div class="create-post-actions-left">
-          <label class="add-photo-btn composer-tool-btn" title="Add media" aria-label="Add media"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
-          <button type="button" class="btn-outline composer-tool-btn" id="create-pin-location" title="Add location">📍 <span>Pin</span></button>
-          <button type="button" class="btn-outline composer-tool-btn" id="create-poll-btn" title="Add poll">📊 <span>Poll</span></button>
+          <label class="add-photo-btn composer-tool-btn" title="Add media" aria-label="Add media">${uiIcon('image', 16)}<input type="file" hidden accept="image/*,video/*" id="create-media-file" multiple></label>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-pin-location" title="Add location">${uiIcon('pin', 15)} <span>Pin</span></button>
+          <button type="button" class="btn-outline composer-tool-btn" id="create-poll-btn" title="Add poll">${uiIcon('poll', 15)} <span>Poll</span></button>
           <select id="create-visibility" class="composer-visibility" aria-label="Post visibility">
-            <option value="public">🌍 Public</option>
-            <option value="friends">👫 Friends</option>
+            <option value="public">Public</option>
+            <option value="friends">Friends</option>
           </select>
         </div>
-        <button class="btn-primary composer-submit" id="create-submit">Share</button>
+        <button class="btn-primary composer-submit" id="create-submit">Post</button>
       </div>
       <div id="create-location-pill" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
       <div id="create-poll-pill" class="create-poll-pill" style="display:none;margin-top:8px"></div>
@@ -10973,7 +10947,7 @@ No</textarea></div>
     const refreshPollUI = () => {
       const pill = $('#create-poll-pill');
       const pollBtn = $('#create-poll-btn');
-      if (pollBtn) pollBtn.innerHTML = postPoll?.question ? '📊 <span>Edit</span>' : '📊 <span>Poll</span>';
+      if (pollBtn) pollBtn.innerHTML = postPoll?.question ? `${uiIcon('poll', 15)} <span>Edit</span>` : `${uiIcon('poll', 15)} <span>Poll</span>`;
       if (!pill) return;
       if (!postPoll?.question) {
         pill.style.display = 'none';
@@ -10994,7 +10968,7 @@ No</textarea></div>
       const btn = $('#create-anon-toggle');
       if (!btn) return;
       btn.setAttribute('aria-pressed', createAnon ? 'true' : 'false');
-      btn.textContent = createAnon ? '👻 Anon on' : '👻 Anon off';
+      btn.innerHTML = `${uiIcon('ghost', 14)} ${createAnon ? 'Anon on' : 'Anon off'}`;
       btn.classList.toggle('anon-active', createAnon);
       const nameEl = $('#create-author-name');
       if (nameEl) nameEl.textContent = createAnon ? anonIdentity : (state.profile.displayName || 'User');
@@ -11330,17 +11304,14 @@ function renderExplore() {
   c.innerHTML = `
     <div class="explore-page">
       <div class="explore-hub-head">
-        <div>
-          <h2>Explore Campus</h2>
-          <p>Discover people, live map, events &amp; places around NWU</p>
-        </div>
+        <h2>Explore</h2>
         <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
       <div class="explore-toggle">
-        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">🗺️ Radar</button>
-        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">👥 People</button>
-        <button class="explore-toggle-btn ${exploreView === 'events' ? 'active' : ''}" data-v="events">🎉 Events</button>
-        <button class="explore-toggle-btn ${exploreView === 'places' ? 'active' : ''}" data-v="places">🏛️ Places</button>
+        <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">${uiIcon('compass', 14)} Radar</button>
+        <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">${uiIcon('users', 14)} People</button>
+        <button class="explore-toggle-btn ${exploreView === 'events' ? 'active' : ''}" data-v="events">${uiIcon('calendar', 14)} Events</button>
+        <button class="explore-toggle-btn ${exploreView === 'places' ? 'active' : ''}" data-v="places">${uiIcon('building', 14)} Places</button>
       </div>
       <div id="explore-body">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -11445,11 +11416,11 @@ function renderExploreEventsView() {
   if (!events.length) {
     body.innerHTML = `
       <div style="padding:12px 16px 24px">
-        <div class="empty-state" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;padding:36px 20px">
-          <div class="empty-state-icon">🎉</div>
-          <h3>No upcoming campus events yet</h3>
-          <p style="margin-bottom:14px">Start a study meetup, society gathering, sports run, or hangout on campus.</p>
-          <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">+ Host Campus Event</button>
+        <div class="empty-state" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:18px;padding:34px 20px">
+          <div class="empty-state-icon" style="color:var(--text-tertiary)">${uiIcon('calendar', 30)}</div>
+          <h3>No upcoming events</h3>
+          <p style="margin-bottom:14px">Host a study session, meetup, or society event on campus.</p>
+          <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">Host Event</button>
         </div>
       </div>`;
     return;
@@ -11461,7 +11432,7 @@ function renderExploreEventsView() {
     const meta = getEventLocationMeta(ev);
     const locLabel = meta.label || ev.location || 'NWU Campus';
     const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
-    const grad = ev.gradient || 'linear-gradient(135deg,#5B3DF5,#8B5CF6)';
+    const grad = ev.gradient || 'linear-gradient(135deg,#1D2030,#313652)';
     const going = Array.isArray(ev.going) ? ev.going : [];
     const amGoing = going.includes(uid);
     return `
@@ -11472,10 +11443,10 @@ function renderExploreEventsView() {
             </div>
             <div class="explore-event-body">
               <div class="explore-event-title">${esc(ev.title || 'Campus Event')}</div>
-              <div class="explore-event-meta">📍 ${esc(locLabel)} · 👥 ${going.length} going</div>
+              <div class="explore-event-meta">${uiIcon('pin', 13)} ${esc(locLabel)} · ${uiIcon('users', 13)} ${going.length} going</div>
               <div class="explore-event-foot">
-                <button type="button" class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" onclick="event.stopPropagation();toggleEventGoing('${ev.id || ''}')">${amGoing ? '✓ Going' : "I'm Going"}</button>
-                <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation();routeToEventLocationById('${ev.id || ''}')">🧭 Route</button>
+                <button type="button" class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" onclick="event.stopPropagation();toggleEventGoing('${ev.id || ''}')">${amGoing ? `${uiIcon('check', 13)} Going` : "I'm Going"}</button>
+                <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation();routeToEventLocationById('${ev.id || ''}')">${uiIcon('route', 13)} Route</button>
               </div>
             </div>
           </article>`;
@@ -11494,24 +11465,24 @@ function renderExplorePlacesView() {
   body.innerHTML = `
     <div class="explore-residences-hero">
       <div>
-        <h3>🏠 NWU Accredited Residences &amp; Housing</h3>
-        <p>Browse 650+ official on-campus &amp; 2026 accredited private residences with photos, room counts, distance &amp; interactive map.</p>
+        <h3>${uiIcon('building', 16)} NWU Residences</h3>
+        <p>650+ official &amp; accredited residences with map &amp; details.</p>
       </div>
-      <button type="button" class="explore-residences-cta" onclick="openResidencesView()">Open Residences →</button>
+      <button type="button" class="explore-residences-cta" onclick="openResidencesView()">Browse</button>
     </div>
     <div style="padding:0 16px 10px;display:flex;align-items:center;justify-content:space-between">
       <h3 style="font-size:15px;font-weight:800">Campus Hotspots</h3>
-      <span style="font-size:12px;color:var(--text-secondary)">${CAMPUS_LOCATIONS.length} landmarks</span>
+      <span style="font-size:12px;color:var(--text-secondary)">${CAMPUS_LOCATIONS.length} places</span>
     </div>
     <div class="explore-places-grid">
       ${CAMPUS_LOCATIONS.map(loc => {
     const count = (eventsByLoc[loc.id] || []).length;
     return `
           <div class="explore-place-card" onclick="openLocationDetail('${loc.id}')">
-            <div class="explore-place-icon">${loc.emoji}</div>
+            <div class="explore-place-icon">${uiIcon('pin', 16)}</div>
             <div class="explore-place-info">
               <strong>${esc(loc.name)}</strong>
-              <span>${count ? `🎉 ${count} event${count > 1 ? 's' : ''} happening` : 'Tap for details & walking route'}</span>
+              <span>${count ? `${count} event${count > 1 ? 's' : ''} happening` : 'Details &amp; walking route'}</span>
             </div>
             <button type="button" class="btn-outline btn-xs" onclick="event.stopPropagation();routeToCampusLocation('${loc.id}')">Route</button>
           </div>`;
@@ -11649,10 +11620,10 @@ function renderRadarView() {
       <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
     </div>
     <div class="radar-quick-actions">
-      <button type="button" class="radar-quick-btn" onclick="openCreateEvent()">📍 Pin Event</button>
-      <button type="button" class="radar-quick-btn" onclick="openResidencesView()">🏠 Residences Map</button>
-      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">🏛️ Campus Places</button>
-      <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">⌖ My Location</button>
+      <button type="button" class="radar-quick-btn" onclick="openCreateEvent()">${uiIcon('pin', 14)} Pin Event</button>
+      <button type="button" class="radar-quick-btn" onclick="openResidencesView()">${uiIcon('building', 14)} Residences</button>
+      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">${uiIcon('map', 14)} Places</button>
+      <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">${uiIcon('locate', 14)} My Location</button>
     </div>
     <div class="radar-map-wrap">
       <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
@@ -13867,19 +13838,16 @@ function renderHustle() {
   c.innerHTML = `
     <div class="hustle-page">
       <div class="hustle-header">
-        <div class="hustle-header-copy">
-          <h2>Hustle Market</h2>
-          <p>Buy, sell &amp; trade student essentials around NWU</p>
-        </div>
+        <h2>Marketplace</h2>
         <div class="hustle-header-actions">
-          <button class="btn-outline btn-sm" id="hustle-saved-btn" onclick="openSavedCartView()">♥ Saved${savedCount ? ` (${savedCount})` : ''}</button>
+          <button class="btn-outline btn-sm" id="hustle-saved-btn" onclick="openSavedCartView()">${uiIcon('heart', 14)} Saved${savedCount ? ` (${savedCount})` : ''}</button>
           <button class="btn-primary btn-sm" onclick="openSellModal()">+ Sell</button>
         </div>
       </div>
       <div style="margin-bottom:12px">
         <div class="search-bar" style="margin-bottom:0">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="hustle-search" placeholder="Search textbooks, tech, snacks, services…">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="hustle-search" placeholder="Search items...">
         </div>
       </div>
       <div class="category-tabs">
@@ -13918,15 +13886,15 @@ function toggleListingSaveQuick(itemId, btnEl) {
   const wasSaved = savedSet.has(itemId);
   if (wasSaved) {
     removeSavedListingFromProfile(itemId);
-    if (btnEl) { btnEl.classList.remove('is-saved'); btnEl.textContent = '♡'; }
+    if (btnEl) { btnEl.classList.remove('is-saved'); btnEl.innerHTML = uiIcon('heart', 14); }
   } else {
     saveListingToProfile(itemId);
-    if (btnEl) { btnEl.classList.add('is-saved'); btnEl.textContent = '♥'; }
+    if (btnEl) { btnEl.classList.add('is-saved'); btnEl.innerHTML = uiIcon('heartFill', 14); }
   }
   const savedBtn = document.getElementById('hustle-saved-btn');
   if (savedBtn) {
     const nextCount = Math.max(0, savedSet.size + (wasSaved ? -1 : 1));
-    savedBtn.textContent = `♥ Saved${nextCount ? ` (${nextCount})` : ''}`;
+    savedBtn.innerHTML = `${uiIcon('heart', 14)} Saved${nextCount ? ` (${nextCount})` : ''}`;
   }
 }
 window.toggleListingSaveQuick = toggleListingSaveQuick;
@@ -14007,9 +13975,9 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
       <div class="listing-media-wrap">
         ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
         <div class="listing-overlay-badges">
-          ${item._sellingFast ? '<span class="listing-overlay-pill is-hot">⚡ Fast</span>' : item._isHot ? '<span class="listing-overlay-pill is-hot">🔥 Hot</span>' : ''}
+          ${item._sellingFast ? '<span class="listing-overlay-pill">Fast</span>' : item._isHot ? '<span class="listing-overlay-pill">Popular</span>' : ''}
         </div>
-        <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? '♥' : '♡'}</button>
+        <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? uiIcon('heartFill', 14) : uiIcon('heart', 14)}</button>
       </div>
       <div class="listing-info">
         <div class="listing-price-row">
@@ -15030,7 +14998,7 @@ function renderMessages() {
         <h2>Messages</h2>
         <div class="messages-header-actions">
           <button type="button" class="messages-anon-pill ${anonEnabled ? 'is-on' : ''}" id="messages-anon-pref" title="Anonymous message privacy">
-            <span>👻</span><span id="messages-anon-label">${anonEnabled ? 'Anon: ON' : 'Anon: OFF'}</span>
+            ${uiIcon('ghost', 14)}<span id="messages-anon-label">${anonEnabled ? 'Anon: ON' : 'Anon: OFF'}</span>
           </button>
         </div>
       </div>
