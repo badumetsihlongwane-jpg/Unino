@@ -800,26 +800,40 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
               : notifType === 'group' ? 'group'
                 : 'app');
   const from = data.from && typeof data.from === 'object' ? data.from : {};
-  const pushTitle = String(from.name || 'Unibo').trim() || 'Unibo';
-  const pushBody = String(data.text || 'You have a new notification').trim() || 'You have a new notification';
+  const rawFromPhoto = String(from.photo || '').trim();
+  // Never include base64 data: URIs or long URLs in FCM push payloads (FCM strictly enforces a 4096-byte message limit)
+  const safePushPhoto = (/^https?:\/\//i.test(rawFromPhoto) && !/^data:/i.test(rawFromPhoto) && rawFromPhoto.length <= 240)
+    ? rawFromPhoto
+    : '';
+  const clampPushStr = (val, max = 80) => {
+    const s = String(val == null ? '' : val).trim();
+    return s.length > max ? `${s.slice(0, Math.max(0, max - 1))}…` : s;
+  };
+  const pushTitle = clampPushStr(from.name || 'Unibo', 72) || 'Unibo';
+  const pushBody = clampPushStr(data.text || 'You have a new notification', 200) || 'You have a new notification';
+  const safeNotifPayload = {};
+  ['kind', 'convoId', 'groupId', 'collection', 'postId', 'streamId', 'profileId', 'notifDocId'].forEach(k => {
+    const v = clampPushStr(notifPayload[k] || '', 80);
+    if (v) safeNotifPayload[k] = v;
+  });
   const bridgePayload = {
     mode,
-    targetId,
-    type: notifType,
+    targetId: clampPushStr(targetId, 80),
+    type: clampPushStr(notifType, 32),
     title: pushTitle,
     text: pushBody,
     body: pushBody,
-    kind,
+    kind: clampPushStr(kind, 32),
     priority: 'high',
     sound: 'default',
     channelId: (kind === 'dm' || kind === 'group') ? 'unibo-messages' : 'unibo-general',
     providerId: window.UNINO_APPWRITE_PUSH_PROVIDER_ID || '69dd5e4600355126b5b0',
     at: new Date().toISOString(),
-    payload: notifPayload,
+    payload: safeNotifPayload,
     from: {
-      uid: String(from.uid || ''),
+      uid: clampPushStr(from.uid || '', 80),
       name: pushTitle,
-      photo: String(from.photo || '')
+      photo: safePushPhoto
     }
   };
 
@@ -6063,9 +6077,53 @@ function uiIcon(name, size = 15) {
     check: '<polyline points="20 6 9 17 4 12"/>',
     flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
     video: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
-    route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>'
+    route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+    eye360: '<circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'
   };
   return `<svg class="ui-ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.sparkle}</svg>`;
+}
+
+const DEFAULT_SWIPE_IGNORE_SELECTOR = '.maplibregl-canvas, .maplibregl-map, .leaflet-container, .radar-map-wrap, .discover-scroll, .trending-post-scroll, .stories-row, .feed-lenses-bar, .radar-quick-actions, .hustle-categories, .suggested-list, .places-block-pills, .campus-360-stage, .collage-grid, .vn-player, input, textarea, select, [data-no-tab-swipe]';
+
+function attachHorizontalTabSwipe(el, { getCount, getIndex, onSelect, ignoreSelector = DEFAULT_SWIPE_IGNORE_SELECTOR } = {}) {
+  if (!el || typeof getCount !== 'function' || typeof getIndex !== 'function' || typeof onSelect !== 'function') return;
+  if (el._tabSwipeCleanup) {
+    try { el._tabSwipeCleanup(); } catch (_) { }
+  }
+  let start = null;
+  const onStart = ev => {
+    const touch = ev.touches?.[0];
+    if (!touch || ev.touches.length > 1) { start = null; return; }
+    if (ignoreSelector && ev.target?.closest?.(ignoreSelector)) { start = null; return; }
+    start = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  };
+  const onEnd = ev => {
+    if (!start) return;
+    const touch = ev.changedTouches?.[0];
+    const s = start;
+    start = null;
+    if (!touch) return;
+    const dx = touch.clientX - s.x;
+    const dy = touch.clientY - s.y;
+    const dt = Date.now() - s.t;
+    if (dt > 750 || Math.abs(dx) < 52 || Math.abs(dy) > 78 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    const count = Number(getCount()) || 0;
+    const cur = Number(getIndex());
+    if (count < 2 || cur < 0) return;
+    const next = Math.max(0, Math.min(count - 1, cur + (dx < 0 ? 1 : -1)));
+    if (next !== cur) {
+      try { navigator.vibrate?.(8); } catch (_) { }
+      onSelect(next, dx < 0 ? 'next' : 'prev');
+    }
+  };
+  el.addEventListener('touchstart', onStart, { passive: true });
+  el.addEventListener('touchend', onEnd, { passive: true });
+  el._tabSwipeCleanup = () => {
+    el.removeEventListener('touchstart', onStart);
+    el.removeEventListener('touchend', onEnd);
+  };
 }
 
 function renderCampusPulseSidebar() {
@@ -6322,7 +6380,9 @@ function clearFeedPostFocus(event, postId) {
   _pendingFeedFocusPostId = '';
 }
 
-async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previousOrder = null, isNearTop = true } = {}) {
+let _lastFeedTopPostIds = new Set();
+
+async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previousOrder = null, isNearTop = true, previousTopIds = null } = {}) {
   const uid = state.user?.uid || '';
   const myFriends = state.profile?.friends || [];
   const likedTagPrefs = new Set();
@@ -6356,6 +6416,7 @@ async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previo
   const seenMap = getSeenPosts();
   const myRegisteredModules = new Set(normalizeModules(state.profile?.modules || []));
   const myMajor = (state.profile?.major || '').trim().toLowerCase();
+  const rotatePenaltyIds = forceReorder ? (previousTopIds || _lastFeedTopPostIds) : null;
 
   const scored = moderatedVisible.map(p => {
     const likes = (p.likes || []).length;
@@ -6364,41 +6425,44 @@ async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previo
     const authorContext = _userContextCache[p.authorId] || null;
     const nearbyBoost = authorContext ? getNearbySignal(state.profile, authorContext).score * 4 : 0;
 
-    // 1. Module relevance: +30 pts per enrolled module match
+    // 1. Module relevance
     const postModules = normalizeModules(p.moduleTags || []);
     const enrolledMatches = postModules.filter(m => myRegisteredModules.has(m)).length;
-    const moduleScore = enrolledMatches * 30;
+    const moduleScore = enrolledMatches * (forceReorder ? 18 : 30);
 
     // 2. Liked modules & tags history
     const sharedLikedModules = postModules.filter(tag => likedModulePrefs.has(tag)).length;
     const sharedTags = getPostHashTags(p).filter(tag => likedTagPrefs.has(tag)).length;
     const interestBoost = sharedLikedModules * 10 + sharedTags * 5;
 
-    // 3. Faculty / Degree affinity: +20 pts if author shares major
+    // 3. Faculty / Degree affinity
     let majorBoost = 0;
     if (myMajor && authorContext?.major && authorContext.major.trim().toLowerCase() === myMajor) {
-      majorBoost = 20;
+      majorBoost = forceReorder ? 12 : 20;
     }
 
-    // 4. Social connection: +25 pts for friends
-    const friendBoost = isFriend ? 25 : 0;
+    // 4. Social connection
+    const friendBoost = isFriend ? (forceReorder ? 16 : 25) : 0;
 
-    // 5. Freshness Half-Life Decay: smooth power decay over 12-24h
-    const ageHrs = p.createdAt ? (Date.now() - (p.createdAt.toDate ? p.createdAt.toDate() : new Date(p.createdAt)).getTime()) / 3600000 : 999;
-    const freshnessScore = (1 / (1 + Math.pow(Math.max(0, ageHrs) / 12, 1.4))) * 35;
+    // 5. Freshness Half-Life Decay
+    const createdMs = p.createdAt ? (p.createdAt.toDate ? p.createdAt.toDate() : (typeof p.createdAt.seconds === 'number' ? new Date(p.createdAt.seconds * 1000) : new Date(p.createdAt))).getTime() : 0;
+    const ageHrs = createdMs ? (Date.now() - createdMs) / 3600000 : 999;
+    const isBrandNew = ageHrs >= 0 && ageHrs < (10 / 60); // Posted in last 10 minutes
+    const freshnessScore = (1 / (1 + Math.pow(Math.max(0, ageHrs) / 12, 1.4))) * 35 + (isBrandNew ? 90 : 0);
 
-    // 6. Engagement Velocity (trending discussions bubble up)
+    // 6. Engagement Velocity
     const engagementVelocity = ((likes * 2.5 + comments * 4) / Math.sqrt(Math.max(0, ageHrs) + 1)) * 1.5;
 
-    // 7. Exploration Perturbation per refresh epoch (smoothly cycles conversations on refresh)
-    const randomFactor = sessionSeed(p.id) * 20;
+    // 7. Exploration Perturbation per refresh epoch (significantly stronger on manual refresh so fresh posts surface)
+    const randomFactor = sessionSeed(p.id) * (forceReorder ? 78 : 24);
 
-    // 8. Seen-post demotion (-12 pts per view, up to 36)
+    // 8. Seen-post & refresh-rotation demotion so refreshing genuinely brings different posts to the top
     const seenEntry = seenMap[p.id];
     const seenPenalty = seenEntry ? Math.min(seenEntry.v * 12, 36) : 0;
+    const refreshRotationPenalty = (!isBrandNew && rotatePenaltyIds && rotatePenaltyIds.has(p.id)) ? 68 : 0;
 
-    const totalScore = moduleScore + majorBoost + friendBoost + nearbyBoost + interestBoost + freshnessScore + engagementVelocity + randomFactor - seenPenalty;
-    return { ...p, _score: totalScore };
+    const totalScore = moduleScore + majorBoost + friendBoost + nearbyBoost + interestBoost + freshnessScore + engagementVelocity + randomFactor - seenPenalty - refreshRotationPenalty;
+    return { ...p, _score: totalScore, _isBrandNew: isBrandNew };
   });
 
   if (!forceReorder && previousOrder && previousOrder.size > 0 && !isNearTop) {
@@ -6418,6 +6482,15 @@ async function curateAndRankFeedPosts(posts = [], { forceReorder = false, previo
     });
   } else {
     scored.sort((a, b) => b._score - a._score || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  }
+
+  // On manual refresh, guarantee the very first post changes whenever alternative posts exist (unless #1 is brand-new)
+  if (forceReorder && scored.length > 1 && rotatePenaltyIds && rotatePenaltyIds.size && rotatePenaltyIds.has(scored[0].id) && !scored[0]._isBrandNew) {
+    const freshIdx = scored.findIndex(p => !rotatePenaltyIds.has(p.id));
+    if (freshIdx > 0) {
+      const [freshTop] = scored.splice(freshIdx, 1);
+      scored.unshift(freshTop);
+    }
   }
 
   // Pin focused post at index 0 if active
@@ -6444,7 +6517,6 @@ async function triggerFeedInstantRefresh(btn) {
 
   const contentEl = document.getElementById('content');
   if (contentEl) {
-    // Instantly reset scroll to top behind loadscreen without forcing smooth scrolling
     contentEl.style.scrollBehavior = 'auto';
     contentEl.scrollTop = 0;
     _feedScrollTop = 0;
@@ -6452,6 +6524,11 @@ async function triggerFeedInstantRefresh(btn) {
       contentEl.style.scrollBehavior = '';
     });
   }
+
+  // Snapshot the currently displayed top posts so refresh rotates fresh posts to the top
+  _lastFeedTopPostIds = new Set((state.posts || []).slice(0, 6).map(p => p.id).filter(Boolean));
+  _feedInlineSuggestionSlotsUsed = 0;
+  _feedInlineSuggestedUserIds = new Set();
 
   _feedIsRefreshing = true;
   _feedFocusedPostId = '';
@@ -6461,7 +6538,7 @@ async function triggerFeedInstantRefresh(btn) {
   const searchInput = $('#feed-search-input');
   if (searchInput) searchInput.value = '';
 
-  resetFeedSeeds(); // Resets epoch seeds so sessionSeed produces new randomFactor for every post!
+  resetFeedSeeds(); // Resets epoch seeds so sessionSeed produces brand-new randomFactor for every post
 
   const existingBanner = document.getElementById('feed-refresh-banner');
   if (existingBanner) {
@@ -6479,18 +6556,21 @@ async function triggerFeedInstantRefresh(btn) {
 
   try {
     const snap = await db.collection('posts').orderBy('createdAt', 'desc').limit(80).get();
-    const freshDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let freshDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!freshDocs.length && isNwuDemoActive()) {
+      freshDocs = getDemoFallbackPosts();
+    }
     const activePosts = freshDocs.filter(post => {
       const expiry = post.locationPing?.expiresAt?.toDate ? post.locationPing.expiresAt.toDate() : (post.locationPing?.expiresAt ? new Date(post.locationPing.expiresAt) : null);
       return !(post.locationPing?.enabled && expiry && expiry.getTime() <= Date.now());
     });
-    const ranked = await curateAndRankFeedPosts(activePosts, { forceReorder: true });
+    const ranked = await curateAndRankFeedPosts(activePosts, { forceReorder: true, previousTopIds: _lastFeedTopPostIds });
     state.posts = ranked;
     renderFeedResults(state.posts);
   } catch (err) {
     console.error('Instant refresh fetch error:', err);
     if (Array.isArray(state.posts) && state.posts.length) {
-      const ranked = await curateAndRankFeedPosts(state.posts, { forceReorder: true });
+      const ranked = await curateAndRankFeedPosts(state.posts, { forceReorder: true, previousTopIds: _lastFeedTopPostIds });
       state.posts = ranked;
       renderFeedResults(state.posts);
     }
@@ -7426,13 +7506,15 @@ function renderFeed() {
       <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <!-- Compact Single-Row Composer -->
-      <div class="create-post-prompt campus-composer-compact" onclick="openCreateModal('post')">
-        ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
-        <span class="composer-compact-input">What's on your mind?</span>
-        <div class="composer-compact-tools" onclick="event.stopPropagation()">
-          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 15)}</button>
-          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 15)}</button>
-          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 15)}</button>
+      <div class="campus-composer-compact">
+        <div class="composer-compact-trigger" onclick="openCreateModal('post')">
+          ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
+          <span class="composer-compact-placeholder">What's on your mind?</span>
+        </div>
+        <div class="composer-compact-actions">
+          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 16)}</button>
+          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 16)}</button>
+          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 16)}</button>
         </div>
       </div>
 
@@ -7445,6 +7527,16 @@ function renderFeed() {
   if (!shouldDelayDiscover) {
     loadFeedLiveSpotlight();
   }
+  const feedPageEl = c.querySelector('.feed-page');
+  const feedLensOrder = ['all', 'trending', 'buzz', 'study', 'media', 'friends'];
+  attachHorizontalTabSwipe(feedPageEl, {
+    getCount: () => feedLensOrder.length,
+    getIndex: () => Math.max(0, feedLensOrder.indexOf(_feedLens)),
+    onSelect: idx => {
+      const nextLens = feedLensOrder[idx];
+      if (nextLens && nextLens !== _feedLens) setFeedLens(nextLens);
+    }
+  });
   if (Array.isArray(state.posts) && state.posts.length) {
     renderFeedResults(state.posts);
   }
@@ -7757,7 +7849,7 @@ function loadDiscoverEvents() {
   // Use allCampusEvents if loaded, otherwise fetch
   const renderEvts = (events) => {
     if (!events.length) {
-      el.innerHTML = `<div class="discover-empty" style="padding:18px 14px"><span style="color:var(--text-tertiary);display:inline-flex">${uiIcon('calendar', 22)}</span><p style="font-size:12.5px;margin-top:6px">No upcoming events yet. <button type="button" class="pulse-widget-link" style="text-decoration:underline;padding:0;margin-left:4px" onclick="openCreateModal('event')">Host one</button></p></div>`;
+      el.innerHTML = `<div class="discover-empty"><span>Events</span><p>No events yet. Check the Campus map!</p></div>`;
       return;
     }
     const interestProfile = buildInterestProfile();
@@ -8657,53 +8749,44 @@ async function hydratePostCommentPreviews(posts = []) {
 }
 
 // ─── Render Posts ────────────────────────────────
-function renderPosts(posts) {
-  const el = $('#feed-posts'); if (!el) return;
-  if (!posts.length) {
-    el.innerHTML = _feedSearchQuery
-      ? `<div class="empty-state"><div class="empty-state-icon">🔎</div><h3>No matches found</h3><p>Try another keyword or search with a hashtag like #nwu</p></div>`
-      : `<div class="empty-state"><div class="empty-state-icon">📝</div><h3>No posts yet</h3><p>Be the first to share something!</p></div>`;
-    return;
+function renderSinglePostCardHtml(post, videoPlayersOut = [], idPrefix = 'feed') {
+  const liked = (post.likes || []).includes(state.user.uid);
+  const myReaction = getUserReaction(post.reactions, post.likes || []);
+  const cc = post.commentsCount || 0;
+  const canAnonMessage = post.isAnonymous && post.authorId !== state.user.uid;
+  const hasCollage = post.imageURLs && post.imageURLs.length > 1 && !post.repostOf;
+  const hasVideo = post.videoURL || (post.mediaType === 'video');
+  const hasImage = post.imageURL && !hasVideo && !hasCollage;
+  const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
+  const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
+  const authorIdentity = post.isAnonymous
+    ? { name: getAnonymousLabelForPost(post), photo: null }
+    : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
+  const displayAuthorName = authorIdentity.name || post.authorName || 'User';
+  const displayAuthorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
+  let videoPlayerData = null;
+  if (hasVideo && mediaURL) {
+    videoPlayerData = createVideoPlayer(mediaURL);
+    videoPlayersOut.push(videoPlayerData);
   }
-  const _videoPlayers = [];
-  const postCards = posts.map(post => {
-    const liked = (post.likes || []).includes(state.user.uid);
-    const myReaction = getUserReaction(post.reactions, post.likes || []);
-    const reactionSummary = renderReactionSummary(post.reactions, post.likes || [], 'compact');
-    const lc = getReactionSummary(post.reactions, post.likes || []).total, cc = post.commentsCount || 0;
-    const canAnonMessage = post.isAnonymous && post.authorId !== state.user.uid;
-    const hasCollage = post.imageURLs && post.imageURLs.length > 1 && !post.repostOf;
-    const hasVideo = post.videoURL || (post.mediaType === 'video');
-    const hasImage = post.imageURL && !hasVideo && !hasCollage;
-    const mediaURL = hasVideo ? (post.videoURL || post.imageURL) : post.imageURL;
-    const rawAuthorPhoto = post.isAnonymous ? null : (post.authorPhoto || resolvePostAuthorPhoto(post));
-    const authorIdentity = post.isAnonymous
-      ? { name: getAnonymousLabelForPost(post), photo: null }
-      : getResolvedUserIdentity(post.authorId, post.authorName || 'User', rawAuthorPhoto);
-    const displayAuthorName = authorIdentity.name || post.authorName || 'User';
-    const displayAuthorPhoto = post.isAnonymous ? null : (authorIdentity.photo || rawAuthorPhoto);
-    let videoPlayerData = null;
-    if (hasVideo && mediaURL) {
-      videoPlayerData = createVideoPlayer(mediaURL);
-      _videoPlayers.push(videoPlayerData);
-    }
-    return `
-      <div class="post-card" id="post-${post.id}" data-post-id="${post.id}">
+  const cardIdAttr = idPrefix === 'feed' ? `id="post-${post.id}"` : `id="modal-post-${post.id}"`;
+  return `
+      <div class="post-card" ${cardIdAttr} data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
           <span>Reposted by ${esc(displayAuthorName)}</span>
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
-        ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
-        : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
+      ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
+      : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="closeModal();openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
             <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
-        ${post.content ? renderExpandablePostContent(post.content, `feed-${post.id}`, 180) : ''}
+        ${post.content ? renderExpandablePostContent(post.content, `${idPrefix}-${post.id}`, idPrefix === 'viewer' ? 1200 : 180) : ''}
         ${renderPostModuleTags(post.moduleTags || [])}
         ${renderPostHashTags(getPostHashTags(post).filter(tag => !(post.moduleTags || []).includes(tag.toUpperCase())))}
         ${renderPostContextTags(post)}
@@ -8716,7 +8799,7 @@ function renderPosts(posts) {
           <div class="post-stats">${renderPostStatsMarkup(post)}</div>
           <div class="post-actions">
             ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">👻 Reply</button>` : ''}
-            <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="feed" onclick="toggleLike('${post.id}')">${renderPostLikeMarkup(post)}</button>
+            <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="${idPrefix}" onclick="toggleLike('${post.id}')">${renderPostLikeMarkup(post)}</button>
             <button class="post-action" onclick="openComments('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               ${cc || 'Comment'}
@@ -8727,9 +8810,20 @@ function renderPosts(posts) {
             </button>
           </div>
         </div>
-        ${renderPostCommentPreview(post.id)}
+        ${idPrefix === 'feed' ? renderPostCommentPreview(post.id) : ''}
       </div>`;
-  });
+}
+
+function renderPosts(posts) {
+  const el = $('#feed-posts'); if (!el) return;
+  if (!posts.length) {
+    el.innerHTML = _feedSearchQuery
+      ? `<div class="empty-state"><div class="empty-state-icon">${uiIcon('search', 28)}</div><h3>No matches found</h3><p>Try another keyword or hashtag like #nwu</p></div>`
+      : `<div class="empty-state"><div class="empty-state-icon">${uiIcon('edit', 28)}</div><h3>No posts yet</h3><p>Be the first to share something!</p></div>`;
+    return;
+  }
+  const _videoPlayers = [];
+  const postCards = posts.map(post => renderSinglePostCardHtml(post, _videoPlayers, 'feed'));
 
   const maxSuggestionsLeft = Math.max(0, 2 - _feedInlineSuggestionSlotsUsed);
   if (maxSuggestionsLeft > 0 && Array.isArray(_usersCache?.data) && _usersCache.data.length) {
@@ -10872,15 +10966,23 @@ No</textarea></div>
       `}
     </div>`;
 
-    // Wire tab switching
+    // Wire tab switching + horizontal swipe across Create tabs (Post ↔ Event ↔ Sell ↔ Story)
+    const createTabOrder = ['post', 'event', 'sell', 'story'];
+    const switchCreateTab = next => {
+      if (next === 'sell') { openSellModal(); return; }
+      if (next === 'story') { openStoryCreator(); return; }
+      if (next === createTab) return;
+      createTab = next;
+      renderCreateInner();
+    };
     $$('.create-tab').forEach(tab => {
-      tab.onclick = () => {
-        const next = tab.dataset.ct;
-        if (next === 'sell') { openSellModal(); return; }
-        if (next === 'story') { openStoryCreator(); return; }
-        createTab = next;
-        renderCreateInner();
-      };
+      tab.onclick = () => switchCreateTab(tab.dataset.ct);
+    });
+    attachHorizontalTabSwipe(document.querySelector('#modal-bg .modal-sheet'), {
+      getCount: () => createTabOrder.length,
+      getIndex: () => Math.max(0, createTabOrder.indexOf(createTab)),
+      onSelect: idx => switchCreateTab(createTabOrder[idx]),
+      ignoreSelector: 'input, textarea, select, [data-no-tab-swipe]'
     });
 
     if (createTab === 'post') {
@@ -11319,12 +11421,20 @@ function renderExplore() {
     </div>
   `;
 
+  const exploreOrder = ['radar', 'list', 'events', 'places'];
+  const switchExploreView = next => {
+    if (!exploreOrder.includes(next) || exploreView === next) return;
+    exploreView = next;
+    syncExploreToggleButtons();
+    renderExploreView();
+  };
   $$('.explore-toggle-btn').forEach(btn => {
-    btn.onclick = () => {
-      exploreView = btn.dataset.v || 'radar';
-      syncExploreToggleButtons();
-      renderExploreView();
-    };
+    btn.onclick = () => switchExploreView(btn.dataset.v || 'radar');
+  });
+  attachHorizontalTabSwipe(c.querySelector('.explore-page'), {
+    getCount: () => exploreOrder.length,
+    getIndex: () => Math.max(0, exploreOrder.indexOf(exploreView)),
+    onSelect: idx => switchExploreView(exploreOrder[idx])
   });
   loadExploreUsers();
 }
@@ -11454,40 +11564,458 @@ function renderExploreEventsView() {
     </div>`;
 }
 
-function renderExplorePlacesView() {
+let _explorePlacesBlock = 'all';
+let _explorePlacesQuery = '';
+const MAHIKENG_360_LIBRARY_ORIGIN = {
+  name: 'Library Top Central View',
+  lat: -25.82672,
+  lng: 25.60965,
+  altitudeMeters: 18
+};
+
+function classifyMahikengBuilding(label = '') {
+  const clean = String(label || '').trim();
+  const upper = clean.toUpperCase();
+  const blockMatch = upper.match(/^([A-E])\d/);
+  const block = blockMatch ? blockMatch[1] : 'Other';
+  let subtitle = `Block ${block} · NWU Mahikeng`;
+  if (upper.includes('POOL')) subtitle = 'Campus Swimming Pool · Block D';
+  else if (upper.includes('COURT')) subtitle = 'Sports Courts · Block D';
+  else if (upper === 'A6' || upper === 'A5') subtitle = `Central Academic & Library Core · Block ${block}`;
+  else if (upper === 'A1') subtitle = 'Administration & Main Core · Block A';
+  else if (block === 'E') subtitle = 'East Residences & Precinct · Block E';
+  else if (block === 'D') subtitle = 'Sports & Recreation · Block D';
+  else if (block === 'B' || block === 'C') subtitle = `Academic & Student Precinct · Block ${block}`;
+  return { code: clean, block, subtitle };
+}
+
+async function getMahikengGeoPlaces() {
+  const points = await ensureCampusPlacePoints();
+  return [...(points || [])]
+    .map(pt => {
+      const info = classifyMahikengBuilding(pt.label);
+      return { ...pt, ...info };
+    })
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function calcBearingDeg(fromLat, fromLng, toLat, toLng) {
+  const toRad = d => (d * Math.PI) / 180;
+  const toDeg = r => (r * 180) / Math.PI;
+  const lat1 = toRad(fromLat);
+  const lat2 = toRad(toLat);
+  const dLng = toRad(toLng - fromLng);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function bearingToCardinal(deg = 0) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+
+function setExplorePlacesBlock(block = 'all') {
+  _explorePlacesBlock = block || 'all';
+  renderExplorePlacesGrid();
+}
+
+function filterExplorePlaces(q = '') {
+  _explorePlacesQuery = String(q || '');
+  renderExplorePlacesGrid();
+}
+
+let _cachedExploreGeoPlaces = [];
+
+function renderExplorePlacesGrid() {
+  const grid = document.getElementById('explore-places-grid');
+  const countEl = document.getElementById('explore-places-count');
+  if (!grid) return;
+  $$('.places-block-pill').forEach(btn => {
+    btn.classList.toggle('active', (btn.dataset.block || 'all') === _explorePlacesBlock);
+  });
+  const q = normalizePlaceKey(_explorePlacesQuery);
+  const eventsByName = {};
+  (allCampusEvents || []).forEach(ev => {
+    const k = normalizePlaceKey(ev.locationName || ev.location || '');
+    if (k) eventsByName[k] = (eventsByName[k] || 0) + 1;
+  });
+
+  const filtered = (_cachedExploreGeoPlaces || []).filter(p => {
+    if (_explorePlacesBlock !== 'all' && p.block !== _explorePlacesBlock) return false;
+    if (q) {
+      return normalizePlaceKey(`${p.code} ${p.subtitle} block ${p.block}`).includes(q);
+    }
+    return true;
+  });
+
+  if (countEl) countEl.textContent = `${filtered.length} building${filtered.length === 1 ? '' : 's'}`;
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;padding:28px 16px"><p>No Mahikeng buildings match "${esc(_explorePlacesQuery)}".</p></div>`;
+    return;
+  }
+
+  const refCoords = getUserCoords(state.profile) || MAHIKENG_360_LIBRARY_ORIGIN;
+  grid.innerHTML = filtered.map(place => {
+    const distMeters = Math.round(distanceKmBetween(refCoords, { lat: place.lat, lng: place.lng }) * 1000);
+    const distLabel = Number.isFinite(distMeters) && distMeters < 5000 ? `${distMeters}m away` : place.subtitle;
+    const evCount = eventsByName[normalizePlaceKey(place.code)] || 0;
+    const encodedName = encodeURIComponent(place.code);
+    return `
+      <div class="explore-place-card" onclick="openGeoBuildingDetail('${encodedName}')">
+        <div class="explore-place-code">${esc(place.code)}</div>
+        <div class="explore-place-info">
+          <strong>${esc(place.code)}</strong>
+          <span>${evCount ? `${evCount} event${evCount > 1 ? 's' : ''} · ` : ''}${esc(distLabel)}</span>
+        </div>
+        <div class="explore-place-actions" onclick="event.stopPropagation()">
+          <button type="button" class="btn-outline btn-xs" onclick="openCampus360Viewer('${encodedName}')" title="Locate in 360° view">360°</button>
+          <button type="button" class="btn-outline btn-xs" onclick="routeToMapPointEncoded(${place.lat}, ${place.lng}, '${encodedName}')">Route</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function openGeoBuildingDetail(encodedCode = '') {
+  const code = decodeURIComponent(String(encodedCode || ''));
+  const places = _cachedExploreGeoPlaces.length ? _cachedExploreGeoPlaces : await getMahikengGeoPlaces();
+  const place = places.find(p => p.code.toLowerCase() === code.toLowerCase());
+  if (!place) return toast('Building not found');
+  const distM = Math.round(distanceKmBetween(MAHIKENG_360_LIBRARY_ORIGIN, { lat: place.lat, lng: place.lng }) * 1000);
+  const bearing = Math.round(calcBearingDeg(MAHIKENG_360_LIBRARY_ORIGIN.lat, MAHIKENG_360_LIBRARY_ORIGIN.lng, place.lat, place.lng));
+  const encodedName = encodeURIComponent(place.code);
+  openModal(`
+    <div class="modal-header">
+      <h2>Building ${esc(place.code)}</h2>
+      <button class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="explore-place-code" style="width:52px;height:52px;font-size:15px">${esc(place.code)}</div>
+        <div>
+          <div style="font-size:15px;font-weight:700">${esc(place.subtitle)}</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);margin-top:2px">${distM}m ${bearingToCardinal(bearing)} from Library · ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn-primary" onclick="routeToMapPointEncoded(${place.lat}, ${place.lng}, '${encodedName}')">${uiIcon('route', 14)} Walking Route</button>
+        <button type="button" class="btn-outline" onclick="openCampus360Viewer('${encodedName}')">${uiIcon('eye360', 14)} View in 360°</button>
+      </div>
+    </div>
+  `);
+}
+
+let _campus360CustomUrl = '';
+let _campus360DetectedUrl = null;
+
+async function resolveCampus360ImageUrl() {
+  if (_campus360CustomUrl) return _campus360CustomUrl;
+  if (_campus360DetectedUrl !== null) return _campus360DetectedUrl;
+  const candidates = ['campus-360.jpg', './campus-360.jpg', 'assets/campus-360.jpg', 'public/campus-360.jpg', 'campus-360.webp'];
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, { method: 'HEAD' });
+      if (resp.ok) {
+        _campus360DetectedUrl = url;
+        return url;
+      }
+    } catch (_) { }
+  }
+  _campus360DetectedUrl = '';
+  return '';
+}
+
+async function openCampus360Viewer(encodedFocus = '') {
+  const focusName = decodeURIComponent(String(encodedFocus || '')).trim();
+  const places = _cachedExploreGeoPlaces.length ? _cachedExploreGeoPlaces : await getMahikengGeoPlaces();
+  const origin = MAHIKENG_360_LIBRARY_ORIGIN;
+
+  // Compute exact spherical bearing & ground distance from Library central top view to every GeoJSON building
+  const pins = places.map(p => {
+    const distM = Math.max(10, Math.round(distanceKmBetween(origin, { lat: p.lat, lng: p.lng }) * 1000));
+    const bearing = calcBearingDeg(origin.lat, origin.lng, p.lat, p.lng);
+    // Approximate depression angle from ~18m rooftop height (closer = lower on screen, farther = nearer horizon)
+    const pitchDeg = -Math.atan2(origin.altitudeMeters, distM) * (180 / Math.PI);
+    return { ...p, distM, bearing, pitchDeg };
+  });
+
+  const savedOffset = Number(localStorage.getItem('unibo_360_north_offset') || '0') || 0;
+  let northOffset = ((savedOffset % 360) + 360) % 360;
+  const focusedPin = focusName ? pins.find(p => p.code.toLowerCase() === focusName.toLowerCase()) : null;
+  let yaw = focusedPin ? focusedPin.bearing : 0; // degrees clockwise from North
+  let pitch = focusedPin ? Math.max(-18, Math.min(12, focusedPin.pitchDeg * 0.45)) : -4;
+  let fov = 92;
+  let selectedPin = focusedPin || null;
+  let panoUrl = await resolveCampus360ImageUrl();
+
+  openModal(`
+    <div class="campus-360-modal" data-no-tab-swipe="1">
+      <div class="campus-360-head">
+        <div>
+          <h3>${uiIcon('eye360', 16)} 360° Campus View</h3>
+          <span id="campus-360-sub">Library Top Central View · NWU Mahikeng</span>
+        </div>
+        <div class="campus-360-head-actions">
+          <label class="btn-outline btn-xs" style="cursor:pointer" title="Preview your 360° campus panorama photo">
+            ${uiIcon('image', 13)} Photo
+            <input type="file" id="campus-360-file" accept="image/*" hidden>
+          </label>
+          <button type="button" class="btn-outline btn-xs" id="campus-360-cal-toggle" title="Align compass North to your 360° photo">${uiIcon('sliders', 13)} Align</button>
+          <button type="button" class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+        </div>
+      </div>
+
+      <div class="campus-360-calibrate" id="campus-360-calibrate" style="display:none">
+        <div class="campus-360-cal-row">
+          <span>North Offset: <strong id="campus-360-offset-val">${Math.round(northOffset)}°</strong></span>
+          <button type="button" class="btn-xs btn-outline" id="campus-360-offset-reset">Reset</button>
+        </div>
+        <input type="range" id="campus-360-offset-slider" min="0" max="359" value="${Math.round(northOffset)}">
+        <div class="campus-360-cal-hint">Slide until labels (A5, A6, A1…) match their roofs in your 360° photo. Saved automatically.</div>
+      </div>
+
+      <div class="campus-360-stage" id="campus-360-stage" data-no-tab-swipe="1">
+        <div class="campus-360-pano" id="campus-360-pano"></div>
+        <div class="campus-360-horizon"></div>
+        <div class="campus-360-compass" id="campus-360-compass"></div>
+        <div class="campus-360-pins" id="campus-360-pins"></div>
+        <div class="campus-360-hud-badge" id="campus-360-hud-badge">0° N · Drag to look 360°</div>
+      </div>
+
+      <div class="campus-360-footer" id="campus-360-footer"></div>
+    </div>
+  `);
+
+  const stage = document.getElementById('campus-360-stage');
+  const panoEl = document.getElementById('campus-360-pano');
+  const pinsEl = document.getElementById('campus-360-pins');
+  const compassEl = document.getElementById('campus-360-compass');
+  const hudBadge = document.getElementById('campus-360-hud-badge');
+  const footerEl = document.getElementById('campus-360-footer');
+  if (!stage || !panoEl || !pinsEl) return;
+
+  const applyPanoBackdrop = () => {
+    if (panoUrl) {
+      panoEl.classList.add('has-photo');
+      panoEl.style.backgroundImage = `url("${panoUrl}")`;
+    } else {
+      panoEl.classList.remove('has-photo');
+      panoEl.style.backgroundImage = '';
+    }
+  };
+  applyPanoBackdrop();
+
+  const renderFooter = () => {
+    if (!footerEl) return;
+    if (selectedPin) {
+      const encoded = encodeURIComponent(selectedPin.code);
+      footerEl.innerHTML = `
+        <div class="campus-360-selected">
+          <div class="explore-place-code">${esc(selectedPin.code)}</div>
+          <div class="campus-360-selected-copy">
+            <strong>${esc(selectedPin.code)} · ${selectedPin.distM}m ${bearingToCardinal(selectedPin.bearing)}</strong>
+            <span>${esc(selectedPin.subtitle)}</span>
+          </div>
+          <button type="button" class="btn-primary btn-sm" onclick="routeToMapPointEncoded(${selectedPin.lat}, ${selectedPin.lng}, '${encoded}')">${uiIcon('route', 14)} Route</button>
+        </div>`;
+    } else {
+      footerEl.innerHTML = `
+        <div class="campus-360-hint-row">
+          <span>${panoUrl ? 'Tap any building label to navigate there.' : 'GeoJSON 360° compass active — tap Photo to preview your 360° top view (or add campus-360.jpg).'}</span>
+        </div>`;
+    }
+  };
+
+  const renderFrame = () => {
+    const w = stage.clientWidth || 360;
+    const h = stage.clientHeight || 340;
+    const normYaw = ((yaw % 360) + 360) % 360;
+    const photoYaw = ((normYaw + northOffset) % 360 + 360) % 360;
+
+    // Seamless 360° horizontal wrap of panorama background
+    const panoTotalWidth = (360 / fov) * w;
+    const bgX = -(photoYaw / 360) * panoTotalWidth;
+    const bgY = 50 + (pitch * 1.4);
+    if (panoUrl) {
+      panoEl.style.backgroundSize = `${Math.round(panoTotalWidth)}px auto`;
+      panoEl.style.backgroundPosition = `${Math.round(bgX)}px ${bgY.toFixed(1)}%`;
+    } else {
+      panoEl.style.backgroundPosition = `${Math.round(bgX)}px center`;
+    }
+
+    if (hudBadge) hudBadge.textContent = `${Math.round(normYaw)}° ${bearingToCardinal(normYaw)} · Drag 360°`;
+
+    // Compass ticks along top edge
+    if (compassEl) {
+      const marks = [
+        { deg: 0, label: 'N' }, { deg: 45, label: 'NE' }, { deg: 90, label: 'E' }, { deg: 135, label: 'SE' },
+        { deg: 180, label: 'S' }, { deg: 225, label: 'SW' }, { deg: 270, label: 'W' }, { deg: 315, label: 'NW' }
+      ];
+      compassEl.innerHTML = marks.map(m => {
+        let diff = ((m.deg - normYaw + 540) % 360) - 180;
+        if (Math.abs(diff) > fov * 0.58) return '';
+        const xPct = 50 + (diff / fov) * 100;
+        return `<span class="campus-360-tick ${m.label.length === 1 ? 'is-major' : ''}" style="left:${xPct.toFixed(1)}%">${m.label}</span>`;
+      }).join('');
+    }
+
+    // Project every GeoJSON building into current 360° viewport
+    pinsEl.innerHTML = pins.map(p => {
+      let diff = ((p.bearing - normYaw + 540) % 360) - 180;
+      if (Math.abs(diff) > fov * 0.56) return '';
+      const xPct = 50 + (diff / fov) * 100;
+      // Map vertical elevation: closer buildings lower, distant buildings near horizon (48%..74%)
+      const relPitch = p.pitchDeg - pitch;
+      const yPct = Math.max(22, Math.min(84, 52 - (relPitch * 1.35)));
+      const isSelected = selectedPin && selectedPin.code === p.code;
+      const scale = p.distM < 120 ? 1.04 : p.distM > 260 ? 0.88 : 0.96;
+      return `
+        <button type="button" class="campus-360-pin ${isSelected ? 'is-selected' : ''}" data-code="${esc(p.code)}"
+          style="left:${xPct.toFixed(1)}%;top:${yPct.toFixed(1)}%;transform:translate(-50%,-50%) scale(${isSelected ? 1.12 : scale})">
+          <strong>${esc(p.code)}</strong>
+          <span>${p.distM}m</span>
+        </button>`;
+    }).join('');
+
+    pinsEl.querySelectorAll('.campus-360-pin').forEach(btn => {
+      btn.onclick = ev => {
+        ev.stopPropagation();
+        const code = btn.dataset.code;
+        selectedPin = pins.find(p => p.code === code) || null;
+        if (selectedPin) yaw = selectedPin.bearing;
+        renderFrame();
+        renderFooter();
+      };
+    });
+  };
+
+  renderFrame();
+  renderFooter();
+
+  // Smooth pointer drag (works seamlessly on both mobile touch and desktop mouse!)
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  stage.addEventListener('pointerdown', ev => {
+    if (ev.target.closest('.campus-360-pin')) return;
+    dragging = true;
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    stage.setPointerCapture?.(ev.pointerId);
+  });
+  stage.addEventListener('pointermove', ev => {
+    if (!dragging) return;
+    const dx = ev.clientX - lastX;
+    const dy = ev.clientY - lastY;
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    yaw = (yaw - dx * 0.34 + 360) % 360;
+    pitch = Math.max(-24, Math.min(18, pitch + dy * 0.16));
+    renderFrame();
+  });
+  const endDrag = () => { dragging = false; };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  // Calibrate toggle & slider
+  const calToggle = document.getElementById('campus-360-cal-toggle');
+  const calPanel = document.getElementById('campus-360-calibrate');
+  const offsetSlider = document.getElementById('campus-360-offset-slider');
+  const offsetVal = document.getElementById('campus-360-offset-val');
+  const offsetReset = document.getElementById('campus-360-offset-reset');
+  if (calToggle && calPanel) {
+    calToggle.onclick = () => {
+      calPanel.style.display = calPanel.style.display === 'none' ? 'block' : 'none';
+    };
+  }
+  if (offsetSlider) {
+    offsetSlider.oninput = () => {
+      northOffset = Number(offsetSlider.value) || 0;
+      if (offsetVal) offsetVal.textContent = `${Math.round(northOffset)}°`;
+      try { localStorage.setItem('unibo_360_north_offset', String(Math.round(northOffset))); } catch (_) { }
+      renderFrame();
+    };
+  }
+  if (offsetReset) {
+    offsetReset.onclick = () => {
+      northOffset = 0;
+      if (offsetSlider) offsetSlider.value = '0';
+      if (offsetVal) offsetVal.textContent = '0°';
+      try { localStorage.setItem('unibo_360_north_offset', '0'); } catch (_) { }
+      renderFrame();
+    };
+  }
+
+  // Local 360° photo preview picker
+  const fileInput = document.getElementById('campus-360-file');
+  if (fileInput) {
+    fileInput.onchange = () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      if (_campus360CustomUrl) {
+        try { URL.revokeObjectURL(_campus360CustomUrl); } catch (_) { }
+      }
+      _campus360CustomUrl = URL.createObjectURL(file);
+      panoUrl = _campus360CustomUrl;
+      applyPanoBackdrop();
+      renderFrame();
+      renderFooter();
+      toast('360° photo loaded — tap Align if North needs rotation');
+    };
+  }
+}
+
+async function renderExplorePlacesView() {
   const body = $('#explore-body'); if (!body) return;
   destroyRadarMapInstance();
-  const eventsByLoc = {};
-  (allCampusEvents || []).forEach(ev => {
-    if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
-    eventsByLoc[ev.location].push(ev);
-  });
   body.innerHTML = `
-    <div class="explore-residences-hero">
-      <div>
-        <h3>${uiIcon('building', 16)} NWU Residences</h3>
-        <p>650+ official &amp; accredited residences with map &amp; details.</p>
+    <div class="explore-places-heroes">
+      <div class="explore-residences-hero">
+        <div>
+          <h3>${uiIcon('building', 16)} NWU Residences</h3>
+          <p>650+ accredited residences with map &amp; details.</p>
+        </div>
+        <button type="button" class="explore-residences-cta" onclick="openResidencesView()">Browse</button>
       </div>
-      <button type="button" class="explore-residences-cta" onclick="openResidencesView()">Browse</button>
+      <div class="explore-360-hero" onclick="openCampus360Viewer()">
+        <div>
+          <h3>${uiIcon('eye360', 16)} 360° Campus View</h3>
+          <p>Library top panorama with geo-tagged Mahikeng buildings.</p>
+        </div>
+        <button type="button" class="explore-360-cta" onclick="event.stopPropagation();openCampus360Viewer()">Open 360°</button>
+      </div>
     </div>
-    <div style="padding:0 16px 10px;display:flex;align-items:center;justify-content:space-between">
-      <h3 style="font-size:15px;font-weight:800">Campus Hotspots</h3>
-      <span style="font-size:12px;color:var(--text-secondary)">${CAMPUS_LOCATIONS.length} places</span>
+
+    <div class="places-controls-wrap">
+      <div class="places-section-head">
+        <h3>Mahikeng Campus Buildings</h3>
+        <span id="explore-places-count" style="font-size:12px;color:var(--text-secondary)">Loading…</span>
+      </div>
+      <div class="search-bar places-search-bar">
+        ${uiIcon('search', 16)}
+        <input type="text" id="explore-places-search" placeholder="Search A6, A5, B3, D1-Pool, E6…" value="${esc(_explorePlacesQuery)}">
+      </div>
+      <div class="places-block-pills" role="tablist" aria-label="Filter campus blocks">
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'all' ? 'active' : ''}" data-block="all" onclick="setExplorePlacesBlock('all')">All</button>
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'A' ? 'active' : ''}" data-block="A" onclick="setExplorePlacesBlock('A')">Block A</button>
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'B' ? 'active' : ''}" data-block="B" onclick="setExplorePlacesBlock('B')">Block B</button>
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'C' ? 'active' : ''}" data-block="C" onclick="setExplorePlacesBlock('C')">Block C</button>
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'D' ? 'active' : ''}" data-block="D" onclick="setExplorePlacesBlock('D')">Block D</button>
+        <button type="button" class="places-block-pill ${_explorePlacesBlock === 'E' ? 'active' : ''}" data-block="E" onclick="setExplorePlacesBlock('E')">Block E</button>
+      </div>
     </div>
-    <div class="explore-places-grid">
-      ${CAMPUS_LOCATIONS.map(loc => {
-    const count = (eventsByLoc[loc.id] || []).length;
-    return `
-          <div class="explore-place-card" onclick="openLocationDetail('${loc.id}')">
-            <div class="explore-place-icon">${uiIcon('pin', 16)}</div>
-            <div class="explore-place-info">
-              <strong>${esc(loc.name)}</strong>
-              <span>${count ? `${count} event${count > 1 ? 's' : ''} happening` : 'Details &amp; walking route'}</span>
-            </div>
-            <button type="button" class="btn-outline btn-xs" onclick="event.stopPropagation();routeToCampusLocation('${loc.id}')">Route</button>
-          </div>`;
-  }).join('')}
+
+    <div class="explore-places-grid" id="explore-places-grid">
+      <div style="grid-column:1/-1;padding:28px;text-align:center"><span class="inline-spinner"></span></div>
     </div>`;
+
+  const searchEl = document.getElementById('explore-places-search');
+  if (searchEl) {
+    searchEl.oninput = e => filterExplorePlaces(e.target.value);
+  }
+
+  _cachedExploreGeoPlaces = await getMahikengGeoPlaces();
+  renderExplorePlacesGrid();
 }
 
 function refreshVisiblePage() {
@@ -15037,18 +15565,24 @@ function renderMessages() {
     anonPrefBtn.onclick = openAnonDmSettings;
     updateAnonPrefButton('messages-anon-pref');
   }
+  const msgTabOrder = ['dm', 'groups', 'archived'];
+  const switchMsgTab = next => {
+    if (!msgTabOrder.includes(next) || state.lastMsgTab === next) return;
+    state.lastMsgTab = next;
+    updateMessagesGroupsToggle();
+    updateArchiveFabState();
+    syncMessagesStoriesVisibility();
+    if (next === 'groups') loadGroups();
+    else if (next === 'archived') loadArchivedDMList();
+    else loadDMList();
+  };
   $$('.messages-tab-btn').forEach(btn => {
-    btn.onclick = () => {
-      const next = btn.dataset.mt || 'dm';
-      if (state.lastMsgTab === next) return;
-      state.lastMsgTab = next;
-      updateMessagesGroupsToggle();
-      updateArchiveFabState();
-      syncMessagesStoriesVisibility();
-      if (next === 'groups') loadGroups();
-      else if (next === 'archived') loadArchivedDMList();
-      else loadDMList();
-    };
+    btn.onclick = () => switchMsgTab(btn.dataset.mt || 'dm');
+  });
+  attachHorizontalTabSwipe(c.querySelector('.messages-page'), {
+    getCount: () => msgTabOrder.length,
+    getIndex: () => Math.max(0, msgTabOrder.indexOf(state.lastMsgTab || 'dm')),
+    onSelect: idx => switchMsgTab(msgTabOrder[idx])
   });
   if (activeTab !== 'groups') loadStories();
   bindMessagesScrollEffects();
@@ -17697,83 +18231,58 @@ async function viewPost(pid, options = {}) {
   if (!postId) return;
 
   try {
-    closeModal();
-    setChromeCollapsed(false);
-    const contentEl = document.getElementById('content');
+    // Open a clean dedicated Post Viewer modal right over the user's current position (never wipes or restarts the feed!)
+    openModal(`
+      <div class="modal-header">
+        <h2>Post</h2>
+        <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body post-viewer-modal" id="post-viewer-body">
+        <div class="post-viewer-loading">
+          <span class="inline-spinner" style="width:24px;height:24px;color:var(--accent)"></span>
+          <span>Loading post…</span>
+        </div>
+      </div>
+    `);
 
-    // If already on the feed page and the post card is currently visible in viewport
-    if (state.page === 'feed') {
-      const existingCard = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-      if (existingCard && contentEl) {
-        const cRect = contentEl.getBoundingClientRect();
-        const rRect = existingCard.getBoundingClientRect();
-        const offset = rRect.top - cRect.top;
-        if (offset >= 0 && offset <= contentEl.clientHeight * 0.75) {
-          _pendingFeedFocusPostId = '';
-          _feedFocusedPostId = postId;
-          _feedFocusLockUntil = Date.now() + 60000;
-          focusFeedPostCard(postId, 'smooth');
-          if (options.openComments) {
-            setTimeout(() => openComments(postId), 180);
-          }
-          return;
-        }
-      }
-    }
-
-    // Bring post to top of feed with an unobtrusive loadscreen veil
-    showFeedLoadscreen('Opening post…', 380);
-
-    // Get post object (from state.posts or Firestore)
     let post = (state.posts || []).find(item => item.id === postId) || null;
     if (!post) {
       const doc = await db.collection('posts').doc(postId).get();
       if (!doc.exists) {
-        hideFeedLoadscreen();
-        return toast('Post not found or deleted');
+        const host = document.getElementById('post-viewer-body');
+        if (host) host.innerHTML = `<div class="empty-state" style="padding:32px 16px"><h3>Post not found</h3><p>This post may have been deleted.</p></div>`;
+        return;
       }
       post = { id: doc.id, ...doc.data() };
     }
 
-    // Smart bring-to-top: place the post at index 0 of feed
-    state.posts = [post, ...(state.posts || []).filter(item => item.id !== postId)];
+    const host = document.getElementById('post-viewer-body');
+    if (!host) return;
 
-    if (_feedSearchQuery) {
-      _feedSearchQuery = '';
-      const input = $('#feed-search-input');
-      if (input) input.value = '';
-    }
+    const viewerPlayers = [];
+    const cardHtml = renderSinglePostCardHtml(post, viewerPlayers, 'viewer');
+    host.innerHTML = `
+      <div class="post-viewer-card-wrap">${cardHtml}</div>
+      <div class="post-viewer-footer">
+        <button type="button" class="btn-outline btn-sm w100" onclick="openComments('${post.id}')">View all comments</button>
+      </div>
+    `;
 
-    _pendingFeedFocusPostId = postId;
-    _feedFocusedPostId = postId;
-    _feedFocusLockUntil = Date.now() + 60000; // Keep pinned at index 0 for 60s against real-time snapshot re-sort
-
-    if (state.page !== 'feed') {
-      navigate('feed', { refresh: false, pushHistory: true, restoreFeed: false });
-    }
-
-    // Render feed with the post right at the top
-    renderFeedResults(state.posts || []);
-
-    // Instantly reset scroll to top behind the veil (stop forcing UI to scroll long distances)
-    if (contentEl) {
-      contentEl.style.scrollBehavior = 'auto';
-      contentEl.scrollTop = 0;
-      _feedScrollTop = 0;
-      requestAnimationFrame(() => {
-        contentEl.style.scrollBehavior = '';
-      });
-    }
-
+    // Initialize any custom video players rendered inside the modal
     requestAnimationFrame(() => {
-      focusFeedPostCard(postId, 'auto');
-      if (options.openComments) {
-        setTimeout(() => openComments(postId), 180);
-      }
+      viewerPlayers.forEach(p => {
+        const el = document.getElementById(p.id);
+        if (el) initVideoPlayer(el);
+      });
     });
+
+    if (options.openComments) {
+      setTimeout(() => openComments(postId), 160);
+    }
   } catch (e) {
     console.error(e);
-    hideFeedLoadscreen();
+    const host = document.getElementById('post-viewer-body');
+    if (host) host.innerHTML = `<div class="empty-state" style="padding:32px 16px"><h3>Could not open post</h3></div>`;
     toast('Could not open post');
   }
 }
@@ -19017,26 +19526,35 @@ async function openProfile(uid) {
     `;
     initProfilePostInteractions();
 
-    // Wire tabs
+    // Wire tabs + horizontal swipe across Profile tabs (Posts ↔ Photos ↔ About)
+    const profileTabOrder = ['posts', 'photos', 'about'];
+    let activeProfileTab = 'posts';
+    const switchProfileTab = next => {
+      if (!profileTabOrder.includes(next)) return;
+      activeProfileTab = next;
+      $$('.profile-tab').forEach(t => t.classList.toggle('active', t.dataset.pt === next));
+      const tc = $('#profile-tab-content');
+      if (!tc) return;
+      if (next === 'posts') {
+        tc.innerHTML = renderProfilePosts(posts, user);
+        initProfilePostInteractions();
+      } else if (next === 'photos') {
+        tc.innerHTML = renderProfilePhotos(posts);
+        primeInlineVideoPreviews(tc);
+      } else {
+        tc.innerHTML = renderProfileAbout(user);
+        if (uid === state.user.uid && (state.profile.blockedUsers || []).length) {
+          setTimeout(() => loadBlockedUsersList(), 100);
+        }
+      }
+    };
     $$('.profile-tab').forEach(tab => {
-      tab.onclick = () => {
-        $$('.profile-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const tc = $('#profile-tab-content');
-        if (tab.dataset.pt === 'posts') {
-          tc.innerHTML = renderProfilePosts(posts, user);
-          initProfilePostInteractions();
-        }
-        else if (tab.dataset.pt === 'photos') {
-          tc.innerHTML = renderProfilePhotos(posts);
-          primeInlineVideoPreviews(tc);
-        } else {
-          tc.innerHTML = renderProfileAbout(user);
-          if (uid === state.user.uid && (state.profile.blockedUsers || []).length) {
-            setTimeout(() => loadBlockedUsersList(), 100);
-          }
-        }
-      };
+      tab.onclick = () => switchProfileTab(tab.dataset.pt || 'posts');
+    });
+    attachHorizontalTabSwipe(body, {
+      getCount: () => profileTabOrder.length,
+      getIndex: () => Math.max(0, profileTabOrder.indexOf(activeProfileTab)),
+      onSelect: idx => switchProfileTab(profileTabOrder[idx])
     });
   } catch (e) {
     console.error(e);
@@ -22568,6 +23086,7 @@ document.addEventListener('DOMContentLoaded', () => {
     openResidenceGallery, scrollDetailGallery, onResidenceGalleryScroll,
     toggleLocationSharing,
     openLandlordPortal, copyLandlordUploadLink, handleLandlordFilesSelected, deleteLandlordExistingPhoto, deleteLandlordPendingPhoto,
-    filterLandlordResOptions, selectLandlordResidence, submitLandlordPhotos, checkLandlordPortalHash
+    filterLandlordResOptions, selectLandlordResidence, submitLandlordPhotos, checkLandlordPortalHash,
+    openCampus360Viewer, openGeoBuildingDetail, setExplorePlacesBlock, filterExplorePlaces
   });
 });

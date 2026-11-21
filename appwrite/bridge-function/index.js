@@ -10,7 +10,7 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-04-13-fcm-v6';
+const FUNCTION_VERSION = '2026-04-13-fcm-v7';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const _schemaCache = new Map();
 
@@ -427,33 +427,53 @@ async function dbDelete(databases, dbId, tableOrCollectionId, docId) {
 }
 
 
+function sanitizePushPhotoUrl(raw = '') {
+  const val = String(raw || '').trim();
+  if (!val || /^data:/i.test(val) || val.length > 256) return '';
+  return /^https?:\/\//i.test(val) ? val : '';
+}
+
+function clampPushText(raw = '', max = 200) {
+  const str = String(raw == null ? '' : raw).trim();
+  if (str.length <= max) return str;
+  return `${str.slice(0, Math.max(0, max - 1))}…`;
+}
+
 function flattenNotificationData(payload = {}) {
   const out = {};
   const input = payload && typeof payload === 'object' ? payload : {};
   const nested = input.payload && typeof input.payload === 'object' ? input.payload : {};
   const from = input.from && typeof input.from === 'object' ? input.from : {};
   const pairs = {
-    kind: input.kind || input.type || 'app',
-    type: input.type || 'generic',
-    title: input.title || 'Unino',
-    body: input.body || input.text || 'You have a new notification',
-    channelId: input.channelId || ((input.kind === 'dm' || input.kind === 'group') ? 'unibo-messages' : 'unibo-general'),
+    kind: clampPushText(input.kind || input.type || 'app', 32),
+    type: clampPushText(input.type || 'generic', 32),
+    title: clampPushText(input.title || 'Unibo', 80),
+    body: clampPushText(input.body || input.text || 'You have a new notification', 200),
+    channelId: clampPushText(input.channelId || ((input.kind === 'dm' || input.kind === 'group') ? 'unibo-messages' : 'unibo-general'), 40),
     priority: 'high',
     sound: 'default',
     clickAction: 'OPEN_UNIBO',
-    convoId: nested.convoId || '',
-    groupId: nested.groupId || '',
-    collection: nested.collection || 'groups',
-    postId: nested.postId || '',
-    streamId: nested.streamId || '',
-    profileId: nested.profileId || from.uid || '',
-    notifDocId: nested.notifDocId || '',
-    senderName: from.name || '',
-    senderPhoto: from.photo || '',
-    at: input.at || new Date().toISOString()
+    convoId: clampPushText(nested.convoId || '', 80),
+    groupId: clampPushText(nested.groupId || '', 80),
+    collection: clampPushText(nested.collection || 'groups', 32),
+    postId: clampPushText(nested.postId || '', 80),
+    streamId: clampPushText(nested.streamId || '', 80),
+    profileId: clampPushText(nested.profileId || from.uid || '', 80),
+    notifDocId: clampPushText(nested.notifDocId || '', 80),
+    senderName: clampPushText(from.name || '', 64),
+    senderPhoto: sanitizePushPhotoUrl(from.photo || ''),
+    at: clampPushText(input.at || new Date().toISOString(), 40)
   };
   for (const [key, value] of Object.entries(pairs)) {
-    out[key] = String(value == null ? '' : value);
+    if (value !== '') out[key] = String(value);
+  }
+  // Enforce strict UTF-8 byte budget so FCM's 4096-byte total message limit can never be exceeded
+  const byteSize = () => Buffer.byteLength(JSON.stringify(out), 'utf8');
+  if (byteSize() > 2200) {
+    delete out.senderPhoto;
+  }
+  if (byteSize() > 2200 && out.body) {
+    out.body = clampPushText(out.body, 100);
   }
   return out;
 }
