@@ -199,10 +199,15 @@ service cloud.firestore {
       allow update: if isAdmin();
     }
 
-    // ─── STATS ──────────────────────────────────────
+    // ─── STATS & 360 CAMPUS CONFIG ──────────────────
+    match /stats/campus360_config {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /stats/{doc} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isAuthenticated() && doc != 'campus360_config';
     }
 
     // ─── LIVE STREAMS & SIGNALS ─────────────────────

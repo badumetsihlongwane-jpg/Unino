@@ -19,6 +19,8 @@ android/app/google-services.json.firebase/
 celcat_capture/
 data/whatsapp_chrome_profile/
 data/landlord_sent_log.json
+NWU_Full_Tour/
+assets/tour360_hd/
 __pycache__/
 *.py[cod]
 .DS_Store

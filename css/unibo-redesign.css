@@ -2598,6 +2598,47 @@ body {
   z-index: 6;
 }
 
+.campus-360-pin strong {
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.campus-360-pin span {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1;
+}
+
+.campus-360-pin.is-selected span {
+  color: #4A4D5E;
+}
+
+.campus-360-hd-btn {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 5px 9px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(12, 14, 22, 0.78);
+  color: rgba(255, 255, 255, 0.90);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  z-index: 6;
+  backdrop-filter: blur(8px);
+}
+
+.campus-360-hd-btn.is-hd {
+  background: #FFFFFF;
+  color: #101117;
+  border-color: #FFFFFF;
+}
+
 .campus-360-compass {
   position: absolute;
   top: 0;
@@ -2630,50 +2671,6 @@ body {
   inset: 0;
   z-index: 4;
   pointer-events: none;
-}
-
-.campus-360-pin {
-  position: absolute;
-  pointer-events: auto;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  padding: 5px 9px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(14, 16, 26, 0.80);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: #FFFFFF;
-  cursor: pointer;
-  transition: background 0.14s ease, border-color 0.14s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-
-.campus-360-pin strong {
-  font-size: 11.5px;
-  font-weight: 800;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-.campus-360-pin span {
-  font-size: 9.5px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.72);
-  line-height: 1;
-}
-
-.campus-360-pin.is-selected {
-  background: #FFFFFF;
-  color: #101117;
-  border-color: #FFFFFF;
-  z-index: 6;
-}
-
-.campus-360-pin.is-selected span {
-  color: #4A4D5E;
 }
 
 .campus-360-hud-badge {

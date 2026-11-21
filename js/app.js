@@ -11703,14 +11703,15 @@ async function openGeoBuildingDetail(encodedCode = '') {
   `);
 }
 
-const CAMPUS_360_BASE_URL = window.UNIBO_360_BASE_URL || 'assets/tour360/';
+const CAMPUS_360_PREVIEW_BASE = window.UNIBO_360_BASE_URL || 'assets/tour360/';
+const CAMPUS_360_HD_R2_BASE = window.UNIBO_360_HD_BASE_URL || 'https://app-media.badumetsihlongwane.workers.dev/Images/tour360/';
 const CAMPUS_360_SCENES = [
-  { id: 'library_aerial', name: 'Library Aerial', file: 'library_aerial.jpg', lat: -25.82665, lng: 25.61005, alt: 16, defaultYaw: 0, defaultPitch: -10 },
-  { id: 'main_gate', name: 'Main Gate', file: 'main_gate.jpg', lat: -25.82895, lng: 25.61015, alt: 4, defaultYaw: 0, defaultPitch: -4 },
-  { id: 'north_east_aerial', name: 'North East', file: 'north_east_aerial.jpg', lat: -25.82530, lng: 25.61140, alt: 32, defaultYaw: 0, defaultPitch: -14 },
-  { id: 'north_west_aerial', name: 'North West', file: 'north_west_aerial.jpg', lat: -25.82540, lng: 25.60660, alt: 32, defaultYaw: 0, defaultPitch: -14 },
-  { id: 'north_eastern_overview', name: 'East Overview', file: 'north_eastern_overview.jpg', lat: -25.82610, lng: 25.61300, alt: 38, defaultYaw: 0, defaultPitch: -16 },
-  { id: 'north_eastern_high', name: 'High Campus', file: 'north_eastern_high.jpg', lat: -25.82500, lng: 25.61220, alt: 55, defaultYaw: 0, defaultPitch: -18 }
+  { id: 'library_aerial', name: 'Library Aerial', previewFile: 'library_aerial_preview.webp', hdFile: 'library_aerial_hd.webp', lat: -25.82665, lng: 25.61005, alt: 16, defaultYaw: 0, defaultPitch: -10 },
+  { id: 'main_gate', name: 'Main Gate', previewFile: 'main_gate_preview.webp', hdFile: 'main_gate_hd.webp', lat: -25.82895, lng: 25.61015, alt: 4, defaultYaw: 0, defaultPitch: -4 },
+  { id: 'north_east_aerial', name: 'North East', previewFile: 'north_east_aerial_preview.webp', hdFile: 'north_east_aerial_hd.webp', lat: -25.82530, lng: 25.61140, alt: 32, defaultYaw: 0, defaultPitch: -14 },
+  { id: 'north_west_aerial', name: 'North West', previewFile: 'north_west_aerial_preview.webp', hdFile: 'north_west_aerial_hd.webp', lat: -25.82540, lng: 25.60660, alt: 32, defaultYaw: 0, defaultPitch: -14 },
+  { id: 'north_eastern_overview', name: 'East Overview', previewFile: 'north_eastern_overview_preview.webp', hdFile: 'north_eastern_overview_hd.webp', lat: -25.82610, lng: 25.61300, alt: 38, defaultYaw: 0, defaultPitch: -16 },
+  { id: 'north_eastern_high', name: 'High Campus', previewFile: 'north_eastern_high_preview.webp', hdFile: 'north_eastern_high_hd.webp', lat: -25.82500, lng: 25.61220, alt: 55, defaultYaw: 0, defaultPitch: -18 }
 ];
 
 let _campus360ConfigCache = null;
@@ -12057,6 +12058,14 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
             <input type="range" id="campus-360-north-slider" min="0" max="359" value="0">
           </div>
         </div>
+        <div class="campus-360-admin-row is-meta">
+          <button type="button" class="btn-outline btn-xs" id="campus-360-admin-unhide">Unhide All</button>
+          <button type="button" class="btn-outline btn-xs" id="campus-360-admin-reset">Reset Scene</button>
+          <label class="btn-outline btn-xs" style="cursor:pointer;margin-left:auto" title="Upload HD 360 WebP files from assets/tour360_hd/ to Cloudflare R2">
+            Upload HD to R2
+            <input type="file" id="campus-360-r2-upload" accept="image/webp,image/jpeg" multiple hidden>
+          </label>
+        </div>
         <div class="campus-360-admin-hint" id="campus-360-admin-hint">Tap directly on any building in the 360° photo to place the selected label. Tap an existing pin to hide/remove it.</div>
       </div>` : ''}
 
@@ -12068,6 +12077,7 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
         </div>
         <div class="campus-360-compass" id="campus-360-compass"></div>
         <div class="campus-360-pins" id="campus-360-pins"></div>
+        <button type="button" class="campus-360-hd-btn" id="campus-360-hd-btn" title="Load high-definition zoom texture">SD · HD</button>
         <div class="campus-360-zoom-controls">
           <button type="button" class="campus-360-zoom-btn" id="campus-360-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" class="campus-360-zoom-btn" id="campus-360-zoom-out" aria-label="Zoom out">−</button>
@@ -12236,8 +12246,30 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
     }
     renderFooter();
 
-    const url = `${CAMPUS_360_BASE_URL}${scene.file}`;
-    const applyLoadedImage = img => {
+    const hdBtn = document.getElementById('campus-360-hd-btn');
+    const setHdBadge = stateLabel => {
+      if (!hdBtn) return;
+      if (stateLabel === 'hd') {
+        hdBtn.textContent = 'HD';
+        hdBtn.classList.add('is-hd');
+      } else if (stateLabel === 'loading') {
+        hdBtn.textContent = 'HD…';
+        hdBtn.classList.remove('is-hd');
+      } else {
+        hdBtn.textContent = 'HD';
+        hdBtn.classList.remove('is-hd');
+      }
+    };
+
+    const previewUrl = `${CAMPUS_360_PREVIEW_BASE}${scene.previewFile}`;
+    const hdCandidates = [
+      `${CAMPUS_360_HD_R2_BASE}${scene.hdFile}`,
+      `assets/tour360_hd/${scene.hdFile}`
+    ];
+    let hdLoadedForScene = false;
+    let hdLoadingForScene = false;
+
+    const applyLoadedImage = (img, isHd = false) => {
       activeImage = img;
       if (glRenderer) {
         const ok = glRenderer.setImage(img);
@@ -12248,49 +12280,127 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
       }
       imageLoading = false;
       if (loadingEl) loadingEl.style.display = 'none';
+      if (isHd) {
+        hdLoadedForScene = true;
+        hdLoadingForScene = false;
+        setHdBadge('hd');
+      }
       renderFrame();
     };
-    if (sceneImageCache.has(url)) {
-      applyLoadedImage(sceneImageCache.get(url));
+
+    const loadImageFromUrls = (urls, idx = 0, onOk, onFail) => {
+      if (idx >= urls.length) { onFail?.(); return; }
+      const u = urls[idx];
+      if (sceneImageCache.has(u)) { onOk(sceneImageCache.get(u)); return; }
+      const im = new Image();
+      if (/^https?:\/\//i.test(u)) im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        sceneImageCache.set(u, im);
+        onOk(im);
+      };
+      im.onerror = () => loadImageFromUrls(urls, idx + 1, onOk, onFail);
+      im.src = u;
+    };
+
+    // Expose per-scene on-demand HD upgrader (triggered automatically when zooming in or tapping HD)
+    stage._upgradeToHd = (manual = false) => {
+      if (activeSceneId !== sceneId || hdLoadedForScene || hdLoadingForScene) return;
+      hdLoadingForScene = true;
+      setHdBadge('loading');
+      loadImageFromUrls(
+        hdCandidates,
+        0,
+        img => {
+          if (activeSceneId !== sceneId) return;
+          applyLoadedImage(img, true);
+          if (manual) toast('HD 360° loaded');
+        },
+        () => {
+          hdLoadingForScene = false;
+          setHdBadge('sd');
+          if (manual) toast('HD not uploaded to R2 yet (using fast preview)');
+        }
+      );
+    };
+
+    // If HD is already cached in memory for this scene, show HD immediately; otherwise load tiny ~95 KB preview first!
+    const cachedHdUrl = hdCandidates.find(u => sceneImageCache.has(u));
+    if (cachedHdUrl) {
+      applyLoadedImage(sceneImageCache.get(cachedHdUrl), true);
       return;
     }
 
-    const img = new Image();
-    if (/^https?:\/\//i.test(url)) img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      sceneImageCache.set(url, img);
-      if (activeSceneId !== sceneId) return;
-      applyLoadedImage(img);
-    };
-    img.onerror = () => {
-      if (activeSceneId !== sceneId) return;
-      imageLoading = false;
-      if (loadingEl) loadingEl.innerHTML = '<span>360° image unavailable</span>';
-      renderFrame();
-    };
-    img.src = url;
+    setHdBadge('sd');
+    loadImageFromUrls(
+      [previewUrl, `${CAMPUS_360_HD_R2_BASE}${scene.previewFile}`],
+      0,
+      img => {
+        if (activeSceneId !== sceneId) return;
+        applyLoadedImage(img, false);
+        if (fov <= 58) stage._upgradeToHd?.(false);
+      },
+      () => {
+        if (activeSceneId !== sceneId) return;
+        imageLoading = false;
+        if (loadingEl) loadingEl.innerHTML = '<span>360° image unavailable</span>';
+        renderFrame();
+      }
+    );
   };
 
-  // Wire scene switcher pills
+  // Wire scene switcher pills & HD button
   document.querySelectorAll('.campus-360-scene-pill').forEach(btn => {
     btn.onclick = () => loadScene(btn.dataset.scene);
   });
+  document.getElementById('campus-360-hd-btn')?.addEventListener('click', ev => {
+    ev.stopPropagation();
+    stage._upgradeToHd?.(true);
+  });
 
-  // Smooth 360° drag + click-to-place in Admin mode + zoom
+  // Smooth 360° drag + 2-finger pinch-to-zoom + click-to-place in Admin mode
+  const activePointers = new Map();
+  let pinchStartDist = 0;
+  let pinchStartFov = fov;
   let dragging = false;
   let movedDist = 0;
   let lastX = 0;
   let lastY = 0;
 
+  const applyZoomFov = nextFov => {
+    fov = Math.max(36, Math.min(102, nextFov));
+    renderFrame();
+    // Auto-stream crisp HD from R2 only once the user actually zooms in!
+    if (fov <= 58) stage._upgradeToHd?.(false);
+  };
+
   stage.addEventListener('pointerdown', ev => {
-    if (ev.target.closest('.campus-360-pin, .campus-360-zoom-controls')) return;
+    if (ev.target.closest('.campus-360-pin, .campus-360-zoom-controls, .campus-360-hd-btn')) return;
+    activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    stage.setPointerCapture?.(ev.pointerId);
+    if (activePointers.size === 2) {
+      const pts = [...activePointers.values()];
+      pinchStartDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      pinchStartFov = fov;
+      dragging = false;
+      movedDist = 99;
+      return;
+    }
     dragging = true;
     movedDist = 0;
     lastX = ev.clientX;
     lastY = ev.clientY;
-    stage.setPointerCapture?.(ev.pointerId);
   });
   stage.addEventListener('pointermove', ev => {
+    if (activePointers.has(ev.pointerId)) {
+      activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    }
+    if (activePointers.size === 2 && pinchStartDist > 10) {
+      const pts = [...activePointers.values()];
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const scale = pinchStartDist / Math.max(10, dist);
+      applyZoomFov(pinchStartFov * scale);
+      return;
+    }
     if (!dragging) return;
     const dx = ev.clientX - lastX;
     const dy = ev.clientY - lastY;
@@ -12303,10 +12413,12 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
     renderFrame();
   });
   const endDrag = ev => {
+    activePointers.delete(ev?.pointerId);
+    if (activePointers.size < 2) pinchStartDist = 0;
     if (!dragging) return;
     dragging = false;
     // In Admin Edit mode, a crisp tap (not a drag) pins the selected building right onto that exact 3D spot!
-    if (adminEditMode && movedDist < 7 && ev && !ev.target.closest('.campus-360-pin, .campus-360-zoom-controls')) {
+    if (adminEditMode && movedDist < 7 && ev && !ev.target.closest('.campus-360-pin, .campus-360-zoom-controls, .campus-360-hd-btn')) {
       const rect = stage.getBoundingClientRect();
       const normX = (ev.clientX - rect.left) / Math.max(1, rect.width);
       const normY = (ev.clientY - rect.top) / Math.max(1, rect.height);
@@ -12340,21 +12452,28 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
     }
   };
   stage.addEventListener('pointerup', endDrag);
-  stage.addEventListener('pointercancel', () => { dragging = false; });
+  stage.addEventListener('pointercancel', ev => {
+    activePointers.delete(ev?.pointerId);
+    dragging = false;
+    pinchStartDist = 0;
+  });
   stage.addEventListener('wheel', ev => {
     ev.preventDefault();
-    fov = Math.max(42, Math.min(102, fov + (ev.deltaY > 0 ? 5 : -5)));
-    renderFrame();
+    applyZoomFov(fov + (ev.deltaY > 0 ? 5 : -5));
   }, { passive: false });
 
-  document.getElementById('campus-360-zoom-in')?.addEventListener('click', () => {
-    fov = Math.max(42, fov - 10);
+  document.getElementById('campus-360-zoom-in')?.addEventListener('click', () => applyZoomFov(fov - 10));
+  document.getElementById('campus-360-zoom-out')?.addEventListener('click', () => applyZoomFov(fov + 10));
+
+  // Keep canvas crisp on phone rotation / window resize (auto-detaches when modal closes)
+  const onViewportResize = () => {
+    if (!document.body.contains(stage)) {
+      window.removeEventListener('resize', onViewportResize);
+      return;
+    }
     renderFrame();
-  });
-  document.getElementById('campus-360-zoom-out')?.addEventListener('click', () => {
-    fov = Math.min(102, fov + 10);
-    renderFrame();
-  });
+  };
+  window.addEventListener('resize', onViewportResize);
 
   // Wire Admin Controller UI
   const adminToggle = document.getElementById('campus-360-admin-toggle');
@@ -12366,6 +12485,9 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
   const northSlider = document.getElementById('campus-360-north-slider');
   const northVal = document.getElementById('campus-360-north-val');
   const saveBtn = document.getElementById('campus-360-admin-save');
+  const unhideBtn = document.getElementById('campus-360-admin-unhide');
+  const resetSceneBtn = document.getElementById('campus-360-admin-reset');
+  const r2UploadInput = document.getElementById('campus-360-r2-upload');
 
   if (adminToggle && adminBar) {
     adminToggle.onclick = () => {
@@ -12404,6 +12526,63 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
       getSceneCfg().northOffset = val;
       if (northVal) northVal.textContent = `${Math.round(val)}°`;
       renderFrame();
+    };
+  }
+  if (unhideBtn) {
+    unhideBtn.onclick = () => {
+      const sCfg = getSceneCfg();
+      let restored = 0;
+      Object.values(sCfg.pins || {}).forEach(p => {
+        if (p && p.hidden) { p.hidden = false; restored += 1; }
+      });
+      renderFrame();
+      toast(restored ? `Unhid ${restored} pin${restored > 1 ? 's' : ''} — click Save Live` : 'No hidden pins on this scene');
+    };
+  }
+  if (resetSceneBtn) {
+    resetSceneBtn.onclick = () => {
+      cfg.scenes[activeSceneId] = { northOffset: 0, showAutoGeo: true, pins: {} };
+      selectedPin = null;
+      syncAdminControls();
+      renderFrame();
+      renderFooter();
+      toast('Scene pins reset — click Save Live to publish');
+    };
+  }
+  if (r2UploadInput) {
+    r2UploadInput.onchange = async () => {
+      const files = Array.from(r2UploadInput.files || []);
+      if (!files.length) return;
+      if (!auth.currentUser) return toast('Sign in as admin to upload to R2');
+      try {
+        const token = await auth.currentUser.getIdToken(true);
+        toast(`Uploading ${files.length} 360° file${files.length > 1 ? 's' : ''} to R2…`);
+        let okCount = 0;
+        for (const file of files) {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const targetUrl = `${CAMPUS_360_HD_R2_BASE}${safeName}`;
+          const resp = await fetch(targetUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': file.type || 'image/webp',
+              'Authorization': `Bearer ${token}`
+            },
+            body: file
+          });
+          if (resp.ok) okCount += 1;
+          else console.warn('R2 360 upload failed:', safeName, resp.status, await resp.text().catch(() => ''));
+        }
+        r2UploadInput.value = '';
+        if (okCount === files.length) {
+          toast(`Uploaded all ${okCount} HD 360° file${okCount > 1 ? 's' : ''} to R2!`);
+          stage._upgradeToHd?.(false);
+        } else {
+          toast(`Uploaded ${okCount}/${files.length} files to R2`);
+        }
+      } catch (e) {
+        console.error(e);
+        toast('R2 upload failed');
+      }
     };
   }
   if (saveBtn) {
@@ -20323,9 +20502,15 @@ async function doAdminDataClear() {
       await _wipeCollection(`users/${d.id}/pushTokens`);
     }
 
-    // Then wipe main collections
-    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups', 'stories', 'listings', 'stats', 'users'];
+    // Then wipe main collections (preserve stats/campus360_config so admin 360° pins are never lost)
+    const collections = ['posts', 'groups', 'conversations', 'events', 'assignmentGroups', 'stories', 'listings', 'users'];
     for (const col of collections) await _wipeCollection(col);
+    const statsSnap = await db.collection('stats').get();
+    const statsBatch = db.batch();
+    statsSnap.docs.forEach(d => {
+      if (d.id !== 'campus360_config') statsBatch.delete(d.ref);
+    });
+    await statsBatch.commit();
 
     toast('Kill switch complete. Data wiped.');
     navigate('feed');
