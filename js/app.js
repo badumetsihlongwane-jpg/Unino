@@ -7506,15 +7506,13 @@ function renderFeed() {
       <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <!-- Compact Single-Row Composer -->
-      <div class="campus-composer-compact">
-        <div class="composer-compact-trigger" onclick="openCreateModal('post')">
-          ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
-          <span class="composer-compact-placeholder">What's on your mind?</span>
-        </div>
-        <div class="composer-compact-actions">
-          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 16)}</button>
-          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 16)}</button>
-          <button type="button" class="composer-compact-icon" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 16)}</button>
+      <div class="create-post-prompt campus-composer-compact" onclick="openCreateModal('post')">
+        ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
+        <span class="composer-compact-input">What's on your mind?</span>
+        <div class="composer-compact-tools" onclick="event.stopPropagation()">
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 15)}</button>
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 15)}</button>
+          <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 15)}</button>
         </div>
       </div>
 
@@ -12020,11 +12018,7 @@ async function renderExplorePlacesView() {
 
 function refreshVisiblePage() {
   if (state.page === 'feed') {
-    _pendingFeedFocusPostId = '';
-    _feedFocusedPostId = '';
-    _feedFocusLockUntil = 0;
-    navigate('feed', { refresh: true, restoreFeed: false });
-    return;
+    return triggerFeedInstantRefresh();
   }
   if (state.page === 'explore') {
     loadExploreUsers();
@@ -12064,14 +12058,18 @@ function setupPullToRefresh() {
   if (!content || _pullRefreshState) return;
   const indicator = ensurePullRefreshIndicator();
   const gesture = {
+    startX: 0,
     startY: 0,
     active: false,
+    lockedHorizontal: false,
     pullDistance: 0,
     refreshing: false
   };
   const reset = () => {
+    gesture.startX = 0;
     gesture.startY = 0;
     gesture.active = false;
+    gesture.lockedHorizontal = false;
     gesture.pullDistance = 0;
     if (!gesture.refreshing) {
       indicator.classList.remove('ready');
@@ -12086,37 +12084,50 @@ function setupPullToRefresh() {
     gesture.refreshing = true;
     updatePullRefreshIndicator(indicator, 72, true, true);
     try {
-      refreshVisiblePage();
-      await new Promise(resolve => setTimeout(resolve, 120));
+      if (state.page === 'feed') {
+        await triggerFeedInstantRefresh();
+      } else {
+        await refreshVisiblePage();
+      }
+      await new Promise(resolve => setTimeout(resolve, 160));
     } finally {
       gesture.refreshing = false;
       reset();
     }
   };
   const onStart = event => {
-    if (state.page !== 'feed') return;
-    if (content.scrollTop > 4) return;
+    if (state.page !== 'feed' || gesture.refreshing) return;
+    if (content.scrollTop > 6) return;
+    if (event.target?.closest?.('.discover-scroll, .trending-post-scroll, .feed-lenses-bar, input, textarea, select')) return;
     const touch = event.touches?.[0];
-    if (!touch) return;
+    if (!touch || event.touches.length > 1) return;
+    gesture.startX = touch.clientX;
     gesture.startY = touch.clientY;
     gesture.active = true;
+    gesture.lockedHorizontal = false;
     gesture.pullDistance = 0;
     updatePullRefreshIndicator(indicator, 0, false, false);
   };
   const onMove = event => {
-    if (!gesture.active || gesture.refreshing) return;
-    if (content.scrollTop > 6) return reset();
+    if (!gesture.active || gesture.refreshing || gesture.lockedHorizontal) return;
+    if (content.scrollTop > 8) return reset();
     const touch = event.touches?.[0];
     if (!touch) return;
-    const pullDistance = Math.max(0, touch.clientY - gesture.startY);
-    if (pullDistance <= 0) return;
+    const dx = touch.clientX - gesture.startX;
+    const dy = touch.clientY - gesture.startY;
+    if (gesture.pullDistance === 0 && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+      gesture.lockedHorizontal = true;
+      return reset();
+    }
+    if (dy <= 4) return;
     event.preventDefault();
-    gesture.pullDistance = pullDistance;
-    updatePullRefreshIndicator(indicator, pullDistance, pullDistance >= 72, false);
+    const damped = Math.min(120, dy * 0.65);
+    gesture.pullDistance = damped;
+    updatePullRefreshIndicator(indicator, damped, damped >= 64, false);
   };
   const onEnd = async () => {
     if (!gesture.active || gesture.refreshing) return reset();
-    if (gesture.pullDistance >= 72) {
+    if (gesture.pullDistance >= 64) {
       await refreshNow();
       return;
     }
