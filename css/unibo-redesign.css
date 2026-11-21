@@ -2388,10 +2388,113 @@ body {
   margin-top: 4px;
 }
 
+.campus-360-scenes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.campus-360-scenes::-webkit-scrollbar {
+  display: none;
+}
+
+.campus-360-scene-pill {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.campus-360-scene-pill.active {
+  background: var(--ink-btn);
+  border-color: var(--ink-btn);
+  color: var(--ink-btn-text);
+}
+
+.campus-360-head-actions .is-admin-on {
+  background: var(--ink-btn) !important;
+  color: var(--ink-btn-text) !important;
+  border-color: var(--ink-btn) !important;
+}
+
+.campus-360-admin-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.campus-360-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campus-360-admin-row select,
+.campus-360-admin-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.campus-360-admin-row.is-meta {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.campus-360-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.campus-360-north-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.campus-360-north-wrap input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.campus-360-admin-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
 .campus-360-stage {
   position: relative;
   width: 100%;
-  height: 350px;
+  height: 410px;
   overflow: hidden;
   background: #0D101B;
   cursor: grab;
@@ -2399,33 +2502,100 @@ body {
   user-select: none;
 }
 
+@media (min-width: 760px) {
+  .campus-360-stage {
+    height: 480px;
+  }
+}
+
+.campus-360-stage.is-editing {
+  cursor: crosshair;
+}
+
 .campus-360-stage:active {
   cursor: grabbing;
 }
 
-.campus-360-pano {
+.campus-360-canvas {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(96, 108, 175, 0.22), transparent 62%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 64px),
-    linear-gradient(180deg, #101524 0%, #192136 48%, #10131C 52%, #0B0D14 100%);
-  background-repeat: repeat-x;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
-.campus-360-pano.has-photo {
-  background-repeat: repeat-x;
-  background-color: #0D101B;
-}
-
-.campus-360-horizon {
+.campus-360-loading {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.14);
-  pointer-events: none;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(13, 16, 27, 0.72);
+  color: #FFFFFF;
+  font-size: 12.5px;
+  font-weight: 600;
+  z-index: 8;
+}
+
+.campus-360-zoom-controls {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 6;
+}
+
+.campus-360-zoom-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 14, 22, 0.78);
+  color: #FFFFFF;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.campus-360-pin {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  background: rgba(14, 16, 26, 0.80);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38);
+}
+
+.campus-360-pin.is-verified {
+  border-color: rgba(129, 140, 248, 0.92);
+  box-shadow: 0 4px 16px rgba(82, 67, 214, 0.45);
+}
+
+.campus-360-pin.is-selected {
+  background: #FFFFFF;
+  color: #101117;
+  border-color: #FFFFFF;
+  transform: translate(-50%, -50%) scale(1.1);
+  z-index: 6;
 }
 
 .campus-360-compass {

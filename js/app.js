@@ -11703,81 +11703,376 @@ async function openGeoBuildingDetail(encodedCode = '') {
   `);
 }
 
-let _campus360CustomUrl = '';
-let _campus360DetectedUrl = null;
+const CAMPUS_360_BASE_URL = window.UNIBO_360_BASE_URL || 'assets/tour360/';
+const CAMPUS_360_SCENES = [
+  { id: 'library_aerial', name: 'Library Aerial', file: 'library_aerial.jpg', lat: -25.82665, lng: 25.61005, alt: 16, defaultYaw: 0, defaultPitch: -10 },
+  { id: 'main_gate', name: 'Main Gate', file: 'main_gate.jpg', lat: -25.82895, lng: 25.61015, alt: 4, defaultYaw: 0, defaultPitch: -4 },
+  { id: 'north_east_aerial', name: 'North East', file: 'north_east_aerial.jpg', lat: -25.82530, lng: 25.61140, alt: 32, defaultYaw: 0, defaultPitch: -14 },
+  { id: 'north_west_aerial', name: 'North West', file: 'north_west_aerial.jpg', lat: -25.82540, lng: 25.60660, alt: 32, defaultYaw: 0, defaultPitch: -14 },
+  { id: 'north_eastern_overview', name: 'East Overview', file: 'north_eastern_overview.jpg', lat: -25.82610, lng: 25.61300, alt: 38, defaultYaw: 0, defaultPitch: -16 },
+  { id: 'north_eastern_high', name: 'High Campus', file: 'north_eastern_high.jpg', lat: -25.82500, lng: 25.61220, alt: 55, defaultYaw: 0, defaultPitch: -18 }
+];
 
-async function resolveCampus360ImageUrl() {
-  if (_campus360CustomUrl) return _campus360CustomUrl;
-  if (_campus360DetectedUrl !== null) return _campus360DetectedUrl;
-  const candidates = ['campus-360.jpg', './campus-360.jpg', 'assets/campus-360.jpg', 'public/campus-360.jpg', 'campus-360.webp'];
-  for (const url of candidates) {
-    try {
-      const resp = await fetch(url, { method: 'HEAD' });
-      if (resp.ok) {
-        _campus360DetectedUrl = url;
-        return url;
-      }
-    } catch (_) { }
-  }
-  _campus360DetectedUrl = '';
-  return '';
+let _campus360ConfigCache = null;
+
+async function loadCampus360Config(force = false) {
+  if (_campus360ConfigCache && !force) return _campus360ConfigCache;
+  let localCfg = {};
+  try {
+    localCfg = JSON.parse(localStorage.getItem('unibo_campus360_config') || '{}') || {};
+  } catch (_) { localCfg = {}; }
+  try {
+    const doc = await db.collection('stats').doc('campus360_config').get();
+    if (doc.exists) {
+      const data = doc.data() || {};
+      _campus360ConfigCache = { scenes: data.scenes || {}, updatedAt: data.updatedAt || null };
+      try { localStorage.setItem('unibo_campus360_config', JSON.stringify(_campus360ConfigCache)); } catch (_) { }
+      return _campus360ConfigCache;
+    }
+  } catch (_) { }
+  _campus360ConfigCache = { scenes: localCfg.scenes || {} };
+  return _campus360ConfigCache;
 }
 
-async function openCampus360Viewer(encodedFocus = '') {
+async function saveCampus360Config(cfg) {
+  _campus360ConfigCache = cfg;
+  try { localStorage.setItem('unibo_campus360_config', JSON.stringify(cfg)); } catch (_) { }
+  if (!_isAdmin) return { savedLocalOnly: true };
+  try {
+    await db.collection('stats').doc('campus360_config').set({
+      scenes: cfg.scenes || {},
+      updatedBy: state.user?.uid || 'admin',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    return { savedRemote: true };
+  } catch (e) {
+    console.warn('Could not save 360 config to Firestore:', e);
+    return { savedLocalOnly: true, error: e?.message || String(e) };
+  }
+}
+
+function createWebGLEquirectRenderer(canvas) {
+  const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: false })
+    || canvas.getContext('experimental-webgl');
+  if (!gl) return null;
+
+  const vsSrc = `
+    attribute vec2 aPos;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPos;
+      gl_Position = vec4(aPos, 0.0, 1.0);
+    }`;
+  const fsSrc = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uTex;
+    uniform float uYaw;
+    uniform float uPitch;
+    uniform float uTanHalfFovX;
+    uniform float uTanHalfFovY;
+    const float PI = 3.14159265359;
+    void main() {
+      // Camera-space ray (+Z forward, +X right, +Y up)
+      vec3 localDir = normalize(vec3(vUv.x * uTanHalfFovX, vUv.y * uTanHalfFovY, 1.0));
+      float cp = cos(uPitch), sp = sin(uPitch);
+      // Pitch around X (positive pitch looks up)
+      vec3 pDir = vec3(localDir.x, localDir.y * cp + localDir.z * sp, -localDir.y * sp + localDir.z * cp);
+      float cy = cos(uYaw), sy = sin(uYaw);
+      // Yaw clockwise from +Z toward +X
+      vec3 wDir = vec3(pDir.x * cy + pDir.z * sy, pDir.y, -pDir.x * sy + pDir.z * cy);
+      float lon = atan(wDir.x, wDir.z); // [-PI, PI], 0 at +Z
+      float lat = asin(clamp(wDir.y, -1.0, 1.0)); // [-PI/2, PI/2]
+      vec2 uv = vec2(lon / (2.0 * PI) + 0.5, 0.5 - lat / PI);
+      gl_FragColor = texture2D(uTex, uv);
+    }`;
+
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      console.warn('360 shader error:', gl.getShaderInfoLog(sh));
+      return null;
+    }
+    return sh;
+  };
+  const vs = compile(gl.VERTEX_SHADER, vsSrc);
+  const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+  if (!vs || !fs) return null;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const posLoc = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  const uYaw = gl.getUniformLocation(prog, 'uYaw');
+  const uPitch = gl.getUniformLocation(prog, 'uPitch');
+  const uTanX = gl.getUniformLocation(prog, 'uTanHalfFovX');
+  const uTanY = gl.getUniformLocation(prog, 'uTanHalfFovY');
+  let hasTexture = false;
+
+  return {
+    setImage(img) {
+      try {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        hasTexture = true;
+        return true;
+      } catch (e) {
+        console.warn('WebGL 360 texture upload fallback:', e);
+        hasTexture = false;
+        return false;
+      }
+    },
+    render(yawDeg, pitchDeg, fovDeg, width, height) {
+      if (!hasTexture) return false;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cw = Math.max(1, Math.round(width * dpr));
+      const ch = Math.max(1, Math.round(height * dpr));
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+      }
+      gl.viewport(0, 0, cw, ch);
+      const aspect = width / Math.max(1, height);
+      const tanHalfFovY = Math.tan(((fovDeg * Math.PI) / 180) * 0.5);
+      const tanHalfFovX = tanHalfFovY * aspect;
+      gl.uniform1f(uYaw, (yawDeg * Math.PI) / 180);
+      gl.uniform1f(uPitch, (pitchDeg * Math.PI) / 180);
+      gl.uniform1f(uTanX, tanHalfFovX);
+      gl.uniform1f(uTanY, tanHalfFovY);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return true;
+    }
+  };
+}
+
+// Exact 3D spherical projection matching the WebGL fragment shader so pins lock to rooftops!
+function project360DirToScreen(pinYawDeg, pinPitchDeg, camYawDeg, camPitchDeg, fovDeg, width, height) {
+  const toRad = d => (d * Math.PI) / 180;
+  const py = toRad(pinYawDeg);
+  const pp = toRad(pinPitchDeg);
+  // World unit vector for pin (+Z at yaw=0, +X at yaw=90, +Y at pitch=90)
+  const wx = Math.cos(pp) * Math.sin(py);
+  const wy = Math.sin(pp);
+  const wz = Math.cos(pp) * Math.cos(py);
+
+  // Inverse camera yaw (-camYaw)
+  const cy = Math.cos(-toRad(camYawDeg));
+  const sy = Math.sin(-toRad(camYawDeg));
+  const px = wx * cy + wz * sy;
+  const py1 = wy;
+  const pz = -wx * sy + wz * cy;
+
+  // Inverse camera pitch (-camPitch)
+  const cp = Math.cos(-toRad(camPitchDeg));
+  const sp = Math.sin(-toRad(camPitchDeg));
+  const lx = px;
+  const ly = py1 * cp + pz * sp;
+  const lz = -py1 * sp + pz * cp;
+
+  if (lz <= 0.08) return null; // behind camera
+  const aspect = width / Math.max(1, height);
+  const tanHalfFovY = Math.tan(toRad(fovDeg) * 0.5);
+  const tanHalfFovX = tanHalfFovY * aspect;
+  const ndcX = (lx / lz) / tanHalfFovX;
+  const ndcY = (ly / lz) / tanHalfFovY;
+  if (Math.abs(ndcX) > 1.15 || Math.abs(ndcY) > 1.15) return null;
+  return {
+    xPct: (ndcX * 0.5 + 0.5) * 100,
+    yPct: (0.5 - ndcY * 0.5) * 100
+  };
+}
+
+function screenTo360YawPitch(normX, normY, camYawDeg, camPitchDeg, fovDeg, width, height) {
+  const toRad = d => (d * Math.PI) / 180;
+  const toDeg = r => (r * 180) / Math.PI;
+  const ndcX = normX * 2 - 1;
+  const ndcY = 1 - normY * 2;
+  const aspect = width / Math.max(1, height);
+  const tanHalfFovY = Math.tan(toRad(fovDeg) * 0.5);
+  const tanHalfFovX = tanHalfFovY * aspect;
+  const len = Math.hypot(ndcX * tanHalfFovX, ndcY * tanHalfFovY, 1);
+  const lx = (ndcX * tanHalfFovX) / len;
+  const ly = (ndcY * tanHalfFovY) / len;
+  const lz = 1 / len;
+
+  const cp = Math.cos(toRad(camPitchDeg));
+  const sp = Math.sin(toRad(camPitchDeg));
+  const px = lx;
+  const py = ly * cp + lz * sp;
+  const pz = -ly * sp + lz * cp;
+
+  const cy = Math.cos(toRad(camYawDeg));
+  const sy = Math.sin(toRad(camYawDeg));
+  const wx = px * cy + pz * sy;
+  const wy = py;
+  const wz = -px * sy + pz * cy;
+
+  const yaw = (toDeg(Math.atan2(wx, wz)) + 360) % 360;
+  const pitch = toDeg(Math.asin(Math.max(-1, Math.min(1, wy))));
+  return { yaw: Math.round(yaw * 10) / 10, pitch: Math.round(pitch * 10) / 10 };
+}
+
+async function openCampus360Viewer(encodedFocus = '', options = {}) {
   const focusName = decodeURIComponent(String(encodedFocus || '')).trim();
   const places = _cachedExploreGeoPlaces.length ? _cachedExploreGeoPlaces : await getMahikengGeoPlaces();
-  const origin = MAHIKENG_360_LIBRARY_ORIGIN;
+  // Instant local config so the 360° panorama loads immediately without blocking on Firestore
+  let localCfg = {};
+  try { localCfg = JSON.parse(localStorage.getItem('unibo_campus360_config') || '{}') || {}; } catch (_) { localCfg = {}; }
+  const cfg = _campus360ConfigCache || { scenes: localCfg.scenes || {} };
+  if (!cfg.scenes || typeof cfg.scenes !== 'object') cfg.scenes = {};
 
-  // Compute exact spherical bearing & ground distance from Library central top view to every GeoJSON building
-  const pins = places.map(p => {
-    const distM = Math.max(10, Math.round(distanceKmBetween(origin, { lat: p.lat, lng: p.lng }) * 1000));
-    const bearing = calcBearingDeg(origin.lat, origin.lng, p.lat, p.lng);
-    // Approximate depression angle from ~18m rooftop height (closer = lower on screen, farther = nearer horizon)
-    const pitchDeg = -Math.atan2(origin.altitudeMeters, distM) * (180 / Math.PI);
-    return { ...p, distM, bearing, pitchDeg };
-  });
+  let activeSceneId = options.sceneId && CAMPUS_360_SCENES.some(s => s.id === options.sceneId)
+    ? options.sceneId
+    : CAMPUS_360_SCENES[0].id;
+  let adminEditMode = !!(_isAdmin && options.adminEdit);
+  let adminSelectedCode = places[0]?.code || 'A6';
+  let adminCustomName = '';
+  let yaw = 0;
+  let pitch = -10;
+  let fov = 72;
+  let selectedPin = null;
+  let activeImage = null;
+  let imageLoading = true;
+  const sceneImageCache = new Map();
 
-  const savedOffset = Number(localStorage.getItem('unibo_360_north_offset') || '0') || 0;
-  let northOffset = ((savedOffset % 360) + 360) % 360;
-  const focusedPin = focusName ? pins.find(p => p.code.toLowerCase() === focusName.toLowerCase()) : null;
-  let yaw = focusedPin ? focusedPin.bearing : 0; // degrees clockwise from North
-  let pitch = focusedPin ? Math.max(-18, Math.min(12, focusedPin.pitchDeg * 0.45)) : -4;
-  let fov = 92;
-  let selectedPin = focusedPin || null;
-  let panoUrl = await resolveCampus360ImageUrl();
+  const getScene = () => CAMPUS_360_SCENES.find(s => s.id === activeSceneId) || CAMPUS_360_SCENES[0];
+  const getSceneCfg = (sid = activeSceneId) => {
+    if (!cfg.scenes[sid]) {
+      cfg.scenes[sid] = { northOffset: 0, showAutoGeo: true, pins: {} };
+    }
+    if (!cfg.scenes[sid].pins) cfg.scenes[sid].pins = {};
+    if (typeof cfg.scenes[sid].showAutoGeo !== 'boolean') cfg.scenes[sid].showAutoGeo = true;
+    return cfg.scenes[sid];
+  };
+
+  const buildActivePins = () => {
+    const scene = getScene();
+    const sCfg = getSceneCfg();
+    const northOffset = Number(sCfg.northOffset || 0);
+    const savedPins = sCfg.pins || {};
+    const out = [];
+    const seen = new Set();
+
+    // 1. GeoJSON buildings (with admin override if saved)
+    places.forEach(p => {
+      const ov = savedPins[p.code];
+      if (ov?.hidden) return;
+      const distM = Math.max(10, Math.round(distanceKmBetween(scene, { lat: p.lat, lng: p.lng }) * 1000));
+      const geoBearing = calcBearingDeg(scene.lat, scene.lng, p.lat, p.lng);
+      const autoYaw = ((geoBearing - northOffset) % 360 + 360) % 360;
+      const autoPitch = Math.max(-55, Math.min(-3, -Math.atan2(scene.alt || 16, distM) * (180 / Math.PI)));
+      const isManual = ov && Number.isFinite(Number(ov.yaw)) && Number.isFinite(Number(ov.pitch));
+      if (!isManual && !sCfg.showAutoGeo) return;
+      seen.add(p.code);
+      out.push({
+        code: p.code,
+        label: ov?.label || p.code,
+        subtitle: ov?.subtitle || p.subtitle,
+        lat: p.lat,
+        lng: p.lng,
+        distM,
+        bearing: geoBearing,
+        yaw: isManual ? Number(ov.yaw) : autoYaw,
+        pitch: isManual ? Number(ov.pitch) : autoPitch,
+        isManual
+      });
+    });
+
+    // 2. Any custom admin-added landmarks not in GeoJSON
+    Object.entries(savedPins).forEach(([code, ov]) => {
+      if (seen.has(code) || !ov || ov.hidden) return;
+      if (!Number.isFinite(Number(ov.yaw)) || !Number.isFinite(Number(ov.pitch))) return;
+      out.push({
+        code,
+        label: ov.label || code,
+        subtitle: ov.subtitle || 'Campus Landmark',
+        lat: Number.isFinite(Number(ov.lat)) ? Number(ov.lat) : scene.lat,
+        lng: Number.isFinite(Number(ov.lng)) ? Number(ov.lng) : scene.lng,
+        distM: 0,
+        bearing: Number(ov.yaw),
+        yaw: Number(ov.yaw),
+        pitch: Number(ov.pitch),
+        isManual: true,
+        isCustom: true
+      });
+    });
+
+    return out;
+  };
 
   openModal(`
     <div class="campus-360-modal" data-no-tab-swipe="1">
       <div class="campus-360-head">
         <div>
-          <h3>${uiIcon('eye360', 16)} 360° Campus View</h3>
-          <span id="campus-360-sub">Library Top Central View · NWU Mahikeng</span>
+          <h3>${uiIcon('eye360', 16)} 360° Campus Tour</h3>
+          <span id="campus-360-sub">NWU Mahikeng · Full Aerial View</span>
         </div>
         <div class="campus-360-head-actions">
-          <label class="btn-outline btn-xs" style="cursor:pointer" title="Preview your 360° campus panorama photo">
-            ${uiIcon('image', 13)} Photo
-            <input type="file" id="campus-360-file" accept="image/*" hidden>
-          </label>
-          <button type="button" class="btn-outline btn-xs" id="campus-360-cal-toggle" title="Align compass North to your 360° photo">${uiIcon('sliders', 13)} Align</button>
+          ${_isAdmin ? `<button type="button" class="btn-outline btn-xs ${adminEditMode ? 'is-admin-on' : ''}" id="campus-360-admin-toggle">${uiIcon('sliders', 13)} Edit Pins</button>` : ''}
           <button type="button" class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
         </div>
       </div>
 
-      <div class="campus-360-calibrate" id="campus-360-calibrate" style="display:none">
-        <div class="campus-360-cal-row">
-          <span>North Offset: <strong id="campus-360-offset-val">${Math.round(northOffset)}°</strong></span>
-          <button type="button" class="btn-xs btn-outline" id="campus-360-offset-reset">Reset</button>
-        </div>
-        <input type="range" id="campus-360-offset-slider" min="0" max="359" value="${Math.round(northOffset)}">
-        <div class="campus-360-cal-hint">Slide until labels (A5, A6, A1…) match their roofs in your 360° photo. Saved automatically.</div>
+      <div class="campus-360-scenes" id="campus-360-scenes" data-no-tab-swipe="1">
+        ${CAMPUS_360_SCENES.map(s => `
+          <button type="button" class="campus-360-scene-pill ${s.id === activeSceneId ? 'active' : ''}" data-scene="${s.id}">${esc(s.name)}</button>
+        `).join('')}
       </div>
 
-      <div class="campus-360-stage" id="campus-360-stage" data-no-tab-swipe="1">
-        <div class="campus-360-pano" id="campus-360-pano"></div>
-        <div class="campus-360-horizon"></div>
+      ${_isAdmin ? `
+      <div class="campus-360-admin-bar" id="campus-360-admin-bar" style="${adminEditMode ? '' : 'display:none'}">
+        <div class="campus-360-admin-row">
+          <select id="campus-360-admin-select" aria-label="Select building to place">
+            ${places.map(p => `<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.subtitle)}</option>`).join('')}
+            <option value="__custom__">+ Custom Landmark…</option>
+          </select>
+          <button type="button" class="btn-primary btn-xs" id="campus-360-admin-save">Save Live</button>
+        </div>
+        <div class="campus-360-admin-row" id="campus-360-custom-row" style="display:none">
+          <input type="text" id="campus-360-custom-input" placeholder="e.g. Library, Great Hall, Main Gate…">
+        </div>
+        <div class="campus-360-admin-row is-meta">
+          <label class="campus-360-check"><input type="checkbox" id="campus-360-auto-geo"> Auto GeoJSON pins</label>
+          <div class="campus-360-north-wrap">
+            <span>North <strong id="campus-360-north-val">0°</strong></span>
+            <input type="range" id="campus-360-north-slider" min="0" max="359" value="0">
+          </div>
+        </div>
+        <div class="campus-360-admin-hint" id="campus-360-admin-hint">Tap directly on any building in the 360° photo to place the selected label. Tap an existing pin to hide/remove it.</div>
+      </div>` : ''}
+
+      <div class="campus-360-stage ${adminEditMode ? 'is-editing' : ''}" id="campus-360-stage" data-no-tab-swipe="1">
+        <canvas class="campus-360-canvas" id="campus-360-canvas"></canvas>
+        <div class="campus-360-loading" id="campus-360-loading">
+          <span class="inline-spinner" style="width:24px;height:24px;color:#fff"></span>
+          <span>Loading 360° view…</span>
+        </div>
         <div class="campus-360-compass" id="campus-360-compass"></div>
         <div class="campus-360-pins" id="campus-360-pins"></div>
-        <div class="campus-360-hud-badge" id="campus-360-hud-badge">0° N · Drag to look 360°</div>
+        <div class="campus-360-zoom-controls">
+          <button type="button" class="campus-360-zoom-btn" id="campus-360-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" class="campus-360-zoom-btn" id="campus-360-zoom-out" aria-label="Zoom out">−</button>
+        </div>
+        <div class="campus-360-hud-badge" id="campus-360-hud-badge">Drag to look 360°</div>
       </div>
 
       <div class="campus-360-footer" id="campus-360-footer"></div>
@@ -11785,23 +12080,26 @@ async function openCampus360Viewer(encodedFocus = '') {
   `);
 
   const stage = document.getElementById('campus-360-stage');
-  const panoEl = document.getElementById('campus-360-pano');
+  const canvas = document.getElementById('campus-360-canvas');
+  const loadingEl = document.getElementById('campus-360-loading');
   const pinsEl = document.getElementById('campus-360-pins');
   const compassEl = document.getElementById('campus-360-compass');
   const hudBadge = document.getElementById('campus-360-hud-badge');
   const footerEl = document.getElementById('campus-360-footer');
-  if (!stage || !panoEl || !pinsEl) return;
+  if (!stage || !canvas || !pinsEl) return;
 
-  const applyPanoBackdrop = () => {
-    if (panoUrl) {
-      panoEl.classList.add('has-photo');
-      panoEl.style.backgroundImage = `url("${panoUrl}")`;
-    } else {
-      panoEl.classList.remove('has-photo');
-      panoEl.style.backgroundImage = '';
-    }
+  let glRenderer = createWebGLEquirectRenderer(canvas);
+  let ctx2d = glRenderer ? null : canvas.getContext('2d');
+
+  const syncAdminControls = () => {
+    const sCfg = getSceneCfg();
+    const autoGeo = document.getElementById('campus-360-auto-geo');
+    const northSlider = document.getElementById('campus-360-north-slider');
+    const northVal = document.getElementById('campus-360-north-val');
+    if (autoGeo) autoGeo.checked = !!sCfg.showAutoGeo;
+    if (northSlider) northSlider.value = String(Math.round(Number(sCfg.northOffset || 0)));
+    if (northVal) northVal.textContent = `${Math.round(Number(sCfg.northOffset || 0))}°`;
   };
-  applyPanoBackdrop();
 
   const renderFooter = () => {
     if (!footerEl) return;
@@ -11809,69 +12107,91 @@ async function openCampus360Viewer(encodedFocus = '') {
       const encoded = encodeURIComponent(selectedPin.code);
       footerEl.innerHTML = `
         <div class="campus-360-selected">
-          <div class="explore-place-code">${esc(selectedPin.code)}</div>
+          <div class="explore-place-code">${esc(selectedPin.label.slice(0, 6))}</div>
           <div class="campus-360-selected-copy">
-            <strong>${esc(selectedPin.code)} · ${selectedPin.distM}m ${bearingToCardinal(selectedPin.bearing)}</strong>
-            <span>${esc(selectedPin.subtitle)}</span>
+            <strong>${esc(selectedPin.label)}${selectedPin.distM ? ` · ${selectedPin.distM}m` : ''}</strong>
+            <span>${esc(selectedPin.subtitle)}${selectedPin.isManual ? ' · Verified pin' : ''}</span>
           </div>
+          ${adminEditMode ? `<button type="button" class="btn-outline btn-sm" id="campus-360-hide-pin">Hide</button>` : ''}
           <button type="button" class="btn-primary btn-sm" onclick="routeToMapPointEncoded(${selectedPin.lat}, ${selectedPin.lng}, '${encoded}')">${uiIcon('route', 14)} Route</button>
         </div>`;
+      const hideBtn = document.getElementById('campus-360-hide-pin');
+      if (hideBtn) {
+        hideBtn.onclick = () => {
+          const sCfg = getSceneCfg();
+          sCfg.pins[selectedPin.code] = { ...(sCfg.pins[selectedPin.code] || {}), hidden: true };
+          toast(`Hidden "${selectedPin.label}" on this view — click Save Live to publish`);
+          selectedPin = null;
+          renderFrame();
+          renderFooter();
+        };
+      }
     } else {
+      const scene = getScene();
       footerEl.innerHTML = `
         <div class="campus-360-hint-row">
-          <span>${panoUrl ? 'Tap any building label to navigate there.' : 'GeoJSON 360° compass active — tap Photo to preview your 360° top view (or add campus-360.jpg).'}</span>
+          <span>${adminEditMode
+            ? `Admin Edit Mode (${esc(scene.name)}): tap any roof to place <strong>${esc(adminSelectedCode === '__custom__' ? (adminCustomName || 'Custom') : adminSelectedCode)}</strong>, then click Save Live.`
+            : `${esc(scene.name)} · Drag 360° or tap a building pin for walking route.`}</span>
         </div>`;
     }
   };
 
   const renderFrame = () => {
     const w = stage.clientWidth || 360;
-    const h = stage.clientHeight || 340;
+    const h = stage.clientHeight || 400;
     const normYaw = ((yaw % 360) + 360) % 360;
-    const photoYaw = ((normYaw + northOffset) % 360 + 360) % 360;
+    const sCfg = getSceneCfg();
+    const northOffset = Number(sCfg.northOffset || 0);
+    const compassHeading = ((normYaw + northOffset) % 360 + 360) % 360;
 
-    // Seamless 360° horizontal wrap of panorama background
-    const panoTotalWidth = (360 / fov) * w;
-    const bgX = -(photoYaw / 360) * panoTotalWidth;
-    const bgY = 50 + (pitch * 1.4);
-    if (panoUrl) {
-      panoEl.style.backgroundSize = `${Math.round(panoTotalWidth)}px auto`;
-      panoEl.style.backgroundPosition = `${Math.round(bgX)}px ${bgY.toFixed(1)}%`;
-    } else {
-      panoEl.style.backgroundPosition = `${Math.round(bgX)}px center`;
+    if (activeImage && glRenderer) {
+      glRenderer.render(normYaw, pitch, fov, w, h);
+    } else if (activeImage && ctx2d) {
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      const scaleW = (360 / fov) * w;
+      const offsetX = -((normYaw / 360) * scaleW);
+      const drawY = -((0.5 - (pitch / 180)) * (scaleW * 0.5) - h * 0.5);
+      ctx2d.clearRect(0, 0, w, h);
+      for (let shift = -scaleW; shift <= scaleW; shift += scaleW) {
+        ctx2d.drawImage(activeImage, offsetX + shift, drawY, scaleW, scaleW * 0.5);
+      }
     }
 
-    if (hudBadge) hudBadge.textContent = `${Math.round(normYaw)}° ${bearingToCardinal(normYaw)} · Drag 360°`;
+    if (hudBadge) {
+      hudBadge.textContent = adminEditMode
+        ? `Tap roof to place ${adminSelectedCode === '__custom__' ? (adminCustomName || 'label') : adminSelectedCode} · ${Math.round(compassHeading)}° ${bearingToCardinal(compassHeading)}`
+        : `${Math.round(compassHeading)}° ${bearingToCardinal(compassHeading)} · Drag 360°`;
+    }
 
-    // Compass ticks along top edge
+    // Compass ticks
     if (compassEl) {
       const marks = [
         { deg: 0, label: 'N' }, { deg: 45, label: 'NE' }, { deg: 90, label: 'E' }, { deg: 135, label: 'SE' },
         { deg: 180, label: 'S' }, { deg: 225, label: 'SW' }, { deg: 270, label: 'W' }, { deg: 315, label: 'NW' }
       ];
       compassEl.innerHTML = marks.map(m => {
-        let diff = ((m.deg - normYaw + 540) % 360) - 180;
-        if (Math.abs(diff) > fov * 0.58) return '';
-        const xPct = 50 + (diff / fov) * 100;
-        return `<span class="campus-360-tick ${m.label.length === 1 ? 'is-major' : ''}" style="left:${xPct.toFixed(1)}%">${m.label}</span>`;
+        const pinYaw = ((m.deg - northOffset) % 360 + 360) % 360;
+        const pt = project360DirToScreen(pinYaw, pitch, normYaw, pitch, fov, w, h);
+        if (!pt || pt.xPct < 3 || pt.xPct > 97) return '';
+        return `<span class="campus-360-tick ${m.label.length === 1 ? 'is-major' : ''}" style="left:${pt.xPct.toFixed(1)}%">${m.label}</span>`;
       }).join('');
     }
 
-    // Project every GeoJSON building into current 360° viewport
+    // Project building pins with exact 3D spherical math
+    const pins = buildActivePins();
     pinsEl.innerHTML = pins.map(p => {
-      let diff = ((p.bearing - normYaw + 540) % 360) - 180;
-      if (Math.abs(diff) > fov * 0.56) return '';
-      const xPct = 50 + (diff / fov) * 100;
-      // Map vertical elevation: closer buildings lower, distant buildings near horizon (48%..74%)
-      const relPitch = p.pitchDeg - pitch;
-      const yPct = Math.max(22, Math.min(84, 52 - (relPitch * 1.35)));
+      const pt = project360DirToScreen(p.yaw, p.pitch, normYaw, pitch, fov, w, h);
+      if (!pt || pt.xPct < -5 || pt.xPct > 105 || pt.yPct < 6 || pt.yPct > 94) return '';
       const isSelected = selectedPin && selectedPin.code === p.code;
-      const scale = p.distM < 120 ? 1.04 : p.distM > 260 ? 0.88 : 0.96;
       return `
-        <button type="button" class="campus-360-pin ${isSelected ? 'is-selected' : ''}" data-code="${esc(p.code)}"
-          style="left:${xPct.toFixed(1)}%;top:${yPct.toFixed(1)}%;transform:translate(-50%,-50%) scale(${isSelected ? 1.12 : scale})">
-          <strong>${esc(p.code)}</strong>
-          <span>${p.distM}m</span>
+        <button type="button" class="campus-360-pin ${isSelected ? 'is-selected' : ''} ${p.isManual ? 'is-verified' : ''}" data-code="${esc(p.code)}"
+          style="left:${pt.xPct.toFixed(1)}%;top:${pt.yPct.toFixed(1)}%">
+          <strong>${esc(p.label)}</strong>
+          ${p.distM ? `<span>${p.distM}m</span>` : ''}
         </button>`;
     }).join('');
 
@@ -11879,24 +12199,93 @@ async function openCampus360Viewer(encodedFocus = '') {
       btn.onclick = ev => {
         ev.stopPropagation();
         const code = btn.dataset.code;
-        selectedPin = pins.find(p => p.code === code) || null;
-        if (selectedPin) yaw = selectedPin.bearing;
+        const currentPins = buildActivePins();
+        selectedPin = currentPins.find(p => p.code === code) || null;
+        if (selectedPin && !adminEditMode) {
+          yaw = selectedPin.yaw;
+          pitch = Math.max(-55, Math.min(25, selectedPin.pitch));
+        }
         renderFrame();
         renderFooter();
       };
     });
   };
 
-  renderFrame();
-  renderFooter();
+  const loadScene = async (sceneId, focusTarget = '') => {
+    activeSceneId = sceneId;
+    const scene = getScene();
+    selectedPin = null;
+    imageLoading = true;
+    if (loadingEl) loadingEl.style.display = 'flex';
+    document.querySelectorAll('.campus-360-scene-pill').forEach(b => {
+      b.classList.toggle('active', b.dataset.scene === activeSceneId);
+    });
+    const subEl = document.getElementById('campus-360-sub');
+    if (subEl) subEl.textContent = `${scene.name} · NWU Mahikeng`;
+    syncAdminControls();
 
-  // Smooth pointer drag (works seamlessly on both mobile touch and desktop mouse!)
+    const pins = buildActivePins();
+    const target = focusTarget ? pins.find(p => p.code.toLowerCase() === focusTarget.toLowerCase()) : null;
+    if (target) {
+      selectedPin = target;
+      yaw = target.yaw;
+      pitch = Math.max(-55, Math.min(25, target.pitch));
+    } else {
+      yaw = scene.defaultYaw || 0;
+      pitch = scene.defaultPitch || -10;
+    }
+    renderFooter();
+
+    const url = `${CAMPUS_360_BASE_URL}${scene.file}`;
+    const applyLoadedImage = img => {
+      activeImage = img;
+      if (glRenderer) {
+        const ok = glRenderer.setImage(img);
+        if (!ok) {
+          glRenderer = null;
+          ctx2d = canvas.getContext('2d');
+        }
+      }
+      imageLoading = false;
+      if (loadingEl) loadingEl.style.display = 'none';
+      renderFrame();
+    };
+    if (sceneImageCache.has(url)) {
+      applyLoadedImage(sceneImageCache.get(url));
+      return;
+    }
+
+    const img = new Image();
+    if (/^https?:\/\//i.test(url)) img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      sceneImageCache.set(url, img);
+      if (activeSceneId !== sceneId) return;
+      applyLoadedImage(img);
+    };
+    img.onerror = () => {
+      if (activeSceneId !== sceneId) return;
+      imageLoading = false;
+      if (loadingEl) loadingEl.innerHTML = '<span>360° image unavailable</span>';
+      renderFrame();
+    };
+    img.src = url;
+  };
+
+  // Wire scene switcher pills
+  document.querySelectorAll('.campus-360-scene-pill').forEach(btn => {
+    btn.onclick = () => loadScene(btn.dataset.scene);
+  });
+
+  // Smooth 360° drag + click-to-place in Admin mode + zoom
   let dragging = false;
+  let movedDist = 0;
   let lastX = 0;
   let lastY = 0;
+
   stage.addEventListener('pointerdown', ev => {
-    if (ev.target.closest('.campus-360-pin')) return;
+    if (ev.target.closest('.campus-360-pin, .campus-360-zoom-controls')) return;
     dragging = true;
+    movedDist = 0;
     lastX = ev.clientX;
     lastY = ev.clientY;
     stage.setPointerCapture?.(ev.pointerId);
@@ -11905,62 +12294,140 @@ async function openCampus360Viewer(encodedFocus = '') {
     if (!dragging) return;
     const dx = ev.clientX - lastX;
     const dy = ev.clientY - lastY;
+    movedDist += Math.hypot(dx, dy);
     lastX = ev.clientX;
     lastY = ev.clientY;
-    yaw = (yaw - dx * 0.34 + 360) % 360;
-    pitch = Math.max(-24, Math.min(18, pitch + dy * 0.16));
+    const sens = (fov / 72) * 0.24;
+    yaw = (yaw - dx * sens + 360) % 360;
+    pitch = Math.max(-78, Math.min(72, pitch + dy * sens));
     renderFrame();
   });
-  const endDrag = () => { dragging = false; };
-  stage.addEventListener('pointerup', endDrag);
-  stage.addEventListener('pointercancel', endDrag);
-
-  // Calibrate toggle & slider
-  const calToggle = document.getElementById('campus-360-cal-toggle');
-  const calPanel = document.getElementById('campus-360-calibrate');
-  const offsetSlider = document.getElementById('campus-360-offset-slider');
-  const offsetVal = document.getElementById('campus-360-offset-val');
-  const offsetReset = document.getElementById('campus-360-offset-reset');
-  if (calToggle && calPanel) {
-    calToggle.onclick = () => {
-      calPanel.style.display = calPanel.style.display === 'none' ? 'block' : 'none';
-    };
-  }
-  if (offsetSlider) {
-    offsetSlider.oninput = () => {
-      northOffset = Number(offsetSlider.value) || 0;
-      if (offsetVal) offsetVal.textContent = `${Math.round(northOffset)}°`;
-      try { localStorage.setItem('unibo_360_north_offset', String(Math.round(northOffset))); } catch (_) { }
-      renderFrame();
-    };
-  }
-  if (offsetReset) {
-    offsetReset.onclick = () => {
-      northOffset = 0;
-      if (offsetSlider) offsetSlider.value = '0';
-      if (offsetVal) offsetVal.textContent = '0°';
-      try { localStorage.setItem('unibo_360_north_offset', '0'); } catch (_) { }
-      renderFrame();
-    };
-  }
-
-  // Local 360° photo preview picker
-  const fileInput = document.getElementById('campus-360-file');
-  if (fileInput) {
-    fileInput.onchange = () => {
-      const file = fileInput.files?.[0];
-      if (!file) return;
-      if (_campus360CustomUrl) {
-        try { URL.revokeObjectURL(_campus360CustomUrl); } catch (_) { }
+  const endDrag = ev => {
+    if (!dragging) return;
+    dragging = false;
+    // In Admin Edit mode, a crisp tap (not a drag) pins the selected building right onto that exact 3D spot!
+    if (adminEditMode && movedDist < 7 && ev && !ev.target.closest('.campus-360-pin, .campus-360-zoom-controls')) {
+      const rect = stage.getBoundingClientRect();
+      const normX = (ev.clientX - rect.left) / Math.max(1, rect.width);
+      const normY = (ev.clientY - rect.top) / Math.max(1, rect.height);
+      const pos = screenTo360YawPitch(normX, normY, yaw, pitch, fov, rect.width, rect.height);
+      const sCfg = getSceneCfg();
+      let code = adminSelectedCode;
+      let label = adminSelectedCode;
+      let subtitle = 'Campus Building';
+      let lat = getScene().lat;
+      let lng = getScene().lng;
+      if (code === '__custom__') {
+        const clean = (adminCustomName || '').trim();
+        if (!clean) return toast('Enter a custom landmark name first');
+        code = `custom_${clean.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+        label = clean;
+        subtitle = 'NWU Mahikeng Landmark';
+      } else {
+        const found = places.find(p => p.code === code);
+        if (found) {
+          label = found.code;
+          subtitle = found.subtitle;
+          lat = found.lat;
+          lng = found.lng;
+        }
       }
-      _campus360CustomUrl = URL.createObjectURL(file);
-      panoUrl = _campus360CustomUrl;
-      applyPanoBackdrop();
+      sCfg.pins[code] = { label, subtitle, yaw: pos.yaw, pitch: pos.pitch, lat, lng, hidden: false };
+      selectedPin = { code, label, subtitle, yaw: pos.yaw, pitch: pos.pitch, lat, lng, distM: 0, isManual: true };
       renderFrame();
       renderFooter();
-      toast('360° photo loaded — tap Align if North needs rotation');
+      toast(`Placed ${label} — click Save Live to publish`);
+    }
+  };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', () => { dragging = false; });
+  stage.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    fov = Math.max(42, Math.min(102, fov + (ev.deltaY > 0 ? 5 : -5)));
+    renderFrame();
+  }, { passive: false });
+
+  document.getElementById('campus-360-zoom-in')?.addEventListener('click', () => {
+    fov = Math.max(42, fov - 10);
+    renderFrame();
+  });
+  document.getElementById('campus-360-zoom-out')?.addEventListener('click', () => {
+    fov = Math.min(102, fov + 10);
+    renderFrame();
+  });
+
+  // Wire Admin Controller UI
+  const adminToggle = document.getElementById('campus-360-admin-toggle');
+  const adminBar = document.getElementById('campus-360-admin-bar');
+  const adminSelect = document.getElementById('campus-360-admin-select');
+  const customRow = document.getElementById('campus-360-custom-row');
+  const customInput = document.getElementById('campus-360-custom-input');
+  const autoGeoCheck = document.getElementById('campus-360-auto-geo');
+  const northSlider = document.getElementById('campus-360-north-slider');
+  const northVal = document.getElementById('campus-360-north-val');
+  const saveBtn = document.getElementById('campus-360-admin-save');
+
+  if (adminToggle && adminBar) {
+    adminToggle.onclick = () => {
+      adminEditMode = !adminEditMode;
+      adminToggle.classList.toggle('is-admin-on', adminEditMode);
+      adminBar.style.display = adminEditMode ? '' : 'none';
+      stage.classList.toggle('is-editing', adminEditMode);
+      renderFrame();
+      renderFooter();
     };
   }
+  if (adminSelect) {
+    adminSelect.onchange = () => {
+      adminSelectedCode = adminSelect.value;
+      if (customRow) customRow.style.display = adminSelectedCode === '__custom__' ? 'flex' : 'none';
+      renderFrame();
+      renderFooter();
+    };
+  }
+  if (customInput) {
+    customInput.oninput = () => {
+      adminCustomName = customInput.value;
+      renderFrame();
+      renderFooter();
+    };
+  }
+  if (autoGeoCheck) {
+    autoGeoCheck.onchange = () => {
+      getSceneCfg().showAutoGeo = !!autoGeoCheck.checked;
+      renderFrame();
+    };
+  }
+  if (northSlider) {
+    northSlider.oninput = () => {
+      const val = Number(northSlider.value) || 0;
+      getSceneCfg().northOffset = val;
+      if (northVal) northVal.textContent = `${Math.round(val)}°`;
+      renderFrame();
+    };
+  }
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      const res = await saveCampus360Config(cfg);
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Live';
+      if (res.savedRemote) toast('360° labels published live for all students!');
+      else toast('Saved locally (sign in as admin to sync live)');
+    };
+  }
+
+  loadScene(activeSceneId, focusName);
+  // Sync latest Firestore admin pins in background without delaying image load
+  loadCampus360Config(true).then(remote => {
+    if (remote?.scenes && document.getElementById('campus-360-stage')) {
+      cfg.scenes = { ...(cfg.scenes || {}), ...(remote.scenes || {}) };
+      syncAdminControls();
+      renderFrame();
+      renderFooter();
+    }
+  }).catch(() => { });
 }
 
 async function renderExplorePlacesView() {
@@ -21407,7 +21874,8 @@ async function openAdminPanel() {
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllGroups()">\ud83d\udccb View All Groups</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllUsers()">\ud83d\udc65 View All Users</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">\ud83e\uddf9 Moderate Posts</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">🧹 Moderate Posts</button>
+        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="openCampus360Viewer('', { adminEdit: true })">${uiIcon('eye360', 14)} 360° Campus Pin Editor</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">📢 Broadcast Notice</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--primary);border-color:var(--primary)" onclick="showAdminRelaunchDateShift()">🔄 Relaunch: Refresh All Dates to Today</button>
         <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">Kill Switch: Wipe Data</button>
