@@ -90,7 +90,7 @@
   --blue: #60A5FA;
   --blue-light: rgba(96, 165, 250, 0.14);
 
-  --gradient: linear-gradient(180deg, #FFFFFF 0%, #E7E9F0 100%);
+  --gradient: linear-gradient(135deg, #5243D6 0%, #3B2FA3 100%);
   --gradient-vivid: linear-gradient(135deg, #272A38 0%, #161822 100%);
   --gradient-deep: linear-gradient(135deg, #171924 0%, #24273A 100%);
   --gradient-warm: linear-gradient(135deg, #26293B 0%, #5243D6 100%);
@@ -2729,3 +2729,1202 @@ body {
   line-height: 1.45;
   text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   17. PRODUCT-LEVEL UX REDESIGN — ACADEMIC PULSE, QUICK-DOCK,
+       RADAR HUD, COMPACT TIMETABLE, SQUADS & EDITORIAL POLISH
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Header Brand Mark & Campus Pill ───────────────────────── */
+.hdr-brand-btn {
+  gap: 8px;
+}
+
+.hdr-brand-glyph {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #0D0E14;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+}
+
+.hdr-brand-glyph img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.12);
+}
+
+.hdr-campus-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 20%, transparent);
+}
+
+/* ── Verified NWU Student Checkmark SVG ────────────────────── */
+.verified-badge {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -2px;
+  margin-left: 4px;
+  width: auto !important;
+  height: auto !important;
+  background: none !important;
+  color: var(--brand-tint) !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.verified-badge svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+/* ── NWU Demo Feed Banner Live Indicator ───────────────────── */
+.nwu-demo-feed-banner {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 5px 10px !important;
+  margin: 2px 14px 5px !important;
+  border-radius: 12px !important;
+  flex-wrap: nowrap !important;
+}
+
+.nwu-demo-feed-banner .nwu-demo-top-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  width: 100% !important;
+  flex-wrap: nowrap !important;
+  margin: 0 !important;
+}
+
+.nwu-demo-banner-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-size: 11px !important;
+  padding: 3px 7px !important;
+  flex-shrink: 0;
+}
+
+.nwu-demo-banner-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nwu-demo-banner-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.nwu-demo-banner-actions .btn-xs,
+.nwu-demo-banner-btn {
+  padding: 4px 7px !important;
+  font-size: 11px !important;
+  border-radius: 8px !important;
+  white-space: nowrap !important;
+  height: 24px !important;
+  min-height: 24px !important;
+}
+
+.nwu-demo-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-light);
+}
+
+/* ── Campus Quick-Dock ("Today on Campus" 4-Tile Bento) ────── */
+.campus-quick-dock {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 7px;
+  padding: 2px 14px 4px;
+  margin: 0 0 4px;
+}
+
+.campus-quick-dock::-webkit-scrollbar {
+  display: none;
+}
+
+.campus-quick-dock .quick-dock-tile {
+  flex: 0 0 auto;
+  min-width: 142px;
+  padding: 7px 10px;
+}
+
+@media (min-width: 600px) {
+  .campus-quick-dock {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+    padding: 0;
+    margin: 4px 14px 8px;
+  }
+  .campus-quick-dock .quick-dock-tile {
+    min-width: 0;
+    padding: 9px 10px;
+  }
+}
+
+.quick-dock-tile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  min-width: 0;
+}
+
+.quick-dock-tile:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+.quick-dock-tile:active {
+  transform: scale(0.985);
+}
+
+.quick-dock-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.quick-dock-tile.is-schedule .quick-dock-icon {
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+}
+
+.quick-dock-tile.is-residences .quick-dock-icon {
+  background: var(--green-light);
+  color: var(--green);
+}
+
+.quick-dock-tile.is-tour .quick-dock-icon {
+  background: var(--blue-light);
+  color: var(--blue);
+}
+
+.quick-dock-tile.is-squads .quick-dock-icon {
+  background: var(--orange-light);
+  color: var(--orange);
+}
+
+.quick-dock-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.quick-dock-copy strong {
+  font-size: 12.5px;
+  font-weight: 750;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-dock-copy small {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Desktop Right Rail: Live Today's Schedule Widget ──────── */
+.pulse-schedule-widget {
+  border-color: color-mix(in srgb, var(--brand-tint) 22%, var(--border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-tint) 4%, var(--bg-secondary)) 0%, var(--bg-secondary) 100%);
+}
+
+.pulse-schedule-widget .pulse-widget-head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pulse-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pulse-schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.pulse-schedule-item:hover {
+  border-color: var(--brand-tint);
+  background: var(--bg-secondary);
+}
+
+.pulse-schedule-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 44px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.pulse-schedule-time strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+
+.pulse-schedule-time span {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.pulse-schedule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pulse-schedule-info strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.pulse-schedule-info span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pulse-clash-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--red-light);
+  color: var(--red);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.pulse-schedule-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.pulse-online-pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--green-light);
+  color: var(--green);
+}
+
+.pulse-tag-chip.is-module {
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+  border-color: color-mix(in srgb, var(--brand-tint) 22%, transparent);
+  font-weight: 700;
+}
+
+/* ── Post Cards, Academic Module Pills & Anonymous Whispers ── */
+.post-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.post-card.is-anon-whisper {
+  border-color: color-mix(in srgb, var(--brand-tint) 22%, var(--border));
+}
+
+.anon-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 24%, transparent);
+}
+
+.anon-whisper-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+  vertical-align: middle;
+}
+
+.module-chip-academic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 20%, transparent) !important;
+  font-weight: 750 !important;
+}
+
+.module-chip.is-shared {
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  border-color: color-mix(in srgb, var(--brand-tint) 28%, transparent) !important;
+  font-weight: 750 !important;
+}
+
+.reaction-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Compact Timetable Modal Layout (Zero Clipping) ────────── */
+.timetable-modal-header {
+  padding: 12px 16px 8px !important;
+}
+
+.timetable-title-area h2 {
+  font-size: 17px !important;
+}
+
+.timetable-sub {
+  font-size: 11.5px !important;
+  margin-top: 1px !important;
+}
+
+.timetable-sticky-controls {
+  padding: 6px 14px 8px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 6px !important;
+}
+
+.timetable-day-tabs {
+  margin: 0 !important;
+  padding: 3px !important;
+  border-radius: 12px !important;
+}
+
+.timetable-day-tab {
+  padding: 6px 6px !important;
+  font-size: 12px !important;
+  border-radius: 9px !important;
+}
+
+.timetable-search-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.timetable-search-actions-row .timetable-search-bar {
+  flex: 1 1 170px;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 6px 10px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+}
+
+.timetable-search-actions-row .timetable-search-bar input {
+  font-size: 12.5px !important;
+}
+
+.timetable-search-actions-row .timetable-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 !important;
+  padding: 0 !important;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.timetable-action-pill {
+  padding: 5px 10px !important;
+  font-size: 11.5px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.timetable-modules-tray {
+  margin: 0 !important;
+  padding: 1px 0 !important;
+  gap: 5px !important;
+}
+
+.timetable-mod-chip {
+  padding: 4px 10px !important;
+  font-size: 11.5px !important;
+}
+
+.timetable-groups-row {
+  margin: 0 !important;
+  padding: 1px 0 !important;
+  gap: 4px !important;
+}
+
+.timetable-group-pill {
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+}
+
+.timetable-clash-warning {
+  padding: 8px 11px !important;
+  font-size: 11.5px !important;
+  border-radius: 11px !important;
+}
+
+/* ── Live Campus Radar HUD & Interactive Filter Bar ────────── */
+.radar-map-wrap {
+  position: relative;
+  margin: 6px 16px 10px !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.radar-hud-bar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 52px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 11px;
+  border-radius: 12px;
+  background: rgba(16, 18, 27, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.radar-hud-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.radar-hud-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.28);
+}
+
+.radar-hud-stats {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.80);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 16px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.radar-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.radar-filter-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.radar-filter-pill b {
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-filter-pill.active {
+  background: var(--ink-btn);
+  border-color: var(--ink-btn);
+  color: var(--ink-btn-text);
+}
+
+.radar-filter-pill.active b {
+  color: var(--ink-btn-text);
+}
+
+/* ── Explore Events Intro & Category Pills ─────────────────── */
+.explore-events-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 16px 12px;
+}
+
+.explore-events-kicker {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--brand-tint);
+  margin-bottom: 2px;
+}
+
+.explore-events-intro h3 {
+  font-size: 15.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.explore-events-count {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.explore-event-cover-pattern {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.explore-event-cat-pill {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #FFFFFF;
+  font-size: 10.5px;
+  font-weight: 750;
+  backdrop-filter: blur(6px);
+}
+
+.explore-event-cat-inline {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+  font-size: 11px;
+  font-weight: 750;
+  margin-bottom: 8px;
+}
+
+.explore-event-desc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 4px 0 10px;
+}
+
+.explore-event-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── Hustle Marketplace Cards ──────────────────────────────── */
+.listing-overlay-pill.is-cat {
+  background: rgba(16, 18, 26, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.listing-overlay-pill.is-featured {
+  background: var(--brand-tint);
+  color: #FFFFFF;
+}
+
+.listing-campus-tag {
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+
+.listing-seller-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+/* ── Messages Compact Story Banner & Study Squads ──────────── */
+.story-add-copy {
+  display: none;
+}
+
+.messages-stories-row:not(.has-active-stories) {
+  padding: 2px 16px 8px !important;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story {
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-avatar {
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-name {
+  display: none;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-add-copy {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  min-width: 0;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  padding: 10px 14px !important;
+  border-radius: 14px !important;
+  border: 1px dashed var(--border-strong) !important;
+  background: var(--bg-secondary) !important;
+  text-align: left !important;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-ring.add-ring {
+  width: 36px !important;
+  height: 36px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-add-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-add-copy strong {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.messages-stories-row:not(.has-active-stories) .story-item.add-story .story-add-copy span {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.asg-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 14px 10px;
+  flex-wrap: nowrap;
+}
+
+.asg-toolbar-row .asg-filter-row {
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.asg-toolbar-row .asg-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.asg-toolbar-row .asg-filter-row .chip {
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+}
+
+.asg-new-btn {
+  flex-shrink: 0;
+  padding: 6px 11px !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+}
+
+.asg-card {
+  margin: 0 16px 10px !important;
+  padding: 14px 16px !important;
+  border-radius: 16px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--bg-secondary) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.asg-card-module {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px !important;
+  border-radius: 8px !important;
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  font-weight: 800 !important;
+  font-size: 12px !important;
+}
+
+.asg-capacity-wrap {
+  margin: 8px 0 7px;
+}
+
+.asg-capacity-bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.asg-capacity-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand-tint);
+  transition: width 0.25s ease;
+}
+
+.asg-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.asg-card-foot .asg-card-host {
+  margin: 0 !important;
+}
+
+.asg-card-cta {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--brand-tint);
+  white-space: nowrap;
+}
+
+/* ── Notifications & Profile Polish ────────────────────────── */
+.notif-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.notif-type-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  display: grid;
+  place-items: center;
+}
+
+.notif-type-badge.is-like {
+  color: var(--red);
+}
+
+.notif-type-badge.is-timetable,
+.notif-type-badge.is-module {
+  color: var(--brand-tint);
+}
+
+.profile-cover {
+  height: 118px !important;
+  position: relative;
+  overflow: visible;
+}
+
+.profile-cover-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 18px 18px;
+  pointer-events: none;
+}
+
+.profile-actions {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px !important;
+  flex-wrap: wrap;
+}
+
+.profile-actions > button {
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 16px !important;
+  border-radius: 12px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* ── Residences Directory Action Bar Polish ────────────────── */
+.residences-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.res-card-actions .res-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-strong) !important;
+}
+
+.res-card-actions .res-btn:hover {
+  background: var(--bg-tertiary) !important;
+}
+
+.res-card-actions .res-btn-whatsapp {
+  background: var(--green-light) !important;
+  color: var(--green) !important;
+  border-color: color-mix(in srgb, var(--green) 28%, transparent) !important;
+}
+
+.res-card-actions .res-btn-call {
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  border-color: color-mix(in srgb, var(--brand-tint) 26%, transparent) !important;
+}
+
+.res-card-media.res-hero-media {
+  position: relative;
+  width: 100% !important;
+  height: 184px !important;
+  overflow: hidden;
+  display: block !important;
+  background: var(--bg-tertiary);
+}
+
+.res-card-media.res-hero-media .res-card-img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+
+.res-photo-count-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-weight: 700 !important;
+}
+
+.profile-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+}
+
+.listing-sub-stats {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.user-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+
+.user-card .user-card-action {
+  margin-top: auto !important;
+  width: 100% !important;
+}
+
+#explore-places-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+@media (min-width: 680px) {
+  #explore-places-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+.explore-place-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.explore-place-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.explore-place-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explore-place-dist {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.explore-place-actions .btn-xs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Demo & Peer Chat Bubble Styling ───────────────────────── */
+.chat-system-msg {
+  align-self: center;
+  margin: 8px auto 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--brand-tint-soft);
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 22%, transparent);
+  color: var(--brand-tint);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  max-width: 92%;
+}
+
+.chat-bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.42;
+  font-size: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-bubble.peer {
+  align-self: flex-start;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-bottom-left-radius: 5px;
+}
+
+.chat-bubble.me {
+  align-self: flex-end;
+  background: var(--brand-tint);
+  color: #FFFFFF;
+  border-bottom-right-radius: 5px;
+}
+
+.chat-sender-name {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--brand-tint);
+}
+
+.chat-bubble-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.chat-bubble-time {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  align-self: flex-end;
+  font-weight: 600;
+}
+
+.chat-bubble.me .chat-bubble-time {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.group-avatar-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--brand-tint-soft) !important;
+  color: var(--brand-tint) !important;
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 22%, transparent) !important;
+}
+
+
+

@@ -518,58 +518,72 @@ window.renderNwuDemoDMList = renderNwuDemoDMList;
 function openNwuDemoChat(type) {
   closeModal();
   showScreen('chat-view');
-  const chatTopName = $('#chat-top-name');
-  const chatTopStatus = $('#chat-top-status');
+  const hdrInfo = $('#chat-hdr-info');
   const chatMsgs = $('#chat-msgs');
   const chatBackBtn = $('#chat-back');
+  const banner = $('#anon-reveal-banner');
+  if (banner) banner.style.display = 'none';
   if (chatBackBtn) chatBackBtn.onclick = () => { showScreen('app'); navigate('chat'); };
 
-  if (type === 'katlego') {
-    if (chatTopName) chatTopName.innerHTML = 'Katlego Molefe <span class="verified-badge-inline">✓</span>';
-    if (chatTopStatus) chatTopStatus.innerHTML = '<span class="status-dot online"></span> Online · CMPG121 Peer Tutor';
+  if (type === 'katlego' || type === 'peer') {
+    if (hdrInfo) {
+      hdrInfo.innerHTML = `
+        <div onclick="openProfile('nwu_katlego_molefe')" style="cursor:pointer">${avatar('Katlego Molefe', DEMO_STUDENT_PROFILES.nwu_katlego_molefe?.photoURL, 'avatar-sm')}</div>
+        <div onclick="openProfile('nwu_katlego_molefe')" style="cursor:pointer">
+          <h3 style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:5px">Katlego Molefe ${verifiedBadge('nwu_katlego_molefe')}</h3>
+          <span style="font-size:11.5px;color:var(--green);font-weight:600">● Online · CMPG121 Peer Tutor</span>
+        </div>
+      `;
+    }
     if (chatMsgs) {
       chatMsgs.innerHTML = `
-        <div class="chat-system-msg">🔒 POPIA Protected · Simulated Peer Tutoring Demo</div>
+        <div class="chat-system-msg">POPIA Protected · Simulated Peer Tutoring Conversation</div>
         <div class="chat-bubble peer">
-          <div class="chat-bubble-text">Hi! Welcome to the CMPG121 study squad. Feel free to ask any questions about Java objects, recursion, or test preparation! 📚💻</div>
+          <div class="chat-bubble-text">Hi! Welcome to the CMPG121 study squad. Feel free to ask any questions about Java objects, recursion, or test preparation.</div>
           <div class="chat-bubble-time">10:14 AM</div>
         </div>
         <div class="chat-bubble peer">
-          <div class="chat-bubble-text">I\\'ve uploaded the tutorial 3 notes to the group files as well.</div>
+          <div class="chat-bubble-text">I've uploaded the Tutorial 3 recursion notes and past paper memo to the module group files as well.</div>
           <div class="chat-bubble-time">10:15 AM</div>
         </div>
       `;
     }
   } else {
-    if (chatTopName) chatTopName.innerHTML = 'CMPG121 Study Squad A';
-    if (chatTopStatus) chatTopStatus.innerHTML = '<span class="status-dot online"></span> 5 members · Structured Programming';
+    if (hdrInfo) {
+      hdrInfo.innerHTML = `
+        <div class="avatar-sm group-avatar-icon">${uiIcon('book', 16)}</div>
+        <div>
+          <h3 style="font-size:15px;font-weight:700">CMPG121 Study Squad A</h3>
+          <span style="font-size:11.5px;color:var(--text-secondary)">5 members · Structured Programming</span>
+        </div>
+      `;
+    }
     if (chatMsgs) {
       chatMsgs.innerHTML = `
-        <div class="chat-system-msg">🔒 POPIA Protected · Simulated Module Study Squad</div>
+        <div class="chat-system-msg">POPIA Protected · Simulated Module Study Squad</div>
         <div class="chat-bubble peer">
           <div class="chat-sender-name">Anke van der Merwe</div>
-          <div class="chat-bubble-text">Hey everyone, don\\'t forget the assignment 2 submission deadline is Friday 23:59 on eFundi!</div>
+          <div class="chat-bubble-text">Hey everyone, don't forget the Assignment 2 submission deadline is Friday 23:59 on eFundi!</div>
           <div class="chat-bubble-time">09:30 AM</div>
         </div>
         <div class="chat-bubble peer">
           <div class="chat-sender-name">Katlego Molefe</div>
-          <div class="chat-bubble-text">I\\'ll be at Ferdinand Postma Library at 14:00 if anyone needs help debugging unit tests.</div>
+          <div class="chat-bubble-text">I'll be at Ferdinand Postma Library at 14:00 if anyone needs help debugging unit tests.</div>
           <div class="chat-bubble-time">09:42 AM</div>
         </div>
       `;
     }
   }
 
-  // Setup input send action
-  const sendBtn = $('#chat-send-btn');
+  const sendBtn = $('#chat-send') || $('#chat-send-btn');
   const chatInput = $('#chat-input');
   if (sendBtn && chatInput) {
-    sendBtn.onclick = () => {
+    const triggerDemoSend = () => {
       const text = chatInput.value.trim();
       if (!text) return;
       chatInput.value = '';
       const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble me';
+      bubble.className = 'chat-bubble me msg-sent';
       bubble.innerHTML = `<div class="chat-bubble-text">${esc(text)}</div><div class="chat-bubble-time">Just now</div>`;
       chatMsgs.appendChild(bubble);
       chatMsgs.scrollTop = chatMsgs.scrollHeight;
@@ -580,7 +594,14 @@ function openNwuDemoChat(type) {
         reply.innerHTML = `<div class="chat-bubble-text">Thanks for testing Unibo! Real NWU students connect directly through their verified @mynwu.ac.za accounts.</div><div class="chat-bubble-time">Just now</div>`;
         chatMsgs.appendChild(reply);
         chatMsgs.scrollTop = chatMsgs.scrollHeight;
-      }, 1200);
+      }, 900);
+    };
+    sendBtn.onclick = triggerDemoSend;
+    chatInput.onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        triggerDemoSend();
+      }
     };
   }
 }
@@ -638,7 +659,11 @@ function isVerifiedUser(uid) {
   if (uid === state.profile?.id) return _isAdmin || !!state.profile?.manualVerified;
   return false;
 }
-function verifiedBadge(uid) { return isVerifiedUser(uid) ? '<span class="verified-badge" title="Verified">✔</span>' : ''; }
+function verifiedBadge(uid) {
+  return isVerifiedUser(uid)
+    ? '<span class="verified-badge" title="Verified NWU Student" aria-label="Verified"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l2.4 2.1 3.1-.4 1.2 2.9 2.9 1.2-.4 3.1L23.3 13l-2.1 2.4.4 3.1-2.9 1.2-1.2 2.9-3.1-.4L12 24.3l-2.4-2.1-3.1.4-1.2-2.9-2.9-1.2.4-3.1L.7 13l2.1-2.4-.4-3.1 2.9-1.2 1.2-2.9 3.1.4L12 2zm-1.1 14.6l6.2-6.2-1.4-1.4-4.8 4.8-2.4-2.4-1.4 1.4 3.8 3.8z"/></svg></span>'
+    : '';
+}
 
 function clampText(v = '', max = 80) {
   const t = (v || '').replace(/\s+/g, ' ').trim();
@@ -1178,7 +1203,9 @@ function renderReactionSummary(raw = {}, likes = [], extraClass = '') {
   const { entries, total } = getReactionSummary(raw, likes);
   if (!total) return '';
   const cls = extraClass ? ` ${extraClass}` : '';
-  return `<span class="reaction-summary${cls}">${entries.slice(0, 3).map(([emoji, count]) => `<span class="reaction-chip">${emoji}${count > 1 ? `<b>${count}</b>` : ''}</span>`).join('')}<span class="reaction-total">${total}</span></span>`;
+  const topEntries = entries.slice(0, 3);
+  const showPerChipCounts = topEntries.length > 1;
+  return `<span class="reaction-summary${cls}">${topEntries.map(([emoji, count]) => `<span class="reaction-chip">${emoji}${showPerChipCounts && count > 1 ? `<b>${count}</b>` : ''}</span>`).join('')}<span class="reaction-total">${total}</span></span>`;
 }
 
 function syncLocalPostReactionState(postId, reactions, likes) {
@@ -3531,10 +3558,35 @@ function avatar(name, photo, cls = 'avatar-sm') {
   return `<div class="${cls}" style="background:${bg}">${initials(name)}</div>`;
 }
 
+function toDateObj(ts) {
+  if (!ts) return null;
+  if (ts instanceof Date) return Number.isNaN(ts.getTime()) ? null : ts;
+  if (typeof ts.toDate === 'function') {
+    try {
+      const d = ts.toDate();
+      return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+    } catch (_) { return null; }
+  }
+  if (typeof ts === 'object') {
+    const sec = typeof ts.seconds === 'number' ? ts.seconds : (typeof ts._seconds === 'number' ? ts._seconds : null);
+    if (sec !== null) {
+      const d = new Date(sec * 1000);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  if (typeof ts === 'number') {
+    const ms = ts < 1e12 ? ts * 1000 : ts;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function timeAgo(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  const m = Math.floor((Date.now() - d) / 60000);
+  const d = toDateObj(ts);
+  if (!d) return '';
+  const m = Math.floor((Date.now() - d.getTime()) / 60000);
   if (m < 1) return 'Just now';
   if (m < 60) return m + 'm';
   const h = Math.floor(m / 60);
@@ -3545,14 +3597,14 @@ function timeAgo(ts) {
 }
 
 function chatTime(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const d = toDateObj(ts);
+  if (!d) return '';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function dateSeparatorLabel(ts) {
-  if (!ts) return null;
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const d = toDateObj(ts);
+  if (!d) return null;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -3728,7 +3780,7 @@ function getPostHashTags(post = {}) {
 
 function renderPostModuleTags(moduleTags = []) {
   if (!moduleTags.length) return '';
-  return `<div class="post-module-tags">${moduleTags.map(tag => `<button class="module-chip clickable" onclick="openModuleFeed('${tag}')">${esc(tag)}</button>`).join('')}</div>`;
+  return `<div class="post-module-tags">${moduleTags.map(tag => `<button class="module-chip module-chip-academic clickable" onclick="openModuleFeed('${tag}')">${uiIcon('book', 12)} <span>${esc(tag)}</span></button>`).join('')}</div>`;
 }
 
 function renderPostHashTags(hashTags = []) {
@@ -6080,9 +6132,88 @@ function uiIcon(name, size = 15) {
     route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
     eye360: '<circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
     search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
-    sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'
+    sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    bed: '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    door: '<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M14 12v.01"/>',
+    grad: '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    arrowRight: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>'
   };
   return `<svg class="ui-ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.sparkle}</svg>`;
+}
+
+let _scheduleSnapshotWarming = false;
+function getStudentScheduleSnapshot() {
+  const mods = normalizeModules(state.profile?.modules || []);
+  if (!_nwuWeeklyTimetable || !Object.keys(_nwuWeeklyTimetable).length) {
+    if (!_scheduleSnapshotWarming && typeof loadWeeklyTimetable === 'function') {
+      _scheduleSnapshotWarming = true;
+      loadWeeklyTimetable().then(() => {
+        _scheduleSnapshotWarming = false;
+        renderCampusPulseSidebar();
+        updateFeedScheduleDockLabel();
+      }).catch(() => { _scheduleSnapshotWarming = false; });
+    }
+    return {
+      hasModules: mods.length > 0,
+      moduleCount: mods.length,
+      nextSlot: null,
+      todaySlots: [],
+      dayLabel: 'Today',
+      shortLabel: mods.length ? `${mods.length} modules enrolled` : 'Add your modules'
+    };
+  }
+
+  const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const now = new Date();
+  const todayName = weekDays[now.getDay()];
+  const targetDay = (todayName === 'Saturday' || todayName === 'Sunday') ? 'Monday' : todayName;
+  const isToday = targetDay === todayName;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const parseMin = (t = '') => {
+    const [h, m] = String(t || '00:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  let daySlots = [];
+  try {
+    const res = getEffectiveUserSlots(state.profile, _nwuWeeklyTimetable, targetDay, 'ALL', '');
+    daySlots = res.activeSlots || [];
+  } catch (_) { daySlots = []; }
+
+  let nextSlot = null;
+  if (daySlots.length) {
+    if (isToday) {
+      nextSlot = daySlots.find(s => parseMin(s.end) > nowMin) || daySlots[0];
+    } else {
+      nextSlot = daySlots[0];
+    }
+  }
+
+  const shortLabel = nextSlot
+    ? `${nextSlot.module} · ${nextSlot.start}${nextSlot.venue ? ` · ${nextSlot.venue.replace(/^MC-/, '')}` : ''}`
+    : (mods.length ? `${mods.length} modules · View classes` : 'Set up schedule');
+
+  return {
+    hasModules: mods.length > 0,
+    moduleCount: mods.length,
+    nextSlot,
+    todaySlots: daySlots,
+    dayLabel: isToday ? `Today (${targetDay.slice(0, 3)})` : targetDay,
+    shortLabel
+  };
+}
+
+function updateFeedScheduleDockLabel() {
+  const sub = document.getElementById('feed-dock-schedule-sub');
+  if (!sub) return;
+  const snap = getStudentScheduleSnapshot();
+  sub.textContent = snap.shortLabel;
 }
 
 const DEFAULT_SWIPE_IGNORE_SELECTOR = '.maplibregl-canvas, .maplibregl-map, .leaflet-container, .radar-map-wrap, .discover-scroll, .trending-post-scroll, .stories-row, .feed-lenses-bar, .radar-quick-actions, .hustle-categories, .suggested-list, .places-block-pills, .campus-360-stage, .collage-grid, .vn-player, input, textarea, select, [data-no-tab-swipe]';
@@ -6142,12 +6273,42 @@ function renderCampusPulseSidebar() {
       });
   });
   const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const events = (Array.isArray(allCampusEvents) ? allCampusEvents : []).slice(0, 3);
+  const events = (Array.isArray(allCampusEvents) && allCampusEvents.length ? allCampusEvents : getCuratedCampusEvents()).slice(0, 3);
+  const sched = getStudentScheduleSnapshot();
 
   host.innerHTML = `
+    <div class="pulse-widget pulse-schedule-widget">
+      <div class="pulse-widget-head">
+        <h3>${uiIcon('calendar', 14)} ${esc(sched.dayLabel)} Classes</h3>
+        <button type="button" class="pulse-widget-link" onclick="openTimetableModal(state.user?.uid)">Schedule</button>
+      </div>
+      ${sched.todaySlots.length ? `
+        <div class="pulse-schedule-list">
+          ${sched.todaySlots.slice(0, 3).map(slot => `
+            <button type="button" class="pulse-schedule-item" onclick="openTimetableModal(state.user?.uid, '${escJs(slot.module)}')">
+              <div class="pulse-schedule-time">
+                <strong>${esc(slot.start)}</strong>
+                <span>${esc(slot.end)}</span>
+              </div>
+              <div class="pulse-schedule-info">
+                <strong>${esc(slot.module)}${slot.hasClash ? ' <i class="pulse-clash-dot" title="Schedule clash">!</i>' : ''}</strong>
+                <span>${esc(slot.venue || 'NWU Venue')}${slot.group ? ` · ${esc(slot.group)}` : ''}</span>
+              </div>
+            </button>
+          `).join('')}
+        </div>
+      ` : `
+        <div class="pulse-schedule-empty">
+          <span>${sched.moduleCount ? `${sched.moduleCount} modules enrolled · No classes remaining today` : 'Sync your NWU modules for live lecture times.'}</span>
+          <button type="button" class="btn-outline btn-xs" onclick="openTimetableModal(state.user?.uid)">Open Timetable</button>
+        </div>
+      `}
+    </div>
+
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Status</h3>
+        <h3>Campus Vibe</h3>
+        <span class="pulse-online-pill">${window._lastOnlineCount ? `${window._lastOnlineCount} active` : 'Live'}</span>
       </div>
       <div class="pulse-vibe-row">
         <button type="button" class="pulse-vibe-pill ${vibe === 'online' ? 'active' : ''}" onclick="setCampusVibe('online')">${uiIcon('dot', 12)} Active</button>
@@ -6181,36 +6342,36 @@ function renderCampusPulseSidebar() {
     ${topTags.length ? `
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Trending</h3>
+        <h3>Trending on NWU</h3>
       </div>
       <div class="pulse-tags-wrap">
         ${topTags.map(([label]) => label.startsWith('#')
     ? `<button type="button" class="pulse-tag-chip" onclick="openTagFeed('${escJs(label.slice(1))}')">${esc(label)}</button>`
-    : `<button type="button" class="pulse-tag-chip" onclick="openModuleFeed('${escJs(label)}')">${esc(label)}</button>`
+    : `<button type="button" class="pulse-tag-chip is-module" onclick="openModuleFeed('${escJs(label)}')">${uiIcon('book', 11)} ${esc(label)}</button>`
   ).join('')}
       </div>
     </div>` : ''}
 
     <div class="pulse-widget">
       <div class="pulse-widget-head">
-        <h3>Campus</h3>
+        <h3>Quick Portals</h3>
       </div>
       <div class="pulse-shortcut-grid">
         <button type="button" class="pulse-shortcut-btn" onclick="openResidencesView()">
           <strong>${uiIcon('building', 14)} Residences</strong>
           <span>650+ NWU stays</span>
         </button>
-        <button type="button" class="pulse-shortcut-btn" onclick="openExploreTab('places')">
-          <strong>${uiIcon('map', 14)} Hotspots</strong>
-          <span>Map &amp; routes</span>
+        <button type="button" class="pulse-shortcut-btn" onclick="openCampus360Viewer()">
+          <strong>${uiIcon('eye360', 14)} 360° Tour</strong>
+          <span>6 aerial scenes</span>
         </button>
         <button type="button" class="pulse-shortcut-btn" onclick="openMessagesTab('groups')">
           <strong>${uiIcon('users', 14)} Squads</strong>
           <span>Study &amp; group chats</span>
         </button>
-        <button type="button" class="pulse-shortcut-btn" onclick="openTimetableModal(state.user?.uid)">
-          <strong>${uiIcon('calendar', 14)} Classes</strong>
-          <span>Schedule &amp; exams</span>
+        <button type="button" class="pulse-shortcut-btn" onclick="openExploreTab('places')">
+          <strong>${uiIcon('map', 14)} Buildings</strong>
+          <span>32 Mahikeng blocks</span>
         </button>
       </div>
     </div>
@@ -6235,6 +6396,10 @@ function setupHeader() {
       if (state.page === 'feed') triggerFeedInstantRefresh();
       else navigate('feed', { refresh: false, restoreFeed: true });
     };
+  }
+  const scheduleBtn = $('#hdr-schedule-btn');
+  if (scheduleBtn) {
+    scheduleBtn.onclick = () => openTimetableModal(state.user?.uid);
   }
   const videoBtn = $('#hdr-video-btn');
   if (videoBtn) {
@@ -6689,6 +6854,7 @@ function setupNav() {
         e.preventDefault();
         const portal = btn.dataset.portal;
         if (portal === 'residences') openResidencesView();
+        else if (portal === 'tour360') openCampus360Viewer();
         else if (portal === 'video') openVideoHub();
         else if (portal === 'timetable') openTimetableModal(state.user?.uid);
         else if (portal === 'profile') openProfile(state.user?.uid);
@@ -7461,13 +7627,14 @@ function renderFeed() {
   _feedInlineSuggestionSlotsUsed = 0;
   _feedInlineSuggestedUserIds = new Set();
 
+  const schedSnap = getStudentScheduleSnapshot();
   c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
       <div class="feed-toolbar home-toolbar">
         <div class="search-bar feed-search-bar">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="feed-search-input" placeholder="Search posts, #tags, people or modules…" value="${esc(_feedSearchQuery)}">
+          ${uiIcon('search', 16)}
+          <input type="text" id="feed-search-input" placeholder="Search posts, #modules, people or buildings…" value="${esc(_feedSearchQuery)}">
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
@@ -7475,9 +7642,10 @@ function renderFeed() {
       ${isNwuDemoActive() ? `
       <div class="nwu-demo-feed-banner">
         <div class="nwu-demo-top-row">
-          <div class="nwu-demo-banner-pill">NWU Preview</div>
+          <div class="nwu-demo-banner-pill"><span class="nwu-demo-live-dot"></span>NWU Preview</div>
           <div class="nwu-demo-banner-actions">
             <button class="btn-xs btn-accent" onclick="openNwuDemoProfileModal()">Profiles</button>
+            <button class="btn-xs btn-outline" onclick="openCampus360Viewer()">360° Tour</button>
             <button class="btn-xs btn-outline" onclick="openExploreTab('radar')">Radar</button>
             <button class="btn-xs btn-outline" onclick="exitNwuDemoMode()">Sign In</button>
           </div>
@@ -7489,18 +7657,36 @@ function renderFeed() {
         <span>Refreshing…</span>
       </div>
 
-      <!-- Single-Row Filter & Campus Portal Bar -->
-      <div class="feed-lenses-bar" role="tablist" aria-label="Filter feed">
-        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">Trending</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">Buzz</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">Study</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">Media</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">Friends</button>
-        <span class="feed-lens-sep" aria-hidden="true"></span>
-        <button type="button" class="feed-lens-chip is-portal" onclick="openExploreTab('events')">${uiIcon('calendar', 13)} Events</button>
-        <button type="button" class="feed-lens-chip is-portal" onclick="openResidencesView()">${uiIcon('building', 13)} Residences</button>
-        <button type="button" class="feed-lens-chip is-portal" onclick="openTimetableModal(state.user?.uid)">${uiIcon('book', 13)} Classes</button>
+      <!-- Campus Quick-Dock: Live Academic & Spatial Portals -->
+      <div class="campus-quick-dock" aria-label="Campus quick portals">
+        <button type="button" class="quick-dock-tile is-schedule" onclick="openTimetableModal(state.user?.uid)">
+          <span class="quick-dock-icon">${uiIcon('calendar', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Schedule</strong>
+            <small id="feed-dock-schedule-sub">${esc(schedSnap.shortLabel)}</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-residences" onclick="openResidencesView()">
+          <span class="quick-dock-icon">${uiIcon('building', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Residences</strong>
+            <small>650 accredited</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-tour" onclick="openCampus360Viewer()">
+          <span class="quick-dock-icon">${uiIcon('eye360', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>360° Tour</strong>
+            <small>6 aerial scenes</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-squads" onclick="openMessagesTab('groups')">
+          <span class="quick-dock-icon">${uiIcon('users', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Study Squads</strong>
+            <small>Module groups</small>
+          </span>
+        </button>
       </div>
 
       <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
@@ -7508,12 +7694,22 @@ function renderFeed() {
       <!-- Compact Single-Row Composer -->
       <div class="create-post-prompt campus-composer-compact" onclick="openCreateModal('post')">
         ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
-        <span class="composer-compact-input">What's on your mind?</span>
+        <span class="composer-compact-input">Share an update, ask a #module question…</span>
         <div class="composer-compact-tools" onclick="event.stopPropagation()">
           <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 15)}</button>
           <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 15)}</button>
           <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { anon: true })" title="Anonymous whisper" aria-label="Anonymous whisper">${uiIcon('ghost', 15)}</button>
         </div>
+      </div>
+
+      <!-- Dedicated Feed Content Lenses -->
+      <div class="feed-lenses-bar" role="tablist" aria-label="Filter feed">
+        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">Trending</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">Study &amp; Modules</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">Whispers &amp; Polls</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">Media</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">Friends</button>
       </div>
 
       <div id="feed-posts">
@@ -7814,10 +8010,10 @@ function loadDiscoverPeople(options = {}) {
 
     el.innerHTML = `<div class="discover-scroll">${users.map(u => {
       const tag = u.sharedModules?.length
-        ? `🔗 ${u.sharedModules.length} shared module${u.sharedModules.length > 1 ? 's' : ''}`
-        : Number.isFinite(u.distanceKm) ? `📍 ${u.distanceKm.toFixed(1)} km away`
-          : u.nearbyScore > 0 ? '📍 Nearby area'
-            : u.major ? `📚 ${esc(u.major)}` : '';
+        ? `${uiIcon('book', 11)} ${u.sharedModules.length} shared module${u.sharedModules.length > 1 ? 's' : ''}`
+        : Number.isFinite(u.distanceKm) ? `${uiIcon('pin', 11)} ${u.distanceKm.toFixed(1)} km away`
+          : u.nearbyScore > 0 ? `${uiIcon('pin', 11)} Nearby area`
+            : u.major ? `${uiIcon('grad', 11)} ${esc(clampText(u.major, 22))}` : '';
       const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
       const isFriend = (state.profile.friends || []).includes(u.id);
       const isPending = (state.profile.sentRequests || []).includes(u.id);
@@ -7825,15 +8021,15 @@ function loadDiscoverPeople(options = {}) {
         ? `<button class="discover-card-btn" onclick="event.stopPropagation();startChat('${u.id}','${escJs(u.displayName)}','${escJs(u.photoURL || '')}')">Message</button>`
         : isPending
           ? `<button class="discover-card-btn" disabled style="opacity:0.6;cursor:not-allowed">Pending…</button>`
-          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName)}','${escJs(u.photoURL || '')}', this)">Add Friend</button>`;
+          : `<button type="button" class="discover-card-btn" onclick="event.preventDefault();event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName)}','${escJs(u.photoURL || '')}', this)">Connect</button>`;
       return `
         <div class="discover-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
           <div class="discover-card-avatar">
             ${avatar(u.displayName, u.photoURL, 'avatar-lg')}
             ${online}
           </div>
-          <div class="discover-card-name">${esc(u.displayName)}</div>
-          <div class="discover-card-meta">${esc(u.major || 'Student')}</div>
+          <div class="discover-card-name">${esc(u.displayName)}${verifiedBadge(u.id)}</div>
+          <div class="discover-card-meta">${esc(u.major || 'NWU Student')}</div>
           ${tag ? `<div class="discover-card-tag">${tag}</div>` : ''}
           ${actionBtn}
         </div>`;
@@ -7844,8 +8040,8 @@ function loadDiscoverPeople(options = {}) {
 // ─── Discover: Events tab ────────────────────────
 function loadDiscoverEvents() {
   const el = $('#discover-content'); if (!el) return;
-  // Use allCampusEvents if loaded, otherwise fetch
-  const renderEvts = (events) => {
+  const renderEvts = (rawEvents) => {
+    const events = (Array.isArray(rawEvents) && rawEvents.length) ? rawEvents : getCuratedCampusEvents();
     if (!events.length) {
       el.innerHTML = `<div class="discover-empty"><span>Events</span><p>No events yet. Check the Campus map!</p></div>`;
       return;
@@ -7863,7 +8059,7 @@ function loadDiscoverEvents() {
     }).sort((a, b) => b._discoverScore - a._discoverScore || (a.date || '').localeCompare(b.date || ''));
     el.innerHTML = `<div class="discover-scroll">${rankedEvents.slice(0, 8).map(ev => {
       const locationMeta = getEventLocationMeta(ev);
-      const locName = locationMeta.label || ev.location || '?';
+      const locName = locationMeta.label || ev.locationName || ev.location || 'NWU Campus';
       const nearLabel = Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng)
         && getLocationDistanceBoost({ lat: locationMeta.lat, lng: locationMeta.lng }) > 0
         ? ' · Near you'
@@ -7918,6 +8114,7 @@ function renderStoriesRowFromSnap(snap) {
   Object.keys(byUser).forEach(k => ordered.push({ uid: k, stories: byUser[k] }));
 
   rows.forEach(row => {
+    row.classList.toggle('has-active-stories', ordered.length > 0);
     row.querySelectorAll('.story-item:not(.add-story)').forEach(el => el.remove());
     ordered.forEach(group => {
       const s = group.stories[0];
@@ -8768,19 +8965,36 @@ function renderSinglePostCardHtml(post, videoPlayersOut = [], idPrefix = 'feed')
     videoPlayersOut.push(videoPlayerData);
   }
   const cardIdAttr = idPrefix === 'feed' ? `id="post-${post.id}"` : `id="modal-post-${post.id}"`;
+  const authorCtx = !post.isAnonymous && post.authorId ? (_userContextCache[post.authorId] || null) : null;
+  const authorMajorShort = authorCtx?.major ? clampText(authorCtx.major, 28) : '';
+  const timeText = timeAgo(post.createdAt);
+  const visIcon = post.visibility === 'friends'
+    ? uiIcon('users', 11)
+    : post.isAnonymous
+      ? uiIcon('ghost', 11)
+      : uiIcon('globe', 11);
+  const metaParts = [];
+  if (post.isAnonymous) {
+    metaParts.push('Campus Whisper');
+  } else {
+    if (authorMajorShort) metaParts.push(esc(authorMajorShort));
+    else if (post.authorUni) metaParts.push(esc(post.authorUni));
+  }
+  if (timeText) metaParts.push(esc(timeText));
+
   return `
-      <div class="post-card" ${cardIdAttr} data-post-id="${post.id}">
+      <div class="post-card ${post.isAnonymous ? 'is-anon-whisper' : ''}" ${cardIdAttr} data-post-id="${post.id}">
         ${post.repostOf ? `<div class="repost-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
           <span>Reposted by ${esc(displayAuthorName)}</span>
         </div>` : ''}
         <div class="post-header">
           ${post.isAnonymous
-      ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">👻</div>`
+      ? `<div class="avatar-md anon-avatar" onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer">${uiIcon('ghost', 18)}</div>`
       : `<div class="feed-author-avatar" data-author-id="${post.authorId}" data-author-name="${esc(displayAuthorName)}" onclick="closeModal();openProfile('${post.authorId}')" style="cursor:pointer">${avatar(displayAuthorName, displayAuthorPhoto, 'avatar-md')}</div>`}
           <div class="post-header-info">
-            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${post.authorId}')"`}>${post.isAnonymous ? esc(getAnonymousLabelForPost(post)) : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
-            <div class="post-meta">${post.visibility === 'friends' ? '👫 ' : post.isAnonymous ? '👻 ' : '🌍 '}${post.isAnonymous ? '' : esc(post.authorUni || '')}${post.isAnonymous ? '' : ' · '}${timeAgo(post.createdAt)}</div>
+            <div class="post-author-name" ${post.isAnonymous ? `onclick="openAnonPostActions('${post.authorId}', '${post.id}')" style="cursor:pointer"` : `onclick="closeModal();openProfile('${post.authorId}')"`}>${post.isAnonymous ? `${esc(getAnonymousLabelForPost(post))} <span class="anon-whisper-pill">Whisper</span>` : esc(displayAuthorName) + verifiedBadge(post.authorId)}</div>
+            <div class="post-meta">${visIcon} <span>${metaParts.join(' · ')}</span></div>
           </div>
           ${!post.isAnonymous && post.authorId === state.user.uid ? `<button class="icon-btn post-more-btn" onclick="showPostOptions('${post.id}')" title="Options" style="margin-left:auto;font-size:18px;color:var(--text-tertiary)">⋯</button>` : ''}
         </div>
@@ -8796,7 +9010,7 @@ function renderSinglePostCardHtml(post, videoPlayersOut = [], idPrefix = 'feed')
         <div class="post-engagement">
           <div class="post-stats">${renderPostStatsMarkup(post)}</div>
           <div class="post-actions">
-            ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">👻 Reply</button>` : ''}
+            ${canAnonMessage ? `<button class="post-action anon-inline-action" onclick="openAnonPostActions('${post.authorId}', '${post.id}')">${uiIcon('ghost', 15)} Whisper</button>` : ''}
             <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${post.id}" data-source="${idPrefix}" onclick="toggleLike('${post.id}')">${renderPostLikeMarkup(post)}</button>
             <button class="post-action" onclick="openComments('${post.id}')">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -11517,43 +11731,120 @@ function renderExploreView() {
   else renderRadarView();
 }
 
+let _curatedCampusEventsCache = null;
+function getCuratedCampusEvents() {
+  if (_curatedCampusEventsCache) return _curatedCampusEventsCache;
+  _curatedCampusEventsCache = [
+    {
+      id: 'nwu_evt_cmpg121_marathon',
+      title: 'CMPG121 Exam Prep & Recursion Marathon',
+      description: 'Peer-led coding clinic covering object-oriented Java, recursion trace tables, and past exam papers. Bring your laptop and eFundi worksheets.',
+      date: 'Thu, 26 Nov',
+      time: '16:00',
+      location: 'Block A6 · Central Academic Lab',
+      locationName: 'Block A6 · Central Academic Lab',
+      lat: -25.82672,
+      lng: 25.60965,
+      category: 'Academic',
+      creatorName: 'Katlego Molefe · Peer Tutor',
+      createdBy: 'nwu_katlego_molefe',
+      going: ['nwu_katlego_molefe', 'nwu_anke_vandermerwe', 'nwu_zandile_khumalo'],
+      gradient: 'linear-gradient(135deg, #1E1B4B 0%, #4338CA 100%)',
+      isCurated: true
+    },
+    {
+      id: 'nwu_evt_accf111_clinic',
+      title: 'BCom ACCF111 & BMAN111 Trial Paper Workshop',
+      description: 'Step-by-step walkthrough of financial statements, trial balances, and semester test memos hosted by Golden Key accounting tutors.',
+      date: 'Fri, 27 Nov',
+      time: '14:00',
+      location: 'Block A5 · Lecture Hall 104',
+      locationName: 'Block A5 · Lecture Hall 104',
+      lat: -25.82635,
+      lng: 25.60920,
+      category: 'Study Clinic',
+      creatorName: 'Anke van der Merwe',
+      createdBy: 'nwu_anke_vandermerwe',
+      going: ['nwu_anke_vandermerwe', 'nwu_sipho_dlamini'],
+      gradient: 'linear-gradient(135deg, #111827 0%, #1F2937 50%, #374151 100%)',
+      isCurated: true
+    },
+    {
+      id: 'nwu_evt_mahikeng_run',
+      title: 'NWU Campus 5K Sunset Run & Social',
+      description: 'Weekly student wellness run starting at Block D Sports Complex and finishing at the Student Centre with refreshments.',
+      date: 'Sat, 28 Nov',
+      time: '17:15',
+      location: 'Block D · Sports Complex',
+      locationName: 'Block D · Sports Complex',
+      lat: -25.82810,
+      lng: 25.60790,
+      category: 'Campus Life',
+      creatorName: 'NWU Student Sport Council',
+      createdBy: 'nwu_sipho_dlamini',
+      going: ['nwu_katlego_molefe', 'nwu_anke_vandermerwe', 'nwu_sipho_dlamini', 'nwu_zandile_khumalo'],
+      gradient: 'linear-gradient(135deg, #064E3B 0%, #047857 100%)',
+      isCurated: true
+    },
+    {
+      id: 'nwu_evt_moot_court',
+      title: 'Faculty of Law Annual Moot Court Finals',
+      description: 'Watch final-year LLB candidates argue constitutional law briefs before a guest bench. Open to all NWU students.',
+      date: 'Mon, 30 Nov',
+      time: '15:30',
+      location: 'Block B2 · Moot Auditorium',
+      locationName: 'Block B2 · Moot Auditorium',
+      lat: -25.82715,
+      lng: 25.61040,
+      category: 'Society',
+      creatorName: 'Sipho Dlamini · Law Society',
+      createdBy: 'nwu_sipho_dlamini',
+      going: ['nwu_sipho_dlamini', 'nwu_katlego_molefe'],
+      gradient: 'linear-gradient(135deg, #31102F 0%, #701A75 100%)',
+      isCurated: true
+    }
+  ];
+  return _curatedCampusEventsCache;
+}
+
 function renderExploreEventsView() {
   const body = $('#explore-body'); if (!body) return;
   destroyRadarMapInstance();
-  const events = Array.isArray(allCampusEvents) ? allCampusEvents : [];
-  if (!events.length) {
-    body.innerHTML = `
-      <div style="padding:12px 16px 24px">
-        <div class="empty-state" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:18px;padding:34px 20px">
-          <div class="empty-state-icon" style="color:var(--text-tertiary)">${uiIcon('calendar', 30)}</div>
-          <h3>No upcoming events</h3>
-          <p style="margin-bottom:14px">Host a study session, meetup, or society event on campus.</p>
-          <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">Host Event</button>
-        </div>
-      </div>`;
-    return;
-  }
+  const events = (Array.isArray(allCampusEvents) && allCampusEvents.length) ? allCampusEvents : getCuratedCampusEvents();
   const uid = state.user?.uid || '';
   body.innerHTML = `
+    <div class="explore-events-intro">
+      <div>
+        <span class="explore-events-kicker">Campus Calendar</span>
+        <h3>Upcoming Sessions, Tutorials &amp; Meetups</h3>
+      </div>
+      <span class="explore-events-count">${events.length} upcoming</span>
+    </div>
     <div class="explore-events-grid">
       ${events.map(ev => {
     const meta = getEventLocationMeta(ev);
-    const locLabel = meta.label || ev.location || 'NWU Campus';
+    const locLabel = meta.label || ev.locationName || ev.location || 'NWU Campus';
     const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : '';
     const grad = ev.gradient || 'linear-gradient(135deg,#1D2030,#313652)';
     const going = Array.isArray(ev.going) ? ev.going : [];
     const amGoing = going.includes(uid);
+    const catBadge = ev.category ? `<span class="explore-event-cat-pill">${esc(ev.category)}</span>` : '';
     return `
           <article class="explore-event-card" onclick="openEventDetail('${ev.id || ''}')">
             <div class="explore-event-cover" style="${thumb ? '' : `background:${grad}`}">
-              ${thumb ? `<img src="${thumb}" alt="${esc(ev.title || 'Event')}" loading="lazy">` : ''}
-              <span class="explore-event-date-pill">${esc(ev.date || 'Upcoming')}${ev.time ? ` · ${esc(ev.time)}` : ''}</span>
+              ${thumb ? `<img src="${thumb}" alt="${esc(ev.title || 'Event')}" loading="lazy">` : `<div class="explore-event-cover-pattern"></div>`}
+              <span class="explore-event-date-pill">${uiIcon('calendar', 12)} ${esc(ev.date || 'Upcoming')}${ev.time ? ` · ${esc(ev.time)}` : ''}</span>
+              ${catBadge}
             </div>
             <div class="explore-event-body">
               <div class="explore-event-title">${esc(ev.title || 'Campus Event')}</div>
-              <div class="explore-event-meta">${uiIcon('pin', 13)} ${esc(locLabel)} · ${uiIcon('users', 13)} ${going.length} going</div>
+              ${ev.description ? `<p class="explore-event-desc">${esc(clampText(ev.description, 110))}</p>` : ''}
+              <div class="explore-event-meta">
+                <span>${uiIcon('pin', 13)} ${esc(locLabel)}</span>
+                <span>${uiIcon('users', 13)} ${going.length} going</span>
+              </div>
               <div class="explore-event-foot">
-                <button type="button" class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" onclick="event.stopPropagation();toggleEventGoing('${ev.id || ''}')">${amGoing ? `${uiIcon('check', 13)} Going` : "I'm Going"}</button>
+                <button type="button" class="btn-sm ${amGoing ? 'btn-secondary' : 'btn-primary'}" onclick="event.stopPropagation();toggleEventGoing('${ev.id || ''}')">${amGoing ? `${uiIcon('check', 13)} Going` : "RSVP · I'm Going"}</button>
                 <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation();routeToEventLocationById('${ev.id || ''}')">${uiIcon('route', 13)} Route</button>
               </div>
             </div>
@@ -11578,12 +11869,17 @@ function classifyMahikengBuilding(label = '') {
   const block = blockMatch ? blockMatch[1] : 'Other';
   let subtitle = `Block ${block} · NWU Mahikeng`;
   if (upper.includes('POOL')) subtitle = 'Campus Swimming Pool · Block D';
-  else if (upper.includes('COURT')) subtitle = 'Sports Courts · Block D';
-  else if (upper === 'A6' || upper === 'A5') subtitle = `Central Academic & Library Core · Block ${block}`;
+  else if (upper.includes('COURT')) subtitle = 'Sports Courts & Athletics · Block D';
   else if (upper === 'A1') subtitle = 'Administration & Main Core · Block A';
+  else if (upper === 'A2') subtitle = 'Academic Lecture Halls · Block A';
+  else if (upper === 'A3') subtitle = 'Faculty & Seminar Wing · Block A';
+  else if (upper === 'A4') subtitle = 'Science & Computer Labs · Block A';
+  else if (upper === 'A5' || upper === 'A6') subtitle = `Central Academic & Library Core · Block ${block}`;
+  else if (block === 'A') subtitle = 'Central Academic Precinct · Block A';
   else if (block === 'E') subtitle = 'East Residences & Precinct · Block E';
   else if (block === 'D') subtitle = 'Sports & Recreation · Block D';
-  else if (block === 'B' || block === 'C') subtitle = `Academic & Student Precinct · Block ${block}`;
+  else if (block === 'B') subtitle = 'Academic & Commerce Wing · Block B';
+  else if (block === 'C') subtitle = 'Student Services & Lecture Precinct · Block C';
   return { code: clean, block, subtitle };
 }
 
@@ -11656,19 +11952,20 @@ function renderExplorePlacesGrid() {
   const refCoords = getUserCoords(state.profile) || MAHIKENG_360_LIBRARY_ORIGIN;
   grid.innerHTML = filtered.map(place => {
     const distMeters = Math.round(distanceKmBetween(refCoords, { lat: place.lat, lng: place.lng }) * 1000);
-    const distLabel = Number.isFinite(distMeters) && distMeters < 5000 ? `${distMeters}m away` : place.subtitle;
+    const distLabel = Number.isFinite(distMeters) && distMeters < 5000 ? `${distMeters}m away` : '';
     const evCount = eventsByName[normalizePlaceKey(place.code)] || 0;
     const encodedName = encodeURIComponent(place.code);
     return `
       <div class="explore-place-card" onclick="openGeoBuildingDetail('${encodedName}')">
         <div class="explore-place-code">${esc(place.code)}</div>
         <div class="explore-place-info">
-          <strong>${esc(place.code)}</strong>
-          <span>${evCount ? `${evCount} event${evCount > 1 ? 's' : ''} · ` : ''}${esc(distLabel)}</span>
+          <strong>Building ${esc(place.code)}</strong>
+          <span class="explore-place-sub">${esc(place.subtitle)}</span>
+          ${(evCount || distLabel) ? `<span class="explore-place-dist">${evCount ? `${evCount} event${evCount > 1 ? 's' : ''}${distLabel ? ' · ' : ''}` : ''}${esc(distLabel)}</span>` : ''}
         </div>
         <div class="explore-place-actions" onclick="event.stopPropagation()">
-          <button type="button" class="btn-outline btn-xs" onclick="openCampus360Viewer('${encodedName}')" title="Locate in 360° view">360°</button>
-          <button type="button" class="btn-outline btn-xs" onclick="routeToMapPointEncoded(${place.lat}, ${place.lng}, '${encodedName}')">Route</button>
+          <button type="button" class="btn-outline btn-xs" onclick="openCampus360Viewer('${encodedName}')" title="Locate in 360° view">${uiIcon('globe', 12)} 360°</button>
+          <button type="button" class="btn-outline btn-xs" onclick="routeToMapPointEncoded(${place.lat}, ${place.lng}, '${encodedName}')">${uiIcon('route', 12)} Route</button>
         </div>
       </div>`;
   }).join('');
@@ -12794,24 +13091,38 @@ function switchToExploreList(filter = 'all', queryRaw = '') {
   renderListView(query, filter);
 }
 
+let _radarActiveCategory = 'all';
+function setRadarCategoryFilter(cat = 'all') {
+  _radarActiveCategory = ['all', 'module', 'nearby', 'course'].includes(cat) ? cat : 'all';
+  if (typeof window._reapplyRadarFilter === 'function') {
+    window._reapplyRadarFilter(window._radarSearchQuery || '');
+  }
+}
+window.setRadarCategoryFilter = setRadarCategoryFilter;
+
 function renderRadarView() {
   const body = $('#explore-body'); if (!body) return;
   body.innerHTML = `
-    <div style="padding:0 16px 10px">
-      <div class="search-bar radar-search-wrap" style="margin-bottom:8px">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="radar-search" placeholder="Search people, buildings, or places…" value="${esc(window._radarSearchQuery || '')}">
+    <div style="padding:0 16px 8px">
+      <div class="search-bar radar-search-wrap" style="margin-bottom:6px">
+        ${uiIcon('search', 17)}
+        <input type="text" id="radar-search" placeholder="Search classmates, modules, buildings (A1–E6)…" value="${esc(window._radarSearchQuery || '')}">
       </div>
       <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
     </div>
     <div class="radar-quick-actions">
+      <button type="button" class="radar-quick-btn" onclick="openCampus360Viewer()">${uiIcon('eye360', 14)} 360° Aerial</button>
+      <button type="button" class="radar-quick-btn" onclick="openResidencesView()">${uiIcon('building', 14)} Residences (650)</button>
+      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">${uiIcon('map', 14)} 32 Buildings</button>
       <button type="button" class="radar-quick-btn" onclick="openCreateEvent()">${uiIcon('pin', 14)} Pin Event</button>
-      <button type="button" class="radar-quick-btn" onclick="openResidencesView()">${uiIcon('building', 14)} Residences</button>
-      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">${uiIcon('map', 14)} Places</button>
-      <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">${uiIcon('locate', 14)} My Location</button>
+      <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">${uiIcon('locate', 14)} My GPS</button>
     </div>
     <div class="radar-map-wrap">
-      <div id="radar-map" style="width:100%;height:320px;z-index:0"></div>
+      <div class="radar-hud-bar" id="radar-hud-bar">
+        <span class="radar-hud-live"><i class="radar-hud-pulse"></i> Live Campus Radar</span>
+        <span class="radar-hud-stats" id="radar-hud-stats">Scanning NWU…</span>
+      </div>
+      <div id="radar-map" style="width:100%;height:330px;z-index:0"></div>
       <div class="radar-overlay" id="radar-overlay">
         <div class="radar-ring r3"></div>
         <div class="radar-ring r2"></div>
@@ -12842,80 +13153,100 @@ function renderRadarView() {
     const nearbyUsers = filteredUsers.filter(u => u.proximity === 'nearby');
     const courseUsers = filteredUsers.filter(u => u.proximity === 'course');
     const otherUsers = filteredUsers.filter(u => u.proximity === 'far');
+    const totalStudents = filteredUsers.length;
+    const hudStats = document.getElementById('radar-hud-stats');
+    if (hudStats) {
+      hudStats.textContent = `${totalStudents} students · ${moduleUsers.length} in your modules`;
+    }
+
+    const activeEvents = (Array.isArray(allCampusEvents) && allCampusEvents.length) ? allCampusEvents : getCuratedCampusEvents();
 
     const dynamic = $('#radar-dynamic');
     if (dynamic) {
       if (!isLocationSharingEnabled(state.profile)) {
         dynamic.innerHTML = `
           <div class="radar-location-off-card">
-            <div class="radar-loc-off-icon">🔒</div>
+            <div class="radar-loc-off-icon">${uiIcon('locate', 24)}</div>
             <h4>Location Sharing is Off</h4>
             <p>To keep things fair, student radar pins and nearby students are hidden while your location is off. You remain completely invisible to other students on the map.</p>
             <button type="button" class="btn-primary btn-sm" onclick="toggleLocationSharing(true)">
-              📍 Turn On Location Sharing
+              ${uiIcon('pin', 14)} Turn On Location Sharing
             </button>
           </div>
 
           <div class="proximity-section">
             <div class="proximity-header"><h3>Campus Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
-            ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+            ${activeEvents.length ? `<div class="proximity-scroll">${activeEvents.slice(0, 10).map(ev => {
           const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
           const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
           const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
           return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
                 ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
                 <div class="event-scroll-title">${esc(ev.title)}</div>
-                <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
+                <div class="event-scroll-meta">${loc ? loc.name : esc(ev.locationName || ev.location || '')}</div>
               </div>`;
         }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
           </div>
         `;
       } else {
+        const showModule = _radarActiveCategory === 'all' || _radarActiveCategory === 'module';
+        const showNearby = _radarActiveCategory === 'all' || _radarActiveCategory === 'nearby';
+        const showCourse = _radarActiveCategory === 'all' || _radarActiveCategory === 'course';
+        const showOther = _radarActiveCategory === 'all';
+
         dynamic.innerHTML = `
-          <div class="radar-legend" style="padding:0 16px">
-            <span><span class="legend-dot module"></span> Shared modules (${moduleUsers.length})</span>
-            <span><span class="legend-dot nearby"></span> Nearby area (${nearbyUsers.length})</span>
-            <span><span class="legend-dot course"></span> Same course (${courseUsers.length})</span>
-            <span><span class="legend-dot far"></span> Other (${otherUsers.length})</span>
-            <span class="radar-precision-note">Solid pin = saved GPS · dashed pin = proximity estimate</span>
+          <div class="radar-filter-bar" role="tablist" aria-label="Filter radar pins">
+            <button type="button" class="radar-filter-pill ${_radarActiveCategory === 'all' ? 'active' : ''}" onclick="setRadarCategoryFilter('all')">
+              All Students <b>${totalStudents}</b>
+            </button>
+            <button type="button" class="radar-filter-pill ${_radarActiveCategory === 'module' ? 'active' : ''}" onclick="setRadarCategoryFilter('module')">
+              <span class="legend-dot module"></span> Shared Modules <b>${moduleUsers.length}</b>
+            </button>
+            <button type="button" class="radar-filter-pill ${_radarActiveCategory === 'nearby' ? 'active' : ''}" onclick="setRadarCategoryFilter('nearby')">
+              <span class="legend-dot nearby"></span> Nearby <b>${nearbyUsers.length}</b>
+            </button>
+            <button type="button" class="radar-filter-pill ${_radarActiveCategory === 'course' ? 'active' : ''}" onclick="setRadarCategoryFilter('course')">
+              <span class="legend-dot course"></span> Same Degree <b>${courseUsers.length}</b>
+            </button>
           </div>
 
-          ${moduleUsers.length ? `
+          ${showModule && moduleUsers.length ? `
           <div class="proximity-section">
-            <div class="proximity-header"><h3>🔗 Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('module', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-header"><h3>${uiIcon('book', 15)} Shared Modules</h3><span class="proximity-count">${moduleUsers.length}</span><button class="btn-outline btn-xs" onclick="switchToExploreList('module', '${escJs(searchQuery)}')">See all</button></div>
             <div class="proximity-scroll">${moduleUsers.map(u => proximityCard(u)).join('')}</div>
           </div>` : ''}
 
+          ${showNearby ? `
           <div class="proximity-section">
-            <div class="proximity-header"><h3>📍 Nearby Area</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-header"><h3>${uiIcon('pin', 15)} Nearby on Campus</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-xs" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">See all</button></div>
             <div class="proximity-scroll">
               ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
-            : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No one found yet</p>'}
+            : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No students detected nearby right now.</p>'}
             </div>
-          </div>
+          </div>` : ''}
 
-          ${courseUsers.length ? `
+          ${showCourse && courseUsers.length ? `
           <div class="proximity-section">
-            <div class="proximity-header"><h3>📚 Same Course</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('course', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-header"><h3>${uiIcon('grad', 15)} Same Degree</h3><span class="proximity-count">${courseUsers.length}</span><button class="btn-outline btn-xs" onclick="switchToExploreList('course', '${escJs(searchQuery)}')">See all</button></div>
             <div class="proximity-scroll">${courseUsers.map(u => proximityCard(u)).join('')}</div>
           </div>` : ''}
 
-          ${otherUsers.length ? `
+          ${showOther && otherUsers.length ? `
           <div class="proximity-section">
-            <div class="proximity-header"><h3>🎓 Other Students</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-sm" onclick="switchToExploreList('all', '${escJs(searchQuery)}')">View all</button></div>
+            <div class="proximity-header"><h3>${uiIcon('users', 15)} Around NWU</h3><span class="proximity-count">${otherUsers.length}</span><button class="btn-outline btn-xs" onclick="switchToExploreList('all', '${escJs(searchQuery)}')">See all</button></div>
             <div class="proximity-scroll">${otherUsers.slice(0, 12).map(u => proximityCard(u)).join('')}</div>
           </div>` : ''}
 
           <div class="proximity-section">
-            <div class="proximity-header"><h3>Events</h3><button class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button></div>
-            ${allCampusEvents.length ? `<div class="proximity-scroll">${allCampusEvents.slice(0, 10).map(ev => {
+            <div class="proximity-header"><h3>${uiIcon('calendar', 15)} Upcoming on Campus</h3><button class="btn-outline btn-xs" onclick="openExploreTab('events')">All events</button></div>
+            ${activeEvents.length ? `<div class="proximity-scroll">${activeEvents.slice(0, 10).map(ev => {
               const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
               const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
               const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
               return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
                 ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
                 <div class="event-scroll-title">${esc(ev.title)}</div>
-                <div class="event-scroll-meta">${loc ? loc.emoji + ' ' + loc.name : esc(ev.location || '')}</div>
+                <div class="event-scroll-meta">${loc ? loc.name : esc(ev.locationName || ev.location || '')}</div>
               </div>`;
             }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
           </div>
@@ -12924,12 +13255,19 @@ function renderRadarView() {
     }
 
     const eventsByLoc = {};
-    allCampusEvents.forEach(ev => {
+    activeEvents.forEach(ev => {
       if (!eventsByLoc[ev.location]) eventsByLoc[ev.location] = [];
       eventsByLoc[ev.location].push(ev);
     });
-    renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, eventsByLoc);
+    renderRadarMap(
+      (_radarActiveCategory === 'all' || _radarActiveCategory === 'module') ? moduleUsers : [],
+      (_radarActiveCategory === 'all' || _radarActiveCategory === 'nearby') ? nearbyUsers : [],
+      (_radarActiveCategory === 'all' || _radarActiveCategory === 'course') ? courseUsers : [],
+      _radarActiveCategory === 'all' ? otherUsers : [],
+      eventsByLoc
+    );
   };
+  window._reapplyRadarFilter = applyRadarFilter;
 
   let radarSuggestionSeq = 0;
   const renderRadarSuggestions = async (queryRaw = '') => {
@@ -13361,14 +13699,14 @@ function renderRadarDots(users, radius, type) {
 
 function proximityCard(u) {
   const online = u.status === 'online' ? '<span class="online-dot"></span>' : '';
-  const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.join(', ')}`
-    : u.proximity === 'course' ? `📚 ${esc(u.major)}`
-      : u.proximity === 'nearby' ? `📍 ${esc(u.address || 'Nearby')}`
-        : `🎓 ${esc(u.university || '')}`;
+  const tag = u.sharedModules?.length ? `${uiIcon('book', 11)} ${esc(u.sharedModules.slice(0, 2).join(', '))}`
+    : u.proximity === 'course' ? `${uiIcon('grad', 11)} ${esc(clampText(u.major || 'Same course', 22))}`
+      : u.proximity === 'nearby' ? `${uiIcon('pin', 11)} ${esc(clampText(u.address || 'Nearby', 22))}`
+        : `${uiIcon('grad', 11)} ${esc(u.university || 'NWU')}`;
   return `
     <div class="proximity-card" onclick="showUserPreview('${u.id}')">
       <div class="proximity-card-avatar">${avatar(u.displayName, u.photoURL, 'avatar-md')}${online}</div>
-      <div class="proximity-card-name">${esc(u.displayName)}</div>
+      <div class="proximity-card-name">${esc(u.displayName)}${verifiedBadge(u.id)}</div>
       <div class="proximity-card-meta">${tag}</div>
     </div>`;
 }
@@ -13511,24 +13849,31 @@ async function renderExploreGrid(query = '', filter = 'all') {
 
   const myFriendsSet = new Set(state.profile?.friends || []);
   const mySentSet = new Set(state.profile?.sentRequests || []);
+  const myModsSet = new Set(normalizeModules(state.profile?.modules || []));
   grid.innerHTML = users.map(u => {
-    const tag = u.sharedModules?.length ? `🔗 ${u.sharedModules.length} shared`
-      : u.proximity === 'nearby' ? '📍 Nearby area'
-        : u.proximity === 'course' ? '📚 Same course'
-          : u.university ? `🎓 ${esc(u.university)}` : '';
+    const tag = u.sharedModules?.length ? `${uiIcon('book', 12)} ${u.sharedModules.length} shared module${u.sharedModules.length === 1 ? '' : 's'}`
+      : u.proximity === 'nearby' ? `${uiIcon('pin', 12)} Nearby on campus`
+        : u.proximity === 'course' ? `${uiIcon('grad', 12)} Same degree`
+          : u.university ? `${uiIcon('grad', 12)} ${esc(u.university)}` : '';
     const isFriend = myFriendsSet.has(u.id);
     const isPending = mySentSet.has(u.id);
     const actionBtn = isFriend
       ? `<button type="button" class="btn-outline user-card-action" onclick="event.stopPropagation();startChat('${u.id}','${escJs(u.displayName || 'User')}','${escJs(u.photoURL || '')}')">Message</button>`
       : isPending
         ? `<button type="button" class="btn-secondary user-card-action" disabled style="opacity:0.65">Pending…</button>`
-        : `<button type="button" class="btn-primary user-card-action" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName || 'User')}','${escJs(u.photoURL || '')}', this)">Add Friend</button>`;
+        : `<button type="button" class="btn-primary user-card-action" onclick="event.stopPropagation();sendFriendRequest('${u.id}','${escJs(u.displayName || 'User')}','${escJs(u.photoURL || '')}', this)">Connect</button>`;
+    const particles = new Set(['van', 'der', 'de', 'du', 'la', 'le', 'von']);
+    const cleanName = String(u.displayName || 'Student').trim().split(/\s+/).map((w, idx) => {
+      if (idx > 0 && particles.has(w.toLowerCase())) return w.toLowerCase();
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    }).join(' ');
+    const cleanMajor = String(u.major || 'NWU Student').replace(/^([a-z])/, (m, c) => c.toUpperCase());
     return `
       <div class="user-card" onclick="if(event.target.closest('button')) return; openProfile('${u.id}')">
-        <div class="discover-card-avatar">${avatar(u.displayName, u.photoURL, 'avatar-lg')}${u.status === 'online' ? '<span class="online-dot"></span>' : ''}</div>
-        <div class="user-card-name">${esc(u.displayName)}</div>
-        <div class="user-card-uni">${esc(u.major || 'Student')}</div>
-        ${(u.modules || []).length ? `<div class="user-card-modules">${(u.modules || []).slice(0, 3).map(m => `<span class="module-chip">${esc(m)}</span>`).join('')}</div>` : ''}
+        <div class="discover-card-avatar">${avatar(cleanName, u.photoURL, 'avatar-lg')}${u.status === 'online' ? '<span class="online-dot"></span>' : ''}</div>
+        <div class="user-card-name">${esc(cleanName)}${verifiedBadge(u.id)}</div>
+        <div class="user-card-uni">${esc(cleanMajor)}${u.year ? ` · ${esc(u.year)}` : ''}</div>
+        ${(u.modules || []).length ? `<div class="user-card-modules">${(u.modules || []).slice(0, 3).map(m => `<span class="module-chip ${myModsSet.has(String(m).toUpperCase()) ? 'is-shared' : ''}">${esc(m)}</span>`).join('')}</div>` : ''}
         ${tag ? `<div class="user-card-distance">${tag}</div>` : ''}
         ${actionBtn}
       </div>`;
@@ -14928,45 +15273,52 @@ function renderStarString(score = 0) {
 async function openEventDetail(eventId) {
   if (!eventId) return;
   try {
-    const doc = await db.collection('events').doc(eventId).get();
-    if (!doc.exists) return toast('Event not found');
-    const ev = { id: doc.id, ...doc.data() };
+    let ev = (allCampusEvents || []).find(item => item.id === eventId)
+      || getCuratedCampusEvents().find(item => item.id === eventId)
+      || null;
+    if (!ev) {
+      const doc = await db.collection('events').doc(eventId).get();
+      if (!doc.exists) return toast('Event not found');
+      ev = { id: doc.id, ...doc.data() };
+    }
     const locationMeta = getEventLocationMeta(ev);
-    const routeLabel = String(locationMeta.label || ev.location || '').trim();
-    const locName = routeLabel || 'TBA';
+    const routeLabel = String(locationMeta.label || ev.locationName || ev.location || '').trim();
+    const locName = routeLabel || 'NWU Campus';
     const hasLocationData = (Number.isFinite(locationMeta.lat) && Number.isFinite(locationMeta.lng))
+      || (Number.isFinite(ev.lat) && Number.isFinite(ev.lng))
       || !!locationMeta.campusLoc
       || !!routeLabel;
     const amGoing = (ev.going || []).includes(state.user.uid);
     const goingCount = (ev.going || []).length;
     const isCreator = ev.createdBy === state.user.uid;
     openModal(`
-      <div class="modal-header"><h2>Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+      <div class="modal-header"><h2>Campus Event</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
       <div class="modal-body">
         ${(ev.imageURLs && ev.imageURLs.length) ? `<div class="ev-detail-images ${ev.imageURLs.length === 1 ? 'single' : 'grid'}">${ev.imageURLs.map(url => `<img src="${url}" onclick="viewImage('${url}')" style="cursor:pointer">`).join('')}</div>` : ''}
-        <div style="font-size:22px;font-weight:800;margin-bottom:8px">${esc(ev.title)}</div>
+        ${ev.category ? `<span class="explore-event-cat-inline">${esc(ev.category)}</span>` : ''}
+        <div style="font-size:21px;font-weight:800;letter-spacing:-0.02em;margin-bottom:10px">${esc(ev.title)}</div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-          <span>📍 ${esc(locName)}</span>
-          <span>${esc(ev.date)}</span>
-          ${ev.time ? `<span>🕐 ${esc(ev.time)}</span>` : ''}
-          <span>👥 ${goingCount} going</span>
+          <span style="display:inline-flex;align-items:center;gap:5px">${uiIcon('pin', 14)} ${esc(locName)}</span>
+          <span style="display:inline-flex;align-items:center;gap:5px">${uiIcon('calendar', 14)} ${esc(ev.date)}</span>
+          ${ev.time ? `<span style="display:inline-flex;align-items:center;gap:5px">${uiIcon('clock', 14)} ${esc(ev.time)}</span>` : ''}
+          <span style="display:inline-flex;align-items:center;gap:5px">${uiIcon('users', 14)} ${goingCount} going</span>
         </div>
-        ${ev.description ? `<p style="font-size:14px;line-height:1.5;margin-bottom:16px">${esc(ev.description)}</p>` : ''}
-        <div style="margin-bottom:16px">
-          <div style="font-weight:600;font-size:13px;margin-bottom:8px">Created by</div>
+        ${ev.description ? `<p style="font-size:14px;line-height:1.55;color:var(--text-primary);margin-bottom:18px">${esc(ev.description)}</p>` : ''}
+        <div style="margin-bottom:18px;padding:10px 12px;border-radius:12px;background:var(--bg-primary);border:1px solid var(--border)">
+          <div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-tertiary);margin-bottom:6px">Hosted by</div>
           <div style="display:flex;align-items:center;gap:8px">
-            ${avatar(ev.creatorName || 'System', null, 'avatar-sm')}
-            <span>${esc(ev.creatorName || 'Unibo')}</span>
+            ${avatar(ev.creatorName || 'NWU Host', null, 'avatar-sm')}
+            <span style="font-weight:650;font-size:13.5px">${esc(ev.creatorName || 'Unibo Campus')}</span>
           </div>
         </div>
         <button class="btn-primary btn-full" onclick="toggleEventGoing('${ev.id}');closeModal()">
-          ${amGoing ? '✓ Going — Tap to Cancel' : "I'm Going!"}
+          ${amGoing ? '✓ RSVP Confirmed — Tap to Cancel' : "RSVP · I'm Going"}
         </button>
         ${hasLocationData
-        ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToEventLocationById('${ev.id}')">🧭 Route Here</button>`
+        ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();routeToEventLocationById('${ev.id}')">${uiIcon('route', 15)} Route on Campus Map</button>`
         : ''}
-        ${amGoing ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
-        ${isCreator ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
+        ${amGoing && !ev.isCurated ? `<button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal();navigate('chat');setTimeout(() => openGroupChat('${eventGroupId(ev.id)}','groups'), 120)">Open Event Group Chat</button>` : ''}
+        ${isCreator && !ev.isCurated ? `<button class="btn-outline btn-full" style="margin-top:10px;color:#ef4444;border-color:rgba(239,68,68,0.25)" onclick="deleteEvent('${ev.id}')">Delete Event</button>` : ''}
       </div>
     `);
   } catch (e) { toast('Could not load event'); console.error(e); }
@@ -14992,6 +15344,21 @@ async function deleteEvent(eventId) {
 async function toggleEventGoing(eventId) {
   if (!eventId) return;
   const uid = state.user.uid;
+  const curated = getCuratedCampusEvents().find(item => item.id === eventId);
+  if (curated) {
+    const going = Array.isArray(curated.going) ? curated.going : [];
+    if (going.includes(uid)) {
+      curated.going = going.filter(id => id !== uid);
+      toast('RSVP cancelled');
+    } else {
+      curated.going = [...going, uid];
+      toast("RSVP confirmed — you're going!");
+    }
+    if (state.page === 'explore') renderExploreView();
+    if (state.page === 'feed') loadDiscoverEvents();
+    renderCampusPulseSidebar();
+    return;
+  }
   try {
     const doc = await db.collection('events').doc(eventId).get();
     if (!doc.exists) return;
@@ -15005,7 +15372,7 @@ async function toggleEventGoing(eventId) {
     } else {
       await db.collection('events').doc(eventId).update({ going: FieldVal.arrayUnion(uid) });
       nextGoing = Array.from(new Set([...going, uid]));
-      toast("You're going! 🎉");
+      toast("You're going!");
     }
     await upsertEventChatGroup({ id: eventId, ...eventData, going: nextGoing });
     await loadCampusEvents();
@@ -15148,34 +15515,54 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
   filtered.sort((a, b) => b._rank - a._rank || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
   if (!filtered.length) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🛒</div><h3>No listings yet</h3><p>Be the first to sell something!</p></div>`;
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">${uiIcon('bag', 28)}</div><h3>No listings yet</h3><p>Be the first to list an item on campus!</p></div>`;
     return;
   }
   const savedIds = new Set(state.profile?.savedListings || []);
-  grid.innerHTML = filtered.map(item => {
+  const formatListingTitle = (raw = '') => {
+    const t = String(raw || '').trim();
+    if (!t) return 'Campus Item';
+    if (/^iphone\b/i.test(t)) return t.replace(/^iphone/i, 'iPhone');
+    if (/^earpods\b/i.test(t)) return t.replace(/^earpods/i, 'EarPods');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+  const formatRand = (val) => {
+    const n = Number(String(val || '').replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(n)) return `R${esc(String(val || 0))}`;
+    return `R${n.toLocaleString('en-ZA')}`;
+  };
+  grid.innerHTML = filtered.map((item, idx) => {
     const isSaved = savedIds.has(item.id);
-    const nearby = _userContextCache[item.sellerId] && getNearbySignal(state.profile, _userContextCache[item.sellerId]).score > 0;
+    const sellerCtx = _userContextCache[item.sellerId] || null;
+    const nearby = sellerCtx && getNearbySignal(state.profile, sellerCtx).score > 0;
+    const rawCat = String(item.category || 'Campus').split(',')[0].trim();
+    const cleanCat = rawCat ? (rawCat.charAt(0).toUpperCase() + rawCat.slice(1)) : 'Campus';
+    const isTopFeatured = idx === 0 && (item._sellingFast || item._isHot);
     return `
     <div class="listing-card" onclick="if(event.target.closest('button')) return; openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
       <div class="listing-media-wrap">
-        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : '<div class="listing-placeholder">📦</div>'}
+        ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : `<div class="listing-placeholder">${uiIcon('bag', 28)}</div>`}
         <div class="listing-overlay-badges">
-          ${item._sellingFast ? '<span class="listing-overlay-pill">Fast</span>' : item._isHot ? '<span class="listing-overlay-pill">Popular</span>' : ''}
+          <span class="listing-overlay-pill is-cat">${esc(cleanCat)}</span>
+          ${isTopFeatured ? '<span class="listing-overlay-pill is-featured">Featured</span>' : ''}
         </div>
         <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? uiIcon('heartFill', 14) : uiIcon('heart', 14)}</button>
       </div>
       <div class="listing-info">
         <div class="listing-price-row">
-          <div class="listing-price">R${esc(String(item.price))}</div>
+          <div class="listing-price">${formatRand(item.price)}</div>
           <span class="listing-time-subtle">${timeAgo(item.createdAt)}</span>
         </div>
-        <div class="listing-title">${esc(item.title)}</div>
+        <div class="listing-title">${esc(formatListingTitle(item.title))}</div>
         <div class="listing-sub-stats">
-          <span class="listing-rating" style="margin:0">${renderStarString(item._ratingAvg)}${item._ratingCount ? ` <span>(${item._ratingCount})</span>` : ''}</span>
+          <span class="listing-campus-tag">${nearby ? 'Nearby' : 'Campus Pickup'}</span>
           <span>·</span>
           <span>${item._views} views</span>
         </div>
-        <div class="listing-seller">${avatar(item.sellerName, (_userContextCache[item.sellerId]?.photoURL || null), 'avatar-sm')}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sellerName)}${nearby ? ' · Nearby' : ''}</span></div>
+        <div class="listing-seller">
+          ${avatar(item.sellerName, (sellerCtx?.photoURL || null), 'avatar-sm')}
+          <span class="listing-seller-name">${esc(item.sellerName || 'NWU Student')}${verifiedBadge(item.sellerId)}</span>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -15183,15 +15570,73 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
   filtered.forEach(i => window._hustleItems[i.id] = i);
 }
 
+function getCuratedDemoListings() {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return [
+    {
+      id: 'demo_listing_1',
+      title: 'iPhone 13 128GB Starlight (Mint Condition)',
+      price: 4500,
+      category: 'Phone',
+      sellerId: 'nwu_katlego_molefe',
+      sellerName: 'UNIBO',
+      imageURL: 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?w=600&h=600&fit=crop',
+      views: 38,
+      interestCount: 5,
+      createdAt: { seconds: nowSec - 86400 }
+    },
+    {
+      id: 'demo_listing_2',
+      title: 'BCom ACCF111 & BMAN111 Textbook Bundle',
+      price: 650,
+      category: 'Books',
+      sellerId: 'nwu_anke_vandermerwe',
+      sellerName: 'Anke van der Merwe',
+      imageURL: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&h=600&fit=crop',
+      views: 45,
+      interestCount: 3,
+      createdAt: { seconds: nowSec - 86400 * 2 }
+    },
+    {
+      id: 'demo_listing_3',
+      title: 'Casio fx-991ZA Plus Scientific Calculator',
+      price: 280,
+      category: 'Tech',
+      sellerId: 'nwu_zandile_khumalo',
+      sellerName: 'Zandile Khumalo',
+      imageURL: 'https://images.unsplash.com/photo-1587145820266-a5951ee6f620?w=600&h=600&fit=crop',
+      views: 31,
+      interestCount: 2,
+      createdAt: { seconds: nowSec - 86400 * 3 }
+    },
+    {
+      id: 'demo_listing_4',
+      title: 'CMPG121 Java & Algorithms Exam Summary Notes',
+      price: 120,
+      category: 'Notes',
+      sellerId: 'nwu_katlego_molefe',
+      sellerName: 'Katlego Molefe',
+      imageURL: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=600&h=600&fit=crop',
+      views: 64,
+      interestCount: 6,
+      createdAt: { seconds: nowSec - 3600 * 14 }
+    }
+  ];
+}
+
 async function loadListings(cat = 'all', query = '') {
   const grid = $('#listings-grid'); if (!grid) return;
+  if (!_cachedListingsData.length && isNwuDemoActive()) {
+    renderListingsGrid(getCuratedDemoListings(), cat, query);
+  }
   if (!_listingsUnsub) {
     try {
       _listingsUnsub = db.collection('listings')
         .where('status', '==', 'active')
         .limit(80)
         .onSnapshot(async snap => {
-          _cachedListingsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const liveDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          _cachedListingsData = liveDocs.length ? liveDocs : (isNwuDemoActive() ? getCuratedDemoListings() : []);
           await ensureUserContextCache(_cachedListingsData.map(item => item.sellerId));
           const currentCat = document.querySelector('.category-tabs .chip.active')?.dataset.cat || cat;
           const currentQuery = $('#hustle-search')?.value.trim() || query;
@@ -16205,6 +16650,10 @@ function renderMessages() {
         <div class="story-item add-story" onclick="openStoryCreator()">
           <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
           <div class="story-name">Story</div>
+          <div class="story-add-copy">
+            <strong>Share a 24h Campus Story</strong>
+            <span>Post a study update, photo, or campus moment</span>
+          </div>
         </div>
       </div>
       <div id="msg-tab-content">
@@ -16396,17 +16845,16 @@ function loadGroupList() {
 // ══════════════════════════════════════════════════
 function loadGroups() {
   const container = $('#msg-tab-content'); if (!container) return;
-  const myModules = state.profile.modules || [];
   container.innerHTML = `
     <div class="asg-page">
-      <div id="event-chat-groups" style="padding:8px 12px 0"></div>
-      <div style="padding:12px 16px;display:flex;gap:8px">
-        <button class="btn-primary" style="flex:1" onclick="openCreateModuleGroup()">+ New Group</button>
-      </div>
-      <div class="asg-filter-row">
-        <span class="chip active" data-af="my">My Modules</span>
-        <span class="chip" data-af="all">All Open</span>
-        <span class="chip" data-af="mine">My Groups</span>
+      <div id="event-chat-groups" style="padding:8px 16px 0"></div>
+      <div class="asg-toolbar-row">
+        <div class="asg-filter-row">
+          <span class="chip active" data-af="my">My Modules</span>
+          <span class="chip" data-af="all">All Open</span>
+          <span class="chip" data-af="mine">Joined</span>
+        </div>
+        <button class="btn-primary btn-sm asg-new-btn" onclick="openCreateModuleGroup()">+ New Squad</button>
       </div>
       <div id="asg-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>
     </div>
@@ -16498,21 +16946,27 @@ async function loadAsgList(filter = 'my') {
       else if (isFull) statusBadge = '<span class="asg-badge full">Full</span>';
       else statusBadge = `<span class="asg-badge open">${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left</span>`;
 
-      // Only show member avatars to group members
+      const memberCount = (g.members || []).length;
+      const maxCount = g.maxSize || 10;
+      const fillPct = Math.min(100, Math.round((memberCount / Math.max(1, maxCount)) * 100));
+      const modeLabel = g.joinMode === 'open' ? 'Open join' : g.joinMode === 'invite' ? 'Host approval' : 'Auto-fill';
       const canSeeMembers = isMember || _isAdmin;
 
       return `
         <div class="asg-card ${isMember ? 'is-member' : ''} ${g.status === 'archived' ? 'is-archived' : ''}" onclick="openGroupDetail('${g.id}')">
           <div class="asg-card-top">
-            <div class="asg-card-module">${esc(g.moduleCode || '???')}</div>
+            <div class="asg-card-module">${uiIcon('book', 12)} <span>${esc(g.moduleCode || 'NWU')}</span></div>
             ${statusBadge}
           </div>
           <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
+          <div class="asg-capacity-wrap">
+            <div class="asg-capacity-bar"><div class="asg-capacity-fill" style="width:${fillPct}%"></div></div>
+          </div>
           <div class="asg-card-meta">
-            <span>\ud83d\udc65 ${(g.members || []).length}/${g.maxSize || 10}</span>
-            <span>\u00b7</span>
-            <span>${g.joinMode === 'open' ? '\ud83d\udd13 Open' : g.joinMode === 'invite' ? '\ud83d\udd12 Invite' : '\ud83e\udd16 Auto-fill'}</span>
-            ${g.dueDate ? `<span>\u00b7 \ud83d\udcc5 ${esc(g.dueDate)}</span>` : ''}
+            <span>${uiIcon('users', 13)} ${memberCount}/${maxCount} seats</span>
+            <span>·</span>
+            <span>${esc(modeLabel)}</span>
+            ${g.dueDate ? `<span>· ${uiIcon('calendar', 12)} Due ${esc(g.dueDate)}</span>` : ''}
           </div>
           ${canSeeMembers ? `<div class="asg-card-members">
             ${(g.members || []).slice(0, 5).map(mid => {
@@ -16521,8 +16975,11 @@ async function loadAsgList(filter = 'my') {
       }).join('')}
             ${(g.members || []).length > 5 ? `<span class="asg-more">+${(g.members || []).length - 5}</span>` : ''}
           </div>` : ''}
-          ${hasConflict && isMember ? '<div class="asg-conflict">\u26a0\ufe0f 1 person you preferred not to work with is in this group</div>' : ''}
-          <div class="asg-card-host">Created by ${esc((g.memberNames || {})[g.createdBy] || 'Someone')} \u00b7 ${timeAgo(g.createdAt)}</div>
+          ${hasConflict && isMember ? '<div class="asg-conflict">Preference notice: 1 person you preferred not to pair with is in this squad</div>' : ''}
+          <div class="asg-card-foot">
+            <span class="asg-card-host">Hosted by ${esc((g.memberNames || {})[g.createdBy] || 'Student')}${timeAgo(g.createdAt) ? ` · ${timeAgo(g.createdAt)}` : ''}</span>
+            <span class="asg-card-cta">${isMember ? 'Open Squad →' : 'View Squad →'}</span>
+          </div>
         </div>`;
     }).join('');
   } catch (e) { console.error(e); el.innerHTML = '<div class="empty-state"><h3>Could not load</h3></div>'; }
@@ -17604,7 +18061,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       <div class="timetable-day-tabs">
         ${daysList.map(d => `
           <button type="button" class="timetable-day-tab ${currentSelectedDay === d ? 'active' : ''} ${todayName === d ? 'is-today' : ''}" data-day="${d}">
-            ${d === 'ALL' ? 'All Days' : d.slice(0, 3)}
+            ${d === 'ALL' ? 'Week' : d.slice(0, 3)}
           </button>
         `).join('')}
       </div>
@@ -17629,19 +18086,19 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     const actionsBarHtml = isMe ? `
       <div class="timetable-actions-bar">
         <button type="button" class="timetable-action-pill" id="tt-view-exams-btn" title="View the published exam timetable">
-          📝 View Exam Timetable${examRows.length ? ` (${examRows.length})` : ''}
+          ${uiIcon('calendar', 12)} Exams${examRows.length ? ` (${examRows.length})` : ''}
         </button>
         <button type="button" class="timetable-action-pill" id="tt-add-class-btn" title="Add a custom class, tutorial, or lab session">
           + Add Class
         </button>
         ${removedSlots.length > 0 ? `
           <button type="button" class="timetable-action-pill has-removed" id="tt-view-removed-btn" title="View and restore removed classes">
-            👁️ Hidden (${removedSlots.length})
+            Hidden (${removedSlots.length})
           </button>
         ` : ''}
         ${(customizations.customSlots.length > 0 || Object.keys(customizations.editedSlots).length > 0 || removedSlots.length > 0) ? `
           <button type="button" class="timetable-action-pill subtle" id="tt-reset-all-btn" title="Reset all custom edits and hidden classes back to NWU default">
-            ↩️ Reset NWU
+            Reset
           </button>
         ` : ''}
       </div>
@@ -17720,7 +18177,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     const clashBannerHtml = (hasClashes && !dismissedClashes) ? `
       <div class="timetable-clash-warning" style="margin-bottom:10px">
         <div class="timetable-clash-warning-content">
-          <span>⚠️ <strong>Schedule Clashes:</strong> You have overlapping classes scheduled. Long-press any card or tap ⋯ to remove sessions you don't attend.</span>
+          <span><strong>Schedule Clash Detected:</strong> Overlapping sessions found. Tap ⋯ on any card to hide streams you don't attend.</span>
         </div>
         <button type="button" class="timetable-clash-dismiss-btn" id="tt-dismiss-clash-btn" title="Dismiss clash warning">&times;</button>
       </div>
@@ -17731,16 +18188,16 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       if (!allModuleKeys.length && !currentSearchQuery) {
         cardsHtml = `
           <div style="text-align:center;padding:36px 16px;color:var(--text-secondary)">
-            <div style="font-size:40px;margin-bottom:8px">📚</div>
+            <div style="margin-bottom:8px;color:var(--text-tertiary)">${uiIcon('book', 32)}</div>
             <div style="font-weight:700;font-size:15px;color:var(--text-primary)">No enrolled modules</div>
             <p style="font-size:12px;margin:6px auto 14px;max-width:280px">Add your NWU modules in Edit Profile, add a custom class, or search any module above.</p>
-            ${isMe ? `<button type="button" class="btn-primary btn-sm" onclick="closeModal();editProfile()">✏️ Add Enrolled Modules</button>` : ''}
+            ${isMe ? `<button type="button" class="btn-primary btn-sm" onclick="closeModal();editProfile()">Add Enrolled Modules</button>` : ''}
           </div>
         `;
       } else {
         cardsHtml = `
           <div style="text-align:center;padding:32px 16px;color:var(--text-tertiary)">
-            <div style="font-size:32px;margin-bottom:6px">☕</div>
+            <div style="margin-bottom:6px">${uiIcon('calendar', 28)}</div>
             <div style="font-weight:700;font-size:14px;color:var(--text-primary)">No classes scheduled ${currentSelectedDay !== 'ALL' ? `for ${currentSelectedDay}` : ''}</div>
             <p style="font-size:12px;margin-top:4px">Enjoy your free time or tap "+ Add Class" to schedule a study session.</p>
           </div>
@@ -17761,7 +18218,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
             statusPill = '<span class="timetable-status-pill now">● Now</span>';
             cardClass = 'is-now';
           } else if (nowMinutes < startMin && (startMin - nowMinutes <= 120)) {
-            statusPill = `<span class="timetable-status-pill next">in ${startMin - nowMinutes}m</span>`;
+            statusPill = `<span class="timetable-status-pill next">In ${startMin - nowMinutes}m</span>`;
             cardClass = 'is-next';
           } else if (nowMinutes >= endMin) {
             statusPill = '<span class="timetable-status-pill done">Finished</span>';
@@ -17786,11 +18243,11 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                 </div>
                 <div class="timetable-info-col">
                   <div class="timetable-card-head">
-                    <span class="timetable-mod-badge">📖 ${esc(s.module)}</span>
+                    <span class="timetable-mod-badge">${uiIcon('book', 13)} ${esc(s.module)}</span>
                     <div style="display:flex;align-items:center;gap:6px">
-                      ${s.hasClash ? `<span class="timetable-clash-badge" title="Conflicts with ${esc(s.clashWith || 'another class')}">⚠️ Clash</span>` : ''}
-                      ${s.isEdited ? `<span class="timetable-edited-badge" title="Schedule customized by you">✏️ Edited</span>` : ''}
-                      ${s.isCustom ? `<span class="timetable-custom-badge" title="Custom class added by you">✨ Custom</span>` : ''}
+                      ${s.hasClash ? `<span class="timetable-clash-badge" title="Conflicts with ${esc(s.clashWith || 'another class')}">Clash</span>` : ''}
+                      ${s.isEdited ? `<span class="timetable-edited-badge" title="Schedule customized by you">Edited</span>` : ''}
+                      ${s.isCustom ? `<span class="timetable-custom-badge" title="Custom class added by you">Custom</span>` : ''}
                       ${statusPill}
                       ${isMe ? `
                         <button type="button" class="timetable-card-opt-btn" data-opt-id="${esc(s.id)}" title="Class options (Long-press or tap ⋯)">⋯</button>
@@ -17799,7 +18256,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                   </div>
                   <div class="timetable-venue-row">
                     <button type="button" class="timetable-venue-chip" onclick="locateTimetableVenue('${escJs(s.venue)}')">
-                      📍 ${esc(s.venue || 'TBA')}
+                      ${uiIcon('pin', 12)} ${esc(s.venue || 'TBA')}
                     </button>
                     ${s.group ? `
                       ${hasMultipleGroups ? `
@@ -17811,10 +18268,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
                       `}
                     ` : ''}
                   </div>
-                  ${s.note ? `<div style="font-size:11.5px;color:var(--text-secondary);font-weight:600;margin-top:2px">📝 ${esc(s.note)}</div>` : ''}
+                  ${s.note ? `<div style="font-size:11.5px;color:var(--text-secondary);font-weight:600;margin-top:2px">${esc(s.note)}</div>` : ''}
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
                     <span style="font-size:11px;color:var(--text-tertiary)">${s.day} · ${s.weeks || 13} wks</span>
-                    <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${escJs(s.module)}')">💬 Discuss</button>
+                    <button type="button" class="timetable-venue-chip" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border-color:var(--border)" onclick="closeModal();openModuleFeed('${escJs(s.module)}')">${uiIcon('message', 11)} Discuss</button>
                   </div>
                 </div>
               </div>
@@ -17829,7 +18286,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     const alertsHtml = isMe ? `
       <div class="timetable-alert-box">
         <div class="timetable-alert-info">
-          <span class="timetable-alert-icon">🔔</span>
+          <span class="timetable-alert-icon">${uiIcon('bell', 16)}</span>
           <div>
             <div class="timetable-alert-title">Lecture Reminders</div>
             <div class="timetable-alert-desc">Alert you on this device before each class session</div>
@@ -17848,7 +18305,7 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
       <div class="timetable-modal-wrapper">
         <div class="timetable-modal-header">
           <div class="timetable-title-area">
-            <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/></svg>Academic Timetable</h2>
+            <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/></svg>Academic Schedule</h2>
             <div class="timetable-sub">
               ${isMe ? 'Your enrolled lecture schedule' : `${esc(targetUser.displayName || 'Student')}'s schedule`} · NWU 2026
             </div>
@@ -17856,14 +18313,16 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
           <button class="icon-btn" onclick="closeModal()" aria-label="Close">&times;</button>
         </div>
         <div class="timetable-sticky-controls">
-          <div class="timetable-search-bar">
-            <input type="text" id="tt-search-input" placeholder="Search any module (e.g. CMPG121, ALDE111, BMAN111)..." autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
-            ${currentSearchQuery ? `<button type="button" id="tt-clear-search-btn" style="border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary);padding:0 6px" title="Clear search">✕</button>` : ''}
+          ${tabsHtml}
+          <div class="timetable-search-actions-row">
+            <div class="timetable-search-bar">
+              <input type="text" id="tt-search-input" placeholder="Search module (CMPG121, BMAN111)…" autocomplete="off" autocapitalize="characters" value="${esc(currentSearchQuery)}">
+              ${currentSearchQuery ? `<button type="button" id="tt-clear-search-btn" style="border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary);padding:0 6px" title="Clear search">✕</button>` : ''}
+            </div>
+            ${actionsBarHtml}
           </div>
-          ${actionsBarHtml}
           ${moduleChipsHtml}
           ${groupsBarHtml}
-          ${tabsHtml}
         </div>
         <div class="timetable-modal-body">
           ${clashBannerHtml}
@@ -18800,7 +19259,7 @@ function loadNotifications() {
     if (requests.length || asgAlerts.length || revealRequests.length) html += `<div style="height:1px;background:var(--border);margin:8px 0"></div>`;
     html += otherNotifs.map(n => {
       const isTimetable = n.type === 'timetable';
-      const icon = isTimetable ? '⏰' : n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : n.type === 'module' ? '📚' : n.type === 'group' ? '📋' : n.type === 'message' ? '✉️' : n.type === 'friend_request' ? '👋' : n.type === 'friend_accept' ? '🤝' : n.type === 'live' ? '🔴' : '🔔';
+      const iconName = isTimetable ? 'clock' : n.type === 'like' ? 'heartFill' : n.type === 'comment' ? 'message' : n.type === 'module' ? 'book' : n.type === 'group' ? 'users' : n.type === 'message' ? 'message' : n.type === 'friend_request' || n.type === 'friend_accept' ? 'users' : n.type === 'live' ? 'video' : 'bell';
       const isOwnLive = !!n.from?.uid && n.from.uid === state.user?.uid;
       const clickAction = isTimetable
         ? `closeNotifDropdown();openTimetableModal('${state.user?.uid || ''}', '${n.payload?.module || ''}');markNotifRead('${n.id}')`
@@ -18815,20 +19274,21 @@ function loadNotifications() {
                 : n.from?.uid && n.from.uid !== 'anonymous'
                   ? `closeNotifDropdown();openProfile('${n.from.uid}');markNotifRead('${n.id}')`
                   : `closeNotifDropdown();markNotifRead('${n.id}')`;
-      const from = n.from || { name: isTimetable ? 'Class Reminder' : 'Unibo', photo: null };
-      const fromName = isTimetable ? (n.from?.name || 'Class Reminder') : from.name;
+      const from = n.from || { name: isTimetable ? 'Class Reminder' : (n.title || 'Unibo'), photo: null };
+      const fromName = isTimetable ? (n.from?.name || 'Class Reminder') : (from.name || n.title || 'Unibo');
+      const bodyText = n.text || n.body || '';
       const avatarHtml = isTimetable
-        ? `<div class="avatar-sm" style="display:flex;align-items:center;justify-content:center;background:var(--accent-glow, rgba(108,92,231,0.15));font-size:18px">⏰</div>`
-        : avatar(from.name, from.photo, 'avatar-sm');
+        ? `<div class="avatar-sm" style="display:flex;align-items:center;justify-content:center;background:var(--brand-tint-soft);color:var(--brand-tint)">${uiIcon('clock', 16)}</div>`
+        : avatar(fromName, from.photo, 'avatar-sm');
       return `
        <div class="notif-item ${n.read ? '' : 'unread'}" data-nid="${n.id}" onclick="${clickAction}">
-         <div style="position:relative">
+         <div class="notif-avatar-wrap">
            ${avatarHtml}
-           <div style="position:absolute;bottom:-2px;right:-2px;font-size:11px;background:var(--bg-secondary);border-radius:50%;padding:1px">${icon}</div>
+           <div class="notif-type-badge is-${esc(n.type || 'system')}">${uiIcon(iconName, 10)}</div>
          </div>
          <div class="notif-content">
-           <div class="notif-text"><strong>${esc(fromName)}</strong> ${esc(n.text)}</div>
-           <div class="notif-time">${timeAgo(n.createdAt)}</div>
+           <div class="notif-text"><strong>${esc(fromName)}</strong> ${esc(bodyText)}</div>
+           <div class="notif-time">${timeAgo(n.createdAt) || 'Just now'}</div>
          </div>
          ${!n.read ? '<span class="notif-unread-dot" title="Unread"></span>' : ''}
        </div>`;
@@ -20110,11 +20570,13 @@ async function openProfile(uid) {
     } catch (e) { console.error('Posts', e); }
 
     const modules = user.modules || [];
+    const myModulesSet = new Set(normalizeModules(state.profile?.modules || []));
     const showFriendCount = user.showFriendsCount !== false && isMe; // only show to self unless they opted in
 
     // KEY FIX: avatar-wrap is INSIDE profile-cover so position:absolute works relative to cover
     body.innerHTML = `
       <div class="profile-cover">
+        <div class="profile-cover-grid"></div>
         <div class="profile-avatar-wrap">
           <div class="profile-avatar-large${user.photoURL ? ' clickable' : ''}" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')"` : ''}>
             ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(profileDisplayName)}
@@ -20127,12 +20589,12 @@ async function openProfile(uid) {
         <div class="profile-name">${esc(profileDisplayName)}${verifiedBadge(uid)}</div>
         <div class="profile-handle">${esc(user.major || '')}${user.major && user.university ? ' · ' : ''}${esc(user.university || '')}</div>
         <div class="profile-badges">
-          ${user.year ? `<span class="profile-badge">🎓 ${esc(user.year)}</span>` : ''}
-          ${user.gender ? `<span class="profile-badge">🧬 ${esc(user.gender)}</span>` : ''}
-          ${isMe && user.address ? `<span class="profile-badge">📍 ${esc(user.address)}</span>` : ''}
+          ${user.year ? `<span class="profile-badge">${uiIcon('grad', 12)} ${esc(user.year)}</span>` : ''}
+          ${(user.locationName || user.address || user.campus) ? `<span class="profile-badge">${uiIcon('pin', 12)} ${esc(user.locationName || user.address || user.campus)}</span>` : ''}
+          ${user.gender ? `<span class="profile-badge">${esc(user.gender)}</span>` : ''}
         </div>
         ${user.bio ? `<p class="profile-bio">${esc(user.bio)}</p>` : ''}
-        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip clickable" onclick="openModuleFeed('${escJs(m)}')">${esc(m)}</span>`).join('')}</div>` : ''}
+        ${modules.length ? `<div class="profile-modules">${modules.map(m => `<span class="module-chip module-chip-academic ${!isMe && myModulesSet.has(String(m).toUpperCase()) ? 'is-shared' : ''} clickable" onclick="openModuleFeed('${escJs(m)}')">${uiIcon('book', 11)} ${esc(m)}</span>`).join('')}</div>` : ''}
 
         <div class="profile-stats">
           <div class="profile-stat"><div class="stat-num">${posts.length}</div><div class="stat-label">Posts</div></div>
@@ -20145,30 +20607,30 @@ async function openProfile(uid) {
         ? (isNwuDemoActive()
           ? `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                    <button class="btn-secondary" onclick="openNwuDemoProfileModal()">Sample Profiles</button>
-                   <button class="btn-outline" onclick="exitNwuDemoMode()">Exit Demo / Login</button>`
+                   <button class="btn-outline" onclick="exitNwuDemoMode()">Sign In</button>`
           : `<button class="btn-primary" onclick="editProfile()">Edit Profile</button>
                    <button class="btn-secondary" onclick="doLogout()">Log Out</button>`)
         : (isNwuDemoActive()
-          ? `<button class="btn-primary" onclick="openNwuDemoChat('katlego')"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Message (Demo)</button>
-                   <button class="btn-secondary" onclick="toast('Institutional Preview: Peer networking simulated.')">+ Friend</button>`
+          ? `<button class="btn-primary" onclick="openNwuDemoChat('katlego')">${uiIcon('message', 15)} Message</button>
+                   <button class="btn-outline" onclick="toast('Institutional Preview: Peer connection simulated.')">+ Connect</button>`
           : (() => {
             const isFriend = (state.profile.friends || []).includes(uid);
             const isPending = (state.profile.sentRequests || []).includes(uid);
             const theyRequested = (state.profile.friendRequests || []).some(r => r.uid === uid);
             let friendBtn = '';
             if (isFriend) {
-              friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Add Friend';this.className='btn-outline'">✓ Friends</button>`;
+              friendBtn = `<button class="btn-secondary" onclick="unfriend('${uid}');this.textContent='Connect';this.className='btn-outline'">✓ Connected</button>`;
             } else if (theyRequested) {
               friendBtn = `<button class="btn-primary" onclick="acceptFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}');setTimeout(()=>openProfile('${uid}'),500)">Accept Request</button>`;
             } else if (isPending) {
               friendBtn = `<button class="btn-outline" disabled style="opacity:0.6">Pending…</button>`;
             } else {
-              friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', this)">Add Friend</button>`;
+              friendBtn = `<button class="btn-outline" onclick="sendFriendRequest('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', this)">Connect</button>`;
             }
             const isFriendForChat = isFriend;
             const msgBtn = isFriendForChat
-              ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">Message</button>`
-              : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">👻 Anonymous Message</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Anonymous Off</button>`}`;
+              ? `<button class="btn-primary" onclick="startChat('${uid}','${escJs(user.displayName || 'User')}','${escJs(user.photoURL || '')}')">${uiIcon('message', 15)} Message</button>`
+              : `${allowAnonymousDMsFor(user) ? `<button class="btn-outline anon-msg-btn" onclick="startAnonChat('${uid}','${escJs(user.displayName)}','${escJs(user.photoURL || '')}', true)">${uiIcon('ghost', 15)} Whisper</button>` : `<button class="btn-outline" disabled style="opacity:0.6">Whispers Off</button>`}`;
             return `${msgBtn}\n               ${friendBtn}`;
           })())}
         </div>
@@ -20176,8 +20638,8 @@ async function openProfile(uid) {
 
       <div class="profile-tabs">
         <button class="profile-tab active" data-pt="posts">Posts</button>
-        <button class="profile-tab" data-pt="photos">Photos</button>
-        <button class="profile-tab" data-pt="about">About</button>
+        <button class="profile-tab" data-pt="photos">Media</button>
+        <button class="profile-tab" data-pt="about">Academic &amp; Bio</button>
       </div>
       <div id="profile-tab-content">${renderProfilePosts(posts, user)}</div>
     `;
@@ -20265,8 +20727,8 @@ function renderProfilePosts(posts, user) {
       </div>
       <div class="post-actions">
         <button class="post-action post-like-action ${liked ? 'liked' : ''} ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" data-post-id="${p.id}" data-source="profile" onclick="toggleLike('${p.id}')">${renderPostLikeMarkup(p)}</button>
-        <button class="post-action" onclick="openComments('${p.id}')">💬 ${commentCount || 'Comment'}</button>
-        <button class="post-action" onclick="openShareModal('${p.id}')">↗ Share</button>
+        <button class="post-action" onclick="openComments('${p.id}')">${uiIcon('message', 16)} ${commentCount || 'Comment'}</button>
+        <button class="post-action" onclick="openShareModal('${p.id}')">Share</button>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -22536,12 +22998,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const iconEl = $('#residences-view-toggle-icon');
     const textEl = $('#residences-view-toggle-text');
     if (_resViewMode === 'list') {
-      if (iconEl) iconEl.textContent = '🗺️';
-      if (textEl) textEl.textContent = 'Map';
+      if (iconEl) iconEl.innerHTML = uiIcon('map', 14);
+      if (textEl) textEl.textContent = 'Map View';
     } else {
-      if (iconEl) iconEl.textContent = '📋';
-      if (textEl) textEl.textContent = 'List';
+      if (iconEl) iconEl.innerHTML = uiIcon('building', 14);
+      if (textEl) textEl.textContent = 'List View';
     }
+  }
+
+  function formatResidenceTitleCase(str = '') {
+    const s = String(str || '').trim();
+    if (!s) return '';
+    const keepUpper = new Set(['NWU', 'MC', 'NSFAS', 'CBD', 'TV', 'II', 'III', 'IV', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'B1', 'B2', 'B3', 'B4', 'C1', 'C2', 'D1', 'D2', 'E1', 'E2', 'E3', 'E4', 'E5', 'E6']);
+    return s.split(/\s+/).map(w => {
+      const clean = w.replace(/[^A-Za-z0-9]/g, '');
+      if (!clean || keepUpper.has(clean.toUpperCase())) return w;
+      if (clean.length >= 2 && clean === clean.toUpperCase() && /[A-Z]{2,}/.test(clean)) {
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      }
+      return w;
+    }).join(' ');
   }
 
   function renderResidencesShell() {
@@ -22557,16 +23033,16 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <select class="res-select" id="res-suburb-select">
           <option value="ALL">All Areas</option>
-          <option value="NWU Mahikeng Campus">🏛️ On Campus</option>
+          <option value="NWU Mahikeng Campus">On Campus</option>
         </select>
       </div>
 
       <div class="res-category-row">
         <button type="button" class="res-category-pill ${_resFilterCategory === 'ALL' ? 'active' : ''}" data-cat="ALL">All (650)</button>
-        <button type="button" class="res-category-pill ${_resFilterCategory === 'on_campus' ? 'active' : ''}" data-cat="on_campus">🏛️ Campus (19)</button>
-        <button type="button" class="res-category-pill ${_resFilterCategory === 'private_accredited' ? 'active' : ''}" data-cat="private_accredited">🏢 Private (631)</button>
-        <button type="button" class="res-category-pill ${_resFilterRoom === 'single' ? 'active' : ''}" data-room="single">🚪 Single</button>
-        <button type="button" class="res-category-pill ${_resFilterRoom === 'sharing' ? 'active' : ''}" data-room="sharing">👥 Sharing</button>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'on_campus' ? 'active' : ''}" data-cat="on_campus">${uiIcon('building', 13)} Campus (19)</button>
+        <button type="button" class="res-category-pill ${_resFilterCategory === 'private_accredited' ? 'active' : ''}" data-cat="private_accredited">${uiIcon('check', 13)} Private (631)</button>
+        <button type="button" class="res-category-pill ${_resFilterRoom === 'single' ? 'active' : ''}" data-room="single">${uiIcon('door', 13)} Single</button>
+        <button type="button" class="res-category-pill ${_resFilterRoom === 'sharing' ? 'active' : ''}" data-room="sharing">${uiIcon('users', 13)} Sharing</button>
         <span class="res-count-badge" id="res-count-badge">650</span>
       </div>
     </div>
@@ -22797,10 +23273,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let html = itemsToShow.map(res => {
       const isOnCampus = res.type === 'on_campus';
       const badgeHtml = isOnCampus
-        ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
+        ? `<span class="res-badge-on-campus">${uiIcon('building', 12)} NWU On-Campus</span>`
         : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
       const hasImages = Array.isArray(res.images) && res.images.length > 0;
+      const cameraSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`;
       let mediaHeader = '';
       if (!hasImages) {
         mediaHeader = `
@@ -22808,58 +23285,26 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="res-card-placeholder">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
             <div class="res-placeholder-pill">
-              <span>Photos coming soon</span>
+              <span>Verified 2026 Listing</span>
             </div>
           </div>
           <div class="res-media-badges">
             ${badgeHtml}
-            <span class="res-dist-pill" style="background:rgba(15,23,42,0.72);color:#fff;border-color:rgba(255,255,255,0.2)">📍 ${esc(res.distanceText)}</span>
-          </div>
-        </div>
-      `;
-      } else if (res.images.length === 1) {
-        mediaHeader = `
-        <div class="res-card-media" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
-          <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy">
-          <div class="res-media-badges">
-            ${badgeHtml}
-            <span class="res-photo-count-badge">📷 1 photo</span>
-          </div>
-        </div>
-      `;
-      } else if (res.images.length === 2) {
-        mediaHeader = `
-        <div class="res-card-media res-collage-2">
-          <div class="res-collage-cell" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
-            <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
-          </div>
-          <div class="res-collage-cell" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 1)">
-            <img src="${esc(res.images[1])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
-          </div>
-          <div class="res-media-badges">
-            ${badgeHtml}
-            <span class="res-photo-count-badge">📷 2 photos (tap to swipe)</span>
+            <span class="res-dist-pill" style="background:rgba(15,23,42,0.72);color:#fff;border-color:rgba(255,255,255,0.2)">${uiIcon('pin', 11)} ${esc(res.distanceText)}</span>
           </div>
         </div>
       `;
       } else {
         mediaHeader = `
-        <div class="res-card-media res-collage-3">
-          <div class="res-collage-main" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
-            <img src="${esc(res.images[0])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
-          </div>
-          <div class="res-collage-side">
-            <div class="res-collage-side-item" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 1)">
-              <img src="${esc(res.images[1])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
-            </div>
-            <div class="res-collage-side-item" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 2)">
-              <img src="${esc(res.images[2])}" class="res-collage-img" alt="${esc(res.name)}" loading="lazy">
-              ${res.images.length > 3 ? `<div class="res-collage-more">+${res.images.length - 2} more</div>` : ''}
-            </div>
+        <div class="res-card-media res-hero-media" onclick="event.stopPropagation();openResidenceGallery('${escJs(res.id)}', 0)">
+          <img src="${esc(res.images[0])}" class="res-card-img" alt="${esc(res.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="res-card-placeholder" style="display:none">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/></svg>
+            <div class="res-placeholder-pill"><span>Verified NWU Residence</span></div>
           </div>
           <div class="res-media-badges">
             ${badgeHtml}
-            <span class="res-photo-count-badge">📷 ${res.images.length} photos</span>
+            <span class="res-photo-count-badge">${cameraSvg} ${res.images.length} photo${res.images.length === 1 ? '' : 's'}</span>
           </div>
         </div>
       `;
@@ -22867,13 +23312,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const waBtn = res.whatsapp ? `
       <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
-        💬 WhatsApp
+        ${uiIcon('message', 13)} WhatsApp
       </a>
     ` : '';
 
       const callBtn = res.phone ? `
       <a class="res-btn res-btn-call" href="tel:${res.phone}" onclick="event.stopPropagation()">
-        📞 Call
+        ${uiIcon('phone', 13)} Call
       </a>
     ` : '';
 
@@ -22888,28 +23333,28 @@ document.addEventListener('DOMContentLoaded', () => {
               ${isOnCampus && res.building ? `<span class="res-dist-pill" style="font-weight:700;color:var(--accent)">${esc(res.building)}</span>` : ''}
               ${res.gender ? `<span class="res-dist-pill" style="opacity:0.85">${esc(res.gender)}</span>` : ''}
             </div>
-            ${hasImages ? `<span class="res-dist-pill">📍 ${esc(res.distanceText)}</span>` : ''}
+            ${hasImages ? `<span class="res-dist-pill">${uiIcon('pin', 11)} ${esc(res.distanceText)}</span>` : ''}
           </div>
-          <div class="res-card-name">${esc(res.name)}</div>
+          <div class="res-card-name">${esc(formatResidenceTitleCase(res.name))}</div>
           <div class="res-card-addr">
-            <span>📍</span>
-            <span>${esc(res.address)}</span>
+            ${uiIcon('pin', 13)}
+            <span>${esc(formatResidenceTitleCase(res.address))}</span>
           </div>
           <div class="res-card-stats">
-            <span class="res-stat-item">🛏️ <strong>${res.beds || 0}</strong> Beds</span>
+            <span class="res-stat-item">${uiIcon('bed', 13)} <strong>${res.beds || 0}</strong> Beds</span>
             <span class="res-stat-sep">·</span>
-            <span class="res-stat-item">🚪 <strong>${res.singleRooms || 0}</strong> Single</span>
+            <span class="res-stat-item">${uiIcon('door', 13)} <strong>${res.singleRooms || 0}</strong> Single</span>
             <span class="res-stat-sep">·</span>
-            <span class="res-stat-item">👥 <strong>${res.sharingRooms || 0}</strong> Sharing</span>
+            <span class="res-stat-item">${uiIcon('users', 13)} <strong>${res.sharingRooms || 0}</strong> Sharing</span>
           </div>
           <div class="res-card-actions">
             ${callBtn}
             ${waBtn}
             <a class="res-btn" href="${directionsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-              🗺️ Directions
+              ${uiIcon('route', 13)} Directions
             </a>
             <button type="button" class="res-btn" onclick="event.stopPropagation();locateResidenceOnMap('${escJs(res.id)}')" title="Locate on map">
-              🔍 Map
+              ${uiIcon('map', 13)} Map
             </button>
           </div>
         </div>

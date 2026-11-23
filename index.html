@@ -294,10 +294,15 @@
   <header id="hdr">
     <div class="hdr-l">
       <button type="button" class="hdr-brand-btn" id="hdr-brand-btn" aria-label="Unibo Home">
+        <span class="hdr-brand-glyph" aria-hidden="true"><img src="new_logo.png" alt="" data-theme-logo></span>
         <span class="hdr-logo hdr-wordmark">Unibo</span>
+        <span class="hdr-campus-tag">NWU</span>
       </button>
     </div>
     <div class="hdr-r">
+      <button class="icon-btn hdr-schedule-btn" id="hdr-schedule-btn" aria-label="My Schedule" title="My Schedule &amp; Classes">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </button>
       <button class="icon-btn hdr-video-btn" id="hdr-video-btn" aria-label="Clips and Live" title="Clips &amp; Live">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
       </button>
@@ -324,7 +329,7 @@
         </button>
         <button type="button" class="rail-btn" data-p="explore">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-          <span>Explore &amp; Map</span>
+          <span>Explore &amp; Radar</span>
         </button>
         <button type="button" class="rail-btn" data-p="hustle">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
@@ -332,25 +337,29 @@
         </button>
         <button type="button" class="rail-btn" data-p="chat">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span>Messages &amp; Groups</span>
+          <span>Messages &amp; Squads</span>
           <span class="rail-badge" id="rail-chat-badge"></span>
         </button>
       </div>
 
       <div class="rail-section">
         <div class="rail-section-label">Around NWU</div>
+        <button type="button" class="rail-btn" data-portal="timetable">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>My Schedule</span>
+        </button>
         <button type="button" class="rail-btn" data-portal="residences">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="10" y2="6"/><line x1="14" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="16" y2="10"/></svg>
           <span>Residences</span>
           <span class="rail-meta">650</span>
         </button>
+        <button type="button" class="rail-btn" data-portal="tour360">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>360° Campus Tour</span>
+        </button>
         <button type="button" class="rail-btn" data-portal="video">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
           <span>Clips &amp; Live</span>
-        </button>
-        <button type="button" class="rail-btn" data-portal="timetable">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          <span>My Schedule</span>
         </button>
         <button type="button" class="rail-btn" data-portal="profile">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -482,7 +491,8 @@
       <span>Mahikeng Campus &amp; Accredited 2026</span>
     </div>
     <button type="button" class="btn-sm btn-outline residences-view-toggle" id="residences-view-toggle" title="Switch between Map and List view">
-      <span id="residences-view-toggle-icon">🗺️</span> <span id="residences-view-toggle-text">Map</span>
+      <span id="residences-view-toggle-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></span>
+      <span id="residences-view-toggle-text">Map View</span>
     </button>
   </header>
   <div id="residences-body" class="residences-container"></div>
