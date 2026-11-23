@@ -3,97 +3,132 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>NWU Accredited Landlord Portal — Accommodation Profile Manager | Unibo</title>
-  <meta name="description" content="Official accommodation profile manager for NWU accredited private landlords. Manage photos, room availability, pricing, and contact details with zero login required.">
+  <title>NWU Accredited Landlord Portal — Residence Location, Distance & Profile Manager | Unibo</title>
+  <meta name="description" content="Official accommodation profile manager for NWU accredited landlords. Edit campus distance, map pin location, street address, room capacity, pricing, photos, and contact details with zero login required.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="icon" type="image/png" href="new_logo.png">
   <style>
     :root {
-      --bg: #F8FAFC;
+      --bg: #F6F7FB;
       --card-bg: #FFFFFF;
-      --text: #0F172A;
-      --text-muted: #64748B;
-      --text-subtle: #94A3B8;
-      --accent: #6C5CE7;
-      --accent-hover: #5846E2;
-      --accent-light: #EEF2FF;
-      --success: #10B981;
-      --success-light: #ECFDF5;
-      --warning: #F59E0B;
-      --warning-light: #FEF3C7;
-      --danger: #EF4444;
-      --danger-light: #FEE2E2;
-      --border: #E2E8F0;
-      --border-subtle: #F1F5F9;
-      --radius-sm: 8px;
+      --text: #11131A;
+      --text-muted: #5C6070;
+      --text-subtle: #8A8E9E;
+      --ink: #14151C;
+      --accent: #5243D6;
+      --accent-hover: #4335B8;
+      --accent-light: rgba(82, 67, 214, 0.09);
+      --success: #0E9F6E;
+      --success-light: rgba(14, 159, 110, 0.11);
+      --warning: #D97706;
+      --warning-light: rgba(217, 119, 6, 0.12);
+      --danger: #E11D48;
+      --danger-light: rgba(225, 29, 72, 0.10);
+      --border: rgba(18, 19, 26, 0.09);
+      --border-strong: rgba(18, 19, 26, 0.16);
+      --border-subtle: #F1F2F6;
+      --radius-sm: 10px;
       --radius-md: 14px;
       --radius-lg: 20px;
-      --shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
-      --shadow-lg: 0 20px 35px -5px rgba(108, 92, 231, 0.12), 0 10px 15px -5px rgba(15, 23, 42, 0.04);
+      --shadow-sm: 0 2px 6px rgba(17, 19, 26, 0.04);
+      --shadow: 0 8px 24px rgba(17, 19, 26, 0.06);
+      --shadow-lg: 0 18px 42px rgba(82, 67, 214, 0.14);
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
     /* Top Navigation */
     .top-nav {
-      background: #FFFFFF;
+      background: rgba(255, 255, 255, 0.92);
       border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
-      z-index: 50;
-      backdrop-filter: blur(12px);
+      z-index: 100;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
     .top-nav-inner {
-      max-width: 980px;
+      max-width: 1020px;
       margin: 0 auto;
-      padding: 12px 20px;
+      padding: 12px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
       text-decoration: none;
       color: inherit;
     }
-    .brand img { width: 34px; height: 34px; border-radius: 10px; }
+    .brand-glyph {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: #0D0E14;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.16);
+    }
+    .brand-glyph img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); }
     .brand-title { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
     .brand-badge {
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 800;
       background: var(--accent-light);
       color: var(--accent);
       padding: 3px 9px;
-      border-radius: 999px;
-      border: 1px solid rgba(108, 92, 231, 0.2);
+      border-radius: 8px;
+      border: 1px solid rgba(82, 67, 214, 0.2);
     }
-    .btn-help-wa {
-      background: #25D366;
-      color: #FFFFFF;
-      font-size: 12.5px;
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-switch-res {
+      background: #FFFFFF;
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      font-size: 12px;
       font-weight: 700;
-      padding: 7px 14px;
-      border-radius: 999px;
+      padding: 7px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .btn-switch-res:hover { background: var(--border-subtle); }
+    .btn-help-wa {
+      background: #10B981;
+      color: #FFFFFF;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 7px 13px;
+      border-radius: 10px;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      transition: background 0.15s;
+      gap: 5px;
+      transition: opacity 0.15s;
     }
-    .btn-help-wa:hover { background: #1EBE5D; }
+    .btn-help-wa:hover { opacity: 0.92; }
 
     /* Main Container */
     .container {
-      max-width: 980px;
+      max-width: 1020px;
       width: 100%;
       margin: 0 auto;
-      padding: 20px 18px 90px;
+      padding: 18px 16px 110px;
       flex: 1;
     }
 
@@ -102,48 +137,44 @@
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 24px;
-      box-shadow: var(--shadow);
-      margin-bottom: 20px;
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 16px;
     }
 
     /* Profile Hero Header */
     .profile-hero {
-      background: linear-gradient(135deg, #4338CA 0%, #6C5CE7 50%, #8B5CF6 100%);
+      background: linear-gradient(135deg, #161824 0%, #26293E 55%, #5243D6 100%);
       color: #FFFFFF;
       border-radius: var(--radius-lg);
-      padding: 24px 28px;
-      margin-bottom: 20px;
+      padding: 22px 24px;
+      margin-bottom: 16px;
       box-shadow: var(--shadow-lg);
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       position: relative;
       overflow: hidden;
     }
-    .profile-hero::after {
-      content: '';
-      position: absolute;
-      right: -30px;
-      bottom: -40px;
-      width: 180px;
-      height: 180px;
-      background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 70%);
-      border-radius: 50%;
-      pointer-events: none;
+    .profile-hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
     }
     .profile-hero-badges {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
     }
     .hero-badge {
       font-size: 11.5px;
       font-weight: 800;
       padding: 4px 10px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.16);
       backdrop-filter: blur(8px);
       color: #FFFFFF;
       display: inline-flex;
@@ -154,22 +185,37 @@
     .hero-badge.badge-status-limited { background: #F59E0B; }
     .hero-badge.badge-status-full { background: #EF4444; }
 
-    .profile-hero-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .profile-hero-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
     .profile-hero-meta {
-      font-size: 13.5px;
-      opacity: 0.95;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.88);
       display: flex;
       flex-wrap: wrap;
-      gap: 14px;
+      gap: 10px 14px;
       align-items: center;
     }
     .profile-hero-meta span { display: inline-flex; align-items: center; gap: 5px; }
+    .hero-quick-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .hero-stat-box {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 12px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .hero-stat-val { font-size: 15px; font-weight: 800; color: #FFFFFF; }
+    .hero-stat-lbl { font-size: 10.5px; color: rgba(255, 255, 255, 0.72); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 1px; }
 
     /* Interactive Tab Navigation */
     .profile-tabs {
       display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
+      gap: 7px;
+      margin-bottom: 16px;
       overflow-x: auto;
       padding-bottom: 4px;
       scrollbar-width: none;
@@ -177,48 +223,72 @@
     .profile-tabs::-webkit-scrollbar { display: none; }
     .profile-tab-btn {
       background: #FFFFFF;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       border-radius: 999px;
-      padding: 9px 18px;
-      font-size: 13.5px;
+      padding: 8px 15px;
+      font-size: 13px;
       font-weight: 700;
       color: var(--text-muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       white-space: nowrap;
       transition: all 0.15s ease;
     }
     .profile-tab-btn:hover { background: var(--border-subtle); color: var(--text); }
     .profile-tab-btn.active {
-      background: var(--accent);
+      background: var(--ink);
       color: #FFFFFF;
-      border-color: var(--accent);
-      box-shadow: 0 4px 12px rgba(108, 92, 231, 0.25);
+      border-color: var(--ink);
+      box-shadow: var(--shadow-sm);
     }
 
-    /* Sections */
+    /* Sections: Show all when 'all' mode is active, or filter when specific tab chosen */
     .tab-section { display: none; }
     .tab-section.active { display: block; }
 
     .section-header {
-      margin-bottom: 18px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
     }
-    .section-title { font-size: 19px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
-    .section-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .section-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      background: var(--accent-light);
+      padding: 3px 8px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .section-title { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 3px; letter-spacing: -0.01em; }
+    .section-sub { font-size: 12.5px; color: var(--text-muted); line-height: 1.45; }
 
     /* Form Fields */
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+    }
+    .form-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
     }
     .form-group {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
     .form-group.full-width { grid-column: 1 / -1; }
     .form-label {
@@ -227,6 +297,7 @@
       color: var(--text);
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 6px;
     }
     .form-label span.req { color: var(--danger); }
@@ -234,20 +305,211 @@
 
     .form-input, .form-select, .form-textarea {
       width: 100%;
-      padding: 12px 14px;
+      padding: 11px 13px;
       border-radius: var(--radius-md);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       background: #FFFFFF;
       font-size: 14px;
+      font-weight: 500;
       color: var(--text);
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+      transition: border-color 0.16s, box-shadow 0.16s;
     }
     .form-input:focus, .form-select:focus, .form-textarea:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
+      box-shadow: 0 0 0 3px rgba(82, 67, 214, 0.14);
     }
-    .form-textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+    .form-textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+
+    /* Distance Editor Box */
+    .distance-editor-panel {
+      background: #F8F9FD;
+      border: 1.5px solid rgba(82, 67, 214, 0.22);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .distance-main-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .distance-input-wrap {
+      display: inline-flex;
+      align-items: center;
+      background: #FFFFFF;
+      border: 1.5px solid var(--accent);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .distance-input-wrap input {
+      width: 92px;
+      border: none;
+      padding: 10px 10px;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--accent);
+      text-align: center;
+      outline: none;
+    }
+    .distance-unit {
+      padding: 0 12px 0 4px;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-muted);
+    }
+    .distance-step-btns {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .btn-step {
+      background: #FFFFFF;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 8px 11px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.14s;
+    }
+    .btn-step:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+    .btn-step:active { transform: scale(0.97); }
+    .preset-chips-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .preset-chip {
+      background: #FFFFFF;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 5px 11px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.14s;
+    }
+    .preset-chip:hover, .preset-chip.active {
+      background: var(--accent);
+      color: #FFFFFF;
+      border-color: var(--accent);
+    }
+
+    /* Interactive Map Picker */
+    .location-map-wrap {
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #E8ECF4;
+      margin-top: 8px;
+    }
+    .location-map-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .map-search-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 220px;
+    }
+    .map-search-box input {
+      flex: 1;
+      padding: 8px 11px;
+      border-radius: 10px;
+      border: 1px solid var(--border-strong);
+      font-size: 12.5px;
+      outline: none;
+    }
+    .btn-map-tool {
+      background: var(--ink);
+      color: #FFFFFF;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .btn-map-tool.secondary {
+      background: #FFFFFF;
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+    }
+    .btn-map-tool.gps {
+      background: var(--accent);
+      color: #FFFFFF;
+    }
+    #landlord-location-map {
+      width: 100%;
+      height: 300px;
+      z-index: 1;
+    }
+    .location-map-footer {
+      padding: 10px 12px;
+      background: #FFFFFF;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Number Steppers for Beds & Rooms */
+    .number-stepper {
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: #FFFFFF;
+      overflow: hidden;
+    }
+    .number-stepper button {
+      width: 40px;
+      height: 42px;
+      border: none;
+      background: var(--border-subtle);
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .number-stepper button:hover { background: #E2E5EE; }
+    .number-stepper input {
+      flex: 1;
+      border: none;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      padding: 8px;
+      min-width: 0;
+      outline: none;
+    }
 
     /* Availability Pill Selector */
     .avail-radio-group {
@@ -257,7 +519,7 @@
       margin-top: 4px;
     }
     .avail-radio-card {
-      border: 1.5px solid var(--border);
+      border: 1.5px solid var(--border-strong);
       border-radius: var(--radius-md);
       padding: 12px 14px;
       display: flex;
@@ -267,15 +529,15 @@
       background: #FFFFFF;
       transition: all 0.15s;
     }
-    .avail-radio-card:hover { border-color: #CBD5E1; }
+    .avail-radio-card:hover { border-color: var(--text-muted); }
     .avail-radio-card.active {
       border-color: var(--accent);
       background: var(--accent-light);
     }
     .avail-radio-card input { display: none; }
     .avail-indicator {
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       flex-shrink: 0;
     }
@@ -285,22 +547,22 @@
     /* Amenities Checklist */
     .amenities-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 9px;
     }
     .amenity-checkbox-card {
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       border-radius: var(--radius-md);
-      padding: 11px 14px;
+      padding: 10px 13px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
       cursor: pointer;
       background: #FFFFFF;
       transition: all 0.15s;
       user-select: none;
     }
-    .amenity-checkbox-card:hover { border-color: #CBD5E1; background: var(--border-subtle); }
+    .amenity-checkbox-card:hover { background: var(--border-subtle); }
     .amenity-checkbox-card.checked {
       border-color: var(--accent);
       background: var(--accent-light);
@@ -308,15 +570,15 @@
       font-weight: 700;
     }
     .amenity-checkbox-card input { display: none; }
-    .amenity-icon { font-size: 16px; }
-    .amenity-text { font-size: 13px; color: inherit; }
+    .amenity-icon { font-size: 15px; }
+    .amenity-text { font-size: 12.5px; color: inherit; }
 
     /* Photo Management Gallery */
     .photo-management-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 14px;
-      margin-bottom: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
     }
     .photo-thumb-card {
       position: relative;
@@ -324,11 +586,9 @@
       border-radius: var(--radius-md);
       overflow: hidden;
       background: #E2E8F0;
-      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+      box-shadow: var(--shadow-sm);
       border: 1.5px solid var(--border);
-      transition: transform 0.15s ease;
     }
-    .photo-thumb-card:hover { transform: scale(1.02); }
     .photo-thumb-card img {
       width: 100%;
       height: 100%;
@@ -339,26 +599,23 @@
       position: absolute;
       top: 8px;
       left: 8px;
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(17, 19, 26, 0.85);
       color: #FFFFFF;
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 800;
       padding: 3px 8px;
       border-radius: 999px;
       backdrop-filter: blur(4px);
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
     }
     .photo-actions {
       position: absolute;
       top: 8px;
       right: 8px;
       display: flex;
-      gap: 6px;
+      gap: 5px;
     }
     .btn-photo-action {
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(17, 19, 26, 0.85);
       color: #FFFFFF;
       border: none;
       width: 28px;
@@ -369,127 +626,128 @@
       justify-content: center;
       cursor: pointer;
       font-size: 13px;
-      backdrop-filter: blur(4px);
-      transition: all 0.15s;
     }
-    .btn-photo-action:hover { transform: scale(1.15); background: #EF4444; }
-    .btn-photo-cover { font-size: 11px; }
+    .btn-photo-action:hover { background: var(--danger); }
     .btn-photo-cover:hover { background: var(--accent); }
 
     /* Upload Zone */
     .upload-zone {
-      border: 2px dashed #CBD5E1;
+      border: 2px dashed var(--border-strong);
       border-radius: var(--radius-md);
-      padding: 36px 20px;
+      padding: 28px 18px;
       text-align: center;
-      background: #F8FAFC;
+      background: #F9FAFC;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.16s ease;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     .upload-zone:hover {
       border-color: var(--accent);
       background: var(--accent-light);
     }
     .upload-icon {
-      width: 52px;
-      height: 52px;
+      width: 46px;
+      height: 46px;
       border-radius: 50%;
       background: #FFFFFF;
-      box-shadow: 0 4px 12px rgba(108, 92, 231, 0.15);
+      box-shadow: var(--shadow-sm);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: 20px;
     }
-    .upload-title { font-size: 15px; font-weight: 800; color: var(--text); }
-    .upload-hint { font-size: 12.5px; color: var(--text-muted); max-width: 420px; }
+    .upload-title { font-size: 14.5px; font-weight: 800; color: var(--text); }
+    .upload-hint { font-size: 12px; color: var(--text-muted); max-width: 420px; }
 
     /* Pending Uploads */
     .pending-uploads-wrap {
-      margin-top: 18px;
-      padding-top: 18px;
-      border-top: 1px dashed var(--border);
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px dashed var(--border-strong);
     }
 
     /* Floating Save Bar */
     .floating-save-bar {
-      position: sticky;
-      bottom: 20px;
-      z-index: 40;
-      background: rgba(255, 255, 255, 0.96);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 14px 20px;
-      box-shadow: 0 15px 35px -5px rgba(15, 23, 42, 0.15);
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 28px);
+      max-width: 988px;
+      z-index: 95;
+      background: rgba(20, 21, 28, 0.96);
+      color: #FFFFFF;
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 18px;
+      padding: 12px 18px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 14px;
-      margin-top: 24px;
     }
     .save-bar-info { display: flex; flex-direction: column; gap: 2px; }
-    .save-bar-title { font-size: 13.5px; font-weight: 800; color: var(--text); }
-    .save-bar-sub { font-size: 11.5px; color: var(--text-muted); }
+    .save-bar-title { font-size: 13.5px; font-weight: 800; color: #FFFFFF; }
+    .save-bar-sub { font-size: 11.5px; color: rgba(255, 255, 255, 0.72); }
     .btn-save-main {
-      background: linear-gradient(135deg, #6C5CE7 0%, #A855F7 100%);
+      background: #5243D6;
       color: #FFFFFF;
       border: none;
-      padding: 12px 26px;
-      border-radius: var(--radius-md);
-      font-size: 14px;
+      padding: 12px 22px;
+      border-radius: 12px;
+      font-size: 13.5px;
       font-weight: 800;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      box-shadow: 0 4px 14px rgba(108, 92, 231, 0.35);
-      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(82, 67, 214, 0.45);
+      transition: all 0.16s ease;
       white-space: nowrap;
     }
-    .btn-save-main:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(108, 92, 231, 0.45); }
+    .btn-save-main:hover:not(:disabled) { background: #6353EC; transform: translateY(-1px); }
     .btn-save-main:disabled { opacity: 0.6; cursor: not-allowed; }
 
     /* Student App Preview Simulation */
     .preview-phone-wrap {
-      max-width: 420px;
+      max-width: 400px;
       margin: 0 auto;
       background: #FFFFFF;
-      border: 6px solid #1E293B;
-      border-radius: 36px;
-      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+      border: 5px solid #14151C;
+      border-radius: 28px;
+      box-shadow: var(--shadow);
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
     .phone-speaker-notch {
-      height: 22px;
-      background: #1E293B;
+      height: 18px;
+      background: #14151C;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     .phone-speaker {
-      width: 60px;
+      width: 52px;
       height: 4px;
       background: #334155;
       border-radius: 999px;
     }
     .preview-card-body {
-      padding: 16px;
+      padding: 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
     .preview-media-box {
       width: 100%;
-      aspect-ratio: 16 / 10;
-      background: #000;
-      border-radius: 14px;
+      aspect-ratio: 16 / 9;
+      background: #14151C;
+      border-radius: 12px;
       overflow: hidden;
       position: relative;
     }
@@ -504,65 +762,68 @@
       color: #334155;
     }
 
-    /* Fallback / Verification Gate View */
+    /* Verification / Search Gate View */
     .gate-view {
-      max-width: 560px;
-      margin: 40px auto;
+      max-width: 580px;
+      margin: 28px auto;
       text-align: center;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
     }
     .gate-icon {
-      width: 68px;
-      height: 68px;
-      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      border-radius: 18px;
       background: var(--accent-light);
       color: var(--accent);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 30px;
+      font-size: 26px;
       margin: 0 auto;
     }
-    .gate-title { font-size: 24px; font-weight: 800; color: var(--text); }
-    .gate-desc { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+    .gate-title { font-size: 23px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
+    .gate-desc { font-size: 13.5px; color: var(--text-muted); line-height: 1.55; }
     .gate-search-box {
       display: flex;
       gap: 8px;
-      margin-top: 10px;
+      margin-top: 8px;
     }
 
     /* Toast */
     .toast {
       position: fixed;
-      bottom: 24px;
+      bottom: 88px;
       left: 50%;
       transform: translateX(-50%) translateY(100px);
-      background: #0F172A;
+      background: #14151C;
       color: #FFFFFF;
-      padding: 12px 24px;
+      padding: 11px 20px;
       border-radius: 999px;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       box-shadow: 0 10px 30px rgba(0,0,0,0.25);
       opacity: 0;
       pointer-events: none;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 1000;
       display: flex;
       align-items: center;
       gap: 8px;
+      white-space: nowrap;
     }
     .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
     @media (max-width: 640px) {
-      .profile-hero { padding: 20px 18px; }
-      .profile-hero-title { font-size: 22px; }
-      .container { padding: 14px 12px 80px; }
-      .card { padding: 18px 14px; }
-      .floating-save-bar { flex-direction: column; align-items: stretch; text-align: center; }
+      .profile-hero { padding: 18px 16px; }
+      .profile-hero-title { font-size: 20px; }
+      .hero-quick-stats { grid-template-columns: repeat(2, 1fr); }
+      .container { padding: 12px 12px 130px; }
+      .card { padding: 16px 14px; }
+      .floating-save-bar { flex-direction: column; align-items: stretch; text-align: center; padding: 12px 14px; gap: 8px; }
       .btn-save-main { justify-content: center; width: 100%; }
+      .brand-badge { display: none; }
     }
   </style>
 </head>
@@ -572,13 +833,21 @@
   <header class="top-nav">
     <div class="top-nav-inner">
       <a href="landlord.html" class="brand">
-        <img src="new_logo.png" alt="Unibo Logo">
+        <span class="brand-glyph"><img src="new_logo.png" alt="Unibo Logo"></span>
         <span class="brand-title">Unibo</span>
-        <span class="brand-badge">Accredited Landlord Portal</span>
+        <span class="brand-badge">Landlord Portal</span>
       </a>
-      <a href="https://wa.me/27794358487?text=Hello%20Unibo%20Support%2C%20I%20am%20an%20NWU%20accredited%20landlord%20and%20need%20assistance%20with%20my%20accommodation%20profile." target="_blank" class="btn-help-wa">
-        💬 Landlord Support
-      </a>
+      <div class="nav-actions">
+        <button type="button" class="btn-switch-res" id="btn-switch-res" style="display:none" onclick="showGateSearch()">
+          🔍 Switch Residence
+        </button>
+        <a href="index.html" class="btn-switch-res" style="text-decoration:none">
+          ← Back to App
+        </a>
+        <a href="https://wa.me/27794358487?text=Hello%20Unibo%20Support%2C%20I%20am%20an%20NWU%20accredited%20landlord%20and%20need%20assistance%20with%20my%20accommodation%20profile." target="_blank" class="btn-help-wa">
+          💬 Support
+        </a>
+      </div>
     </div>
   </header>
 
@@ -589,122 +858,246 @@
 
       <!-- Profile Header Hero -->
       <div class="profile-hero">
-        <div class="profile-hero-badges">
-          <span class="hero-badge">✓ NWU 2026 Accredited</span>
-          <span class="hero-badge" id="hero-badge-acc">Code: —</span>
-          <span class="hero-badge badge-status-avail" id="hero-badge-status">🟢 Accepting Students</span>
+        <div class="profile-hero-top">
+          <div class="profile-hero-badges">
+            <span class="hero-badge">✓ NWU 2026 Accredited</span>
+            <span class="hero-badge" id="hero-badge-acc">Code: —</span>
+            <span class="hero-badge badge-status-avail" id="hero-badge-status">🟢 Accepting Students</span>
+          </div>
         </div>
         <h1 class="profile-hero-title" id="hero-res-name">Loading Accommodation…</h1>
         <div class="profile-hero-meta">
           <span id="hero-res-address">📍 Address</span>
           <span>·</span>
           <span id="hero-res-suburb">Suburb</span>
-          <span>·</span>
-          <span id="hero-res-distance">Distance</span>
-          <span>·</span>
-          <span id="hero-res-beds">0 Beds</span>
+        </div>
+        <div class="hero-quick-stats">
+          <div class="hero-stat-box">
+            <div class="hero-stat-val" id="hero-stat-distance">— km</div>
+            <div class="hero-stat-lbl">From NWU Gate</div>
+          </div>
+          <div class="hero-stat-box">
+            <div class="hero-stat-val" id="hero-stat-beds">0</div>
+            <div class="hero-stat-lbl">Total Beds</div>
+          </div>
+          <div class="hero-stat-box">
+            <div class="hero-stat-val" id="hero-stat-rooms">0 / 0</div>
+            <div class="hero-stat-lbl">Single / Sharing</div>
+          </div>
+          <div class="hero-stat-box">
+            <div class="hero-stat-val" id="hero-stat-photos">0</div>
+            <div class="hero-stat-lbl">Photos</div>
+          </div>
         </div>
       </div>
 
-      <!-- Tab Switcher -->
+      <!-- Quick Section Filter Switcher (Defaults to "All Sections" so nothing is hidden!) -->
       <div class="profile-tabs">
-        <button type="button" class="profile-tab-btn active" data-tab="tab-photos" onclick="switchTab('tab-photos')">
-          📷 Photo Gallery (<span id="tab-photo-count">0</span>)
+        <button type="button" class="profile-tab-btn active" data-tab="all" onclick="switchTab('all')">
+          ⚡ All Sections (Easy Edit)
         </button>
-        <button type="button" class="profile-tab-btn" data-tab="tab-details" onclick="switchTab('tab-details')">
-          📝 About & Contact
+        <button type="button" class="profile-tab-btn" data-tab="tab-location" onclick="switchTab('tab-location')">
+          📍 Location &amp; Distance
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-photos" onclick="switchTab('tab-photos')">
+          📷 Photos (<span id="tab-photo-count">0</span>)
         </button>
         <button type="button" class="profile-tab-btn" data-tab="tab-pricing" onclick="switchTab('tab-pricing')">
-          💰 Rent & Availability
+          🛏️ Rooms, Beds &amp; Rent
+        </button>
+        <button type="button" class="profile-tab-btn" data-tab="tab-details" onclick="switchTab('tab-details')">
+          📞 Contact &amp; Bio
         </button>
         <button type="button" class="profile-tab-btn" data-tab="tab-amenities" onclick="switchTab('tab-amenities')">
-          ✨ Facilities & Amenities
+          ✨ Facilities
         </button>
         <button type="button" class="profile-tab-btn" data-tab="tab-preview" onclick="switchTab('tab-preview')">
-          📱 Student App Preview
+          📱 Live Preview
         </button>
       </div>
 
-      <!-- TAB 1: PHOTO GALLERY -->
+      <!-- SECTION 1: LOCATION, MAP PIN & CAMPUS DISTANCE -->
+      <div class="tab-section active" id="tab-location">
+        <div class="card">
+          <div class="section-header">
+            <div>
+              <span class="section-kicker">📍 Location &amp; Distance Editor</span>
+              <h2 class="section-title">Campus Distance, Street Address &amp; Map Pin</h2>
+              <p class="section-sub">
+                Update your exact distance from NWU Mahikeng Campus Gate, edit your street address or suburb, and drag your map pin to your exact property location.
+              </p>
+            </div>
+          </div>
+
+          <!-- Highlighted Campus Distance Control -->
+          <div class="distance-editor-panel">
+            <div class="form-label">
+              <span>📏 Distance from NWU Campus Gate (km) <span class="req">*</span></span>
+              <span class="helper" id="distance-live-badge">Shown on student card: <strong>1.5 km from NWU</strong></span>
+            </div>
+            <div class="distance-main-row">
+              <div class="distance-input-wrap">
+                <input type="number" id="input-distance-km" step="0.1" min="0" max="50" value="1.5" oninput="onDistanceKmInput()">
+                <span class="distance-unit">km</span>
+              </div>
+              <div class="distance-step-btns">
+                <button type="button" class="btn-step" onclick="nudgeDistanceKm(-0.5)">-0.5 km</button>
+                <button type="button" class="btn-step" onclick="nudgeDistanceKm(-0.1)">-0.1 km</button>
+                <button type="button" class="btn-step" onclick="nudgeDistanceKm(0.1)">+0.1 km</button>
+                <button type="button" class="btn-step" onclick="nudgeDistanceKm(0.5)">+0.5 km</button>
+                <button type="button" class="btn-step" onclick="recalcDistanceFromMapPin()" title="Compute straight/road distance from your map pin below">
+                  📐 Auto-Calc from Map Pin
+                </button>
+              </div>
+            </div>
+            <div class="preset-chips-row">
+              <span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">Quick Presets:</span>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(0.3)">0.3 km (Walking)</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(0.6)">0.6 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(1.0)">1.0 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(1.5)">1.5 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(2.0)">2.0 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(2.5)">2.5 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(3.5)">3.5 km</button>
+              <button type="button" class="preset-chip" onclick="setDistancePreset(4.5)">4.5 km</button>
+            </div>
+            <div style="margin-top:12px">
+              <label class="form-label">
+                <span>Custom Distance Badge Text <span class="helper">(Optional — leave blank to use e.g. "1.5 km from NWU")</span></span>
+              </label>
+              <input type="text" id="input-distance-text" class="form-input" placeholder="e.g. 1.2 km from NWU (10 min walk)" oninput="updateHeroAndPreview()">
+            </div>
+          </div>
+
+          <!-- Residence Name, Street Address & Suburb -->
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label"><span>Residence Display Name <span class="req">*</span></span></label>
+              <input type="text" id="input-res-name" class="form-input" placeholder="e.g. Molaolwe Student Residence" oninput="updateHeroAndPreview()">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>Suburb / Area <span class="req">*</span></span></label>
+              <input type="text" id="input-suburb" list="mahikeng-suburbs-list" class="form-input" placeholder="e.g. Mmabatho Unit 2" oninput="updateHeroAndPreview()">
+              <datalist id="mahikeng-suburbs-list">
+                <option value="Mmabatho"></option>
+                <option value="Mmabatho Unit 2"></option>
+                <option value="Mmabatho Unit 5"></option>
+                <option value="Mmabatho Unit 6"></option>
+                <option value="Mmabatho Unit 8"></option>
+                <option value="Mmabatho Unit 9"></option>
+                <option value="Mmabatho Unit 12"></option>
+                <option value="Mmabatho Unit 13"></option>
+                <option value="Mmabatho Unit 14"></option>
+                <option value="Montshiwa"></option>
+                <option value="Mahikeng"></option>
+                <option value="Golf View"></option>
+                <option value="Riviera Park"></option>
+                <option value="Danville"></option>
+                <option value="Motlhabeng"></option>
+                <option value="Dibate"></option>
+                <option value="Mocoseng"></option>
+                <option value="Signal Hill"></option>
+                <option value="Lonely Park"></option>
+              </datalist>
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label">
+                <span>Physical Street Address / Unit / Stand Number <span class="req">*</span></span>
+                <span class="helper">Used for Google Maps turn-by-turn directions</span>
+              </label>
+              <input type="text" id="input-address" class="form-input" placeholder="e.g. 671 Steven Biko Avenue, Unit 2, Mmabatho, 2735" oninput="updateHeroAndPreview()">
+            </div>
+          </div>
+
+          <!-- Interactive Map Pin & GPS Coordinates -->
+          <div class="form-group full-width" style="margin-bottom:0">
+            <div class="form-label">
+              <span>🗺️ Interactive Map Pin &amp; GPS Location</span>
+              <label style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--text-muted);cursor:pointer">
+                <input type="checkbox" id="auto-calc-dist-toggle">
+                Auto-update km distance when moving pin
+              </label>
+            </div>
+
+            <div class="location-map-wrap">
+              <div class="location-map-toolbar">
+                <div class="map-search-box">
+                  <input type="text" id="map-address-query" placeholder="Search street, suburb, or paste Google Maps coords (-25.82, 25.61)…" onkeydown="if(event.key==='Enter'){event.preventDefault();searchMapLocation();}">
+                  <button type="button" class="btn-map-tool secondary" onclick="searchMapLocation()">🔍 Locate</button>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button type="button" class="btn-map-tool gps" onclick="useCurrentGpsForResidence()">
+                    📍 Use My Current GPS
+                  </button>
+                  <button type="button" class="btn-map-tool secondary" onclick="centerMapOnNwuGate()">
+                    🏛️ NWU Gate
+                  </button>
+                </div>
+              </div>
+
+              <div id="landlord-location-map"></div>
+
+              <div class="location-map-footer">
+                <span>💡 <strong>Tip:</strong> Tap anywhere on the map or drag the purple residence pin to set your exact property location.</span>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="font-weight:700">Lat:</label>
+                  <input type="number" id="input-lat" step="0.00001" style="width:96px;padding:4px 6px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px" oninput="onManualCoordsInput()">
+                  <label style="font-weight:700">Lng:</label>
+                  <input type="number" id="input-lng" step="0.00001" style="width:96px;padding:4px 6px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px" oninput="onManualCoordsInput()">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 2: PHOTO GALLERY -->
       <div class="tab-section active" id="tab-photos">
         <div class="card">
           <div class="section-header">
-            <h2 class="section-title">Published Photo Gallery</h2>
-            <p class="section-sub">
-              Photos appear instantly to NWU students browsing campus accommodation. Clear photos of bedrooms, study desks, kitchens, and security gates dramatically increase student applications.
-            </p>
+            <div>
+              <span class="section-kicker">📷 Residence Gallery</span>
+              <h2 class="section-title">Published Photos</h2>
+              <p class="section-sub">
+                Photos appear immediately on Unibo. Tap ⭐ on any photo to make it your main cover image, or × to remove old photos.
+              </p>
+            </div>
           </div>
 
           <!-- Existing Live Photos Grid -->
-          <div class="photo-management-grid" id="live-photos-grid">
-            <!-- Populated by JS -->
-          </div>
+          <div class="photo-management-grid" id="live-photos-grid"></div>
 
           <!-- Dropzone to add new photos -->
           <div class="upload-zone" onclick="document.getElementById('file-input').click()">
             <div class="upload-icon">📷</div>
-            <div class="upload-title">Tap to upload photos of your residence</div>
-            <div class="upload-hint">Upload photos of bedrooms, study desks, kitchen, bathroom, and exterior gate (Max 10 photos). We automatically compress for super-fast mobile loading.</div>
+            <div class="upload-title">Tap to add photos from your phone or computer</div>
+            <div class="upload-hint">Upload bedrooms, study desks, kitchen, bathroom, and exterior gate (Max 10 photos). Automatically compressed for fast mobile loading.</div>
             <input type="file" id="file-input" accept="image/*" multiple style="display: none;" onchange="handleFileSelect(event)">
           </div>
 
           <!-- Pending uploads section -->
           <div class="pending-uploads-wrap" id="pending-section" style="display: none;">
             <h4 style="font-size: 13.5px; font-weight: 700; color: var(--text); margin-bottom: 10px;">
-              Ready to save & publish (<span id="pending-count">0</span> new):
+              Ready to save &amp; publish (<span id="pending-count">0</span> new):
             </h4>
             <div class="photo-management-grid" id="pending-photos-grid"></div>
           </div>
         </div>
       </div>
 
-      <!-- TAB 2: DETAILS & BIO -->
-      <div class="tab-section" id="tab-details">
+      <!-- SECTION 3: ROOMS, BEDS, RENT & AVAILABILITY -->
+      <div class="tab-section active" id="tab-pricing">
         <div class="card">
           <div class="section-header">
-            <h2 class="section-title">Residence Details & Contact Person</h2>
-            <p class="section-sub">
-              Ensure students reach the correct manager or caretaker when inquiring about bed availability.
-            </p>
-          </div>
-
-          <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">Landlord / Caretaker Name <span class="req">*</span></label>
-              <input type="text" id="input-manager-name" class="form-input" placeholder="e.g. Mr. M. Molefe">
+            <div>
+              <span class="section-kicker">🛏️ Rooms, Capacity &amp; Rent</span>
+              <h2 class="section-title">Bed Capacity, Room Breakdown &amp; Availability</h2>
+              <p class="section-sub">
+                Update your available bed slots, single vs. sharing room counts, gender policy, and monthly rental/NSFAS rates.
+              </p>
             </div>
-
-            <div class="form-group">
-              <label class="form-label">Phone for Direct Calls <span class="req">*</span></label>
-              <input type="tel" id="input-phone" class="form-input" placeholder="e.g. 082 123 4567">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">WhatsApp Number <span class="req">*</span> <span class="helper">(For instant student chat)</span></label>
-              <input type="tel" id="input-whatsapp" class="form-input" placeholder="e.g. 082 123 4567">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Inquiry Email Address <span class="helper">(Optional)</span></label>
-              <input type="email" id="input-email" class="form-input" placeholder="e.g. accommodation@example.com">
-            </div>
-
-            <div class="form-group full-width">
-              <label class="form-label">Residence Overview & Student Bio</label>
-              <textarea id="input-description" class="form-textarea" placeholder="Describe the atmosphere, quiet study environment, proximity to NWU Gate, security measures, water tanks, backup power, etc."></textarea>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 3: RENT & AVAILABILITY -->
-      <div class="tab-section" id="tab-pricing">
-        <div class="card">
-          <div class="section-header">
-            <h2 class="section-title">Room Availability & Rental Pricing</h2>
-            <p class="section-sub">
-              Keep your availability up to date so students don't flood your WhatsApp when all rooms are already taken.
-            </p>
           </div>
 
           <div class="form-group">
@@ -715,7 +1108,7 @@
                 <div class="avail-indicator" style="background:#10B981"></div>
                 <div>
                   <div class="avail-title">🟢 Beds Available</div>
-                  <div class="avail-desc">Accepting applications</div>
+                  <div class="avail-desc">Accepting student applications</div>
                 </div>
               </label>
 
@@ -724,7 +1117,7 @@
                 <div class="avail-indicator" style="background:#F59E0B"></div>
                 <div>
                   <div class="avail-title">🟡 Limited Beds Left</div>
-                  <div class="avail-desc">1 to 2 slots remaining</div>
+                  <div class="avail-desc">Only a few rooms remaining</div>
                 </div>
               </label>
 
@@ -733,48 +1126,128 @@
                 <div class="avail-indicator" style="background:#EF4444"></div>
                 <div>
                   <div class="avail-title">🔴 Fully Booked</div>
-                  <div class="avail-desc">Join waiting list</div>
+                  <div class="avail-desc">No beds left (Waiting list)</div>
                 </div>
               </label>
             </div>
           </div>
 
-          <div class="form-grid" style="margin-top: 16px;">
+          <!-- Editable Beds, Single Rooms, Sharing Rooms -->
+          <div class="form-grid-3" style="margin-top: 14px;">
             <div class="form-group">
-              <label class="form-label">Monthly Rental Rates / NSFAS</label>
-              <input type="text" id="input-pricing" class="form-input" placeholder="e.g. NSFAS Cap • R3,400 Single / R2,800 Sharing">
+              <label class="form-label"><span>Total Accredited Beds</span></label>
+              <div class="number-stepper">
+                <button type="button" onclick="stepNumberInput('input-beds', -1)">−</button>
+                <input type="number" id="input-beds" min="0" max="2000" value="0" oninput="updateHeroAndPreview()">
+                <button type="button" onclick="stepNumberInput('input-beds', 1)">+</button>
+              </div>
             </div>
 
             <div class="form-group">
-              <label class="form-label">Total Accredited Beds</label>
-              <input type="number" id="input-beds" class="form-input" placeholder="e.g. 16" readonly style="background:#F1F5F9;cursor:not-allowed">
+              <label class="form-label"><span>Single Rooms / Beds</span></label>
+              <div class="number-stepper">
+                <button type="button" onclick="stepNumberInput('input-single-rooms', -1)">−</button>
+                <input type="number" id="input-single-rooms" min="0" max="2000" value="0" oninput="updateHeroAndPreview()">
+                <button type="button" onclick="stepNumberInput('input-single-rooms', 1)">+</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>Sharing Rooms / Beds</span></label>
+              <div class="number-stepper">
+                <button type="button" onclick="stepNumberInput('input-sharing-rooms', -1)">−</button>
+                <input type="number" id="input-sharing-rooms" min="0" max="2000" value="0" oninput="updateHeroAndPreview()">
+                <button type="button" onclick="stepNumberInput('input-sharing-rooms', 1)">+</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid" style="margin-top: 4px;">
+            <div class="form-group">
+              <label class="form-label"><span>Monthly Rental Rates / NSFAS</span></label>
+              <input type="text" id="input-pricing" class="form-input" placeholder="e.g. NSFAS Accredited • R3,400 Single / R2,800 Sharing" oninput="updateHeroAndPreview()">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>Student Gender Policy</span></label>
+              <select id="input-gender" class="form-select" onchange="updateHeroAndPreview()">
+                <option value="Mixed / Open">Mixed / Open (Male &amp; Female)</option>
+                <option value="Female Only">Female Students Only</option>
+                <option value="Male Only">Male Students Only</option>
+              </select>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- TAB 4: FACILITIES & AMENITIES -->
-      <div class="tab-section" id="tab-amenities">
+      <!-- SECTION 4: CONTACT & BIO -->
+      <div class="tab-section active" id="tab-details">
         <div class="card">
           <div class="section-header">
-            <h2 class="section-title">Facilities & Amenities Checklist</h2>
-            <p class="section-sub">
-              Select all features available at this residence. Students filter accommodations based on these items.
-            </p>
+            <div>
+              <span class="section-kicker">📞 Direct Student Contact</span>
+              <h2 class="section-title">Landlord Contact &amp; Residence Bio</h2>
+              <p class="section-sub">
+                Students tap "Call" or "WhatsApp" on your card to book viewings and sign lease agreements.
+              </p>
+            </div>
           </div>
 
-          <div class="amenities-grid" id="amenities-container">
-            <!-- Populated by JS -->
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label"><span>Landlord / Manager Name <span class="req">*</span></span></label>
+              <input type="text" id="input-manager-name" class="form-input" placeholder="e.g. Mr. M. Molefe">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>Phone for Direct Calls <span class="req">*</span></span></label>
+              <input type="tel" id="input-phone" class="form-input" placeholder="e.g. 082 123 4567">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>WhatsApp Number <span class="req">*</span></span> <span class="helper">For instant student chat</span></label>
+              <input type="tel" id="input-whatsapp" class="form-input" placeholder="e.g. 082 123 4567">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label"><span>Inquiry Email Address</span> <span class="helper">Optional</span></label>
+              <input type="email" id="input-email" class="form-input" placeholder="e.g. accommodation@example.com">
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label"><span>Residence Overview &amp; Student Description</span></label>
+              <textarea id="input-description" class="form-textarea" placeholder="Describe the study environment, proximity to NWU Gate, transport/shuttle, security measures, backup water/solar, etc." oninput="updateHeroAndPreview()"></textarea>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- TAB 5: STUDENT APP PREVIEW -->
-      <div class="tab-section" id="tab-preview">
-        <div class="card" style="background:#F8FAFC">
-          <div class="section-header" style="text-align:center">
-            <h2 class="section-title">📱 Student Live Preview</h2>
-            <p class="section-sub">This is exactly how NWU students view your residence on the Unibo campus network.</p>
+      <!-- SECTION 5: FACILITIES & AMENITIES -->
+      <div class="tab-section active" id="tab-amenities">
+        <div class="card">
+          <div class="section-header">
+            <div>
+              <span class="section-kicker">✨ Included Facilities</span>
+              <h2 class="section-title">Facilities &amp; Amenities Checklist</h2>
+              <p class="section-sub">
+                Tap all amenities included at your residence.
+              </p>
+            </div>
+          </div>
+
+          <div class="amenities-grid" id="amenities-container"></div>
+        </div>
+      </div>
+
+      <!-- SECTION 6: STUDENT APP PREVIEW -->
+      <div class="tab-section active" id="tab-preview">
+        <div class="card" style="background:#F8F9FC">
+          <div class="section-header" style="text-align:center;justify-content:center">
+            <div>
+              <span class="section-kicker">📱 Live Student Preview</span>
+              <h2 class="section-title">How Students See Your Listing on Unibo</h2>
+              <p class="section-sub">Updates live as you edit your distance, address, photos, and rent above.</p>
+            </div>
           </div>
 
           <div class="preview-phone-wrap">
@@ -785,20 +1258,21 @@
               </div>
               <div>
                 <div class="preview-badge-row">
-                  <span class="preview-badge" style="background:#ECFDF5;color:#059669;font-weight:700">✓ NWU Accredited</span>
+                  <span class="preview-badge" style="background:#ECFDF5;color:#059669;font-weight:700">✓ Accredited 2026</span>
                   <span class="preview-badge" id="sim-status-badge">🟢 Beds Available</span>
-                  <span class="preview-badge" id="sim-distance-badge">1.2 km</span>
+                  <span class="preview-badge" id="sim-distance-badge" style="background:rgba(82,67,214,0.1);color:#5243D6;font-weight:800">1.2 km from NWU</span>
                 </div>
-                <div style="font-size:17px;font-weight:800;color:#0F172A;margin-top:6px" id="sim-name">Residence Title</div>
-                <div style="font-size:12px;color:#64748B;margin-top:2px" id="sim-address">📍 Address</div>
-                <div style="font-size:12px;color:#6C5CE7;font-weight:700;margin-top:4px" id="sim-pricing">Rent rate</div>
+                <div style="font-size:16.5px;font-weight:800;color:#11131A;margin-top:7px" id="sim-name">Residence Title</div>
+                <div style="font-size:12px;color:#5C6070;margin-top:2px" id="sim-address">📍 Address</div>
+                <div style="font-size:11.5px;color:#11131A;font-weight:700;margin-top:6px;padding:6px 10px;background:#F1F2F6;border-radius:8px" id="sim-rooms">🛏️ 0 Beds · 0 Single · 0 Sharing</div>
+                <div style="font-size:12.5px;color:#5243D6;font-weight:800;margin-top:6px" id="sim-pricing">Rent rate</div>
               </div>
-              <div style="font-size:12.5px;color:#334155;line-height:1.4" id="sim-desc">
+              <div style="font-size:12px;color:#334155;line-height:1.45" id="sim-desc">
                 Description preview...
               </div>
               <div style="display:flex;gap:8px;margin-top:4px">
-                <button type="button" style="flex:1;height:38px;background:#25D366;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:12px">💬 WhatsApp</button>
-                <button type="button" style="flex:1;height:38px;background:#0F172A;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:12px">📞 Call</button>
+                <button type="button" style="flex:1;height:36px;background:rgba(82,67,214,0.1);color:#5243D6;border:1px solid rgba(82,67,214,0.25);border-radius:10px;font-weight:700;font-size:12px">📞 Call</button>
+                <button type="button" style="flex:1;height:36px;background:rgba(14,159,110,0.12);color:#0E9F6E;border:1px solid rgba(14,159,110,0.28);border-radius:10px;font-weight:700;font-size:12px">💬 WhatsApp</button>
               </div>
             </div>
           </div>
@@ -808,41 +1282,41 @@
       <!-- Floating Save Bar -->
       <div class="floating-save-bar">
         <div class="save-bar-info">
-          <div class="save-bar-title">Ready to publish changes?</div>
-          <div class="save-bar-sub">Updated photos and information reflect live on Unibo immediately.</div>
+          <div class="save-bar-title">Done editing distance, location, or details?</div>
+          <div class="save-bar-sub">Tap Save &amp; Publish — changes go live on Unibo immediately.</div>
         </div>
         <button type="button" class="btn-save-main" id="btn-save-profile" onclick="saveResidenceProfile()">
-          💾 Save & Publish to Unibo
+          ✓ Save &amp; Publish to Unibo
         </button>
       </div>
 
     </div>
 
-    <!-- VIEW 2: VERIFICATION GATE (WHEN ACCESSED WITHOUT DIRECT ID) -->
+    <!-- VIEW 2: VERIFICATION / SEARCH GATE (WHEN ACCESSED WITHOUT DIRECT ID) -->
     <div id="view-gate" style="display: none;">
       <div class="gate-view">
-        <div class="gate-icon">🔐</div>
+        <div class="gate-icon">🏢</div>
         <h1 class="gate-title">NWU Accredited Landlord Portal</h1>
         <p class="gate-desc">
-          To protect the integrity of student accommodation listings and prevent unauthorized photo or info changes, each landlord has a private management link sent via WhatsApp.
+          Search for your residence by <strong>residence name, street address, phone number, or accreditation code</strong> to edit your campus distance, map location, room availability, and photos.
         </p>
 
-        <div class="card" style="text-align: left; margin-top: 10px;">
-          <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 8px;">Find Your Accommodation Profile</h3>
-          <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px;">
-            Enter your registered cellphone/WhatsApp number or NWU accreditation code to open your residence profile:
+        <div class="card" style="text-align: left; margin-top: 6px;">
+          <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 6px;">Find Your Residence Profile</h3>
+          <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px;">
+            Type your residence name (e.g. Molaolwe, Tholo), street name, phone number, or code:
           </p>
           <div class="gate-search-box">
-            <input type="text" id="gate-search-input" class="form-input" placeholder="e.g. 082 123 4567 or NWU-2026-..." onkeydown="if(event.key==='Enter') lookupLandlordProfile()">
-            <button type="button" class="btn-save-main" style="padding:10px 20px" onclick="lookupLandlordProfile()">
-              Access
+            <input type="text" id="gate-search-input" class="form-input" placeholder="Search residence name, street, phone, or 2026/M..." oninput="lookupLandlordProfile(true)" onkeydown="if(event.key==='Enter') lookupLandlordProfile(false)">
+            <button type="button" class="btn-save-main" style="padding:10px 18px" onclick="lookupLandlordProfile(false)">
+              Search
             </button>
           </div>
           <div id="gate-search-results" style="margin-top: 14px; display: none;"></div>
         </div>
 
         <div style="font-size: 12.5px; color: var(--text-muted);">
-          Didn't receive your link? <a href="https://wa.me/27794358487?text=Hello%2C%20I%20am%20an%20NWU%20landlord%20requesting%20my%20accommodation%20profile%20link." target="_blank" style="color:var(--accent);font-weight:700;text-decoration:none">Request Link on WhatsApp →</a>
+          Need assistance? <a href="https://wa.me/27794358487?text=Hello%2C%20I%20am%20an%20NWU%20landlord%20requesting%20assistance%20with%20my%20accommodation%20profile." target="_blank" style="color:var(--accent);font-weight:700;text-decoration:none">Message Landlord Support on WhatsApp →</a>
         </div>
       </div>
     </div>
@@ -852,13 +1326,17 @@
   <!-- Global Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- Firebase Scripts (Compat) -->
+  <!-- Leaflet & Firebase Scripts -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js"></script>
 
   <script>
+    // ─── NWU MAHIKENG MAIN GATE COORDINATES ──────────────────────
+    const NWU_MAHIKENG_GATE = { lat: -25.82895, lng: 25.61015 };
+
     // ─── AMENITY CATALOG ─────────────────────────────────────────
     const ALL_AMENITIES = [
       { id: 'wifi', label: 'High-Speed Wi-Fi', icon: '📶' },
@@ -880,9 +1358,14 @@
     let _currentResId = null;
     let _currentRes = null;
     let _liveImages = [];
-    let _pendingFiles = []; // { file, previewUrl, blob }
+    let _pendingFiles = [];
     let _selectedAvailability = 'available';
     let _selectedAmenities = new Set();
+    let _activeTabMode = 'all';
+    let _map = null;
+    let _resMarker = null;
+    let _gateMarker = null;
+    let _routeLine = null;
     const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
 
     // ─── INIT ────────────────────────────────────────────────────
@@ -902,10 +1385,16 @@
       if (targetId) {
         openResidenceDashboard(targetId);
       } else {
-        document.getElementById('view-gate').style.display = 'block';
-        document.getElementById('view-profile-dashboard').style.display = 'none';
+        showGateSearch();
       }
     });
+
+    function showGateSearch() {
+      document.getElementById('view-gate').style.display = 'block';
+      document.getElementById('view-profile-dashboard').style.display = 'none';
+      document.getElementById('btn-switch-res').style.display = 'none';
+      setTimeout(() => document.getElementById('gate-search-input')?.focus(), 80);
+    }
 
     async function loadResidenceRegistry() {
       try {
@@ -919,16 +1408,47 @@
       }
     }
 
+    function haversineKm(lat1, lng1, lat2, lng2) {
+      const toRad = d => (d * Math.PI) / 180;
+      const R = 6371;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatTitleCase(str = '') {
+      const s = String(str || '').trim();
+      if (!s) return '';
+      const keepUpper = new Set(['NWU', 'MC', 'NSFAS', 'CBD', 'TV', 'II', 'III', 'IV']);
+      return s.split(/\s+/).map(w => {
+        const clean = w.replace(/[^A-Za-z0-9]/g, '');
+        if (!clean || keepUpper.has(clean.toUpperCase())) return w;
+        if (clean.length >= 2 && clean === clean.toUpperCase() && /[A-Z]{2,}/.test(clean)) {
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        }
+        return w;
+      }).join(' ');
+    }
+
     // ─── PROFILE DASHBOARD LOADER ────────────────────────────────
     async function openResidenceDashboard(resId) {
       _currentResId = resId;
-      _currentRes = _allResidences.find(r => r.id === resId || r.accreditationNumber === resId) || {
+      const found = _allResidences.find(r => r.id === resId || r.accreditationNumber === resId);
+      _currentRes = found ? { ...found } : {
         id: resId,
         name: resId,
-        address: 'Mahikeng',
-        suburb: 'Mahikeng',
+        address: 'Mmabatho, Mahikeng',
+        suburb: 'Mmabatho',
         accreditationNumber: 'NWU-2026',
-        beds: 0,
+        beds: 10,
+        singleRooms: 6,
+        sharingRooms: 4,
+        distanceKm: 1.5,
+        distanceText: '1.5 km from NWU',
+        lat: -25.8325,
+        lng: 25.6125,
+        gender: 'Mixed / Open',
         phone: '',
         whatsapp: '',
         email: ''
@@ -936,23 +1456,18 @@
 
       document.getElementById('view-gate').style.display = 'none';
       document.getElementById('view-profile-dashboard').style.display = 'block';
+      document.getElementById('btn-switch-res').style.display = 'inline-flex';
 
-      // Render Hero Header
-      document.getElementById('hero-res-name').innerText = _currentRes.name;
-      document.getElementById('hero-badge-acc').innerText = `Code: ${_currentRes.accreditationNumber || '2026'}`;
-      document.getElementById('hero-res-address').innerText = `📍 ${_currentRes.address || 'Mahikeng'}`;
-      document.getElementById('hero-res-suburb').innerText = _currentRes.suburb || 'Mahikeng';
-      document.getElementById('hero-res-distance').innerText = _currentRes.distanceKm ? `${_currentRes.distanceKm.toFixed(1)} km from gate` : 'Near campus';
-      document.getElementById('hero-res-beds').innerText = `${_currentRes.beds || 0} Beds (${_currentRes.singleRooms || 0} single, ${_currentRes.sharingRooms || 0} sharing)`;
+      // Check local profile cache first
+      try {
+        const cachedProf = localStorage.getItem('unibo_res_profile_' + resId);
+        if (cachedProf) {
+          Object.assign(_currentRes, JSON.parse(cachedProf));
+        }
+      } catch (_) {}
 
-      // Pre-fill Form Fields with official registry defaults
-      document.getElementById('input-manager-name').value = _currentRes.managerName || '';
-      document.getElementById('input-phone').value = _currentRes.phone || '';
-      document.getElementById('input-whatsapp').value = _currentRes.whatsapp || _currentRes.phone || '';
-      document.getElementById('input-email').value = _currentRes.email || '';
-      document.getElementById('input-description').value = _currentRes.description || '';
-      document.getElementById('input-pricing').value = _currentRes.pricing || '';
-      document.getElementById('input-beds').value = _currentRes.beds || 0;
+      // Populate Form Inputs
+      populateFormFromCurrentRes();
 
       // Default Amenities
       _selectedAmenities = new Set(
@@ -964,7 +1479,6 @@
       _liveImages = Array.isArray(_currentRes.images) ? [..._currentRes.images] : [];
       _pendingFiles = [];
 
-      // Check local cache
       try {
         const cached = localStorage.getItem('unino_res_media_' + resId) || localStorage.getItem('unibo_res_media_' + resId);
         if (cached) {
@@ -973,53 +1487,306 @@
         }
       } catch (_) {}
 
-      // Render Amenities Grid
       renderAmenitiesChecklist();
 
-      // Fetch Live Profile from Firestore
+      // Fetch Live Profile from Firestore (overrides defaults with latest saved landlord edits)
       await fetchLiveProfileFromFirestore(resId);
 
       renderLivePhotos();
       renderPendingPhotos();
       updateAvailabilityUI(_selectedAvailability);
-      updateSimPreview();
+      initOrUpdateLocationMap();
+      updateHeroAndPreview();
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function populateFormFromCurrentRes() {
+      document.getElementById('input-res-name').value = formatTitleCase(_currentRes.name || '');
+      document.getElementById('input-address').value = formatTitleCase(_currentRes.address || '');
+      document.getElementById('input-suburb').value = _currentRes.suburb || 'Mmabatho';
+      const dKm = Number.isFinite(Number(_currentRes.distanceKm)) ? Number(_currentRes.distanceKm) : 1.5;
+      document.getElementById('input-distance-km').value = dKm.toFixed(1);
+      document.getElementById('input-distance-text').value = _currentRes.distanceText || '';
+      document.getElementById('input-lat').value = Number(_currentRes.lat || -25.8325).toFixed(5);
+      document.getElementById('input-lng').value = Number(_currentRes.lng || 25.6125).toFixed(5);
+
+      document.getElementById('input-beds').value = _currentRes.beds ?? 0;
+      document.getElementById('input-single-rooms').value = _currentRes.singleRooms ?? 0;
+      document.getElementById('input-sharing-rooms').value = _currentRes.sharingRooms ?? 0;
+      const genderSel = document.getElementById('input-gender');
+      if (genderSel && _currentRes.gender) {
+        genderSel.value = _currentRes.gender;
+      }
+
+      document.getElementById('input-manager-name').value = _currentRes.managerName || _currentRes.landlord || '';
+      document.getElementById('input-phone').value = _currentRes.phone || '';
+      document.getElementById('input-whatsapp').value = _currentRes.whatsapp || _currentRes.phone || '';
+      document.getElementById('input-email').value = _currentRes.email || '';
+      document.getElementById('input-description').value = _currentRes.description || '';
+      document.getElementById('input-pricing').value = _currentRes.pricing || '';
+      if (_currentRes.availability) _selectedAvailability = _currentRes.availability;
     }
 
     async function fetchLiveProfileFromFirestore(resId) {
       try {
         const docSnap = await db.collection('residence_media').doc(resId).get();
         if (docSnap.exists) {
-          const data = docSnap.data();
-          if (Array.isArray(data.images)) _liveImages = data.images;
-          if (data.managerName) document.getElementById('input-manager-name').value = data.managerName;
-          if (data.phone) document.getElementById('input-phone').value = data.phone;
-          if (data.whatsapp) document.getElementById('input-whatsapp').value = data.whatsapp;
-          if (data.email) document.getElementById('input-email').value = data.email;
-          if (data.description) document.getElementById('input-description').value = data.description;
-          if (data.pricing) document.getElementById('input-pricing').value = data.pricing;
+          const data = docSnap.data() || {};
+          if (Array.isArray(data.images) && data.images.length) _liveImages = data.images;
+          if (data.name || data.resName) _currentRes.name = data.name || data.resName;
+          if (data.address) _currentRes.address = data.address;
+          if (data.suburb) _currentRes.suburb = data.suburb;
+          if (data.distanceKm !== undefined && data.distanceKm !== null && data.distanceKm !== '') {
+            _currentRes.distanceKm = Number(data.distanceKm);
+          }
+          if (data.distanceText) _currentRes.distanceText = data.distanceText;
+          if (data.lat !== undefined && data.lng !== undefined) {
+            const nLat = Number(data.lat), nLng = Number(data.lng);
+            if (Number.isFinite(nLat) && Number.isFinite(nLng) && Math.abs(nLat) > 0.1) {
+              _currentRes.lat = nLat;
+              _currentRes.lng = nLng;
+            }
+          }
+          if (data.beds !== undefined) _currentRes.beds = Number(data.beds);
+          if (data.singleRooms !== undefined) _currentRes.singleRooms = Number(data.singleRooms);
+          if (data.sharingRooms !== undefined) _currentRes.sharingRooms = Number(data.sharingRooms);
+          if (data.gender) _currentRes.gender = data.gender;
+          if (data.managerName) _currentRes.managerName = data.managerName;
+          if (data.phone) _currentRes.phone = data.phone;
+          if (data.whatsapp) _currentRes.whatsapp = data.whatsapp;
+          if (data.email) _currentRes.email = data.email;
+          if (data.description) _currentRes.description = data.description;
+          if (data.pricing) _currentRes.pricing = data.pricing;
           if (data.availability) _selectedAvailability = data.availability;
           if (Array.isArray(data.amenities) && data.amenities.length) {
             _selectedAmenities = new Set(data.amenities);
             renderAmenitiesChecklist();
           }
+          populateFormFromCurrentRes();
         }
       } catch (err) {
         console.warn('Firestore live profile note:', err.message);
       }
     }
 
-    // ─── TAB SWITCHING ───────────────────────────────────────────
+    // ─── INTERACTIVE LEAFLET MAP & DISTANCE TOOLS ────────────────
+    function initOrUpdateLocationMap() {
+      const lat = Number(document.getElementById('input-lat').value) || Number(_currentRes?.lat) || -25.8325;
+      const lng = Number(document.getElementById('input-lng').value) || Number(_currentRes?.lng) || 25.6125;
+
+      if (typeof L === 'undefined') return;
+
+      if (!_map) {
+        _map = L.map('landlord-location-map', {
+          center: [lat, lng],
+          zoom: 15,
+          scrollWheelZoom: false
+        });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(_map);
+
+        const gateIcon = L.divIcon({
+          className: 'nwu-gate-pin',
+          html: `<div style="background:#14151C;color:#fff;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.25);border:2px solid #fff">🏛️ NWU Gate</div>`,
+          iconSize: null
+        });
+        _gateMarker = L.marker([NWU_MAHIKENG_GATE.lat, NWU_MAHIKENG_GATE.lng], { icon: gateIcon })
+          .addTo(_map)
+          .bindPopup('<b>NWU Mahikeng Main Gate</b><br>Campus distance reference point');
+
+        const resIcon = L.divIcon({
+          className: 'res-drag-pin',
+          html: `<div style="background:#5243D6;color:#fff;padding:6px 11px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(82,67,214,0.45);border:2px solid #fff;cursor:grab">🏠 Your Residence</div>`,
+          iconSize: null
+        });
+        _resMarker = L.marker([lat, lng], { icon: resIcon, draggable: true }).addTo(_map);
+
+        _resMarker.on('dragend', () => {
+          const pos = _resMarker.getLatLng();
+          applyMapPinCoordinates(pos.lat, pos.lng, true);
+        });
+
+        _map.on('click', (e) => {
+          applyMapPinCoordinates(e.latlng.lat, e.latlng.lng, true);
+        });
+      } else {
+        _map.setView([lat, lng], 15);
+        if (_resMarker) _resMarker.setLatLng([lat, lng]);
+      }
+
+      updateMapRouteLine(lat, lng);
+      setTimeout(() => { try { _map.invalidateSize(); } catch (_) {} }, 150);
+    }
+
+    function updateMapRouteLine(lat, lng) {
+      if (!_map || typeof L === 'undefined') return;
+      if (_routeLine) {
+        try { _map.removeLayer(_routeLine); } catch (_) {}
+      }
+      _routeLine = L.polyline(
+        [[NWU_MAHIKENG_GATE.lat, NWU_MAHIKENG_GATE.lng], [lat, lng]],
+        { color: '#5243D6', weight: 2.5, dashArray: '6, 6', opacity: 0.75 }
+      ).addTo(_map);
+    }
+
+    function applyMapPinCoordinates(lat, lng, fromPinInteraction = false) {
+      const cleanLat = Number(lat.toFixed(5));
+      const cleanLng = Number(lng.toFixed(5));
+      document.getElementById('input-lat').value = cleanLat;
+      document.getElementById('input-lng').value = cleanLng;
+      if (_resMarker) _resMarker.setLatLng([cleanLat, cleanLng]);
+      updateMapRouteLine(cleanLat, cleanLng);
+
+      const autoCalc = document.getElementById('auto-calc-dist-toggle')?.checked;
+      if (autoCalc) {
+        recalcDistanceFromMapPin(false);
+      } else if (fromPinInteraction) {
+        const straightKm = haversineKm(NWU_MAHIKENG_GATE.lat, NWU_MAHIKENG_GATE.lng, cleanLat, cleanLng);
+        const estRoadKm = Math.max(0.1, Number((straightKm * 1.18).toFixed(1)));
+        showToast(`📍 Pin moved (${estRoadKm} km to NWU Gate — tap Auto-Calc to update distance)`);
+      }
+      updateHeroAndPreview();
+    }
+
+    function onManualCoordsInput() {
+      const lat = Number(document.getElementById('input-lat').value);
+      const lng = Number(document.getElementById('input-lng').value);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) > 0.1 && Math.abs(lng) > 0.1) {
+        if (_resMarker) _resMarker.setLatLng([lat, lng]);
+        if (_map) _map.panTo([lat, lng]);
+        updateMapRouteLine(lat, lng);
+      }
+    }
+
+    function recalcDistanceFromMapPin(notify = true) {
+      const lat = Number(document.getElementById('input-lat').value) || Number(_currentRes?.lat) || NWU_MAHIKENG_GATE.lat;
+      const lng = Number(document.getElementById('input-lng').value) || Number(_currentRes?.lng) || NWU_MAHIKENG_GATE.lng;
+      const straightKm = haversineKm(NWU_MAHIKENG_GATE.lat, NWU_MAHIKENG_GATE.lng, lat, lng);
+      const roadEstKm = Math.max(0.1, Number((straightKm * 1.18).toFixed(1)));
+      document.getElementById('input-distance-km').value = roadEstKm.toFixed(1);
+      document.getElementById('input-distance-text').value = `${roadEstKm.toFixed(1)} km from NWU`;
+      updateHeroAndPreview();
+      if (notify) showToast(`📐 Distance updated to ${roadEstKm.toFixed(1)} km from NWU Gate`);
+    }
+
+    function onDistanceKmInput() {
+      const val = Number(document.getElementById('input-distance-km').value);
+      if (Number.isFinite(val) && val >= 0) {
+        document.getElementById('input-distance-text').value = `${val.toFixed(1)} km from NWU`;
+      }
+      updateHeroAndPreview();
+    }
+
+    function nudgeDistanceKm(delta) {
+      const inp = document.getElementById('input-distance-km');
+      const cur = Number(inp.value) || 0;
+      const next = Math.max(0.1, Number((cur + delta).toFixed(1)));
+      inp.value = next.toFixed(1);
+      document.getElementById('input-distance-text').value = `${next.toFixed(1)} km from NWU`;
+      updateHeroAndPreview();
+    }
+
+    function setDistancePreset(km) {
+      const inp = document.getElementById('input-distance-km');
+      inp.value = Number(km).toFixed(1);
+      document.getElementById('input-distance-text').value = `${Number(km).toFixed(1)} km from NWU`;
+      document.querySelectorAll('.preset-chip').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.startsWith(Number(km).toFixed(1)));
+      });
+      updateHeroAndPreview();
+    }
+
+    function useCurrentGpsForResidence() {
+      if (!navigator.geolocation) {
+        showToast('GPS is not supported on this browser');
+        return;
+      }
+      showToast('📡 Detecting your current GPS location…');
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        applyMapPinCoordinates(lat, lng, false);
+        if (_map) _map.setView([lat, lng], 16);
+        recalcDistanceFromMapPin(false);
+        showToast('✓ Residence pin updated to your current GPS location!');
+      }, () => {
+        showToast('Could not read GPS. Please allow location permission or drag the pin on the map.');
+      }, { enableHighAccuracy: true, timeout: 12000 });
+    }
+
+    function centerMapOnNwuGate() {
+      if (!_map) return;
+      const lat = Number(document.getElementById('input-lat').value) || NWU_MAHIKENG_GATE.lat;
+      const lng = Number(document.getElementById('input-lng').value) || NWU_MAHIKENG_GATE.lng;
+      const bounds = L.latLngBounds([[NWU_MAHIKENG_GATE.lat, NWU_MAHIKENG_GATE.lng], [lat, lng]]);
+      _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    }
+
+    async function searchMapLocation() {
+      const raw = (document.getElementById('map-address-query')?.value || '').trim();
+      if (!raw) {
+        showToast('Enter a street name, suburb, or coordinates (-25.82, 25.61)');
+        return;
+      }
+      // Check if user pasted raw coordinates or a Google Maps URL with @lat,lng
+      const coordMatch = raw.match(/(-?\d{1,2}\.\d{3,})[,\s]+(\d{1,2}\.\d{3,})/);
+      if (coordMatch) {
+        const lat = Number(coordMatch[1]);
+        const lng = Number(coordMatch[2]);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          applyMapPinCoordinates(lat, lng, false);
+          if (_map) _map.setView([lat, lng], 16);
+          showToast('✓ Moved pin to coordinates!');
+          return;
+        }
+      }
+      showToast('🔍 Searching map…');
+      try {
+        const q = /mahikeng|mafikeng|mmabatho/i.test(raw) ? raw : `${raw}, Mahikeng, North West, South Africa`;
+        const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+        const results = await resp.json();
+        if (Array.isArray(results) && results.length > 0) {
+          const hit = results[0];
+          const lat = Number(hit.lat);
+          const lng = Number(hit.lon);
+          applyMapPinCoordinates(lat, lng, false);
+          if (_map) _map.setView([lat, lng], 16);
+          showToast('✓ Found location on map! Drag the purple pin to fine-tune.');
+        } else {
+          showToast('Address not found automatically — drag the purple pin directly on the map.');
+        }
+      } catch (_) {
+        showToast('Could not search address — drag the purple pin directly on the map.');
+      }
+    }
+
+    function stepNumberInput(id, delta) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const next = Math.max(0, (parseInt(el.value, 10) || 0) + delta);
+      el.value = next;
+      updateHeroAndPreview();
+    }
+
+    // ─── TAB / SECTION SWITCHING ─────────────────────────────────
     function switchTab(tabId) {
+      _activeTabMode = tabId;
       document.querySelectorAll('.profile-tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
       });
       document.querySelectorAll('.tab-section').forEach(sec => {
-        sec.classList.toggle('active', sec.id === tabId);
+        if (tabId === 'all') {
+          sec.classList.add('active');
+        } else {
+          sec.classList.toggle('active', sec.id === tabId);
+        }
       });
-      if (tabId === 'tab-preview') {
-        updateSimPreview();
+      if (tabId === 'all' || tabId === 'tab-location') {
+        setTimeout(() => { try { _map && _map.invalidateSize(); } catch (_) {} }, 120);
       }
+      updateHeroAndPreview();
     }
 
     // ─── AMENITIES CHECKLIST ─────────────────────────────────────
@@ -1043,14 +1810,14 @@
         _selectedAmenities.add(label);
       }
       renderAmenitiesChecklist();
-      updateSimPreview();
+      updateHeroAndPreview();
     }
 
-    // ─── AVAILABILITY ────────────────────────────────────
+    // ─── AVAILABILITY ────────────────────────────────────────────
     function selectAvailability(status) {
       _selectedAvailability = status;
       updateAvailabilityUI(status);
-      updateSimPreview();
+      updateHeroAndPreview();
     }
 
     function updateAvailabilityUI(status) {
@@ -1080,8 +1847,8 @@
 
       if (_liveImages.length === 0) {
         grid.innerHTML = `
-          <div style="grid-column: 1 / -1; padding: 24px 16px; background: #F8FAFC; border-radius: var(--radius-md); border: 1px dashed var(--border); text-align: center; color: var(--text-muted); font-size: 13px;">
-            ⚠️ No photos published yet. Add photos below so NWU students can explore your rooms!
+          <div style="grid-column: 1 / -1; padding: 20px 16px; background: #F8FAFC; border-radius: var(--radius-md); border: 1px dashed var(--border-strong); text-align: center; color: var(--text-muted); font-size: 13px;">
+            📷 No photos published yet. Tap below to add photos of your residence rooms and exterior.
           </div>
         `;
         return;
@@ -1104,7 +1871,7 @@
       const target = _liveImages.splice(idx, 1)[0];
       _liveImages.unshift(target);
       renderLivePhotos();
-      updateSimPreview();
+      updateHeroAndPreview();
       showToast('⭐ Cover photo updated');
     }
 
@@ -1112,8 +1879,8 @@
       if (!confirm('Remove this photo from your residence profile?')) return;
       _liveImages.splice(idx, 1);
       renderLivePhotos();
-      updateSimPreview();
-      showToast('Photo removed. Remember to tap Save & Publish.');
+      updateHeroAndPreview();
+      showToast('Photo removed. Tap Save & Publish to apply.');
     }
 
     // ─── FILE UPLOAD & CANVAS COMPRESSION ────────────────────────
@@ -1123,12 +1890,12 @@
 
       const totalAllowed = 10 - _liveImages.length - _pendingFiles.length;
       if (totalAllowed <= 0) {
-        showToast('Maximum 10 photos reached. Please remove an existing photo first.');
+        showToast('Maximum 10 photos reached. Remove an existing photo first.');
         return;
       }
 
       const filesToProcess = files.slice(0, totalAllowed);
-      showToast(`Compressing ${filesToProcess.length} image${filesToProcess.length === 1 ? '' : 's'}…`);
+      showToast(`Compressing ${filesToProcess.length} photo${filesToProcess.length === 1 ? '' : 's'}…`);
 
       for (const file of filesToProcess) {
         try {
@@ -1141,7 +1908,7 @@
 
       e.target.value = '';
       renderPendingPhotos();
-      updateSimPreview();
+      updateHeroAndPreview();
     }
 
     function renderPendingPhotos() {
@@ -1170,7 +1937,7 @@
     function removePendingFile(idx) {
       _pendingFiles.splice(idx, 1);
       renderPendingPhotos();
-      updateSimPreview();
+      updateHeroAndPreview();
     }
 
     function compressImage(file, maxDimension = 1280, quality = 0.82) {
@@ -1206,19 +1973,44 @@
       });
     }
 
-    // ─── STUDENT PREVIEW UPDATER ─────────────────────────────────
-    function updateSimPreview() {
-      const name = _currentRes?.name || 'Accredited Residence';
-      const address = _currentRes?.address || 'Mahikeng';
-      const pricing = document.getElementById('input-pricing')?.value.trim() || 'Inquire for 2026 rates';
-      const desc = document.getElementById('input-description')?.value.trim() || 'Verified NWU accredited accommodation near Mahikeng campus.';
-      const distance = _currentRes?.distanceKm ? `${_currentRes.distanceKm.toFixed(1)} km from NWU` : 'Campus';
+    // ─── HERO & STUDENT PREVIEW LIVE UPDATER ─────────────────────
+    function updateHeroAndPreview() {
+      const name = document.getElementById('input-res-name')?.value.trim() || _currentRes?.name || 'Accredited Residence';
+      const address = document.getElementById('input-address')?.value.trim() || _currentRes?.address || 'Mahikeng';
+      const suburb = document.getElementById('input-suburb')?.value.trim() || _currentRes?.suburb || 'Mmabatho';
+      const distKmRaw = Number(document.getElementById('input-distance-km')?.value);
+      const distKm = Number.isFinite(distKmRaw) && distKmRaw >= 0 ? distKmRaw : 1.5;
+      const customDistText = document.getElementById('input-distance-text')?.value.trim();
+      const distLabel = customDistText || `${distKm.toFixed(1)} km from NWU`;
 
+      const beds = parseInt(document.getElementById('input-beds')?.value, 10) || 0;
+      const singleRooms = parseInt(document.getElementById('input-single-rooms')?.value, 10) || 0;
+      const sharingRooms = parseInt(document.getElementById('input-sharing-rooms')?.value, 10) || 0;
+      const pricing = document.getElementById('input-pricing')?.value.trim() || 'NSFAS & Private Rates Available';
+      const desc = document.getElementById('input-description')?.value.trim() || 'Verified NWU accredited accommodation near Mahikeng campus.';
+
+      // Update Hero Header
+      document.getElementById('hero-res-name').innerText = name;
+      document.getElementById('hero-badge-acc').innerText = `Code: ${_currentRes?.accreditationNumber || '2026'}`;
+      document.getElementById('hero-res-address').innerText = `📍 ${address}`;
+      document.getElementById('hero-res-suburb').innerText = suburb;
+      document.getElementById('hero-stat-distance').innerText = `${distKm.toFixed(1)} km`;
+      document.getElementById('hero-stat-beds').innerText = `${beds}`;
+      document.getElementById('hero-stat-rooms').innerText = `${singleRooms} / ${sharingRooms}`;
+      document.getElementById('hero-stat-photos').innerText = `${_liveImages.length + _pendingFiles.length}`;
+
+      const liveBadge = document.getElementById('distance-live-badge');
+      if (liveBadge) {
+        liveBadge.innerHTML = `Shown on student card: <strong>${distLabel}</strong>`;
+      }
+
+      // Update Phone Preview
       document.getElementById('sim-name').innerText = name;
-      document.getElementById('sim-address').innerText = `📍 ${address}`;
+      document.getElementById('sim-address').innerText = `📍 ${address} (${suburb})`;
+      document.getElementById('sim-rooms').innerText = `🛏️ ${beds} Beds · ${singleRooms} Single · ${sharingRooms} Sharing`;
       document.getElementById('sim-pricing').innerText = `💰 ${pricing}`;
-      document.getElementById('sim-desc').innerText = desc.slice(0, 140) + (desc.length > 140 ? '…' : '');
-      document.getElementById('sim-distance-badge').innerText = distance;
+      document.getElementById('sim-desc').innerText = desc.slice(0, 150) + (desc.length > 150 ? '…' : '');
+      document.getElementById('sim-distance-badge').innerText = `📍 ${distLabel}`;
 
       const simStatus = document.getElementById('sim-status-badge');
       if (_selectedAvailability === 'full') {
@@ -1240,7 +2032,7 @@
       if (coverUrl) {
         coverBox.innerHTML = `<img src="${coverUrl}" alt="cover">`;
       } else {
-        coverBox.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94A3B8;font-size:13px">🏢 Photos coming soon</div>`;
+        coverBox.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94A3B8;font-size:13px">🏢 Verified 2026 Listing</div>`;
       }
     }
 
@@ -1271,6 +2063,20 @@
         }
 
         const updatedImages = [..._liveImages, ...uploadedUrls].slice(0, 10);
+        const name = document.getElementById('input-res-name').value.trim() || _currentRes.name;
+        const address = document.getElementById('input-address').value.trim() || _currentRes.address;
+        const suburb = document.getElementById('input-suburb').value.trim() || _currentRes.suburb;
+        const distanceKmRaw = Number(document.getElementById('input-distance-km').value);
+        const distanceKm = Number.isFinite(distanceKmRaw) && distanceKmRaw >= 0 ? Number(distanceKmRaw.toFixed(2)) : (_currentRes.distanceKm || 1.5);
+        const distanceText = document.getElementById('input-distance-text').value.trim() || `${distanceKm.toFixed(1)} km from NWU`;
+        const lat = Number(document.getElementById('input-lat').value) || _currentRes.lat || -25.8325;
+        const lng = Number(document.getElementById('input-lng').value) || _currentRes.lng || 25.6125;
+
+        const beds = parseInt(document.getElementById('input-beds').value, 10) || 0;
+        const singleRooms = parseInt(document.getElementById('input-single-rooms').value, 10) || 0;
+        const sharingRooms = parseInt(document.getElementById('input-sharing-rooms').value, 10) || 0;
+        const gender = document.getElementById('input-gender').value || 'Mixed / Open';
+
         const managerName = document.getElementById('input-manager-name').value.trim();
         const phone = document.getElementById('input-phone').value.trim();
         const whatsapp = document.getElementById('input-whatsapp').value.trim();
@@ -1281,8 +2087,19 @@
 
         const payload = {
           resId: _currentResId,
-          name: _currentRes.name,
+          name,
+          resName: name,
           accreditationNumber: _currentRes.accreditationNumber || '',
+          address,
+          suburb,
+          distanceKm,
+          distanceText,
+          lat,
+          lng,
+          beds,
+          singleRooms,
+          sharingRooms,
+          gender,
           images: updatedImages,
           managerName,
           phone,
@@ -1302,55 +2119,57 @@
         _liveImages = updatedImages;
         _pendingFiles = [];
         if (_currentRes) {
-          _currentRes.images = updatedImages;
-          _currentRes.managerName = managerName;
-          _currentRes.phone = phone;
-          _currentRes.whatsapp = whatsapp;
-          _currentRes.email = email;
-          _currentRes.description = description;
-          _currentRes.pricing = pricing;
-          _currentRes.availability = _selectedAvailability;
-          _currentRes.amenities = amenities;
+          Object.assign(_currentRes, payload);
         }
 
         try {
+          localStorage.setItem('unibo_res_profile_' + _currentResId, JSON.stringify(payload));
           localStorage.setItem('unino_res_media_' + _currentResId, JSON.stringify(updatedImages));
           localStorage.setItem('unibo_res_media_' + _currentResId, JSON.stringify(updatedImages));
         } catch (_) {}
 
         renderLivePhotos();
         renderPendingPhotos();
-        updateSimPreview();
+        updateHeroAndPreview();
 
-        showToast('✓ Accommodation profile published live to Unibo!');
+        showToast('✓ Location, distance & residence profile published live to Unibo!');
       } catch (err) {
         console.error('Save error:', err);
         showToast('Failed to save profile: ' + (err.message || 'Please retry'));
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '💾 Save & Publish to Unibo';
+        btn.innerHTML = '✓ Save & Publish to Unibo';
       }
     }
 
-    // ─── GATE VERIFICATION / SEARCH ──────────────────────────────
-    function lookupLandlordProfile() {
+    // ─── GATE VERIFICATION / SEARCH (NAME, STREET, PHONE OR CODE) ──
+    function lookupLandlordProfile(isLiveInput = false) {
       const q = (document.getElementById('gate-search-input')?.value || '').trim().toLowerCase();
       const resultsDiv = document.getElementById('gate-search-results');
       if (!q) {
-        showToast('Please enter your phone number or accreditation code');
+        if (!isLiveInput) showToast('Type your residence name, street, phone number, or accreditation code');
+        resultsDiv.style.display = 'none';
+        return;
+      }
+      if (isLiveInput && q.length < 2) {
+        resultsDiv.style.display = 'none';
         return;
       }
 
       const cleanQ = q.replace(/[^0-9a-zA-Z]/g, '');
+      const tokens = q.split(/\s+/).filter(Boolean);
       const matches = _allResidences.filter(r => {
         const p1 = (r.phone || '').replace(/[^0-9]/g, '');
         const p2 = (r.whatsapp || '').replace(/[^0-9]/g, '');
         const acc = (r.accreditationNumber || '').toLowerCase().replace(/[^0-9a-zA-Z]/g, '');
         const id = (r.id || '').toLowerCase().replace(/[^0-9a-zA-Z]/g, '');
-        return (cleanQ && (p1.includes(cleanQ) || p2.includes(cleanQ) || acc.includes(cleanQ) || id.includes(cleanQ)));
-      });
+        const blob = `${r.name || ''} ${r.address || ''} ${r.suburb || ''} ${r.accreditationNumber || ''}`.toLowerCase();
+        const byCodeOrPhone = cleanQ.length >= 3 && (p1.includes(cleanQ) || p2.includes(cleanQ) || acc.includes(cleanQ) || id.includes(cleanQ));
+        const byText = tokens.every(t => blob.includes(t));
+        return byCodeOrPhone || byText;
+      }).slice(0, 25);
 
-      if (matches.length === 1) {
+      if (!isLiveInput && matches.length === 1) {
         openResidenceDashboard(matches[0].id);
         return;
       }
@@ -1359,23 +2178,25 @@
       if (matches.length === 0) {
         resultsDiv.innerHTML = `
           <div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;font-size:13px;color:#991B1B">
-            ⚠️ No accommodation found matching "${q}". Please check your number or tap the WhatsApp button below to request your link.
+            No residence found matching "${q}". Try searching by street name, suburb, or phone number.
           </div>
         `;
         return;
       }
 
       resultsDiv.innerHTML = `
-        <div style="font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:8px">Select your residence to manage:</div>
-        ${matches.map(m => `
-          <div style="padding:12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;background:#fff">
-            <div>
-              <div style="font-size:14px;font-weight:800;color:var(--text)">${m.name}</div>
-              <div style="font-size:12px;color:var(--text-muted)">📍 ${m.address || m.suburb} • ${m.beds || 0} Beds</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Select your residence to edit (${matches.length} found):</div>
+        <div style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+          ${matches.map(m => `
+            <div style="padding:12px 14px;border:1px solid var(--border-strong);border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;cursor:pointer" onclick="openResidenceDashboard('${m.id}')">
+              <div style="min-width:0">
+                <div style="font-size:14px;font-weight:800;color:var(--text)">${formatTitleCase(m.name)}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">📍 ${formatTitleCase(m.address || m.suburb)} · ${m.distanceKm ? m.distanceKm.toFixed(1) + ' km' : 'Campus'} · ${m.beds || 0} Beds</div>
+              </div>
+              <button type="button" class="btn-save-main" style="padding:7px 14px;font-size:12px;flex-shrink:0">Edit →</button>
             </div>
-            <button type="button" class="btn-save-main" style="padding:6px 14px;font-size:12px" onclick="openResidenceDashboard('${m.id}')">Manage →</button>
-          </div>
-        `).join('')}
+          `).join('')}
+        </div>
       `;
     }
 
@@ -1383,7 +2204,7 @@
       const el = document.getElementById('toast');
       el.innerText = msg;
       el.classList.add('show');
-      setTimeout(() => el.classList.remove('show'), 3200);
+      setTimeout(() => el.classList.remove('show'), 3400);
     }
   </script>
 </body>

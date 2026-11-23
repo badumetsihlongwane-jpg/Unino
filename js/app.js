@@ -22863,6 +22863,61 @@ document.addEventListener('DOMContentLoaded', () => {
   let _resMarkers = [];
   let _selectedResidence = null;
 
+  function applyCloudDataToResidence(target, data) {
+    if (!target || !data || typeof data !== 'object') return false;
+    let changed = false;
+    const imgs = Array.isArray(data.images) ? data.images.filter(Boolean) : [];
+    if (imgs.length) { target.images = imgs; changed = true; }
+    if (typeof data.name === 'string' && data.name.trim()) { target.name = data.name.trim(); changed = true; }
+    else if (typeof data.resName === 'string' && data.resName.trim()) { target.name = data.resName.trim(); changed = true; }
+    if (typeof data.address === 'string' && data.address.trim()) { target.address = data.address.trim(); changed = true; }
+    if (typeof data.suburb === 'string' && data.suburb.trim()) { target.suburb = data.suburb.trim(); changed = true; }
+    if (data.distanceKm !== undefined && data.distanceKm !== null && data.distanceKm !== '') {
+      const dKm = Number(data.distanceKm);
+      if (Number.isFinite(dKm) && dKm >= 0) {
+        target.distanceKm = dKm;
+        target.distanceText = (typeof data.distanceText === 'string' && data.distanceText.trim())
+          ? data.distanceText.trim()
+          : `${dKm.toFixed(1)} km from NWU`;
+        changed = true;
+      }
+    } else if (typeof data.distanceText === 'string' && data.distanceText.trim()) {
+      target.distanceText = data.distanceText.trim();
+      changed = true;
+    }
+    if (data.lat !== undefined && data.lng !== undefined && data.lat !== '' && data.lng !== '') {
+      const nLat = Number(data.lat);
+      const nLng = Number(data.lng);
+      if (Number.isFinite(nLat) && Number.isFinite(nLng) && Math.abs(nLat) > 0.1 && Math.abs(nLng) > 0.1) {
+        target.lat = nLat;
+        target.lng = nLng;
+        changed = true;
+      }
+    }
+    if (data.beds !== undefined && data.beds !== null && data.beds !== '') {
+      const nBeds = Number(data.beds);
+      if (Number.isFinite(nBeds) && nBeds >= 0) { target.beds = nBeds; changed = true; }
+    }
+    if (data.singleRooms !== undefined && data.singleRooms !== null && data.singleRooms !== '') {
+      const nSingle = Number(data.singleRooms);
+      if (Number.isFinite(nSingle) && nSingle >= 0) { target.singleRooms = nSingle; changed = true; }
+    }
+    if (data.sharingRooms !== undefined && data.sharingRooms !== null && data.sharingRooms !== '') {
+      const nShare = Number(data.sharingRooms);
+      if (Number.isFinite(nShare) && nShare >= 0) { target.sharingRooms = nShare; changed = true; }
+    }
+    if (typeof data.gender === 'string' && data.gender.trim()) { target.gender = data.gender.trim(); changed = true; }
+    if (typeof data.description === 'string') { target.description = data.description; changed = true; }
+    if (typeof data.pricing === 'string') { target.pricing = data.pricing; changed = true; }
+    if (typeof data.availability === 'string' && data.availability) { target.availability = data.availability; changed = true; }
+    if (typeof data.phone === 'string' && data.phone.trim()) { target.phone = data.phone.trim(); changed = true; }
+    if (typeof data.whatsapp === 'string' && data.whatsapp.trim()) { target.whatsapp = data.whatsapp.trim(); changed = true; }
+    if (typeof data.email === 'string') { target.email = data.email.trim(); changed = true; }
+    if (Array.isArray(data.amenities) && data.amenities.length) { target.amenities = data.amenities; changed = true; }
+    if (typeof data.managerName === 'string' && data.managerName.trim()) { target.managerName = data.managerName.trim(); changed = true; }
+    return changed;
+  }
+
   async function loadResidencesData() {
     if (_residencesData && _residencesData.length) return _residencesData;
     try {
@@ -22871,9 +22926,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       _residencesData = data.residences || [];
 
-      // Attach any locally cached photos instantly for 0ms paint
+      // Attach any locally cached photos & profile edits instantly for 0ms paint
       _residencesData.forEach(r => {
         try {
+          const cachedProfile = localStorage.getItem('unibo_res_profile_' + r.id) ||
+            (r.accreditationNumber ? localStorage.getItem('unibo_res_profile_' + r.accreditationNumber) : null);
+          if (cachedProfile) {
+            applyCloudDataToResidence(r, JSON.parse(cachedProfile));
+          }
           const cached = localStorage.getItem('unino_res_media_' + r.id) ||
             localStorage.getItem('unibo_res_media_' + r.id) ||
             (r.accreditationNumber ? (localStorage.getItem('unino_res_media_' + r.accreditationNumber) || localStorage.getItem('unibo_res_media_' + r.accreditationNumber)) : null);
@@ -22884,7 +22944,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) { }
       });
 
-      // Cloud sync live landlord images in background from Firestore
+      // Cloud sync live landlord images & edits in background from Firestore
       syncResidenceMediaFromCloud().catch(() => { });
 
       return _residencesData;
@@ -22902,20 +22962,14 @@ document.addEventListener('DOMContentLoaded', () => {
       let updated = false;
       snap.docs.forEach(doc => {
         const data = doc.data();
-        const imgs = Array.isArray(data.images) ? data.images : [];
         const target = _residencesData.find(r => r.id === doc.id || r.id === data.resId || (data.accreditationNumber && r.accreditationNumber === data.accreditationNumber));
         if (target) {
-          if (imgs.length) target.images = imgs;
-          if (data.description) target.description = data.description;
-          if (data.pricing) target.pricing = data.pricing;
-          if (data.availability) target.availability = data.availability;
-          if (data.phone) target.phone = data.phone;
-          if (data.whatsapp) target.whatsapp = data.whatsapp;
-          if (data.email) target.email = data.email;
-          if (Array.isArray(data.amenities) && data.amenities.length) target.amenities = data.amenities;
-          if (data.managerName) target.managerName = data.managerName;
-          updated = true;
+          if (applyCloudDataToResidence(target, data)) {
+            updated = true;
+          }
           try {
+            localStorage.setItem('unibo_res_profile_' + target.id, JSON.stringify(data));
+            const imgs = Array.isArray(data.images) ? data.images : [];
             if (imgs.length) {
               localStorage.setItem('unino_res_media_' + target.id, JSON.stringify(imgs));
               localStorage.setItem('unibo_res_media_' + target.id, JSON.stringify(imgs));
@@ -22934,6 +22988,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const listEl = $('#res-list-view');
         if (listEl && listEl.children.length) {
           renderResidencesList(getFilteredResidences());
+        }
+        if (_resViewMode === 'map' && _resMapInstance) {
+          renderResidencesMapMarkers(getFilteredResidences());
         }
       }
     } catch (e) {
@@ -23824,7 +23881,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       <!-- Official Accommodation Notice -->
       <div style="text-align:center;padding:12px 14px;border-radius:12px;background:var(--bg-tertiary);border:1px dashed var(--border);font-size:12px;color:var(--text-secondary);margin-top:6px">
-        🏢 <strong>Official NWU Accredited Accommodation:</strong> Landlords manage residence room availability, rental rates, and photo galleries via their private WhatsApp access link.
+        <div>🏢 <strong>Official NWU Accredited Accommodation:</strong> Landlords manage residence location, distance, room availability, rental rates, and photos via the Landlord Portal.</div>
+        <button type="button" class="btn-outline btn-xs" style="margin-top:8px" onclick="openLandlordPortal('${escJs(res.id)}')">✏️ Landlord: Edit Residence Info, Location &amp; Photos</button>
       </div>
     </div>
   `;
@@ -23837,23 +23895,15 @@ document.addEventListener('DOMContentLoaded', () => {
         let cloudImgs = null;
         if (doc.exists && doc.data()) {
           const d = doc.data();
-          if (Array.isArray(d.images) && d.images.length) res.images = d.images;
-          if (d.description) res.description = d.description;
-          if (d.pricing) res.pricing = d.pricing;
-          if (d.availability) res.availability = d.availability;
-          if (d.phone) res.phone = d.phone;
-          if (d.whatsapp) res.whatsapp = d.whatsapp;
-          if (d.email) res.email = d.email;
-          if (Array.isArray(d.amenities) && d.amenities.length) res.amenities = d.amenities;
+          applyCloudDataToResidence(res, d);
+          try { localStorage.setItem('unibo_res_profile_' + res.id, JSON.stringify(d)); } catch (_) { }
           cloudImgs = res.images;
         } else if (res.accreditationNumber) {
           return db.collection('residence_media').doc(res.accreditationNumber).get().then(doc2 => {
             if (doc2.exists && doc2.data()) {
               const d2 = doc2.data();
-              if (Array.isArray(d2.images) && d2.images.length) res.images = d2.images;
-              if (d2.description) res.description = d2.description;
-              if (d2.pricing) res.pricing = d2.pricing;
-              if (d2.availability) res.availability = d2.availability;
+              applyCloudDataToResidence(res, d2);
+              try { localStorage.setItem('unibo_res_profile_' + res.id, JSON.stringify(d2)); } catch (_) { }
               return res.images;
             }
             return null;
