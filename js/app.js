@@ -6216,18 +6216,30 @@ function updateFeedScheduleDockLabel() {
   sub.textContent = snap.shortLabel;
 }
 
-const DEFAULT_SWIPE_IGNORE_SELECTOR = '.maplibregl-canvas, .maplibregl-map, .leaflet-container, .radar-map-wrap, .discover-scroll, .trending-post-scroll, .stories-row, .feed-lenses-bar, .radar-quick-actions, .hustle-categories, .suggested-list, .places-block-pills, .campus-360-stage, .collage-grid, .vn-player, input, textarea, select, [data-no-tab-swipe]';
+const DEFAULT_SWIPE_IGNORE_SELECTOR = '.maplibregl-canvas, .maplibregl-map, .leaflet-container, .radar-map-wrap, .discover-scroll, .trending-post-scroll, .stories-row, .feed-lenses-bar, .campus-quick-dock, .radar-quick-actions, .radar-filter-bar, .explore-events-grid, .res-category-row, .nwu-demo-banner-actions, .hustle-categories, .suggested-list, .places-block-pills, .campus-360-stage, .collage-grid, .vn-player, input, textarea, select, [data-no-tab-swipe]';
 
 function attachHorizontalTabSwipe(el, { getCount, getIndex, onSelect, ignoreSelector = DEFAULT_SWIPE_IGNORE_SELECTOR } = {}) {
   if (!el || typeof getCount !== 'function' || typeof getIndex !== 'function' || typeof onSelect !== 'function') return;
   if (el._tabSwipeCleanup) {
     try { el._tabSwipeCleanup(); } catch (_) { }
   }
+  const hasHorizontalScrollerAncestor = (target) => {
+    let node = target;
+    while (node && node !== el && node !== document.body) {
+      if (node.scrollWidth > node.clientWidth + 4) {
+        const style = window.getComputedStyle(node);
+        if (style && (style.overflowX === 'auto' || style.overflowX === 'scroll')) return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  };
   let start = null;
   const onStart = ev => {
     const touch = ev.touches?.[0];
     if (!touch || ev.touches.length > 1) { start = null; return; }
     if (ignoreSelector && ev.target?.closest?.(ignoreSelector)) { start = null; return; }
+    if (hasHorizontalScrollerAncestor(ev.target)) { start = null; return; }
     start = { x: touch.clientX, y: touch.clientY, t: Date.now() };
   };
   const onEnd = ev => {
@@ -6404,6 +6416,10 @@ function setupHeader() {
   const videoBtn = $('#hdr-video-btn');
   if (videoBtn) {
     videoBtn.onclick = () => openVideoHub();
+  }
+  const floatingVideoBtn = $('#floating-video-btn');
+  if (floatingVideoBtn) {
+    floatingVideoBtn.onclick = () => openVideoHub();
   }
   // Admin panel button
   const existingAdmin = document.getElementById('admin-btn');
@@ -7721,16 +7737,6 @@ function renderFeed() {
   if (!shouldDelayDiscover) {
     loadFeedLiveSpotlight();
   }
-  const feedPageEl = c.querySelector('.feed-page');
-  const feedLensOrder = ['all', 'trending', 'buzz', 'study', 'media', 'friends'];
-  attachHorizontalTabSwipe(feedPageEl, {
-    getCount: () => feedLensOrder.length,
-    getIndex: () => Math.max(0, feedLensOrder.indexOf(_feedLens)),
-    onSelect: idx => {
-      const nextLens = feedLensOrder[idx];
-      if (nextLens && nextLens !== _feedLens) setFeedLens(nextLens);
-    }
-  });
   if (Array.isArray(state.posts) && state.posts.length) {
     renderFeedResults(state.posts);
   }
@@ -11642,11 +11648,6 @@ function renderExplore() {
   };
   $$('.explore-toggle-btn').forEach(btn => {
     btn.onclick = () => switchExploreView(btn.dataset.v || 'radar');
-  });
-  attachHorizontalTabSwipe(c.querySelector('.explore-page'), {
-    getCount: () => exploreOrder.length,
-    getIndex: () => Math.max(0, exploreOrder.indexOf(exploreView)),
-    onSelect: idx => switchExploreView(exploreOrder[idx])
   });
   loadExploreUsers();
 }
@@ -16650,10 +16651,6 @@ function renderMessages() {
         <div class="story-item add-story" onclick="openStoryCreator()">
           <div class="story-avatar"><div class="story-avatar-inner">+</div></div>
           <div class="story-name">Story</div>
-          <div class="story-add-copy">
-            <strong>Share a 24h Campus Story</strong>
-            <span>Post a study update, photo, or campus moment</span>
-          </div>
         </div>
       </div>
       <div id="msg-tab-content">
@@ -16684,11 +16681,6 @@ function renderMessages() {
   };
   $$('.messages-tab-btn').forEach(btn => {
     btn.onclick = () => switchMsgTab(btn.dataset.mt || 'dm');
-  });
-  attachHorizontalTabSwipe(c.querySelector('.messages-page'), {
-    getCount: () => msgTabOrder.length,
-    getIndex: () => Math.max(0, msgTabOrder.indexOf(state.lastMsgTab || 'dm')),
-    onSelect: idx => switchMsgTab(msgTabOrder[idx])
   });
   if (activeTab !== 'groups') loadStories();
   bindMessagesScrollEffects();
@@ -16847,14 +16839,14 @@ function loadGroups() {
   const container = $('#msg-tab-content'); if (!container) return;
   container.innerHTML = `
     <div class="asg-page">
-      <div id="event-chat-groups" style="padding:8px 16px 0"></div>
-      <div class="asg-toolbar-row">
-        <div class="asg-filter-row">
-          <span class="chip active" data-af="my">My Modules</span>
-          <span class="chip" data-af="all">All Open</span>
-          <span class="chip" data-af="mine">Joined</span>
-        </div>
-        <button class="btn-primary btn-sm asg-new-btn" onclick="openCreateModuleGroup()">+ New Squad</button>
+      <div id="event-chat-groups" style="padding:8px 12px 0"></div>
+      <div style="padding:12px 16px;display:flex;gap:8px">
+        <button class="btn-primary" style="flex:1" onclick="openCreateModuleGroup()">+ New Group</button>
+      </div>
+      <div class="asg-filter-row">
+        <span class="chip active" data-af="my">My Modules</span>
+        <span class="chip" data-af="all">All Open</span>
+        <span class="chip" data-af="mine">My Groups</span>
       </div>
       <div id="asg-list"><div style="padding:40px;text-align:center"><span class="inline-spinner"></span></div></div>
     </div>
@@ -16946,27 +16938,21 @@ async function loadAsgList(filter = 'my') {
       else if (isFull) statusBadge = '<span class="asg-badge full">Full</span>';
       else statusBadge = `<span class="asg-badge open">${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left</span>`;
 
-      const memberCount = (g.members || []).length;
-      const maxCount = g.maxSize || 10;
-      const fillPct = Math.min(100, Math.round((memberCount / Math.max(1, maxCount)) * 100));
-      const modeLabel = g.joinMode === 'open' ? 'Open join' : g.joinMode === 'invite' ? 'Host approval' : 'Auto-fill';
+      // Only show member avatars to group members
       const canSeeMembers = isMember || _isAdmin;
 
       return `
         <div class="asg-card ${isMember ? 'is-member' : ''} ${g.status === 'archived' ? 'is-archived' : ''}" onclick="openGroupDetail('${g.id}')">
           <div class="asg-card-top">
-            <div class="asg-card-module">${uiIcon('book', 12)} <span>${esc(g.moduleCode || 'NWU')}</span></div>
+            <div class="asg-card-module">${esc(g.moduleCode || '???')}</div>
             ${statusBadge}
           </div>
           <div class="asg-card-title">${esc(g.groupTitle || g.assignmentTitle)}</div>
-          <div class="asg-capacity-wrap">
-            <div class="asg-capacity-bar"><div class="asg-capacity-fill" style="width:${fillPct}%"></div></div>
-          </div>
           <div class="asg-card-meta">
-            <span>${uiIcon('users', 13)} ${memberCount}/${maxCount} seats</span>
-            <span>·</span>
-            <span>${esc(modeLabel)}</span>
-            ${g.dueDate ? `<span>· ${uiIcon('calendar', 12)} Due ${esc(g.dueDate)}</span>` : ''}
+            <span>\ud83d\udc65 ${(g.members || []).length}/${g.maxSize || 10}</span>
+            <span>\u00b7</span>
+            <span>${g.joinMode === 'open' ? '\ud83d\udd13 Open' : g.joinMode === 'invite' ? '\ud83d\udd12 Invite' : '\ud83e\udd16 Auto-fill'}</span>
+            ${g.dueDate ? `<span>\u00b7 \ud83d\udcc5 ${esc(g.dueDate)}</span>` : ''}
           </div>
           ${canSeeMembers ? `<div class="asg-card-members">
             ${(g.members || []).slice(0, 5).map(mid => {
@@ -16975,11 +16961,8 @@ async function loadAsgList(filter = 'my') {
       }).join('')}
             ${(g.members || []).length > 5 ? `<span class="asg-more">+${(g.members || []).length - 5}</span>` : ''}
           </div>` : ''}
-          ${hasConflict && isMember ? '<div class="asg-conflict">Preference notice: 1 person you preferred not to pair with is in this squad</div>' : ''}
-          <div class="asg-card-foot">
-            <span class="asg-card-host">Hosted by ${esc((g.memberNames || {})[g.createdBy] || 'Student')}${timeAgo(g.createdAt) ? ` · ${timeAgo(g.createdAt)}` : ''}</span>
-            <span class="asg-card-cta">${isMember ? 'Open Squad →' : 'View Squad →'}</span>
-          </div>
+          ${hasConflict && isMember ? '<div class="asg-conflict">\u26a0\ufe0f 1 person you preferred not to work with is in this group</div>' : ''}
+          <div class="asg-card-host">Created by ${esc((g.memberNames || {})[g.createdBy] || 'Someone')} \u00b7 ${timeAgo(g.createdAt)}</div>
         </div>`;
     }).join('');
   } catch (e) { console.error(e); el.innerHTML = '<div class="empty-state"><h3>Could not load</h3></div>'; }
