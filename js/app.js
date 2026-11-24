@@ -1244,8 +1244,8 @@ function refreshMessageReactionUI(scope, primaryId, messageId, collection = '') 
     return;
   }
   const action = scope === 'group'
-    ? `event.stopPropagation();openMessageActionSheet('group','${primaryId}','${messageId}','${collection}')`
-    : `event.stopPropagation();openMessageActionSheet('dm','${primaryId}','${messageId}')`;
+    ? `event.stopPropagation();openMessageReactionsModal('group','${primaryId}','${messageId}','${collection}')`
+    : `event.stopPropagation();openMessageReactionsModal('dm','${primaryId}','${messageId}')`;
   if (!line) {
     line = document.createElement('div');
     line.className = 'msg-reaction-line';
@@ -2269,13 +2269,18 @@ function getNearbySignal(meProfile = {}, otherProfile = {}) {
   const theirCoords = getUserCoords(otherProfile);
   if (myCoords && theirCoords) {
     const distanceKm = distanceKmBetween(myCoords, theirCoords);
-    const score = distanceKm <= 0.35 ? 5
-      : distanceKm <= 0.75 ? 4
-        : distanceKm <= 1.5 ? 3
-          : distanceKm <= 3 ? 2
-            : distanceKm <= 5 ? 1
+    const score = distanceKm <= 0.5 ? 5
+      : distanceKm <= 1.5 ? 4
+        : distanceKm <= 3 ? 3
+          : distanceKm <= 6 ? 2
+            : distanceKm <= 10 ? 1
               : 0;
     return { score, distanceKm, source: 'gps' };
+  }
+  // When the current user has live GPS enabled, never fall back to stale campus address strings
+  // so students far away at campus don't falsely appear "Nearby" when the user is at home.
+  if (myCoords) {
+    return { score: 0, distanceKm: null, source: 'none' };
   }
   return {
     score: addressMatchScore(meProfile.address || '', otherProfile.address || ''),
@@ -3014,6 +3019,56 @@ function getMessageDocRef(scope, primaryId, messageId, collection = '') {
   if (scope === 'group') return db.collection(collection).doc(primaryId).collection('messages').doc(messageId);
   return db.collection('conversations').doc(primaryId).collection('messages').doc(messageId);
 }
+
+function openMessageReactionsModal(scope, primaryId, messageId, collection = '') {
+  const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
+  const message = lookup.get(messageId);
+  if (!message) return;
+  const reactions = normalizeReactionMap(message.reactions, message.likes || []);
+  const entries = Object.entries(reactions);
+  const myUid = state.user?.uid || '';
+  const current = reactions[myUid] || '';
+
+  const rowsHtml = entries.length ? entries.map(([uid, emoji]) => {
+    const isMe = uid === myUid;
+    let displayName = isMe ? 'You' : 'Student';
+    let photo = isMe ? (state.profile?.photoURL || null) : null;
+    if (!isMe) {
+      const ident = getResolvedUserIdentity(uid, '', null);
+      if (ident?.name && ident.name !== 'User') {
+        displayName = ident.name;
+        photo = ident.photo || null;
+      } else {
+        const hdrName = document.querySelector('#chat-hdr-info h3, #gchat-hdr-info h3')?.textContent?.trim();
+        if (scope === 'dm' && hdrName) displayName = hdrName;
+      }
+    }
+    const removeAction = isMe
+      ? `onclick="reactToMessage('${scope}','${primaryId}','${messageId}','${emoji}','${collection}')"`
+      : '';
+    return `
+      <div class="msg-reactor-row ${isMe ? 'is-me' : ''}" ${removeAction}>
+        ${avatar(displayName, photo, 'avatar-sm')}
+        <div class="msg-reactor-info">
+          <div class="msg-reactor-name">${esc(displayName)}</div>
+          <div class="msg-reactor-sub">${isMe ? 'Tap to remove your reaction' : `Reacted ${emoji}`}</div>
+        </div>
+        <span class="msg-reactor-emoji">${emoji}</span>
+      </div>`;
+  }).join('') : '<p style="text-align:center;color:var(--text-tertiary);padding:12px 0;font-size:13px">No reactions yet</p>';
+
+  openModal(`
+    <div class="modal-header"><h2>Reactions (${entries.length})</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" style="padding:14px 16px 18px">
+      <div class="msg-reactors-list">${rowsHtml}</div>
+      <div class="msg-reactors-picker-label">React to this message</div>
+      <div class="reaction-picker-row">
+        ${REACTION_OPTIONS.map(emoji => `<button class="reaction-option ${current === emoji ? 'active' : ''}" onclick="reactToMessage('${scope}','${primaryId}','${messageId}','${emoji}','${collection}')">${emoji}</button>`).join('')}
+      </div>
+    </div>
+  `);
+}
+window.openMessageReactionsModal = openMessageReactionsModal;
 
 function openMessageActionSheet(scope, primaryId, messageId, collection = '') {
   const lookup = scope === 'group' ? _gMsgLookup : _dmMsgLookup;
@@ -6381,7 +6436,7 @@ function renderCampusPulseSidebar() {
           <strong>${uiIcon('users', 14)} Squads</strong>
           <span>Study &amp; group chats</span>
         </button>
-        <button type="button" class="pulse-shortcut-btn" onclick="openExploreTab('places')">
+        <button type="button" class="pulse-shortcut-btn" onclick="openCampus360Viewer()">
           <strong>${uiIcon('map', 14)} Buildings</strong>
           <span>32 Mahikeng blocks</span>
         </button>
@@ -7628,6 +7683,12 @@ function renderFeedResults(posts = []) {
 // ══════════════════════════════════════════════════
 //  FEED — Clean Stream & Interleaved Campus Discovery
 // ══════════════════════════════════════════════════
+function dismissFeedCampusDock() {
+  try { localStorage.setItem('unibo_campus_dock_dismissed', '1'); } catch (_) { }
+  document.getElementById('mobile-first-run-dock')?.remove();
+}
+window.dismissFeedCampusDock = dismissFeedCampusDock;
+
 function renderFeed() {
   resetFeedSeeds(); // new random order every time feed is opened / refreshed
   const c = $('#content'), p = state.profile;
@@ -7644,13 +7705,19 @@ function renderFeed() {
   _feedInlineSuggestedUserIds = new Set();
 
   const schedSnap = getStudentScheduleSnapshot();
+  let dockAlreadySeen = false;
+  try { dockAlreadySeen = localStorage.getItem('unibo_campus_dock_dismissed') === '1'; } catch (_) { }
+  if (!dockAlreadySeen && window.innerWidth < 1024) {
+    // Show once on first launch, then stay clean on subsequent opens
+    try { localStorage.setItem('unibo_campus_dock_dismissed', '1'); } catch (_) { }
+  }
   c.style.opacity = '';
   c.innerHTML = `
     <div class="feed-page">
       <div class="feed-toolbar home-toolbar">
         <div class="search-bar feed-search-bar">
           ${uiIcon('search', 16)}
-          <input type="text" id="feed-search-input" placeholder="Search posts, #modules, people or buildings…" value="${esc(_feedSearchQuery)}">
+          <input type="text" id="feed-search-input" placeholder="Search posts, #tags, people or modules…" value="${esc(_feedSearchQuery)}">
         </div>
       </div>
       <div id="feed-search-meta" class="feed-search-meta" style="display:none"></div>
@@ -7673,44 +7740,20 @@ function renderFeed() {
         <span>Refreshing…</span>
       </div>
 
-      <!-- Campus Quick-Dock: Live Academic & Spatial Portals -->
-      <div class="campus-quick-dock" aria-label="Campus quick portals">
-        <button type="button" class="quick-dock-tile is-schedule" onclick="openTimetableModal(state.user?.uid)">
-          <span class="quick-dock-icon">${uiIcon('calendar', 15)}</span>
-          <span class="quick-dock-copy">
-            <strong>Schedule</strong>
-            <small id="feed-dock-schedule-sub">${esc(schedSnap.shortLabel)}</small>
-          </span>
-        </button>
-        <button type="button" class="quick-dock-tile is-residences" onclick="openResidencesView()">
-          <span class="quick-dock-icon">${uiIcon('building', 15)}</span>
-          <span class="quick-dock-copy">
-            <strong>Residences</strong>
-            <small>650 accredited</small>
-          </span>
-        </button>
-        <button type="button" class="quick-dock-tile is-tour" onclick="openCampus360Viewer()">
-          <span class="quick-dock-icon">${uiIcon('eye360', 15)}</span>
-          <span class="quick-dock-copy">
-            <strong>360° Tour</strong>
-            <small>6 aerial scenes</small>
-          </span>
-        </button>
-        <button type="button" class="quick-dock-tile is-squads" onclick="openMessagesTab('groups')">
-          <span class="quick-dock-icon">${uiIcon('users', 15)}</span>
-          <span class="quick-dock-copy">
-            <strong>Study Squads</strong>
-            <small>Module groups</small>
-          </span>
-        </button>
+      <!-- Feed Content Lenses (Clean pill bar matching reference) -->
+      <div class="feed-lenses-bar" role="tablist" aria-label="Filter feed">
+        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">Trending</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">Buzz</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">Study</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">Media</button>
+        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">Friends</button>
       </div>
-
-      <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <!-- Compact Single-Row Composer -->
       <div class="create-post-prompt campus-composer-compact" onclick="openCreateModal('post')">
         ${avatar(p.displayName, p.photoURL, 'avatar-sm')}
-        <span class="composer-compact-input">Share an update, ask a #module question…</span>
+        <span class="composer-compact-input">What's on your mind?</span>
         <div class="composer-compact-tools" onclick="event.stopPropagation()">
           <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { pickMedia: true })" title="Photo or video" aria-label="Photo or video">${uiIcon('image', 15)}</button>
           <button type="button" class="composer-mini-btn" onclick="openCreateModal('post', { openPoll: true })" title="Poll" aria-label="Poll">${uiIcon('poll', 15)}</button>
@@ -7718,15 +7761,40 @@ function renderFeed() {
         </div>
       </div>
 
-      <!-- Dedicated Feed Content Lenses -->
-      <div class="feed-lenses-bar" role="tablist" aria-label="Filter feed">
-        <button type="button" class="feed-lens-chip ${_feedLens === 'all' ? 'active' : ''}" data-lens="all" onclick="setFeedLens('all')">For You</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'trending' ? 'active' : ''}" data-lens="trending" onclick="setFeedLens('trending')">Trending</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'study' ? 'active' : ''}" data-lens="study" onclick="setFeedLens('study')">Study &amp; Modules</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'buzz' ? 'active' : ''}" data-lens="buzz" onclick="setFeedLens('buzz')">Whispers &amp; Polls</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'media' ? 'active' : ''}" data-lens="media" onclick="setFeedLens('media')">Media</button>
-        <button type="button" class="feed-lens-chip ${_feedLens === 'friends' ? 'active' : ''}" data-lens="friends" onclick="setFeedLens('friends')">Friends</button>
+      <!-- Campus Quick-Dock: Desktop always visible; Mobile first-time welcome strip only -->
+      <div class="campus-quick-dock ${dockAlreadySeen ? 'is-mobile-hidden' : 'is-first-visit'}" id="mobile-first-run-dock" aria-label="Campus quick portals">
+        <button type="button" class="quick-dock-tile is-schedule" onclick="dismissFeedCampusDock();openTimetableModal(state.user?.uid)">
+          <span class="quick-dock-icon">${uiIcon('calendar', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Schedule</strong>
+            <small id="feed-dock-schedule-sub">${esc(schedSnap.shortLabel)}</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-residences" onclick="dismissFeedCampusDock();openResidencesView()">
+          <span class="quick-dock-icon">${uiIcon('building', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Residences</strong>
+            <small>650 accredited</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-tour" onclick="dismissFeedCampusDock();openCampus360Viewer()">
+          <span class="quick-dock-icon">${uiIcon('eye360', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>360° Tour</strong>
+            <small>6 aerial scenes</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-tile is-squads" onclick="dismissFeedCampusDock();openMessagesTab('groups')">
+          <span class="quick-dock-icon">${uiIcon('users', 15)}</span>
+          <span class="quick-dock-copy">
+            <strong>Squads</strong>
+            <small>Module groups</small>
+          </span>
+        </button>
+        <button type="button" class="quick-dock-dismiss" onclick="dismissFeedCampusDock()" aria-label="Hide shortcuts" title="Hide">&times;</button>
       </div>
+
+      <div id="feed-live-spotlight" class="feed-live-spotlight" style="display:none"></div>
 
       <div id="feed-posts">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -10473,11 +10541,7 @@ async function openComments(postId, options = {}) {
   // Replies: Chronological
   replies.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
-  const replyMap = {};
-  replies.forEach(r => {
-    if (!replyMap[r.replyTo]) replyMap[r.replyTo] = [];
-    replyMap[r.replyTo].push(r);
-  });
+  // Build flattened reply buckets keyed by root top-level comment so deep replies never indent off-screen
   const commentById = {};
   comments.forEach(c => {
     commentById[c.id] = c;
@@ -10485,6 +10549,22 @@ async function openComments(postId, options = {}) {
       reactions: normalizeReactionMap(c.reactions, c.likes || []),
       likes: [...(c.likes || [])]
     };
+  });
+  const findRootCommentId = (c) => {
+    let cur = c;
+    let guard = 0;
+    while (cur && cur.replyTo && commentById[cur.replyTo] && guard < 20) {
+      cur = commentById[cur.replyTo];
+      guard++;
+    }
+    return cur?.replyTo || cur?.id || '';
+  };
+  const replyMap = {};
+  replies.forEach(r => {
+    const rootId = findRootCommentId(r);
+    if (!rootId) return;
+    if (!replyMap[rootId]) replyMap[rootId] = [];
+    replyMap[rootId].push(r);
   });
 
   _commentReplyTo = null;
@@ -10496,14 +10576,14 @@ async function openComments(postId, options = {}) {
   function renderComment(c, isReply = false) {
     const liked = (c.likes || []).includes(state.user.uid);
     const myReaction = getUserReaction(c.reactions, c.likes || []);
-    const cReplies = replyMap[c.id] || [];
+    const cReplies = isReply ? [] : (replyMap[c.id] || []);
     const hiddenIdentity = !!c.isAnonymous || (!!postData?.isAnonymous && c.authorId === postData.authorId);
     const displayName = hiddenIdentity ? 'Anonymous' : c.authorName;
     const displayPhoto = hiddenIdentity ? null : c.authorPhoto;
     const target = c.replyTo ? commentById[c.replyTo] : null;
     const targetHidden = !!target && (!!target.isAnonymous || (!!postData?.isAnonymous && target.authorId === postData.authorId));
     const targetDisplayName = target ? (targetHidden ? 'Anonymous' : (target.authorName || 'User')) : '';
-    const replyLabel = target ? `${displayName} > ${target.authorId === state.user.uid ? 'me' : targetDisplayName}` : displayName;
+    const replyTargetTag = target ? `<span class="comment-reply-arrow">▸</span><span class="comment-reply-target">${esc(target.authorId === state.user.uid ? 'you' : targetDisplayName)}</span>` : '';
     const profileClick = hiddenIdentity && c.authorId !== state.user.uid
       ? `onclick="openAnonPostActions('${c.authorId}')"`
       : hiddenIdentity ? '' : `onclick="closeModal();openProfile('${c.authorId}')"`;
@@ -10513,12 +10593,12 @@ async function openComments(postId, options = {}) {
     return `
       <div class="comment-item ${isReply ? 'reply-item' : ''}" id="c-${c.id}" data-comment-id="${c.id}" data-post-id="${postId}" data-author-id="${c.authorId || ''}">
         <div class="comment-avatar-col" ${profileClick} ${authorClickStyle}>
-          ${hiddenIdentity ? `<div class="avatar-sm anon-avatar">👻</div>` : avatar(displayName, displayPhoto, 'avatar-sm')}
+          ${hiddenIdentity ? `<div class="${isReply ? 'avatar-xs' : 'avatar-sm'} anon-avatar">${uiIcon('ghost', isReply ? 13 : 15)}</div>` : avatar(displayName, displayPhoto, isReply ? 'avatar-xs' : 'avatar-sm')}
         </div>
         <div class="comment-content-col">
            <div class="comment-bubble enhanced">
               <div class="comment-header">
-                  <span class="comment-author" ${profileClick} ${authorClickStyle}>${esc(replyLabel)}</span>
+                  <span class="comment-author" ${profileClick} ${authorClickStyle}>${esc(displayName)}</span>${replyTargetTag}
               </div>
               <div class="comment-text">${esc(c.text)}</div>
               ${c.imageURL ? `<img src="${c.imageURL}" class="comment-inline-image" onclick="viewImage('${c.imageURL}')">` : ''}
@@ -10527,7 +10607,7 @@ async function openComments(postId, options = {}) {
            <div class="comment-actions-row">
              <span class="comment-time">${timeAgo(c.createdAt)}</span>
              <button class="c-act like-only ${liked ? 'liked' : ''}" onclick="handleCommentHeartClick('${postId}','${c.id}','feed')" onmousedown="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" onmouseup="endCommentHeartHold(event)" onmouseleave="endCommentHeartHold(event)" ontouchstart="startCommentHeartHold('${postId}','${c.id}','feed','${myReaction || ''}', event)" ontouchend="endCommentHeartHold(event)" ontouchcancel="endCommentHeartHold(event)" title="Like comment">${renderCommentLikeMarkup(liked, c.likeCount || 0, myReaction || '')}</button>
-             <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : '😊 React'}</button>
+             <button class="c-act c-react-btn ${myReaction && myReaction !== '❤️' ? 'reacted' : ''}" onclick="openCommentReactionPicker('${postId}','${c.id}','feed','${myReaction || ''}', event)" title="React with emoji">${myReaction && myReaction !== '❤️' ? `${myReaction} React` : 'React'}</button>
              <button class="c-act c-reply-btn" onclick="setCommentReply('${c.id}','${escJs(displayName)}')">Reply</button>
            </div>
            ${cReplies.length ? `
@@ -10550,7 +10630,7 @@ async function openComments(postId, options = {}) {
   const commentModalHtml = `
     <div class="modal-header"><h2>Comments</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body comment-modal-body" style="display:flex;flex-direction:column;height:72vh;padding:0">
-      <div id="comments-container" class="comments-scroll" data-post-id="${postId}" style="flex:1;overflow-y:auto;padding:16px 16px 8px">
+      <div id="comments-container" class="comments-scroll" data-post-id="${postId}" style="flex:1;overflow-y:auto;padding:14px 14px 8px">
         ${renderCommentTree()}
       </div>
       <div id="comment-reply-indicator" class="reply-indicator" style="display:none">
@@ -10558,17 +10638,17 @@ async function openComments(postId, options = {}) {
         <button onclick="clearCommentReply()">&times;</button>
       </div>
       <div class="comment-input-wrap modern" style="position:sticky;bottom:0;flex-shrink:0">
-        ${postData?.isAnonymous ? `<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-          <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)" style="margin-top:2px;flex-shrink:0">
-          <span>${forceAnon ? 'Your comments stay anonymous on your anonymous post' : 'Comment anonymously on this anonymous post'}</span>
-        </div>` : ''}
+        ${postData?.isAnonymous ? `<label class="comment-anon-row">
+          <input type="checkbox" id="comment-anon-toggle" ${_commentAnonChoice ? 'checked' : ''} ${forceAnon ? 'disabled' : ''} onchange="setCommentAnonChoice(this.checked)">
+          <span>${forceAnon ? 'Your comments stay anonymous on your post' : 'Comment anonymously'}</span>
+        </label>` : ''}
         <div id="comment-img-preview" class="comment-img-preview" style="display:none"></div>
         <div class="chat-bar comment-chat-bar">
           <label class="add-photo-btn chat-attach-btn comment-attach-btn" title="Add sticker/image">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <input type="file" hidden accept="image/*" id="comment-image-input">
           </label>
-          <textarea id="comment-input" placeholder="Write a comment..." autocomplete="off" style="resize:none;overflow-y:auto;max-height:84px;min-height:40px;font-family:inherit;font-size:16px;line-height:1.3"></textarea>
+          <textarea id="comment-input" rows="1" placeholder="Write a comment..." autocomplete="off"></textarea>
           <button class="send-btn" onclick="postComment('${postId}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         </div>
       </div>
@@ -10581,6 +10661,11 @@ async function openComments(postId, options = {}) {
 
   const cInput = $('#comment-input');
   if (cInput) {
+    cInput.style.height = '40px';
+    cInput.addEventListener('input', () => {
+      cInput.style.height = '40px';
+      cInput.style.height = `${Math.min(cInput.scrollHeight, 88)}px`;
+    });
     cInput.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -11619,7 +11704,7 @@ let exploreView = 'radar';
 let allExploreUsers = [];
 
 function renderExplore() {
-  if (!['radar', 'list', 'events', 'places'].includes(exploreView)) exploreView = 'radar';
+  if (!['radar', 'list', 'events'].includes(exploreView)) exploreView = 'radar';
   const c = $('#content');
   c.innerHTML = `
     <div class="explore-page">
@@ -11627,11 +11712,10 @@ function renderExplore() {
         <h2>Explore</h2>
         <button type="button" class="btn-primary btn-sm" onclick="openCreateEvent()">+ Event</button>
       </div>
-      <div class="explore-toggle">
+      <div class="explore-toggle explore-toggle-3">
         <button class="explore-toggle-btn ${exploreView === 'radar' ? 'active' : ''}" data-v="radar">${uiIcon('compass', 14)} Radar</button>
         <button class="explore-toggle-btn ${exploreView === 'list' ? 'active' : ''}" data-v="list">${uiIcon('users', 14)} People</button>
         <button class="explore-toggle-btn ${exploreView === 'events' ? 'active' : ''}" data-v="events">${uiIcon('calendar', 14)} Events</button>
-        <button class="explore-toggle-btn ${exploreView === 'places' ? 'active' : ''}" data-v="places">${uiIcon('building', 14)} Places</button>
       </div>
       <div id="explore-body">
         <div style="padding:40px;text-align:center"><span class="inline-spinner" style="width:28px;height:28px;color:var(--accent)"></span></div>
@@ -11639,7 +11723,7 @@ function renderExplore() {
     </div>
   `;
 
-  const exploreOrder = ['radar', 'list', 'events', 'places'];
+  const exploreOrder = ['radar', 'list', 'events'];
   const switchExploreView = next => {
     if (!exploreOrder.includes(next) || exploreView === next) return;
     exploreView = next;
@@ -11728,7 +11812,6 @@ function renderExploreView() {
   syncExploreToggleButtons();
   if (exploreView === 'list') renderListView();
   else if (exploreView === 'events') renderExploreEventsView();
-  else if (exploreView === 'places') renderExplorePlacesView();
   else renderRadarView();
 }
 
@@ -13112,17 +13195,12 @@ function renderRadarView() {
       <div id="radar-suggestions" class="radar-suggestions" style="display:none"></div>
     </div>
     <div class="radar-quick-actions">
-      <button type="button" class="radar-quick-btn" onclick="openCampus360Viewer()">${uiIcon('eye360', 14)} 360° Aerial</button>
+      <button type="button" class="radar-quick-btn" onclick="openCampus360Viewer()">${uiIcon('eye360', 14)} 360° Tour</button>
       <button type="button" class="radar-quick-btn" onclick="openResidencesView()">${uiIcon('building', 14)} Residences (650)</button>
-      <button type="button" class="radar-quick-btn" onclick="openExploreTab('places')">${uiIcon('map', 14)} 32 Buildings</button>
       <button type="button" class="radar-quick-btn" onclick="openCreateEvent()">${uiIcon('pin', 14)} Pin Event</button>
       <button type="button" class="radar-quick-btn" onclick="recenterMapToUserLocation()">${uiIcon('locate', 14)} My GPS</button>
     </div>
     <div class="radar-map-wrap">
-      <div class="radar-hud-bar" id="radar-hud-bar">
-        <span class="radar-hud-live"><i class="radar-hud-pulse"></i> Live Campus Radar</span>
-        <span class="radar-hud-stats" id="radar-hud-stats">Scanning NWU…</span>
-      </div>
       <div id="radar-map" style="width:100%;height:330px;z-index:0"></div>
       <div class="radar-overlay" id="radar-overlay">
         <div class="radar-ring r3"></div>
@@ -13653,26 +13731,17 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           });
         }
 
-        const usersToPlot = (routeOnlyMode || !locSharingOn) ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers.slice(0, 8)];
-        const plottedIds = new Set();
+        const usersToPlot = (routeOnlyMode || !locSharingOn) ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers];
         const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
-        usersToPlot.forEach((u, i) => {
+        // Only plot students who actually have real GPS coordinates — never scatter non-GPS users around the current user's location
+        usersToPlot.forEach(u => {
           const coords = getUserCoords(u);
           if (!coords) return;
           const distanceKm = distanceKmBetween(center, coords);
-          if (distanceKm > 5) return;
-          plottedIds.add(u.id);
+          if (distanceKm > 25) return;
           const displayPoint = resolveMapPoint(coords, occupiedPoints, center);
           const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
           attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls: `${cls} pin-exact` }), () => showUserPreview(u.id));
-        });
-        usersToPlot.filter(u => !plottedIds.has(u.id)).forEach((u, i) => {
-          const baseR = u.proximity === 'module' ? 0.001 : u.proximity === 'nearby' ? 0.0018 : u.proximity === 'course' ? 0.0025 : 0.004;
-          const angle = (i / Math.max(1, usersToPlot.length)) * Math.PI * 2 + (i * 0.7);
-          const rawPoint = { lat: center.lat + Math.cos(angle) * baseR * (0.6 + Math.random() * 0.8), lng: center.lng + Math.sin(angle) * baseR * (0.6 + Math.random() * 0.8) };
-          const displayPoint = resolveMapPoint(rawPoint, occupiedPoints, center);
-          const cls = u.proximity === 'module' ? 'pin-module' : (u.proximity === 'nearby' || u.proximity === 'course') ? 'pin-campus' : 'pin-far';
-          attachMapLibreMarker(displayPoint.lng, displayPoint.lat, createMapLibreMarkerHTML('user', { photoURL: u.photoURL, label: u.displayName, cls: `${cls} pin-approx` }), () => showUserPreview(u.id));
         });
 
         if (_pendingMapRoute) drawPendingMapRouteOnCurrentMap();
@@ -15455,6 +15524,75 @@ window.toggleListingSaveQuick = toggleListingSaveQuick;
 let _listingsUnsub = null;
 let _cachedListingsData = [];
 
+function getSellerTrustMeta(sellerId, items = _cachedListingsData || []) {
+  let ratingCount = 0;
+  let ratingTotal = 0;
+  (items || []).forEach(it => {
+    if (it.sellerId !== sellerId) return;
+    const rc = Number(it.ratingCount || 0);
+    const rt = Number(it.ratingTotal || (rc && it.ratingAvg ? rc * Number(it.ratingAvg) : 0));
+    if (rc > 0) {
+      ratingCount += rc;
+      ratingTotal += rt;
+    }
+  });
+  const avg = ratingCount > 0 ? Number((ratingTotal / ratingCount).toFixed(1)) : 0;
+  const verified = isVerifiedUser(sellerId);
+  let tier = '';
+  let label = '';
+  if ((ratingCount >= 4 && avg >= 4.5) || (verified && ratingCount >= 2 && avg >= 4.5)) {
+    tier = 'most-trusted';
+    label = 'Most Trusted';
+  } else if ((ratingCount >= 1 && avg >= 4.0) || verified) {
+    tier = 'trusted';
+    label = 'Trusted';
+  }
+  return { ratingCount, avg, tier, label, verified };
+}
+
+function getPendingHustleReviews() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('unibo_pending_hustle_reviews') || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch (_) { return []; }
+}
+
+function dismissPendingHustleReview(itemId) {
+  try {
+    const next = getPendingHustleReviews().filter(r => r.itemId !== itemId);
+    localStorage.setItem('unibo_pending_hustle_reviews', JSON.stringify(next));
+  } catch (_) { }
+  document.getElementById('hustle-review-prompt')?.remove();
+}
+window.dismissPendingHustleReview = dismissPendingHustleReview;
+
+function renderPendingHustleReviewPrompt() {
+  const grid = $('#listings-grid');
+  if (!grid || !grid.parentElement) return;
+  document.getElementById('hustle-review-prompt')?.remove();
+  const pending = getPendingHustleReviews().filter(r => r && r.itemId && (window._hustleItems || {})[r.itemId]);
+  if (!pending.length) return;
+  const top = pending[0];
+  const item = window._hustleItems[top.itemId];
+  const alreadyRated = Number((item?.userRatings || {})[state.user?.uid] || 0) > 0;
+  if (alreadyRated) {
+    dismissPendingHustleReview(top.itemId);
+    return;
+  }
+  grid.insertAdjacentHTML('beforebegin', `
+    <div class="hustle-review-prompt-banner" id="hustle-review-prompt">
+      <div class="hustle-review-prompt-copy">
+        <strong>Did you buy "${esc(clampText(top.title || item.title, 34))}"?</strong>
+        <span>Leave a quick star review for ${esc(top.sellerName || item.sellerName || 'the seller')} to boost campus trust.</span>
+      </div>
+      <div class="hustle-review-prompt-actions">
+        <button type="button" class="btn-primary btn-xs" onclick="openProductDetail('${escJs(top.itemId)}', { focusReview: true })">★ Rate Seller</button>
+        <button type="button" class="btn-outline btn-xs" onclick="dismissPendingHustleReview('${escJs(top.itemId)}')">Later</button>
+      </div>
+    </div>
+  `);
+}
+
 function renderListingsGrid(items = [], cat = 'all', query = '') {
   const grid = $('#listings-grid');
   if (!grid) return;
@@ -15500,15 +15638,19 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
     const sellerContext = _userContextCache[item.sellerId] || null;
     const nearbyBoost = sellerContext ? getNearbySignal(state.profile, sellerContext).score * 5 : 0;
     const interestBoost = textInterestScore(`${item.title || ''} ${item.category || ''} ${item.description || ''}`, interestProfile);
-    const rank = nearbyBoost + interestBoost + ((item.createdAt?.seconds || 0) / 100000);
+    const trust = getSellerTrustMeta(item.sellerId, items);
+    const trustBoost = trust.tier === 'most-trusted' ? 8 : (trust.tier === 'trusted' ? 3 : 0);
+    const rank = nearbyBoost + interestBoost + trustBoost + ((item.createdAt?.seconds || 0) / 100000);
     const syntheticViews = Math.round(((item.interestCount || 0) * 6) + scoreSeed(item.id || '') * 40 + 8);
-    const syntheticRating = Number(item.ratingAvg || (3.6 + scoreSeed(item.sellerId || item.id || '') * 1.3));
+    const realCount = Number(item.ratingCount || 0);
+    const realAvg = realCount > 0 ? Number(item.ratingAvg || 0) : 0;
     return {
       ...item,
       _rank: rank,
       _views: Math.max(item.views || 0, syntheticViews),
-      _ratingAvg: Math.min(5, Math.max(1, syntheticRating)),
-      _ratingCount: Number(item.ratingCount || 0),
+      _ratingAvg: realAvg,
+      _ratingCount: realCount,
+      _trust: trust,
       _isHot: rank > 15 || (item.interestCount || 0) >= 2,
       _sellingFast: (item.interestCount || 0) >= 4
     };
@@ -15539,14 +15681,25 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
     const rawCat = String(item.category || 'Campus').split(',')[0].trim();
     const cleanCat = rawCat ? (rawCat.charAt(0).toUpperCase() + rawCat.slice(1)) : 'Campus';
     const isTopFeatured = idx === 0 && (item._sellingFast || item._isHot);
+    const trust = item._trust || {};
+    const trustPillHtml = trust.tier === 'most-trusted'
+      ? '<span class="listing-overlay-pill is-most-trusted">★ Most Trusted</span>'
+      : trust.tier === 'trusted'
+        ? '<span class="listing-overlay-pill is-trusted">✓ Trusted</span>'
+        : (isTopFeatured ? '<span class="listing-overlay-pill is-featured">Featured</span>' : '');
+    const displayAvg = item._ratingCount > 0 ? item._ratingAvg : (trust.ratingCount > 0 ? trust.avg : 0);
+    const displayCount = item._ratingCount > 0 ? item._ratingCount : trust.ratingCount;
+    const ratingHtml = displayCount > 0
+      ? `<span class="listing-rating-inline"><span class="star-gold">★</span> ${displayAvg.toFixed(1)} <em>(${displayCount})</em></span>`
+      : `<span class="listing-campus-tag">${nearby ? 'Nearby' : 'Campus Pickup'}</span>`;
     return `
     <div class="listing-card" onclick="if(event.target.closest('button')) return; openProductDetail('${item.id}')" oncontextmenu="event.preventDefault();openHustleQuickActions('${item.id}')">
       <div class="listing-media-wrap">
         ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : `<div class="listing-placeholder">${uiIcon('bag', 28)}</div>`}
         <div class="listing-overlay-badges">
           <span class="listing-overlay-pill is-cat">${esc(cleanCat)}</span>
-          ${isTopFeatured ? '<span class="listing-overlay-pill is-featured">Featured</span>' : ''}
         </div>
+        ${trustPillHtml ? `<div class="listing-trust-overlay">${trustPillHtml}</div>` : ''}
         <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? uiIcon('heartFill', 14) : uiIcon('heart', 14)}</button>
       </div>
       <div class="listing-info">
@@ -15556,7 +15709,7 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
         </div>
         <div class="listing-title">${esc(formatListingTitle(item.title))}</div>
         <div class="listing-sub-stats">
-          <span class="listing-campus-tag">${nearby ? 'Nearby' : 'Campus Pickup'}</span>
+          ${ratingHtml}
           <span>·</span>
           <span>${item._views} views</span>
         </div>
@@ -15569,6 +15722,7 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
   }).join('');
   window._hustleItems = {};
   filtered.forEach(i => window._hustleItems[i.id] = i);
+  renderPendingHustleReviewPrompt();
 }
 
 function getCuratedDemoListings() {
@@ -15807,46 +15961,57 @@ function openSellModal() {
 // ══════════════════════════════════════════════════
 
 // ─── Product Detail Popup ──────────────────
-function openProductDetail(itemId) {
+function openProductDetail(itemId, options = {}) {
   const item = (window._hustleItems || {})[itemId];
   if (!item) return toast('Product not found');
   const isSelf = item.sellerId === state.user.uid;
-  const isFriend = (state.profile.friends || []).includes(item.sellerId);
   const myCoords = getUserCoords(state.profile);
   const sellerContext = _userContextCache[item.sellerId] || null;
   const sellerCoords = getUserCoords(sellerContext || {});
   const distanceText = (!isSelf && myCoords && sellerCoords) ? formatDistanceText(distanceKmBetween(myCoords, sellerCoords)) : '';
   const myRating = Number((item.userRatings || {})[state.user.uid] || 0);
+  const trust = getSellerTrustMeta(item.sellerId, _cachedListingsData || [item]);
+  const ratingCount = Number(item.ratingCount || 0);
+  const ratingAvg = ratingCount > 0 ? Number(item.ratingAvg || 0) : 0;
+  const trustBadgeHtml = trust.tier === 'most-trusted'
+    ? '<span class="product-trust-badge is-most-trusted">★ Most Trusted Seller</span>'
+    : trust.tier === 'trusted'
+      ? '<span class="product-trust-badge is-trusted">✓ Trusted Seller</span>'
+      : '';
 
   openModal(`
     <div class="modal-header"><h2>Product Details</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
     <div class="modal-body">
-      ${item.imageURL ? `<div style="border-radius:var(--radius);overflow:hidden;margin-bottom:16px"><img src="${item.imageURL}" style="width:100%;max-height:280px;object-fit:cover;cursor:pointer" onclick="viewImage('${item.imageURL}')"></div>` : ''}
-      <div style="font-size:24px;font-weight:800;color:var(--accent);margin-bottom:4px">R${esc(String(item.price))}</div>
-      <div style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(item.title)}</div>
+      ${item.imageURL ? `<div style="border-radius:var(--radius);overflow:hidden;margin-bottom:14px"><img src="${item.imageURL}" style="width:100%;max-height:280px;object-fit:cover;cursor:pointer" onclick="viewImage('${item.imageURL}')"></div>` : ''}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+        <div style="font-size:24px;font-weight:800;color:var(--accent)">R${esc(String(item.price))}</div>
+        ${ratingCount > 0 ? `<div class="product-detail-rating-pill"><span class="star-gold">★</span> ${ratingAvg.toFixed(1)} <span>(${ratingCount} review${ratingCount === 1 ? '' : 's'})</span></div>` : ''}
+      </div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:10px">${esc(item.title)}</div>
       ${item.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px">${esc(item.description)}</p>` : ''}
-      <div id="product-seller-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer" onclick="openProfile('${item.sellerId}')">
+      <div id="product-seller-row" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer" onclick="openProfile('${item.sellerId}')">
         <span id="product-seller-avatar">${avatar(item.sellerName, (sellerContext?.photoURL || null), 'avatar-sm')}</span>
-        <div>
-          <div id="product-seller-name" style="font-weight:600;font-size:14px">${esc(item.sellerName)}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Seller</div>
+        <div style="min-width:0;flex:1">
+          <div id="product-seller-name" style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${esc(item.sellerName)}${verifiedBadge(item.sellerId)} ${trustBadgeHtml}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">${trust.ratingCount > 0 ? `Seller rating: ★ ${trust.avg.toFixed(1)} (${trust.ratingCount} buyer review${trust.ratingCount === 1 ? '' : 's'})` : 'NWU Student Seller'}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary)">
-        <span>📁 ${esc(item.category || 'Other')}</span>
+        <span>${esc(item.category || 'Other')}</span>
         <span>·</span>
         <span>${timeAgo(item.createdAt)}</span>
-        <span id="product-distance-meta">${distanceText ? `· 📍 ${esc(distanceText)}` : ''}</span>
+        <span id="product-distance-meta">${distanceText ? `· ${esc(distanceText)}` : ''}</span>
       </div>
-      <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-tertiary)">
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Rate this listing</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div id="product-review-box" style="margin-top:10px;padding:12px;border:1px solid ${options.focusReview ? 'var(--brand-tint)' : 'var(--border)'};border-radius:12px;background:var(--bg-tertiary)">
+        <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${myRating ? `Your seller review: ${myRating}/5 ★` : 'Bought from this seller? Rate their reliability'}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:8px">Buyer star reviews unlock <strong>Trusted</strong> &amp; <strong>Most Trusted</strong> badges on campus.</div>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap">
           <div class="product-rating-stars" id="product-rating-stars">${renderProductRatingStars(itemId, myRating)}</div>
           <input type="hidden" id="product-rating-value" value="${myRating || ''}">
-          <button class="btn-outline" onclick="saveListingToProfile('${itemId}')" style="padding:8px 12px">Save</button>
+          <button class="btn-outline btn-xs" onclick="saveListingToProfile('${itemId}')">Save Item</button>
         </div>
       </div>
-      <div style="display:flex;gap:12px;margin-top:16px">
+      <div style="display:flex;gap:10px;margin-top:14px">
         ${isSelf ? `<button class="btn-secondary" style="flex:1" disabled>Your Listing</button>` :
       `<button class="btn-primary" style="flex:1" id="hustle-buy-btn" onclick="hustleBuyInterest('${itemId}')">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -15930,8 +16095,21 @@ async function submitListingRating(itemId, explicitScore = null, options = {}) {
       local.ratingCount = nextCount;
       local.ratingTotal = nextTotal;
       local.ratingAvg = nextCount ? Number((nextTotal / nextCount).toFixed(2)) : 0;
+      const cachedItem = (_cachedListingsData || []).find(i => i.id === itemId);
+      if (cachedItem) {
+        cachedItem.userRatings = local.userRatings;
+        cachedItem.ratingCount = local.ratingCount;
+        cachedItem.ratingTotal = local.ratingTotal;
+        cachedItem.ratingAvg = local.ratingAvg;
+      }
+      dismissPendingHustleReview(itemId);
+      const currentCat = document.querySelector('.category-tabs .chip.active')?.dataset.cat || 'all';
+      const currentQuery = $('#hustle-search')?.value.trim() || '';
+      if (document.getElementById('listings-grid')) {
+        renderListingsGrid(_cachedListingsData.length ? _cachedListingsData : Object.values(window._hustleItems || {}), currentCat, currentQuery);
+      }
     }
-    if (!options.silent) toast('Rating saved');
+    toast(`Rated ${score}/5 ★ — thanks for boosting campus trust!`);
     if (!options.keepOpen) {
       closeModal();
       loadListings();
@@ -16000,6 +16178,13 @@ async function hustleBuyInterest(itemId) {
       itemTitle: item.title,
       itemPrice: item.price
     });
+
+    // Record pending buyer review check-in so buyer gets asked to rate seller reliability
+    try {
+      const existingPending = getPendingHustleReviews().filter(r => r.itemId !== itemId);
+      existingPending.unshift({ itemId, title: item.title, sellerId, sellerName, ts: Date.now() });
+      localStorage.setItem('unibo_pending_hustle_reviews', JSON.stringify(existingPending.slice(0, 5)));
+    } catch (_) { }
 
     closeModal();
     toast('Interest sent to seller!');
@@ -16430,7 +16615,7 @@ async function openGroupChat(groupId, collection = 'groups') {
                   ${content}
                   <div class="msg-time">${m.createdAt ? timeAgo(m.createdAt) : ''}</div>
                 </div>
-                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageReactionsModal('group','${groupId}','${m.id}','${collection}')">${reactionSummary}</div>` : ''}
               </div>
               ${!isMe ? replyBtnHtml : ''}
             </div>`;
@@ -20076,7 +20261,7 @@ async function openChat(convoId) {
                   ${content}
                   <div class="msg-time">${ts ? chatTime(ts) : ''}${statusIcon}</div>
                 </div>
-                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageActionSheet('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}
+                ${reactionSummary ? `<div class="msg-reaction-line" onclick="event.stopPropagation();openMessageReactionsModal('dm','${convoId}','${m.id}')">${reactionSummary}</div>` : ''}
               </div>
               ${!isMe ? replyBtnHtml : ''}
             </div>`;
@@ -23350,8 +23535,9 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       }
 
+      const waMsg = `Hey, I saw ${formatResidenceTitleCase(res.name)} on Unibo. Is space still available?`;
       const waBtn = res.whatsapp ? `
-      <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener" onclick="event.stopPropagation()">
+      <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=${encodeURIComponent(waMsg)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
         ${uiIcon('message', 13)} WhatsApp
       </a>
     ` : '';
@@ -23534,8 +23720,9 @@ document.addEventListener('DOMContentLoaded', () => {
       ? `<span class="res-badge-on-campus">🏛️ NWU On-Campus</span>`
       : `<span class="res-badge-private">✓ Accredited 2026</span>`;
 
+    const waPreviewMsg = `Hey, I saw ${formatResidenceTitleCase(res.name)} on Unibo. Is space still available?`;
     const waBtn = res.whatsapp ? `
-    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=Hello%20${encodeURIComponent(res.name)}%2C%20I%20saw%20your%20accredited%20accommodation%20on%20Unibo." target="_blank" rel="noopener">
+    <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=${encodeURIComponent(waPreviewMsg)}" target="_blank" rel="noopener">
       💬 WhatsApp
     </a>
   ` : '';
@@ -23728,7 +23915,7 @@ document.addEventListener('DOMContentLoaded', () => {
       availBadgeHtml = '<span class="res-dist-pill" style="background:#ECFDF5;color:#059669;font-weight:700">🟢 Beds Available (2026)</span>';
     }
 
-    const waPrefill = `Hello ${res.name}, I saw your accredited accommodation on Unibo and would like to inquire about NSFAS/private room availability.`;
+    const waPrefill = `Hey, I saw ${formatResidenceTitleCase(res.name)} on Unibo. Is space still available?`;
     const waBtn = res.whatsapp ? `
     <a class="res-btn res-btn-whatsapp" href="https://wa.me/${res.whatsapp}?text=${encodeURIComponent(waPrefill)}" target="_blank" rel="noopener" style="flex:1;justify-content:center;height:44px;font-size:13.5px;font-weight:700">
       💬 WhatsApp Landlord

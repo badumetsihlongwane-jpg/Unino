@@ -1658,7 +1658,19 @@ body {
   position: absolute;
   top: 8px;
   left: 8px;
+  right: 44px;
   display: flex;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.listing-trust-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
   gap: 5px;
   pointer-events: none;
 }
@@ -3543,30 +3555,52 @@ body {
     transform: scale(0.93);
   }
 
-  /* Redesigned Mobile Top Feed: Unified 4-Column Quick Bar + Clean Underline Lenses */
+  /* Mobile Top Feed: Clean Reference Style (Search → Pill Lenses → Composer → Posts) */
   .feed-page .home-toolbar {
     padding: 6px 14px 4px !important;
   }
 
   .feed-page .feed-search-bar {
-    height: 40px !important;
-    padding: 0 13px !important;
-    border-radius: 12px !important;
+    height: 42px !important;
+    padding: 0 14px !important;
+    border-radius: 999px !important;
     background: var(--bg-secondary) !important;
     border: 1px solid var(--border) !important;
     box-shadow: none !important;
   }
 
-  .campus-quick-dock {
+  .campus-quick-dock.is-mobile-hidden {
+    display: none !important;
+  }
+
+  .campus-quick-dock.is-first-visit {
+    position: relative;
     display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     gap: 4px !important;
-    padding: 6px !important;
-    margin: 4px 14px 6px !important;
+    padding: 8px 6px 6px !important;
+    margin: 4px 14px 8px !important;
     border-radius: 15px !important;
     background: var(--bg-secondary) !important;
     border: 1px solid var(--border) !important;
     overflow: visible !important;
+  }
+
+  .quick-dock-dismiss {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+    font-size: 13px;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
   }
 
   .campus-quick-dock .quick-dock-tile {
@@ -3608,36 +3642,442 @@ body {
   }
 
   .campus-composer-compact {
-    margin: 0 14px 2px !important;
-    padding: 8px 10px 8px 12px !important;
-    border-radius: 14px !important;
-    box-shadow: none !important;
+    margin: 4px 14px 10px !important;
+    padding: 9px 10px 9px 12px !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-sm) !important;
   }
 
   .feed-lenses-bar {
-    gap: 16px !important;
-    padding: 6px 16px 0 !important;
-    margin: 2px 0 8px !important;
-    border-bottom: 1px solid var(--border) !important;
+    gap: 7px !important;
+    padding: 6px 14px 4px !important;
+    margin: 0 !important;
+    border-bottom: none !important;
   }
 
   .feed-lens-chip {
-    padding: 6px 2px 9px !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    color: var(--text-tertiary) !important;
-    font-size: 13px !important;
+    padding: 7px 14px !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 999px !important;
+    background: var(--bg-secondary) !important;
+    color: var(--text-secondary) !important;
+    font-size: 12.5px !important;
     font-weight: 700 !important;
     box-shadow: none !important;
   }
 
   .feed-lens-chip.active {
-    background: transparent !important;
-    color: var(--text-primary) !important;
-    border-bottom-color: var(--text-primary) !important;
+    background: var(--ink-btn) !important;
+    color: var(--ink-btn-text) !important;
+    border-color: var(--ink-btn) !important;
   }
+}
+
+@media (min-width: 1024px) {
+  .quick-dock-dismiss {
+    display: none !important;
+  }
+}
+
+/* ── Explore 3-Tab Toggle (Radar · People · Events) ────────── */
+.explore-toggle.explore-toggle-3 {
+  grid-template-columns: repeat(3, 1fr) !important;
+}
+
+/* ── Hustle Seller Trust Badges, Stars & Post-Purchase Prompt ─ */
+.listing-overlay-pill.is-trusted {
+  background: rgba(14, 159, 110, 0.92);
+  color: #FFFFFF;
+}
+
+.listing-overlay-pill.is-most-trusted {
+  background: linear-gradient(135deg, #5243D6 0%, #7C3AED 100%);
+  color: #FFFFFF;
+}
+
+.listing-rating-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.listing-rating-inline em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.star-gold {
+  color: #F59E0B;
+}
+
+.product-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.product-trust-badge.is-trusted {
+  background: var(--green-light);
+  color: var(--green);
+}
+
+.product-trust-badge.is-most-trusted {
+  background: var(--brand-tint-soft);
+  color: var(--brand-tint);
+}
+
+.product-detail-rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.product-detail-rating-pill span:last-child {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.hustle-review-prompt-banner {
+  margin: 0 14px 12px;
+  padding: 12px 14px;
+  border-radius: 15px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--brand-tint) 30%, var(--border));
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hustle-review-prompt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.hustle-review-prompt-copy strong {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.hustle-review-prompt-copy span {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.hustle-review-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Modern User Chat UI Polish & Who-Reacted Modal ────────── */
+.chat-msgs {
+  padding: 12px 12px 16px !important;
+  gap: 4px !important;
+}
+
+.msg-row {
+  gap: 6px !important;
+  margin-bottom: 4px !important;
+  align-items: flex-end !important;
+}
+
+.msg-stack {
+  max-width: 82% !important;
+}
+
+.msg-bubble {
+  padding: 8px 12px !important;
+  border-radius: 18px !important;
+  font-size: 14.5px !important;
+  line-height: 1.42 !important;
+  box-shadow: 0 1px 2px rgba(18, 19, 26, 0.06) !important;
+}
+
+.msg-sent {
+  background: #1C2033 !important;
+  color: #FFFFFF !important;
+  border-bottom-right-radius: 5px !important;
+}
+
+[data-theme="dark"] .msg-sent {
+  background: #3A347A !important;
+  border: 1px solid rgba(155, 140, 255, 0.24) !important;
+}
+
+.msg-received {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+  border-bottom-left-radius: 5px !important;
+}
+
+.msg-reply-snippet {
+  border-left: 2.5px solid rgba(255, 255, 255, 0.6) !important;
+  background: rgba(255, 255, 255, 0.11) !important;
+  border-radius: 8px !important;
+  padding: 5px 9px !important;
+  margin-bottom: 6px !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.msg-received .msg-reply-snippet {
+  border-left: 2.5px solid var(--brand-tint) !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-secondary) !important;
+}
+
+.msg-time {
+  font-size: 10.5px !important;
+  margin-top: 3px !important;
+  gap: 4px !important;
+  white-space: nowrap !important;
+}
+
+/* Fix double checkmarks stacking vertically on Android */
+.msg-status {
+  width: auto !important;
+  min-width: 14px !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  letter-spacing: -1.5px !important;
+  font-size: 11.5px !important;
+  margin-left: 2px !important;
+}
+
+.msg-reply-btn {
+  width: 26px !important;
+  height: 26px !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-tertiary) !important;
+  opacity: 0.45 !important;
+  align-self: center !important;
+}
+
+.msg-reply-btn:hover,
+.msg-reply-btn:active {
+  opacity: 1 !important;
+  background: var(--bg-tertiary) !important;
+}
+
+.msg-reaction-line {
+  margin-top: -7px !important;
+  padding: 0 6px !important;
+  position: relative;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.msg-reaction-line .reaction-summary {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 2px 6px rgba(18, 19, 26, 0.10) !important;
+  padding: 2px 8px !important;
+  font-size: 12px !important;
+}
+
+.msg-reaction-line .reaction-chip {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+}
+
+/* Chat & Comment Textarea Unified Compact Height */
+.chat-bar textarea,
+#chat-input,
+#gchat-input,
+#comment-input {
+  height: 40px;
+  min-height: 40px !important;
+  max-height: 88px !important;
+  padding: 9px 14px !important;
+  font-size: 15px !important;
+  line-height: 20px !important;
+  border-radius: 20px !important;
+  box-sizing: border-box !important;
+  resize: none !important;
+  overflow-y: auto !important;
+  font-family: inherit !important;
+}
+
+/* Who-Reacted Modal List */
+.msg-reactors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.msg-reactor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+
+.msg-reactor-row.is-me {
+  cursor: pointer;
+}
+
+.msg-reactor-row.is-me:hover {
+  border-color: var(--border-strong);
+}
+
+.msg-reactor-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-reactor-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.msg-reactor-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.msg-reactor-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.msg-reactors-picker-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* ── Flattened, Clean Comment Thread UI (Never Goes Off-Screen) ── */
+.comment-item {
+  display: flex !important;
+  gap: 10px !important;
+  align-items: flex-start !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.comment-content-col {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.comment-bubble.enhanced {
+  max-width: 100% !important;
+  padding: 9px 12px !important;
+  border-radius: 15px !important;
+  word-break: break-word !important;
+}
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.comment-reply-arrow {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.comment-reply-target {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--brand-tint);
+}
+
+.comment-actions-row {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 12px !important;
+  margin-top: 4px !important;
+  padding-left: 4px !important;
+}
+
+.comment-actions-row .comment-time,
+.comment-actions-row .c-act {
+  white-space: nowrap !important;
+  font-size: 12px !important;
+}
+
+.comment-replies {
+  margin-left: 4px !important;
+  padding-left: 10px !important;
+  border-left: 2px solid var(--border) !important;
+  margin-top: 8px !important;
+  gap: 10px !important;
+}
+
+.comment-replies .comment-item {
+  gap: 8px !important;
+}
+
+.comment-anon-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  font-size: 12.5px !important;
+  color: var(--text-secondary) !important;
+  padding: 6px 14px 8px !important;
+  margin: 0 !important;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.comment-anon-row input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  flex: 0 0 auto !important;
+  accent-color: var(--brand-tint);
+}
+
+.comment-anon-row span {
+  flex: 1 1 auto;
+  text-align: left !important;
 }
 
 /* ── Notifications & Profile Polish ────────────────────────── */
