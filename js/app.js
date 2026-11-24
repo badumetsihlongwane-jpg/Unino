@@ -5276,7 +5276,7 @@ function initAuth() {
     const origText = btn.textContent;
     btn.textContent = 'Sending link...';
     try {
-      await auth.sendPasswordResetEmail(email);
+      await sendAuthPasswordResetEmail(email);
       toast('Password reset link sent to ' + email + '! Check your NWU inbox.');
     } catch (err) {
       console.error('[Forgot Password Error]', err);
@@ -5336,8 +5336,8 @@ function initAuth() {
     btn.textContent = 'Sending...';
     try {
       console.log('[Verification] Sending verification email to:', auth.currentUser.email);
-      await auth.currentUser.sendEmailVerification();
-      toast('Verification link sent to ' + (auth.currentUser.email || 'your NWU inbox') + '! (Check Junk folder)');
+      await sendAuthVerificationEmail(auth.currentUser);
+      toast('Verification link sent to ' + (auth.currentUser.email || 'your NWU inbox') + '!');
     } catch (e) {
       console.error('[Verification Error]', e);
       if (e?.code === 'auth/too-many-requests') {
@@ -6043,7 +6043,7 @@ function initAuth() {
 
       // Auto-send verification link to NWU student inbox
       try {
-        await cred.user.sendEmailVerification();
+        await sendAuthVerificationEmail(cred.user);
       } catch (verErr) {
         console.warn('sendEmailVerification error:', verErr);
       }
@@ -6277,6 +6277,36 @@ function checkForAppUpdate() {
   }).catch(() => { });
 }
 
+const UNIBO_AUTH_ACTION_SETTINGS = {
+  url: 'https://unibo.social/',
+  handleCodeInApp: false
+};
+
+async function sendAuthVerificationEmail(user) {
+  if (!user || typeof user.sendEmailVerification !== 'function') return;
+  try {
+    await user.sendEmailVerification(UNIBO_AUTH_ACTION_SETTINGS);
+  } catch (err) {
+    if (err?.code === 'auth/unauthorized-continue-uri' || err?.code === 'auth/invalid-continue-uri') {
+      await user.sendEmailVerification();
+      return;
+    }
+    throw err;
+  }
+}
+
+async function sendAuthPasswordResetEmail(email) {
+  try {
+    await auth.sendPasswordResetEmail(email, UNIBO_AUTH_ACTION_SETTINGS);
+  } catch (err) {
+    if (err?.code === 'auth/unauthorized-continue-uri' || err?.code === 'auth/invalid-continue-uri') {
+      await auth.sendPasswordResetEmail(email);
+      return;
+    }
+    throw err;
+  }
+}
+
 function isCurrentUserVerified() {
   if (_isAdmin) return true;
   if (sessionStorage.getItem('unibo_simulate_unverified') === 'true') return false;
@@ -6370,8 +6400,8 @@ async function resendVerificationFromModal(btnEl = null) {
   const orig = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Sending…'; }
   try {
-    await user.sendEmailVerification();
-    toast(`Verification link sent to ${user.email || 'your NWU inbox'} (check Junk/Other).`);
+    await sendAuthVerificationEmail(user);
+    toast(`Verification link sent to ${user.email || 'your NWU inbox'}!`);
   } catch (e) {
     if (e?.code === 'auth/too-many-requests') {
       toast('Please wait a few minutes before requesting another email.');
@@ -22440,7 +22470,7 @@ function editProfile() {
     btn.disabled = true;
     btn.textContent = 'Sending...';
     try {
-      await auth.currentUser.sendEmailVerification();
+      await sendAuthVerificationEmail(auth.currentUser);
       toast('Verification link sent to ' + (auth.currentUser.email || 'your NWU inbox') + '!');
     } catch (e) {
       if (e?.code === 'auth/too-many-requests') {

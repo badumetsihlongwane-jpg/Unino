@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Unibo — Student Account Verification</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #F6F7FB;
+      --card: #FFFFFF;
+      --surface: #F2F4F8;
+      --text: #12131A;
+      --text-2: #525866;
+      --text-3: #8A91A0;
+      --border: #E6E8F0;
+      --accent: #5B52E0;
+      --accent-soft: rgba(91, 82, 224, 0.10);
+      --green: #0D9F6E;
+      --green-soft: rgba(13, 159, 110, 0.12);
+      --red: #E11D48;
+      --red-soft: rgba(225, 29, 72, 0.10);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0D0E14;
+        --card: #161822;
+        --surface: #1E2130;
+        --text: #F4F5FA;
+        --text-2: #A4AABB;
+        --text-3: #70778A;
+        --border: #272B3B;
+        --accent: #8B80FF;
+        --accent-soft: rgba(139, 128, 255, 0.16);
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .shell {
+      width: 100%;
+      max-width: 420px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px 24px 24px;
+      box-shadow: 0 18px 48px rgba(18, 19, 26, 0.08);
+      text-align: center;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .brand img {
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      object-fit: cover;
+    }
+    .brand-name {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .status-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 16px;
+      font-size: 26px;
+      font-weight: 800;
+    }
+    .status-icon.loading {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .status-icon.success {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+    .status-icon.error {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+    .status-icon.key {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 {
+      font-size: 21px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin-bottom: 8px;
+    }
+    p.desc {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text-2);
+      margin-bottom: 18px;
+    }
+    .email-pill {
+      display: inline-block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 16px;
+      max-width: 100%;
+      word-break: break-all;
+    }
+    .tip-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 12.5px;
+      line-height: 1.48;
+      color: var(--text-2);
+      text-align: left;
+      margin-bottom: 18px;
+    }
+    .tip-box strong { color: var(--text); }
+    .form-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      text-align: left;
+      margin-bottom: 14px;
+    }
+    .field-lbl {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+      margin-bottom: 4px;
+      display: block;
+    }
+    .pw-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .pw-wrap input {
+      width: 100%;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 56px 0 14px;
+      font-size: 14.5px;
+      font-family: inherit;
+      outline: none;
+    }
+    .pw-wrap input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .pw-toggle {
+      position: absolute;
+      right: 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 4px 6px;
+    }
+    .err-msg {
+      color: var(--red);
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      min-height: 18px;
+    }
+    .btn {
+      width: 100%;
+      height: 46px;
+      border-radius: 13px;
+      border: none;
+      font-family: inherit;
+      font-size: 14.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: opacity 0.15s ease, transform 0.1s ease;
+    }
+    .btn:active { transform: scale(0.985); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--text);
+      color: var(--card);
+    }
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      margin-top: 8px;
+    }
+    .foot {
+      margin-top: 20px;
+      font-size: 11.5px;
+      color: var(--text-3);
+    }
+  </style>
+</head>
+<body>
+  <main class="shell" id="card">
+    <div class="brand">
+      <img src="unino-icon.png" alt="Unibo">
+      <span class="brand-name">Unibo</span>
+    </div>
+    <div id="stage">
+      <div class="status-icon loading"><div class="spinner"></div></div>
+      <h1>Checking your link…</h1>
+      <p class="desc">Please wait a moment while we confirm your NWU student request.</p>
+    </div>
+    <div class="foot">unibo.social · NWU Campus Network</div>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script>
+    (function () {
+      const stage = document.getElementById('stage');
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get('mode') || '';
+      const oobCode = params.get('oobCode') || '';
+      const continueUrl = params.get('continueUrl') || 'https://unibo.social/';
+
+      function safeAppUrl() {
+        try {
+          const u = new URL(continueUrl);
+          if (u.hostname === 'unibo.social' || u.hostname.endsWith('.unibo.social')) return u.toString();
+        } catch (_) {}
+        return 'https://unibo.social/';
+      }
+
+      function esc(str) {
+        return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      }
+
+      function renderSuccess(title, desc, tipHtml) {
+        stage.innerHTML = `
+          <div class="status-icon success">✓</div>
+          <h1>${esc(title)}</h1>
+          <p class="desc">${esc(desc)}</p>
+          ${tipHtml ? `<div class="tip-box">${tipHtml}</div>` : ''}
+          <a class="btn btn-primary" href="${esc(safeAppUrl())}">Open Unibo</a>
+        `;
+      }
+
+      function renderError(title, desc) {
+        stage.innerHTML = `
+          <div class="status-icon error">!</div>
+          <h1>${esc(title)}</h1>
+          <p class="desc">${esc(desc)}</p>
+          <a class="btn btn-primary" href="https://unibo.social/">Return to Unibo</a>
+        `;
+      }
+
+      if (!mode || !oobCode) {
+        stage.innerHTML = `
+          <div class="status-icon key">🎓</div>
+          <h1>NWU Student Verification</h1>
+          <p class="desc">This page completes email verification and password resets sent from <strong>noreply@unibo.social</strong>.</p>
+          <div class="tip-box">
+            <strong>Need a fresh link?</strong> Open the Unibo app, tap the top <strong>Verify</strong> button, and select <strong>Resend Verification Link</strong>.
+          </div>
+          <a class="btn btn-primary" href="https://unibo.social/">Open Unibo</a>
+        `;
+        return;
+      }
+
+      if (mode === 'verifyEmail') {
+        auth.applyActionCode(oobCode)
+          .then(() => {
+            renderSuccess(
+              'Student Email Verified!',
+              'Your @mynwu.ac.za email is now confirmed and your full Unibo campus account is unlocked.',
+              '<strong>Using the Android app?</strong> Switch back to Unibo and tap <strong>I\'ve Verified — Unlock Now</strong> to unlock Student Radar, Chat, and Reactions immediately.'
+            );
+          })
+          .catch(err => {
+            const code = err && err.code ? err.code : '';
+            if (code === 'auth/invalid-action-code') {
+              renderError(
+                'Link Already Used or Expired',
+                'This verification link has already been used or has expired. If you already verified, switch back to Unibo and tap "I\'ve Verified — Unlock Now", or request a fresh link.'
+              );
+            } else {
+              renderError(
+                'Could Not Verify Email',
+                (err && err.message) || 'Something went wrong while verifying your email. Please request a fresh verification link from the Unibo app.'
+              );
+            }
+          });
+        return;
+      }
+
+      if (mode === 'resetPassword') {
+        auth.verifyPasswordResetCode(oobCode)
+          .then(email => {
+            stage.innerHTML = `
+              <div class="status-icon key">🔑</div>
+              <h1>Set a New Password</h1>
+              <div class="email-pill">${esc(email)}</div>
+              <form id="reset-form" novalidate>
+                <div class="form-stack">
+                  <div>
+                    <label class="field-lbl" for="pw1">New Password</label>
+                    <div class="pw-wrap">
+                      <input type="password" id="pw1" placeholder="At least 6 characters" minlength="6" required autocomplete="new-password">
+                      <button type="button" class="pw-toggle" data-target="pw1">Show</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="field-lbl" for="pw2">Confirm New Password</label>
+                    <div class="pw-wrap">
+                      <input type="password" id="pw2" placeholder="Re-enter password" minlength="6" required autocomplete="new-password">
+                      <button type="button" class="pw-toggle" data-target="pw2">Show</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="err-msg" id="reset-err"></div>
+                <button type="submit" class="btn btn-primary" id="reset-submit">Update Password</button>
+              </form>
+            `;
+
+            document.querySelectorAll('.pw-toggle').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const inp = document.getElementById(btn.dataset.target);
+                if (!inp) return;
+                const isPw = inp.type === 'password';
+                inp.type = isPw ? 'text' : 'password';
+                btn.textContent = isPw ? 'Hide' : 'Show';
+              });
+            });
+
+            const form = document.getElementById('reset-form');
+            form.addEventListener('submit', async e => {
+              e.preventDefault();
+              const pw1 = document.getElementById('pw1').value;
+              const pw2 = document.getElementById('pw2').value;
+              const errEl = document.getElementById('reset-err');
+              const subBtn = document.getElementById('reset-submit');
+              errEl.textContent = '';
+              if (pw1.length < 6) {
+                errEl.textContent = 'Password must be at least 6 characters.';
+                return;
+              }
+              if (pw1 !== pw2) {
+                errEl.textContent = 'Passwords do not match.';
+                return;
+              }
+              subBtn.disabled = true;
+              subBtn.textContent = 'Updating…';
+              try {
+                await auth.confirmPasswordReset(oobCode, pw1);
+                renderSuccess(
+                  'Password Updated!',
+                  'Your Unibo password has been changed. You can now log in on the app or web with your new password.',
+                  ''
+                );
+              } catch (err) {
+                errEl.textContent = (err && err.message) || 'Could not reset password. Request a new link.';
+                subBtn.disabled = false;
+                subBtn.textContent = 'Update Password';
+              }
+            });
+          })
+          .catch(() => {
+            renderError(
+              'Reset Link Expired',
+              'This password reset link is invalid or has expired. Open Unibo and tap "Forgot password?" to request a fresh link.'
+            );
+          });
+        return;
+      }
+
+      if (mode === 'recoverEmail') {
+        let restoredEmail = '';
+        auth.checkActionCode(oobCode)
+          .then(info => {
+            restoredEmail = info?.data?.email || '';
+            return auth.applyActionCode(oobCode);
+          })
+          .then(() => {
+            renderSuccess(
+              'Email Address Restored',
+              restoredEmail
+                ? `Your account email has been restored to ${restoredEmail}.`
+                : 'Your previous account email has been restored.',
+              'If you did not request this email change, we recommend resetting your password right away.'
+            );
+          })
+          .catch(() => {
+            renderError(
+              'Recovery Link Expired',
+              'This email recovery link has expired or was already used.'
+            );
+          });
+        return;
+      }
+
+      renderError('Unsupported Link', 'This link is not recognized. Please open Unibo and try again.');
+    })();
+  </script>
+</body>
+</html>

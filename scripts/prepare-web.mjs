@@ -8,6 +8,7 @@ const distDir = join(rootDir, 'dist');
 const includeDirs = ['css', 'js', 'data', 'worker', 'unibo.social', 'assets/tour360'];
 const includeFiles = [
   'index.html',
+  'verify.html',
   'design1.html',
   'design2.html',
   'design3.html',
