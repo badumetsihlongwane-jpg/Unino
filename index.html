@@ -170,22 +170,36 @@
           <div class="signup-modules-header">
             <div class="signup-modules-title">
               <span>📚 Enrolled Modules</span>
+              <span>📚 Your Modules</span>
             </div>
             <span class="signup-modules-counter" id="s-modules-counter">0 enrolled</span>
+          </div>
+
+          <!-- Course Suggestion Prompt Banner (shown once a degree is picked) -->
+          <div class="signup-suggest-callout" id="s-course-suggest-banner" style="display:none">
+            <div class="signup-suggest-callout-copy">
+              <strong id="s-course-suggest-heading">Course modules ready</strong>
+              <span id="s-course-suggest-sub">Review recommended modules for your degree</span>
+            </div>
+            <button type="button" class="signup-suggest-callout-btn" id="s-course-suggest-open-btn">Review</button>
           </div>
 
           <!-- Active Enrolled Bubbles -->
           <div class="edit-mod-bubbles-tray signup-bubbles-tray" id="s-mod-bubbles-wrap">
             <div class="edit-mod-empty">No modules added yet. Tap suggestions below or type a code.</div>
+            <div class="edit-mod-empty">No modules added yet. Pick your degree above or type a code below.</div>
           </div>
 
           <!-- Add Module Input Row -->
+          <!-- Add Custom Module Input Row -->
           <div class="edit-mod-input-row signup-mod-input-row">
             <input type="text" id="s-mod-input" placeholder="Add module (e.g. CMPG121)" autocomplete="off" autocapitalize="characters" maxlength="12">
+            <input type="text" id="s-mod-input" placeholder="Add your own (e.g. CMPG121)" autocomplete="off" autocapitalize="characters" maxlength="12">
             <button type="button" class="btn-primary" id="s-mod-add-btn">+ Add</button>
           </div>
 
           <!-- Suggested Modules Tray -->
+          <div class="signup-suggestions-tray">
             <div class="edit-mod-suggestions-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
               <span id="s-mod-suggestions-title">Popular NWU Modules</span>
               <div style="display:flex;align-items:center;gap:4px">
@@ -197,15 +211,22 @@
             </div>
             <div class="edit-mod-pills-wrap signup-pills-wrap" id="s-mod-pills-wrap"></div>
           </div>
+        </div>
 
           <!-- Hidden input keeping raw comma-separated string synced -->
           <input type="hidden" id="s-modules" name="modules" value="">
+        <!-- Hidden input keeping raw comma-separated string synced -->
+        <input type="hidden" id="s-modules" name="modules" value="">
 
           <div class="signup-step-btns">
             <button type="button" class="btn-secondary signup-back-btn" id="s-prev-2">← Back</button>
             <button type="button" class="btn-accent signup-fwd-btn" id="s-next-2">Continue to Campus →</button>
           </div>
+        <div class="signup-step-btns">
+          <button type="button" class="btn-secondary signup-back-btn" id="s-prev-2">← Back</button>
+          <button type="button" class="btn-accent signup-fwd-btn" id="s-next-2">Continue to Campus →</button>
         </div>
+      </div>
 
       <!-- ─── SLIDE 3: Campus & Identity ─── -->
       <div class="signup-step-pane" data-signup-step="3">
@@ -277,9 +298,14 @@
       </div>
       <button type="button" class="btn-accent w100" id="verify-check-btn" style="margin-bottom:10px;height:46px;font-size:15px">
         🔄 I've Verified / Refresh
+        ✓ I've Verified / Refresh
       </button>
       <button type="button" class="btn-outline w100" id="verify-resend-btn" style="margin-bottom:16px;height:44px;font-size:14px">
+      <button type="button" class="btn-outline w100" id="verify-resend-btn" style="margin-bottom:10px;height:44px;font-size:14px">
         ✉️ Resend Verification Email
+      </button>
+      <button type="button" class="btn-secondary w100" id="verify-preview-btn" style="margin-bottom:14px;height:44px;font-size:14px">
+        👀 Continue in Preview Mode
       </button>
       <button type="button" class="text-link-btn" id="verify-logout-btn" style="color:var(--text-secondary);font-size:13px">
         Log Out / Use Different Email

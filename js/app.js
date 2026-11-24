@@ -2818,6 +2818,7 @@ function openPostReactionPicker(postId, source = 'feed') {
 }
 
 async function reactToPost(postId, emoji, source = 'feed') {
+  if (!requireVerifiedStudent('react to posts')) return;
   const localPost = getLocalPostById(postId);
   const previousState = localPost ? {
     reactions: normalizeReactionMap(localPost.reactions, localPost.likes || []),
@@ -2920,6 +2921,7 @@ function openCommentReactionPicker(postId, commentId, source = 'feed', current =
 }
 
 async function reactToComment(postId, commentId, emoji, source = 'feed') {
+  if (!requireVerifiedStudent('react to comments')) return;
   let resolvedPostId = postId;
   if (!resolvedPostId) {
     const row = document.getElementById(`c-${commentId}`) || document.getElementById(`rc-${commentId}`);
@@ -4902,7 +4904,155 @@ let _nwuCoursesCatalogue = null;
 let _loadingCoursesPromise = null;
 let _signupModules = [];
 
+let _adminAcademicCalendarCache = null;
+
+function getDefaultAcademicCalendar() {
+  const yr = new Date().getFullYear();
+  return {
+    year: yr,
+    activeSemesterOverride: 'auto', // 'auto' | '1' | '2'
+    events: [
+      { id: 'cal_reg_1', title: 'Registration & First-Year Orientation', startDate: `${yr}-01-19`, endDate: `${yr}-02-06`, category: 'registration', note: 'Online registration, R&O programme and module confirmation.' },
+      { id: 'cal_sem1_start', title: 'Semester 1 Lectures Begin', startDate: `${yr}-02-09`, endDate: `${yr}-02-09`, category: 'semester', note: 'First day of Semester 1 classes across all NWU campuses.' },
+      { id: 'cal_autumn_rec', title: 'Autumn Recess', startDate: `${yr}-03-27`, endDate: `${yr}-04-06`, category: 'recess', note: 'Mid-semester study break and Easter weekend.' },
+      { id: 'cal_sem1_end', title: 'Semester 1 Lectures End', startDate: `${yr}-05-22`, endDate: `${yr}-05-22`, category: 'semester', note: 'Last day of Semester 1 classes before exam prep.' },
+      { id: 'cal_sem1_exams', title: 'Semester 1 Examinations', startDate: `${yr}-05-25`, endDate: `${yr}-06-19`, category: 'exams', note: 'Main exam opportunity 1 & 2. Check Exams timetable for venues.' },
+      { id: 'cal_winter_rec', title: 'Winter Recess', startDate: `${yr}-06-20`, endDate: `${yr}-07-19`, category: 'recess', note: 'Mid-year academic holiday.' },
+      { id: 'cal_sem2_start', title: 'Semester 2 Lectures Begin', startDate: `${yr}-07-20`, endDate: `${yr}-07-20`, category: 'semester', note: 'First day of Semester 2 classes.' },
+      { id: 'cal_spring_rec', title: 'Spring Recess', startDate: `${yr}-09-05`, endDate: `${yr}-09-13`, category: 'recess', note: 'Semester 2 study break.' },
+      { id: 'cal_sem2_end', title: 'Semester 2 Lectures End', startDate: `${yr}-10-23`, endDate: `${yr}-10-23`, category: 'semester', note: 'Last day of Semester 2 lectures.' },
+      { id: 'cal_sem2_exams', title: 'Semester 2 Examinations', startDate: `${yr}-10-26`, endDate: `${yr}-11-27`, category: 'exams', note: 'Final end-of-year assessments & exams.' }
+    ]
+  };
+}
+
+async function loadAcademicCalendarConfig(force = false) {
+  if (_adminAcademicCalendarCache && !force) return _adminAcademicCalendarCache;
+  try {
+    const cached = localStorage.getItem('unibo_academic_calendar_v1');
+    if (cached && !force) _adminAcademicCalendarCache = JSON.parse(cached);
+  } catch (_) { }
+  try {
+    if (typeof db !== 'undefined' && db?.collection) {
+      const doc = await db.collection('timetables').doc('academic_calendar').get();
+      if (doc.exists && doc.data()) {
+        const data = doc.data();
+        _adminAcademicCalendarCache = {
+          year: Number(data.year || new Date().getFullYear()),
+          activeSemesterOverride: data.activeSemesterOverride || 'auto',
+          events: Array.isArray(data.events) ? data.events : getDefaultAcademicCalendar().events,
+          updatedAt: data.updatedAt || null
+        };
+        try { localStorage.setItem('unibo_academic_calendar_v1', JSON.stringify(_adminAcademicCalendarCache)); } catch (_) { }
+      }
+    }
+  } catch (_) { }
+  if (!_adminAcademicCalendarCache) _adminAcademicCalendarCache = getDefaultAcademicCalendar();
+  return _adminAcademicCalendarCache;
+}
+window.loadAcademicCalendarConfig = loadAcademicCalendarConfig;
+
+function formatAcademicCalDateRange(startStr = '', endStr = '') {
+  if (!startStr) return 'TBA';
+  const fmt = (s) => {
+    const d = new Date(`${s}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  };
+  if (!endStr || endStr === startStr) return fmt(startStr);
+  return `${fmt(startStr)} – ${fmt(endStr)}`;
+}
+
+async function openAcademicCalendarModal() {
+  const cal = await loadAcademicCalendarConfig();
+  const events = [...(cal.events || [])].sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const catColors = {
+    semester: { bg: 'rgba(91,82,224,0.12)', fg: 'var(--brand-tint)', label: 'Semester' },
+    exams: { bg: 'rgba(225,29,72,0.12)', fg: '#E11D48', label: 'Exams' },
+    recess: { bg: 'rgba(13,159,110,0.12)', fg: '#0D9F6E', label: 'Recess' },
+    registration: { bg: 'rgba(217,119,6,0.12)', fg: '#D97706', label: 'Registration' },
+    holiday: { bg: 'rgba(14,165,233,0.12)', fg: '#0284C7', label: 'Holiday' },
+    deadline: { bg: 'rgba(124,58,237,0.12)', fg: '#7C3AED', label: 'Deadline' }
+  };
+  openModal(`
+    <div class="modal-header">
+      <div>
+        <h2>NWU ${esc(String(cal.year || new Date().getFullYear()))} Academic Calendar</h2>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Active term: ${esc(getCampusSemesterName())} · Official milestones</div>
+      </div>
+      <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body academic-cal-modal-body">
+      ${events.length ? events.map(ev => {
+        const meta = catColors[ev.category] || catColors.semester;
+        const isCurrent = ev.startDate && (ev.endDate || ev.startDate) && todayIso >= ev.startDate && todayIso <= (ev.endDate || ev.startDate);
+        const isPast = (ev.endDate || ev.startDate) && (ev.endDate || ev.startDate) < todayIso;
+        return `
+          <div class="acad-cal-row ${isCurrent ? 'is-current' : ''} ${isPast ? 'is-past' : ''}">
+            <div class="acad-cal-date-col">
+              <span class="acad-cal-date">${esc(formatAcademicCalDateRange(ev.startDate, ev.endDate))}</span>
+              <span class="acad-cal-cat-pill" style="background:${meta.bg};color:${meta.fg}">${esc(meta.label)}</span>
+            </div>
+            <div class="acad-cal-copy">
+              <div class="acad-cal-title">${esc(ev.title)}${isCurrent ? ' <span class="acad-cal-now-pill">Now</span>' : ''}</div>
+              ${ev.note ? `<div class="acad-cal-note">${esc(ev.note)}</div>` : ''}
+            </div>
+          </div>`;
+      }).join('') : '<p style="text-align:center;color:var(--text-secondary);padding:20px">No academic calendar dates published yet.</p>'}
+    </div>
+  `);
+}
+window.openAcademicCalendarModal = openAcademicCalendarModal;
+
+let _campusAnnouncementCache = null;
+async function loadCampusAnnouncementBanner(force = false) {
+  try {
+    if (typeof db === 'undefined' || !db?.collection) return null;
+    if (_campusAnnouncementCache && !force) {
+      renderCampusAnnouncementBanner(_campusAnnouncementCache);
+      return _campusAnnouncementCache;
+    }
+    const doc = await db.collection('stats').doc('campus_announcement').get();
+    _campusAnnouncementCache = doc.exists ? doc.data() : null;
+    renderCampusAnnouncementBanner(_campusAnnouncementCache);
+    return _campusAnnouncementCache;
+  } catch (_) { return null; }
+}
+window.loadCampusAnnouncementBanner = loadCampusAnnouncementBanner;
+
+function dismissCampusAnnouncementBanner(id) {
+  try { if (id) localStorage.setItem('unibo_dismissed_ann_' + id, '1'); } catch (_) { }
+  document.getElementById('campus-announcement-banner')?.remove();
+}
+window.dismissCampusAnnouncementBanner = dismissCampusAnnouncementBanner;
+
+function renderCampusAnnouncementBanner(ann) {
+  document.getElementById('campus-announcement-banner')?.remove();
+  if (!ann || !ann.active || !ann.message) return;
+  const annId = String(ann.id || ann.updatedAt?.seconds || 'live');
+  try { if (localStorage.getItem('unibo_dismissed_ann_' + annId) === '1') return; } catch (_) { }
+  const host = document.querySelector('.feed-page');
+  if (!host) return;
+  const tone = ann.tone || 'info';
+  const html = `
+    <div class="campus-ann-banner is-${esc(tone)}" id="campus-announcement-banner">
+      <div class="campus-ann-copy">
+        <strong>📢 ${esc(ann.title || 'NWU Campus Notice')}</strong>
+        <span>${esc(ann.message)}</span>
+      </div>
+      <button type="button" class="campus-ann-close" onclick="dismissCampusAnnouncementBanner('${escJs(annId)}')" aria-label="Dismiss">&times;</button>
+    </div>`;
+  const toolbar = host.querySelector('.feed-toolbar');
+  if (toolbar) toolbar.insertAdjacentHTML('afterend', html);
+  else host.insertAdjacentHTML('afterbegin', html);
+}
+window.renderCampusAnnouncementBanner = renderCampusAnnouncementBanner;
+
 function getCurrentCampusSemester() {
+  const override = _adminAcademicCalendarCache?.activeSemesterOverride;
+  if (override === '1' || override === 1) return 1;
+  if (override === '2' || override === 2) return 2;
   const m = new Date().getMonth() + 1; // 1 to 12
   // Jan to June = Semester 1 (1); July to Dec = Semester 2 (2)
   return (m >= 1 && m <= 6) ? 1 : 2;
@@ -5203,6 +5353,13 @@ function initAuth() {
     }
   });
 
+  $('#verify-preview-btn')?.addEventListener('click', () => {
+    if (!state.user && auth.currentUser) state.user = auth.currentUser;
+    if (!state.user) return showScreen('auth-screen');
+    state.isPreviewUnverified = true;
+    enterApp();
+  });
+
   $('#verify-logout-btn')?.addEventListener('click', async () => {
     sessionStorage.removeItem('unibo_simulate_unverified');
     await auth.signOut().catch(() => { });
@@ -5424,21 +5581,30 @@ function initAuth() {
     const syncModulesValue = () => {
       if (hiddenModulesInput) hiddenModulesInput.value = _signupModules.join(',');
     };
+    const _signupSuggestedSet = new Set();
+    const suggestBanner = $('#s-course-suggest-banner');
+    const suggestHeading = $('#s-course-suggest-heading');
+    const suggestSub = $('#s-course-suggest-sub');
+    const suggestOpenBtn = $('#s-course-suggest-open-btn');
 
     const renderBubbles = () => {
       if (counterEl) counterEl.textContent = `${_signupModules.length} enrolled`;
       syncModulesValue();
       if (!bubblesWrap) return;
       if (!_signupModules.length) {
-        bubblesWrap.innerHTML = '<div class="edit-mod-empty">No modules added yet. Tap suggestions below or type a code.</div>';
+        bubblesWrap.innerHTML = '<div class="edit-mod-empty">No modules added yet. Pick your degree above or type a code below.</div>';
         return;
       }
-      bubblesWrap.innerHTML = _signupModules.map(mod => `
-        <div class="edit-mod-bubble" data-mod="${esc(mod)}">
+      bubblesWrap.innerHTML = _signupModules.map(mod => {
+        const isSuggested = _signupSuggestedSet.has(mod);
+        return `
+        <div class="edit-mod-bubble ${isSuggested ? 'is-suggested-mod' : 'is-custom-mod'}" data-mod="${esc(mod)}">
           <span class="edit-mod-bubble-code">${esc(mod)}</span>
+          ${isSuggested ? '<span class="mod-origin-dot" title="Suggested for your course">★</span>' : ''}
           <button type="button" class="edit-mod-bubble-del" data-mod="${esc(mod)}" title="Remove ${esc(mod)}" aria-label="Remove ${esc(mod)}">&times;</button>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
       bubblesWrap.querySelectorAll('.edit-mod-bubble-del').forEach(btn => {
         const removeFn = (e) => {
@@ -5480,6 +5646,151 @@ function initAuth() {
     sem1Btn?.addEventListener('click', (e) => { e.preventDefault(); switchSem(1); });
     semAllBtn?.addEventListener('click', (e) => { e.preventDefault(); switchSem('all'); });
 
+    const openSignupSuggestedModulesModal = (courseName, yearVal = '') => {
+      const cleanCourse = String(courseName || majorInput.value || '').trim();
+      if (!cleanCourse) return;
+      const yrLabel = yearVal || yearSelect?.value || '1st Year';
+      let modalSem = signupSemesterFilter;
+      let curriculum = getCourseCurriculumModules(cleanCourse, yrLabel, modalSem);
+      if (!curriculum.length) {
+        modalSem = 'all';
+        curriculum = getCourseCurriculumModules(cleanCourse, yrLabel, 'all');
+      }
+      if (!curriculum.length) return;
+
+      const selected = new Set(curriculum);
+      _signupModules.forEach(m => selected.add(m));
+
+      const renderModalContent = () => {
+        const currentList = getCourseCurriculumModules(cleanCourse, yrLabel, modalSem);
+        const allShown = Array.from(new Set([...currentList, ...Array.from(selected).filter(m => !currentList.includes(m))]));
+        const selectedSuggestedCount = currentList.filter(m => selected.has(m)).length;
+        const semTag = modalSem === 'all' ? 'All Semesters' : `Semester ${modalSem}`;
+        openModal(`
+          <div class="modal-header">
+            <div>
+              <h2>Suggested Modules</h2>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${esc(cleanCourse)} · ${esc(yrLabel)}</div>
+            </div>
+            <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+          </div>
+          <div class="modal-body signup-suggest-modal-body">
+            <div class="signup-suggest-modal-intro">
+              We found <strong>${currentList.length} recommended module${currentList.length === 1 ? '' : 's'}</strong> for your degree (${semTag}). Tap to uncheck any you aren't taking, or add your own below.
+            </div>
+            <div class="signup-suggest-sem-row">
+              <div class="signup-suggest-sem-pills">
+                <button type="button" class="edit-chip-sm ${modalSem === 2 ? 'active' : ''}" data-msem="2">Sem 2</button>
+                <button type="button" class="edit-chip-sm ${modalSem === 1 ? 'active' : ''}" data-msem="1">Sem 1</button>
+                <button type="button" class="edit-chip-sm ${modalSem === 'all' ? 'active' : ''}" data-msem="all">All</button>
+              </div>
+              <button type="button" class="signup-suggest-toggle-all" id="sm-toggle-all">
+                ${selectedSuggestedCount === currentList.length ? 'Clear all' : 'Select all'}
+              </button>
+            </div>
+            <div class="signup-suggest-grid" id="sm-mod-grid">
+              ${allShown.map(mod => {
+                const isChecked = selected.has(mod);
+                const isFromCourse = currentList.includes(mod);
+                return `
+                  <button type="button" class="signup-suggest-card ${isChecked ? 'is-selected' : ''}" data-smod="${esc(mod)}">
+                    <span class="signup-suggest-check">${isChecked ? '✓' : '+'}</span>
+                    <span class="signup-suggest-code">${esc(mod)}</span>
+                    <span class="signup-suggest-tag">${isFromCourse ? 'Suggested' : 'Custom'}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+            <div class="signup-suggest-custom-row">
+              <input type="text" id="sm-custom-input" placeholder="Add another module code (e.g. WVCS221)" autocomplete="off" autocapitalize="characters" maxlength="12">
+              <button type="button" class="btn-outline btn-sm" id="sm-custom-add">+ Add</button>
+            </div>
+            <div class="signup-suggest-footer">
+              <button type="button" class="btn-primary btn-full" id="sm-confirm-btn">
+                ${selected.size ? `Add ${selected.size} Module${selected.size === 1 ? '' : 's'} to My Profile` : 'Continue Without Adding'}
+              </button>
+              <button type="button" class="btn-outline btn-full" id="sm-manual-btn">
+                Edit / Add My Own Instead
+              </button>
+            </div>
+          </div>
+        `);
+
+        document.querySelectorAll('[data-msem]').forEach(btn => {
+          btn.onclick = () => {
+            const raw = btn.getAttribute('data-msem');
+            modalSem = raw === 'all' ? 'all' : Number(raw);
+            signupSemesterFilter = modalSem;
+            updateSemFilterUI();
+            const nextList = getCourseCurriculumModules(cleanCourse, yrLabel, modalSem);
+            selected.clear();
+            nextList.forEach(m => selected.add(m));
+            _signupModules.forEach(m => selected.add(m));
+            renderModalContent();
+          };
+        });
+
+        const toggleAllBtn = $('#sm-toggle-all');
+        if (toggleAllBtn) {
+          toggleAllBtn.onclick = () => {
+            if (selectedSuggestedCount === currentList.length) {
+              currentList.forEach(m => selected.delete(m));
+            } else {
+              currentList.forEach(m => selected.add(m));
+            }
+            renderModalContent();
+          };
+        }
+
+        document.querySelectorAll('[data-smod]').forEach(card => {
+          card.onclick = () => {
+            const code = card.getAttribute('data-smod');
+            if (selected.has(code)) selected.delete(code);
+            else selected.add(code);
+            renderModalContent();
+          };
+        });
+
+        const addCustom = () => {
+          const inp = $('#sm-custom-input');
+          const clean = (inp?.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (clean.length < 3) return toast('Enter a valid module code (e.g. CMPG121)');
+          selected.add(clean);
+          if (inp) inp.value = '';
+          renderModalContent();
+        };
+        $('#sm-custom-add')?.addEventListener('click', addCustom);
+        $('#sm-custom-input')?.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); addCustom(); }
+        });
+
+        $('#sm-confirm-btn')?.addEventListener('click', () => {
+          currentList.forEach(m => { if (selected.has(m)) _signupSuggestedSet.add(m); });
+          _signupModules = Array.from(selected);
+          renderBubbles();
+          renderSuggestions();
+          closeModal();
+          if (_signupModules.length) {
+            toast(`Added ${_signupModules.length} module${_signupModules.length === 1 ? '' : 's'}!`);
+          }
+        });
+
+        $('#sm-manual-btn')?.addEventListener('click', () => {
+          closeModal();
+          renderSuggestions();
+          setTimeout(() => { modInput?.focus(); }, 180);
+        });
+      };
+
+      renderModalContent();
+    };
+    window.openSignupSuggestedModulesModal = openSignupSuggestedModulesModal;
+
+    suggestOpenBtn?.addEventListener('click', e => {
+      e.preventDefault();
+      openSignupSuggestedModulesModal(majorInput.value, yearSelect?.value || '1st Year');
+    });
+
     const renderSuggestions = () => {
       if (!pillsWrap) return;
       const majorVal = (majorInput.value || '').trim();
@@ -5487,6 +5798,17 @@ function initAuth() {
       const curriculum = getCourseCurriculumModules(majorVal, yearVal, signupSemesterFilter);
       const hasCurriculum = curriculum && curriculum.length > 0;
       const listToRender = hasCurriculum ? curriculum : getPopularCampusModules(signupSemesterFilter);
+
+      if (suggestBanner) {
+        if (hasCurriculum) {
+          suggestBanner.style.display = 'flex';
+          const yrLabel = yearVal || '1st Year';
+          if (suggestHeading) suggestHeading.textContent = `✨ ${curriculum.length} Suggested for ${majorVal.length > 26 ? majorVal.slice(0, 24) + '…' : majorVal}`;
+          if (suggestSub) suggestSub.textContent = `${yrLabel} · Tap Review to pick suggested modules or add your own`;
+        } else {
+          suggestBanner.style.display = 'none';
+        }
+      }
 
       if (suggestionsTitle) {
         const semTag = signupSemesterFilter === 'all' ? 'All Sem' : `Sem ${signupSemesterFilter}`;
@@ -5630,6 +5952,10 @@ function initAuth() {
             yearSelect.value = '1st Year';
           }
           renderSuggestions();
+          const suggested = getCourseCurriculumModules(chosen, yearSelect?.value || '1st Year', signupSemesterFilter);
+          if (suggested && suggested.length) {
+            setTimeout(() => openSignupSuggestedModulesModal(chosen, yearSelect?.value || '1st Year'), 90);
+          }
         });
       });
     };
@@ -5866,16 +6192,22 @@ function initAuth() {
         sessionStorage.removeItem('unibo_simulate_unverified');
       }
 
-      // ── Email Verification Gate ──
+      // ── Soft-Gated Email Verification (Preview Mode Inside App) ──
       const isSimulatedUnverified = sessionStorage.getItem('unibo_simulate_unverified') === 'true';
       const isEmailVerified = !isSimulatedUnverified && (!!user.emailVerified || isAdminUser || !!state.profile.manualVerified);
-      if (!isEmailVerified) {
-        showEmailVerificationScreen(user);
-        markBootReady('Verification required');
+      state.isPreviewUnverified = !isEmailVerified;
+      if (state.profile?.suspended && !isAdminUser) {
+        toast('This account has been suspended by Unibo Admin.');
+        await auth.signOut().catch(() => { });
         return;
       }
 
       enterApp();
+      if (!isEmailVerified) {
+        setTimeout(() => {
+          toast('Preview mode active · Verify your @mynwu.ac.za email to unlock full campus access.');
+        }, 700);
+      }
     } else {
       if (isNwuDemoActive()) {
         initNwuDemoSession();
@@ -5945,6 +6277,161 @@ function checkForAppUpdate() {
   }).catch(() => { });
 }
 
+function isCurrentUserVerified() {
+  if (_isAdmin) return true;
+  if (sessionStorage.getItem('unibo_simulate_unverified') === 'true') return false;
+  if (state.user?.isDemo) return true;
+  if (state.isPreviewUnverified === true) return false;
+  if (state.user?.emailVerified || state.profile?.manualVerified || state.profile?.isVerified) return true;
+  return false;
+}
+window.isCurrentUserVerified = isCurrentUserVerified;
+
+function requireVerifiedStudent(actionLabel = 'unlock this feature') {
+  if (isCurrentUserVerified()) return true;
+  openVerificationCenterModal(actionLabel);
+  return false;
+}
+window.requireVerifiedStudent = requireVerifiedStudent;
+
+function renderUnverifiedPreviewBanner() {
+  document.getElementById('unverified-preview-banner')?.remove();
+  if (isCurrentUserVerified() || !state.user) return;
+  const appEl = document.getElementById('app');
+  const hdr = document.getElementById('hdr');
+  if (!appEl || !hdr) return;
+  const bar = document.createElement('div');
+  bar.id = 'unverified-preview-banner';
+  bar.className = 'unverified-preview-banner';
+  bar.innerHTML = `
+    <div class="unverified-preview-copy">
+      <span class="unverified-preview-dot"></span>
+      <span><strong>Preview Mode</strong> · Verify your NWU email to react, connect &amp; unlock Student Radar</span>
+    </div>
+    <button type="button" class="unverified-preview-cta" onclick="openVerificationCenterModal('unlock full NWU student access')">Verify</button>
+  `;
+  hdr.insertAdjacentElement('afterend', bar);
+}
+window.renderUnverifiedPreviewBanner = renderUnverifiedPreviewBanner;
+
+async function refreshCurrentUserVerification(btnEl = null) {
+  const user = auth.currentUser;
+  if (!user) {
+    if (sessionStorage.getItem('unibo_simulate_unverified') === 'true') {
+      sessionStorage.removeItem('unibo_simulate_unverified');
+      state.isPreviewUnverified = false;
+      closeModal();
+      renderUnverifiedPreviewBanner();
+      navigate(state.page || 'feed');
+      toast('Verified! Full campus access unlocked.');
+      return;
+    }
+    toast('Sign in with your @mynwu.ac.za email to verify.');
+    return;
+  }
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Checking…'; }
+  try {
+    await user.reload();
+    await user.getIdToken(true);
+    const profDoc = await db.collection('users').doc(user.uid).get().catch(() => null);
+    const manualOk = !!(profDoc?.exists && profDoc.data()?.manualVerified);
+    if (user.emailVerified || manualOk || _isAdmin) {
+      sessionStorage.removeItem('unibo_simulate_unverified');
+      state.user = user;
+      if (state.profile) {
+        state.profile.isVerified = true;
+        if (manualOk) state.profile.manualVerified = true;
+      }
+      state.isPreviewUnverified = false;
+      db.collection('users').doc(user.uid).update({
+        isVerified: true,
+        emailVerifiedAt: FieldVal.serverTimestamp()
+      }).catch(() => { });
+      closeModal();
+      renderUnverifiedPreviewBanner();
+      navigate(state.page || 'feed');
+      toast('🎉 Student account verified! Full campus access unlocked.');
+    } else {
+      toast('Not verified yet. Open your NWU email (check Junk/Other) and tap the link.');
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Could not check status right now.');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+  }
+}
+window.refreshCurrentUserVerification = refreshCurrentUserVerification;
+
+async function resendVerificationFromModal(btnEl = null) {
+  const user = auth.currentUser;
+  if (!user) return toast('Preview simulation — sign in with an NWU email to send a real link.');
+  const orig = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Sending…'; }
+  try {
+    await user.sendEmailVerification();
+    toast(`Verification link sent to ${user.email || 'your NWU inbox'} (check Junk/Other).`);
+  } catch (e) {
+    if (e?.code === 'auth/too-many-requests') {
+      toast('Please wait a few minutes before requesting another email.');
+    } else {
+      toast(e?.message || 'Could not resend verification email.');
+    }
+  } finally {
+    setTimeout(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+    }, 4000);
+  }
+}
+window.resendVerificationFromModal = resendVerificationFromModal;
+
+function openVerificationCenterModal(actionLabel = 'unlock all campus features') {
+  const email = state.user?.email || state.profile?.email || auth.currentUser?.email || 'your @mynwu.ac.za email';
+  openModal(`
+    <div class="modal-header">
+      <div>
+        <h2>Verify Student Account</h2>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Required to ${esc(actionLabel)}</div>
+      </div>
+      <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body verify-center-body">
+      <div class="verify-email-card">
+        <div class="verify-email-badge">NWU Student Email</div>
+        <strong>${esc(email)}</strong>
+        <span>Open Outlook / NWU webmail (check <b>Junk</b> or <b>Other</b>), click the link, then tap below.</span>
+      </div>
+      <div class="verify-compare-grid">
+        <div class="verify-compare-col is-open">
+          <div class="verify-compare-head">✓ Available in Preview</div>
+          <ul>
+            <li>View Campus Feed &amp; Events</li>
+            <li>360° Campus Aerial Tour</li>
+            <li>650 Accredited Residences</li>
+            <li>Browse Hustle Marketplace</li>
+          </ul>
+        </div>
+        <div class="verify-compare-col is-locked">
+          <div class="verify-compare-head">🔒 Unlocks on Verify</div>
+          <ul>
+            <li>Live Student Radar &amp; Nearby</li>
+            <li>Connect, DM &amp; Study Squads</li>
+            <li>Post, Comment &amp; React</li>
+            <li>Sell Items &amp; Rate Sellers</li>
+          </ul>
+        </div>
+      </div>
+      <div class="verify-center-actions">
+        <button type="button" class="btn-primary btn-full" onclick="refreshCurrentUserVerification(this)">✓ I've Verified — Unlock Now</button>
+        <button type="button" class="btn-outline btn-full" onclick="resendVerificationFromModal(this)">✉️ Resend Verification Link</button>
+        <button type="button" class="text-link-btn" style="margin-top:4px;color:var(--text-secondary);font-size:13px" onclick="closeModal()">Continue Exploring in Preview</button>
+      </div>
+    </div>
+  `);
+}
+window.openVerificationCenterModal = openVerificationCenterModal;
+
 function showEmailVerificationScreen(user) {
   stopAllVideos();
   closeNotifDropdown();
@@ -5965,6 +6452,9 @@ function enterApp() {
   const content = $('#content');
   if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
   setupHeader(); setupNav();
+  renderUnverifiedPreviewBanner();
+  if (typeof loadAcademicCalendarConfig === 'function') loadAcademicCalendarConfig().catch(() => { });
+  if (typeof loadCampusAnnouncementBanner === 'function') loadCampusAnnouncementBanner().catch(() => { });
   initNativeShell().catch(() => { });
   // Request notification permissions eagerly then init push
   requestLocalNotificationPermission().then(() => {
@@ -5988,7 +6478,7 @@ function enterApp() {
     listenForUnreadDMs();
     listenForGroupAlerts();
     setupPresenceTracking();
-    maybePromptForGpsLocation();
+    if (isCurrentUserVerified()) maybePromptForGpsLocation();
     checkForAppUpdate();
   } else {
     listenForDemoNotifications();
@@ -7805,6 +8295,8 @@ function renderFeed() {
   if (!shouldDelayDiscover) {
     loadFeedLiveSpotlight();
   }
+  if (_campusAnnouncementCache) renderCampusAnnouncementBanner(_campusAnnouncementCache);
+  else loadCampusAnnouncementBanner().catch(() => { });
   if (Array.isArray(state.posts) && state.posts.length) {
     renderFeedResults(state.posts);
   }
@@ -8012,6 +8504,18 @@ function renderFeed() {
 // ─── Discover: People tab ────────────────────────
 function loadDiscoverPeople(options = {}) {
   const el = $('#discover-content'); if (!el) return;
+  if (!isCurrentUserVerified()) {
+    el.innerHTML = `
+      <div class="verify-privacy-card compact">
+        <div class="verify-privacy-icon">🔒</div>
+        <div class="verify-privacy-copy">
+          <strong>Student profiles are protected</strong>
+          <span>Verify your @mynwu.ac.za email to discover and connect with classmates.</span>
+        </div>
+        <button type="button" class="btn-primary btn-xs" onclick="openVerificationCenterModal('discover and connect with classmates')">Verify</button>
+      </div>`;
+    return;
+  }
   const myMajor = state.profile.major || '';
   const myModules = normalizeModules(state.profile.modules || []);
   const myYear = state.profile.year || '';
@@ -8258,6 +8762,7 @@ function clearStoryMediaSelection() {
 }
 
 function openStoryCreator() {
+  if (!requireVerifiedStudent('post campus stories')) return;
   let bgColor = '#6C5CE7';
   const bgOptions = ['#6C5CE7', '#A855F7', '#7C3AED', '#D946EF', '#FF6B6B', '#00BA88', '#3B82F6', '#FF9F43'];
   window._storyFile = null;
@@ -8830,6 +9335,7 @@ function renderQuoteEmbed(rp, options = {}) {
 }
 
 function renderFeedInlineSuggestionCard(user = {}) {
+  if (!isCurrentUserVerified()) return '';
   if (!user?.id) return '';
   const resolved = getResolvedUserIdentity(user.id, user.displayName || 'User', user.photoURL || null);
   const displayName = resolved.name || user.displayName || 'User';
@@ -10743,6 +11249,7 @@ function clearCommentReply() {
 }
 
 async function postComment(postId) {
+  if (!requireVerifiedStudent('post comments')) return;
   if (isNwuDemoActive()) {
     toast('Institutional Preview: Comments are read-only for demo reviewers.');
     return;
@@ -11179,6 +11686,7 @@ function _renderGalleryFrame() {
 
 // ─── Create Post ─────────────────────────────────
 function openCreateModal(initialTab = 'post', presetData = {}) {
+  if (!requireVerifiedStudent(initialTab === 'event' ? 'create campus events' : 'create posts and polls')) return;
   let pendingFiles = [];
   let pendingIsVideo = false;
   let locationPing = { enabled: false, label: '', lat: null, lng: null, expiresAt: null };
@@ -12522,8 +13030,8 @@ async function openCampus360Viewer(encodedFocus = '', options = {}) {
       footerEl.innerHTML = `
         <div class="campus-360-hint-row">
           <span>${adminEditMode
-            ? `Admin Edit Mode (${esc(scene.name)}): tap any roof to place <strong>${esc(adminSelectedCode === '__custom__' ? (adminCustomName || 'Custom') : adminSelectedCode)}</strong>, then click Save Live.`
-            : `${esc(scene.name)} · Drag 360° or tap a building pin for walking route.`}</span>
+          ? `Admin Edit Mode (${esc(scene.name)}): tap any roof to place <strong>${esc(adminSelectedCode === '__custom__' ? (adminCustomName || 'Custom') : adminSelectedCode)}</strong>, then click Save Live.`
+          : `${esc(scene.name)} · Drag 360° or tap a building pin for walking route.`}</span>
         </div>`;
     }
   };
@@ -13242,7 +13750,34 @@ function renderRadarView() {
 
     const dynamic = $('#radar-dynamic');
     if (dynamic) {
-      if (!isLocationSharingEnabled(state.profile)) {
+      if (!isCurrentUserVerified()) {
+        dynamic.innerHTML = `
+          <div class="radar-location-off-card verify-radar-lock-card">
+            <div class="radar-loc-off-icon">🛡️</div>
+            <h4>Student Radar Is Protected</h4>
+            <p>Other students' pins and nearby locations are hidden until you verify your NWU student email. You can still explore campus buildings, the 360° Aerial Tour, and NWU Residences.</p>
+            <div class="verify-radar-lock-actions">
+              <button type="button" class="btn-primary btn-sm" onclick="openVerificationCenterModal('unlock live Student Radar')">Verify NWU Email</button>
+              <button type="button" class="btn-outline btn-sm" onclick="openCampus360Viewer()">360° Tour</button>
+              <button type="button" class="btn-outline btn-sm" onclick="openResidencesView()">Residences</button>
+            </div>
+          </div>
+
+          <div class="proximity-section">
+            <div class="proximity-header"><h3>Campus Events Preview</h3></div>
+            ${activeEvents.length ? `<div class="proximity-scroll">${activeEvents.slice(0, 10).map(ev => {
+          const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+          const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+          const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+          return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+                ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
+                <div class="event-scroll-title">${esc(ev.title)}</div>
+                <div class="event-scroll-meta">${loc ? loc.name : esc(ev.locationName || ev.location || '')}</div>
+              </div>`;
+        }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No upcoming events right now.</p>'}
+          </div>
+        `;
+      } else if (!isLocationSharingEnabled(state.profile)) {
         dynamic.innerHTML = `
           <div class="radar-location-off-card">
             <div class="radar-loc-off-icon">${uiIcon('locate', 24)}</div>
@@ -13300,7 +13835,7 @@ function renderRadarView() {
             <div class="proximity-header"><h3>${uiIcon('pin', 15)} Nearby on Campus</h3><span class="proximity-count">${nearbyUsers.length}</span><button class="btn-outline btn-xs" onclick="switchToExploreList('nearby', '${escJs(searchQuery)}')">See all</button></div>
             <div class="proximity-scroll">
               ${nearbyUsers.length ? nearbyUsers.map(u => proximityCard(u)).join('')
-            : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No students detected nearby right now.</p>'}
+              : '<p style="padding:12px;color:var(--text-tertiary);font-size:13px">No students detected nearby right now.</p>'}
             </div>
           </div>` : ''}
 
@@ -13319,15 +13854,15 @@ function renderRadarView() {
           <div class="proximity-section">
             <div class="proximity-header"><h3>${uiIcon('calendar', 15)} Upcoming on Campus</h3><button class="btn-outline btn-xs" onclick="openExploreTab('events')">All events</button></div>
             ${activeEvents.length ? `<div class="proximity-scroll">${activeEvents.slice(0, 10).map(ev => {
-              const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
-              const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
-              const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
-              return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
+                const loc = CAMPUS_LOCATIONS.find(l => l.id === ev.location);
+                const thumb = (ev.imageURLs && ev.imageURLs.length) ? ev.imageURLs[0] : null;
+                const grad = ev.gradient || 'linear-gradient(135deg,#6C5CE7,#A855F7)';
+                return `<div class="event-scroll-card" onclick="openEventDetail('${ev.id || ''}')">
                 ${thumb ? `<img class="event-scroll-thumb" src="${thumb}">` : `<div class="event-scroll-icon" style="background:${grad}" aria-hidden="true"></div>`}
                 <div class="event-scroll-title">${esc(ev.title)}</div>
                 <div class="event-scroll-meta">${loc ? loc.name : esc(ev.locationName || ev.location || '')}</div>
               </div>`;
-            }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
+              }).join('')}</div>` : '<p style="padding:12px 16px;color:var(--text-tertiary);font-size:13px">No events yet — create one!</p>'}
           </div>
         `;
       }
@@ -13731,7 +14266,8 @@ function renderRadarMap(moduleUsers, nearbyUsers, courseUsers, otherUsers, event
           });
         }
 
-        const usersToPlot = (routeOnlyMode || !locSharingOn) ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers];
+        const canRevealStudents = isCurrentUserVerified();
+        const usersToPlot = (routeOnlyMode || !locSharingOn || !canRevealStudents) ? [] : [...moduleUsers, ...nearbyUsers, ...courseUsers, ...otherUsers];
         const occupiedPoints = [{ lat: center.lat, lng: center.lng }];
         // Only plot students who actually have real GPS coordinates — never scatter non-GPS users around the current user's location
         usersToPlot.forEach(u => {
@@ -13882,6 +14418,18 @@ function renderListView(initialQuery = _exploreSearchQuery || window._radarSearc
 
 async function renderExploreGrid(query = '', filter = 'all') {
   const grid = $('#explore-grid'); if (!grid) return;
+  if (!isCurrentUserVerified()) {
+    grid.innerHTML = `
+      <div class="verify-privacy-card" style="grid-column:1/-1">
+        <div class="verify-privacy-icon">🛡️</div>
+        <div class="verify-privacy-copy">
+          <strong>NWU People Directory Is Protected</strong>
+          <span>To protect student privacy, classmate profiles and module lists are only visible to verified @mynwu.ac.za students.</span>
+        </div>
+        <button type="button" class="btn-primary btn-sm" onclick="openVerificationCenterModal('browse and connect with NWU students')">Verify Student Email</button>
+      </div>`;
+    return;
+  }
   const blockedUsers = new Set(state.profile.blockedUsers || []);
   const blockedBy = new Set(state.profile.blockedBy || []);
   let users = [...allExploreUsers];
@@ -15412,6 +15960,7 @@ async function deleteEvent(eventId) {
 }
 
 async function toggleEventGoing(eventId) {
+  if (!requireVerifiedStudent('RSVP to campus events')) return;
   if (!eventId) return;
   const uid = state.user.uid;
   const curated = getCuratedCampusEvents().find(item => item.id === eventId);
@@ -15698,8 +16247,8 @@ function renderListingsGrid(items = [], cat = 'all', query = '') {
         ${item.imageURL ? `<img class="listing-image" src="${item.imageURL}" loading="lazy" decoding="async" alt="${esc(item.title || 'Product')}">` : `<div class="listing-placeholder">${uiIcon('bag', 28)}</div>`}
         <div class="listing-overlay-badges">
           <span class="listing-overlay-pill is-cat">${esc(cleanCat)}</span>
+          ${trustPillHtml}
         </div>
-        ${trustPillHtml ? `<div class="listing-trust-overlay">${trustPillHtml}</div>` : ''}
         <button type="button" class="listing-save-fab ${isSaved ? 'is-saved' : ''}" onclick="event.stopPropagation();toggleListingSaveQuick('${item.id}', this)" aria-label="Save listing">${isSaved ? uiIcon('heartFill', 14) : uiIcon('heart', 14)}</button>
       </div>
       <div class="listing-info">
@@ -15919,6 +16468,7 @@ function openHustleQuickActions(itemId) {
 }
 
 function openSellModal() {
+  if (!requireVerifiedStudent('sell items on Hustle')) return;
   let pendingImg = null;
   openModal(`
     <div class="modal-header"><h2>Sell Item</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
@@ -16060,6 +16610,7 @@ function setProductRating(itemId, value) {
 }
 
 async function submitListingRating(itemId, explicitScore = null, options = {}) {
+  if (!requireVerifiedStudent('rate marketplace sellers')) return;
   const score = Number(explicitScore != null ? explicitScore : ($('#product-rating-value')?.value || 0));
   if (!itemId || !score || score < 1 || score > 5) return toast('Choose a rating first');
   if (_listingRatingBusy.has(itemId)) return;
@@ -16123,6 +16674,7 @@ async function submitListingRating(itemId, explicitScore = null, options = {}) {
 }
 
 async function hustleBuyInterest(itemId) {
+  if (!requireVerifiedStudent('message sellers on Hustle')) return;
   const item = (window._hustleItems || {})[itemId];
   if (!item) return;
   const btn = document.getElementById('hustle-buy-btn');
@@ -16368,6 +16920,7 @@ function voteOnPollEncoded(scope = 'post', primaryId = '', messageId = '', encod
 }
 
 async function voteOnPoll(scope = 'post', primaryId = '', messageId = '', option = '') {
+  if (!requireVerifiedStudent('vote on campus polls')) return;
   try {
     const uid = state.user?.uid;
     if (!uid) return toast('Sign in to vote');
@@ -16806,6 +17359,24 @@ async function joinGroup(groupId) {
 
 function renderMessages() {
   const c = $('#content');
+  if (!isCurrentUserVerified()) {
+    c.innerHTML = `
+      <div class="messages-page">
+        <div class="messages-header"><h2>Messages</h2></div>
+        <div class="verify-privacy-card" style="margin:16px">
+          <div class="verify-privacy-icon">💬</div>
+          <div class="verify-privacy-copy">
+            <strong>Verify to Chat &amp; Join Study Squads</strong>
+            <span>Direct messages, module groups, and campus stories unlock as soon as you verify your @mynwu.ac.za student email.</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px">
+            <button type="button" class="btn-primary btn-sm" onclick="openVerificationCenterModal('chat and join module study squads')">Verify Student Email</button>
+            <button type="button" class="btn-outline btn-sm" onclick="openCampus360Viewer()">Explore 360° Tour</button>
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
   const activeTab = state.lastMsgTab || 'dm';
   const anonEnabled = allowAnonymousDMsFor(state.profile || {});
   c.innerHTML = `
@@ -17636,6 +18207,7 @@ function openAsgChat(groupId) {
 //  FRIEND REQUEST SYSTEM
 // ══════════════════════════════════════════════════
 async function sendFriendRequest(toUid, toName, toPhoto, btnEl = null) {
+  if (!requireVerifiedStudent('connect with classmates')) return;
   if (toUid === state.user.uid) return toast("That's you!");
   const myFriends = state.profile.friends || [];
   if (myFriends.includes(toUid)) return toast('Already friends!');
@@ -18253,6 +18825,9 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
     // Actions bar: Add custom class, view hidden/removed classes, reset
     const actionsBarHtml = isMe ? `
       <div class="timetable-actions-bar">
+        <button type="button" class="timetable-action-pill" id="tt-view-calendar-btn" title="View the NWU yearly academic calendar">
+          ${uiIcon('calendar', 12)} Year Calendar
+        </button>
         <button type="button" class="timetable-action-pill" id="tt-view-exams-btn" title="View the published exam timetable">
           ${uiIcon('calendar', 12)} Exams${examRows.length ? ` (${examRows.length})` : ''}
         </button>
@@ -19181,6 +19756,10 @@ async function openTimetableModal(uid = state.user?.uid, initialModule = '') {
         updateTimetableAlertPreference(alertSelect.value);
       };
     }
+
+    modal.querySelector('#tt-view-calendar-btn')?.addEventListener('click', () => {
+      openAcademicCalendarModal();
+    });
 
     modal.querySelector('#tt-view-exams-btn')?.addEventListener('click', () => {
       openExamTimetableModal();
@@ -20424,6 +21003,7 @@ async function openChat(convoId) {
 }
 
 async function startChat(uid, name, photo) {
+  if (!requireVerifiedStudent('message other students')) return;
   if (isNwuDemoActive()) {
     openNwuDemoChat('katlego');
     return;
@@ -20688,6 +21268,10 @@ async function unblockUser(uid, name = '') {
 //  PROFILE — Fixed avatar position (inside cover)
 // ══════════════════════════════════════════════════
 async function openProfile(uid) {
+  if (uid && state.user?.uid && uid !== state.user.uid && !isCurrentUserVerified()) {
+    openVerificationCenterModal('view other student profiles');
+    return;
+  }
   closeModal();
   showScreen('profile-view');
   const body = $('#prof-body');
@@ -22597,6 +23181,7 @@ async function shareToFriend(uid, name, postId, btn = null) {
 }
 
 async function openQuoteRepost(postId) {
+  if (!requireVerifiedStudent('repost posts')) return;
   closeModal();
   try {
     const origRef = await db.collection('posts').doc(postId).get();
@@ -22676,70 +23261,707 @@ async function repost(postId) {
 }
 
 // ══════════════════════════════════════════════════
-//  ADMIN PANEL — Official oversight account
+//  ADMIN PANEL — Comprehensive Command Center
 // ══════════════════════════════════════════════════
-async function openAdminPanel() {
+let _adminPanelState = {
+  tab: 'overview',
+  users: [],
+  posts: [],
+  listings: [],
+  groups: [],
+  asgGroups: [],
+  reports: [],
+  timetables: [],
+  residences: [],
+  resOverrides: {},
+  calendar: null,
+  announcement: null,
+  userFilter: 'all',
+  userQuery: '',
+  resFilter: 'all',
+  resQuery: '',
+  modSubTab: 'reports'
+};
+
+async function openAdminPanel(initialTab = 'overview') {
   if (!_isAdmin) return toast('Admin only');
+  _adminPanelState.tab = initialTab || _adminPanelState.tab || 'overview';
   openModal(`
-    <div class="modal-header"><h2>\ud83d\udee1\ufe0f Admin Panel</h2><button class="icon-btn" onclick="closeModal()">&times;</button></div>
-    <div class="modal-body admin-panel">
-      <div class="admin-stats" id="admin-stats"><div class="inline-spinner" style="margin:16px auto"></div></div>
-      <div class="admin-section">
-        <h4>Quick Actions</h4>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllGroups()">\ud83d\udccb View All Groups</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminViewAllUsers()">\ud83d\udc65 View All Users</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminVerifyUser()">\u2714\ufe0f Verify a User</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminModeratePosts()">🧹 Moderate Posts</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="openCampus360Viewer('', { adminEdit: true })">${uiIcon('eye360', 14)} 360° Campus Pin Editor</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminBroadcastPrompt()">📢 Broadcast Notice</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--primary);border-color:var(--primary)" onclick="showAdminRelaunchDateShift()">🔄 Relaunch: Refresh All Dates to Today</button>
-        <button class="btn-outline btn-full" style="margin-bottom:8px;color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">Kill Switch: Wipe Data</button>
+    <div class="modal-header">
+      <div>
+        <h2>🛡️ Admin Command Center</h2>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Manage users, yearly calendar, residences &amp; campus safety</div>
       </div>
-      <div class="admin-section">
-        <h4>Academic timetables</h4>
-        <p class="admin-help">Upload a PDF containing module code, paper, date, session, duration and venue.</p>
-        <div class="admin-timetable-form">
-          <select id="admin-timetable-kind"><option value="exams">Exams</option><option value="assessments">Assessments</option></select>
-          <input id="admin-timetable-file" type="file" accept="application/pdf">
-          <button id="admin-timetable-upload" class="btn-accent btn-full" onclick="adminUploadTimetable()">Upload PDF</button>
-        </div>
-        <div id="admin-timetable-list"><div class="inline-spinner" style="margin:16px auto"></div></div>
+      <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body admin-panel admin-suite-body">
+      <div class="admin-suite-tabs" id="admin-suite-tabs" role="tablist">
+        <button type="button" class="admin-suite-tab ${_adminPanelState.tab === 'overview' ? 'active' : ''}" data-atab="overview" onclick="switchAdminTab('overview')">Overview</button>
+        <button type="button" class="admin-suite-tab ${_adminPanelState.tab === 'users' ? 'active' : ''}" data-atab="users" onclick="switchAdminTab('users')">Users</button>
+        <button type="button" class="admin-suite-tab ${_adminPanelState.tab === 'calendar' ? 'active' : ''}" data-atab="calendar" onclick="switchAdminTab('calendar')">Calendar</button>
+        <button type="button" class="admin-suite-tab ${_adminPanelState.tab === 'residences' ? 'active' : ''}" data-atab="residences" onclick="switchAdminTab('residences')">Residences</button>
+        <button type="button" class="admin-suite-tab ${_adminPanelState.tab === 'moderation' ? 'active' : ''}" data-atab="moderation" onclick="switchAdminTab('moderation')">Moderation</button>
       </div>
+      <div id="admin-tab-stage"><div class="inline-spinner" style="margin:28px auto"></div></div>
     </div>
   `);
+
   try {
-    const [usersSnap, postsSnap, groupsSnap, asgSnap, timetableSnap] = await Promise.all([
-      db.collection('users').get(),
-      db.collection('posts').get(),
-      db.collection('groups').get(),
-      db.collection('assignmentGroups').get(),
-      db.collection('timetables').orderBy('createdAt', 'desc').limit(20).get()
+    const [usersSnap, postsSnap, listingsSnap, groupsSnap, asgSnap, timetableSnap, reportsSnap, resMediaSnap, annDoc, calData, resList] = await Promise.all([
+      db.collection('users').limit(300).get().catch(() => ({ docs: [] })),
+      db.collection('posts').orderBy('createdAt', 'desc').limit(80).get().catch(() => ({ docs: [] })),
+      db.collection('listings').limit(100).get().catch(() => ({ docs: [] })),
+      db.collection('groups').limit(80).get().catch(() => ({ docs: [] })),
+      db.collection('assignmentGroups').limit(80).get().catch(() => ({ docs: [] })),
+      db.collection('timetables').limit(30).get().catch(() => ({ docs: [] })),
+      db.collection('reports').limit(60).get().catch(() => ({ docs: [] })),
+      db.collection('residence_media').get().catch(() => ({ docs: [] })),
+      db.collection('stats').doc('campus_announcement').get().catch(() => null),
+      loadAcademicCalendarConfig(true).catch(() => getDefaultAcademicCalendar()),
+      typeof window.loadResidencesData === 'function' ? window.loadResidencesData().catch(() => []) : Promise.resolve([])
     ]);
-    const statsEl = $('#admin-stats');
-    if (statsEl) {
-      const onlineCount = usersSnap.docs.filter(d => d.data().status === 'online').length;
-      statsEl.innerHTML = `
-        <div class="admin-stat-grid">
-          <div class="admin-stat-card"><div class="admin-stat-num">${usersSnap.size}</div><div class="admin-stat-label">Total Users</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${onlineCount}</div><div class="admin-stat-label">Online Now</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${postsSnap.size}</div><div class="admin-stat-label">Total Posts</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${groupsSnap.size}</div><div class="admin-stat-label">Groups</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${asgSnap.size}</div><div class="admin-stat-label">Groups</div></div>
-          <div class="admin-stat-card"><div class="admin-stat-num">${timetableSnap.size}</div><div class="admin-stat-label">Timetables</div></div>
-        </div>`;
-    }
-    const timetableList = $('#admin-timetable-list');
-    if (timetableList) {
-      const uploads = timetableSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      timetableList.innerHTML = uploads.length ? uploads.map(upload => `
-        <div class="admin-timetable-item">
-          <div><strong>${esc(upload.kind === 'exams' ? 'Exam' : 'Assessment')} timetable</strong><span>${esc(upload.fileName || 'PDF')} · ${(upload.rows || []).length} rows</span></div>
-          <button class="btn-danger-sm" onclick="adminDeleteTimetable('${upload.id}')">Delete</button>
-        </div>
-      `).join('') : '<p class="admin-help">No timetable PDFs uploaded yet.</p>';
-    }
-  } catch (e) { console.error(e); }
+
+    _adminPanelState.users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.posts = postsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.listings = listingsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.groups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.asgGroups = asgSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.timetables = timetableSnap.docs
+      .filter(d => d.id !== 'academic_calendar')
+      .map(d => ({ id: d.id, ...d.data() }));
+    _adminPanelState.reports = reportsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const resMap = {};
+    resMediaSnap.docs.forEach(d => { resMap[d.id] = { id: d.id, ...d.data() }; });
+    _adminPanelState.resOverrides = resMap;
+    _adminPanelState.residences = Array.isArray(resList) ? resList : [];
+    _adminPanelState.announcement = annDoc?.exists ? annDoc.data() : null;
+    _adminPanelState.calendar = calData || getDefaultAcademicCalendar();
+
+    renderActiveAdminTab();
+  } catch (e) {
+    console.error(e);
+    const stage = $('#admin-tab-stage');
+    if (stage) stage.innerHTML = '<p class="admin-help">Could not load admin telemetry. Check connection and try again.</p>';
+  }
 }
+window.openAdminPanel = openAdminPanel;
+
+function switchAdminTab(tab) {
+  _adminPanelState.tab = tab;
+  document.querySelectorAll('#admin-suite-tabs .admin-suite-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.atab === tab);
+  });
+  renderActiveAdminTab();
+}
+window.switchAdminTab = switchAdminTab;
+
+function renderActiveAdminTab() {
+  const stage = $('#admin-tab-stage');
+  if (!stage) return;
+  const tab = _adminPanelState.tab;
+  if (tab === 'users') return renderAdminUsersTab(stage);
+  if (tab === 'calendar') return renderAdminCalendarTab(stage);
+  if (tab === 'residences') return renderAdminResidencesTab(stage);
+  if (tab === 'moderation') return renderAdminModerationTab(stage);
+  return renderAdminOverviewTab(stage);
+}
+
+function renderAdminOverviewTab(stage) {
+  const s = _adminPanelState;
+  const verifiedCount = s.users.filter(u => u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id)).length;
+  const previewCount = Math.max(0, s.users.length - verifiedCount);
+  const onlineCount = s.users.filter(u => u.status === 'online').length;
+  const resOverrideCount = Object.keys(s.resOverrides || {}).length;
+  const calCount = (s.calendar?.events || []).length;
+  const ann = s.announcement || {};
+
+  stage.innerHTML = `
+    <div class="admin-stat-grid">
+      <div class="admin-stat-card" onclick="switchAdminTab('users')" style="cursor:pointer"><div class="admin-stat-num">${s.users.length}</div><div class="admin-stat-label">Total Users</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('users')" style="cursor:pointer"><div class="admin-stat-num" style="color:var(--green)">${verifiedCount}</div><div class="admin-stat-label">Verified</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('users')" style="cursor:pointer"><div class="admin-stat-num" style="color:#D97706">${previewCount}</div><div class="admin-stat-label">Preview Mode</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-num">${onlineCount}</div><div class="admin-stat-label">Online Now</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('moderation')" style="cursor:pointer"><div class="admin-stat-num">${s.posts.length}</div><div class="admin-stat-label">Recent Posts</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('moderation')" style="cursor:pointer"><div class="admin-stat-num">${s.listings.length}</div><div class="admin-stat-label">Hustle Items</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('residences')" style="cursor:pointer"><div class="admin-stat-num">${resOverrideCount}</div><div class="admin-stat-label">Res Updates</div></div>
+      <div class="admin-stat-card" onclick="switchAdminTab('calendar')" style="cursor:pointer"><div class="admin-stat-num">${calCount}</div><div class="admin-stat-label">Cal Milestones</div></div>
+    </div>
+
+    <div class="admin-section">
+      <h4>📢 Live Feed Announcement Banner</h4>
+      <p class="admin-help">Pin an official campus banner at the top of every student's feed (e.g. exam dates, NSFAS, registration).</p>
+      <div class="admin-form-grid">
+        <input type="text" id="admin-ann-title" placeholder="Banner title (e.g. NWU Exam Notice)" value="${esc(ann.title || '')}">
+        <select id="admin-ann-tone">
+          <option value="info" ${ann.tone === 'info' ? 'selected' : ''}>Info (Purple)</option>
+          <option value="warning" ${ann.tone === 'warning' ? 'selected' : ''}>Alert (Amber)</option>
+          <option value="success" ${ann.tone === 'success' ? 'selected' : ''}>Update (Green)</option>
+        </select>
+      </div>
+      <textarea id="admin-ann-msg" placeholder="Write announcement text shown across campus..." style="width:100%;height:70px;resize:none;margin-top:8px">${esc(ann.message || '')}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button type="button" class="btn-primary" style="flex:1" onclick="adminSaveAnnouncement(true)">Publish Live Banner</button>
+        ${ann.active ? `<button type="button" class="btn-outline" onclick="adminSaveAnnouncement(false)">Clear Banner</button>` : ''}
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h4>Campus Tools &amp; Broadcasts</h4>
+      <div class="admin-quick-grid">
+        <button type="button" class="btn-outline" onclick="switchAdminTab('calendar')">📅 Yearly Calendar</button>
+        <button type="button" class="btn-outline" onclick="switchAdminTab('residences')">🏢 Update Residences</button>
+        <button type="button" class="btn-outline" onclick="openCampus360Viewer('', { adminEdit: true })">${uiIcon('eye360', 14)} 360° Pin Editor</button>
+        <button type="button" class="btn-outline" onclick="adminBroadcastPrompt()">📣 Push Broadcast</button>
+        <button type="button" class="btn-outline" style="color:var(--brand-tint)" onclick="showAdminRelaunchDateShift()">🔄 Refresh Dates</button>
+        <button type="button" class="btn-outline" style="color:var(--red);border-color:rgba(239,68,68,0.35)" onclick="showAdminDataClear()">⚠️ Wipe Data</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h4>Academic Exam &amp; Assessment PDFs</h4>
+      <p class="admin-help">Upload a PDF containing module code, paper, date, session, duration and venue.</p>
+      <div class="admin-timetable-form">
+        <select id="admin-timetable-kind"><option value="exams">Exams</option><option value="assessments">Assessments</option></select>
+        <input id="admin-timetable-file" type="file" accept="application/pdf">
+        <button id="admin-timetable-upload" class="btn-accent btn-full" onclick="adminUploadTimetable()">Upload PDF</button>
+      </div>
+      <div id="admin-timetable-list">
+        ${s.timetables.length ? s.timetables.map(upload => `
+          <div class="admin-timetable-item">
+            <div><strong>${esc(upload.kind === 'exams' ? 'Exam' : 'Assessment')} timetable</strong><span>${esc(upload.fileName || 'PDF')} · ${(upload.rows || []).length} rows</span></div>
+            <button class="btn-danger-sm" onclick="adminDeleteTimetable('${upload.id}')">Delete</button>
+          </div>
+        `).join('') : '<p class="admin-help">No timetable PDFs uploaded yet.</p>'}
+      </div>
+    </div>
+  `;
+}
+
+async function adminSaveAnnouncement(active) {
+  if (!_isAdmin) return;
+  const title = ($('#admin-ann-title')?.value || '').trim() || 'NWU Campus Notice';
+  const message = ($('#admin-ann-msg')?.value || '').trim();
+  const tone = $('#admin-ann-tone')?.value || 'info';
+  if (active && !message) return toast('Enter an announcement message first');
+  try {
+    const payload = {
+      id: `ann_${Date.now()}`,
+      active: !!active,
+      title,
+      message: active ? message : '',
+      tone,
+      updatedBy: state.user?.email || 'admin',
+      updatedAt: FieldVal.serverTimestamp()
+    };
+    await db.collection('stats').doc('campus_announcement').set(payload, { merge: true });
+    _adminPanelState.announcement = payload;
+    _campusAnnouncementCache = payload;
+    renderCampusAnnouncementBanner(payload);
+    toast(active ? 'Live campus banner published!' : 'Campus banner cleared');
+    renderActiveAdminTab();
+  } catch (e) {
+    console.error(e);
+    toast('Could not update announcement');
+  }
+}
+window.adminSaveAnnouncement = adminSaveAnnouncement;
+
+function renderAdminUsersTab(stage) {
+  const s = _adminPanelState;
+  const q = (s.userQuery || '').trim().toLowerCase();
+  const filtered = s.users.filter(u => {
+    const isVer = !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id));
+    if (s.userFilter === 'unverified' && isVer) return false;
+    if (s.userFilter === 'verified' && !isVer) return false;
+    if (s.userFilter === 'online' && u.status !== 'online') return false;
+    if (s.userFilter === 'suspended' && !u.suspended) return false;
+    if (!q) return true;
+    return `${u.displayName || ''} ${u.email || ''} ${u.major || ''}`.toLowerCase().includes(q);
+  });
+
+  stage.innerHTML = `
+    <div class="admin-toolbar-row">
+      <input type="text" id="admin-u-search" placeholder="Search name, @mynwu email, or degree…" value="${esc(s.userQuery || '')}">
+    </div>
+    <div class="admin-filter-pills">
+      ${[
+        ['all', `All (${s.users.length})`],
+        ['unverified', `Preview (${s.users.filter(u => !(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
+        ['verified', `Verified (${s.users.filter(u => !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
+        ['online', `Online (${s.users.filter(u => u.status === 'online').length})`],
+        ['suspended', `Suspended (${s.users.filter(u => !!u.suspended).length})`]
+      ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.userFilter === k ? 'active' : ''}" onclick="setAdminUserFilter('${k}')">${lbl}</button>`).join('')}
+    </div>
+    <div class="admin-list-stack">
+      ${filtered.length ? filtered.slice(0, 80).map(u => {
+        const isVer = !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id));
+        const isSusp = !!u.suspended;
+        return `
+          <div class="admin-user-card ${isSusp ? 'is-suspended' : ''}">
+            <div class="admin-user-main" onclick="closeModal();openProfile('${u.id}')" style="cursor:pointer">
+              ${avatar(u.displayName || 'Student', u.photoURL, 'avatar-sm')}
+              <div class="admin-user-copy">
+                <div class="admin-user-name">
+                  ${esc(u.displayName || 'Student')}
+                  ${isVer ? '<span class="admin-badge is-ver">✓ Verified</span>' : '<span class="admin-badge is-prev">Preview</span>'}
+                  ${isSusp ? '<span class="admin-badge is-susp">Suspended</span>' : ''}
+                </div>
+                <div class="admin-user-meta">${esc(u.email || 'No email')} · ${esc(u.major || 'NWU')} ${u.year ? `(${esc(u.year)})` : ''}</div>
+              </div>
+            </div>
+            <div class="admin-user-actions">
+              <button type="button" class="btn-xs ${isVer ? 'btn-outline' : 'btn-primary'}" onclick="adminToggleVerifyUser('${u.id}', ${!isVer})">${isVer ? 'Revoke' : 'Verify'}</button>
+              <button type="button" class="btn-xs btn-outline" style="${isSusp ? 'color:var(--green)' : 'color:var(--red)'}" onclick="adminToggleSuspendUser('${u.id}', ${!isSusp})">${isSusp ? 'Restore' : 'Suspend'}</button>
+            </div>
+          </div>`;
+      }).join('') : '<p class="admin-help" style="text-align:center;padding:20px">No matching users found.</p>'}
+    </div>
+  `;
+  const inp = $('#admin-u-search');
+  if (inp) {
+    inp.oninput = (e) => {
+      _adminPanelState.userQuery = e.target.value;
+      renderAdminUsersTab(stage);
+      const nextInp = $('#admin-u-search');
+      if (nextInp) { nextInp.focus(); nextInp.setSelectionRange(nextInp.value.length, nextInp.value.length); }
+    };
+  }
+}
+
+function setAdminUserFilter(f) {
+  _adminPanelState.userFilter = f;
+  renderActiveAdminTab();
+}
+window.setAdminUserFilter = setAdminUserFilter;
+
+async function adminToggleVerifyUser(uid, verify) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('users').doc(uid).update({ manualVerified: !!verify, isVerified: !!verify });
+    if (verify) VERIFIED_UIDS.add(uid); else VERIFIED_UIDS.delete(uid);
+    const target = _adminPanelState.users.find(u => u.id === uid);
+    if (target) { target.manualVerified = !!verify; target.isVerified = !!verify; }
+    toast(verify ? 'Student verified!' : 'Verification revoked');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Failed to update verification'); }
+}
+window.adminToggleVerifyUser = adminToggleVerifyUser;
+
+async function adminToggleSuspendUser(uid, suspend) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('users').doc(uid).update({ suspended: !!suspend });
+    const target = _adminPanelState.users.find(u => u.id === uid);
+    if (target) target.suspended = !!suspend;
+    toast(suspend ? 'Account suspended' : 'Account restored');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not update account status'); }
+}
+window.adminToggleSuspendUser = adminToggleSuspendUser;
+
+function renderAdminCalendarTab(stage) {
+  const cal = _adminPanelState.calendar || getDefaultAcademicCalendar();
+  const events = [...(cal.events || [])].sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  stage.innerHTML = `
+    <div class="admin-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <h4 style="margin:0">📅 Yearly Academic Calendar</h4>
+        <button type="button" class="btn-xs btn-outline" onclick="openAcademicCalendarModal()">Student Preview</button>
+      </div>
+      <p class="admin-help">Manage NWU semesters, recesses, exams, and deadlines. Students see this live inside Schedule → Year Calendar.</p>
+      <div class="admin-form-grid">
+        <div>
+          <label class="admin-field-lbl">Academic Year</label>
+          <input type="number" id="admin-cal-year" value="${esc(String(cal.year || new Date().getFullYear()))}" min="2024" max="2035">
+        </div>
+        <div>
+          <label class="admin-field-lbl">Active Semester Override</label>
+          <select id="admin-cal-sem">
+            <option value="auto" ${cal.activeSemesterOverride === 'auto' ? 'selected' : ''}>Auto (by date)</option>
+            <option value="1" ${String(cal.activeSemesterOverride) === '1' ? 'selected' : ''}>Force Semester 1</option>
+            <option value="2" ${String(cal.activeSemesterOverride) === '2' ? 'selected' : ''}>Force Semester 2</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button type="button" class="btn-primary btn-sm" style="flex:1" onclick="adminSaveCalendarSettings()">Save Year &amp; Semester</button>
+        <button type="button" class="btn-outline btn-sm" onclick="adminResetCalendarDefaults()">Load NWU Defaults</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h4>+ Add Academic Milestone</h4>
+      <div class="admin-form-grid">
+        <input type="text" id="admin-cal-ev-title" placeholder="Title (e.g. Test Week 1)">
+        <select id="admin-cal-ev-cat">
+          <option value="semester">Semester</option>
+          <option value="exams">Exams</option>
+          <option value="recess">Recess / Break</option>
+          <option value="registration">Registration</option>
+          <option value="holiday">Public Holiday</option>
+          <option value="deadline">Deadline</option>
+        </select>
+        <input type="date" id="admin-cal-ev-start" title="Start date">
+        <input type="date" id="admin-cal-ev-end" title="End date (optional)">
+      </div>
+      <input type="text" id="admin-cal-ev-note" placeholder="Short note for students (optional)" style="width:100%;margin-top:8px">
+      <button type="button" class="btn-accent btn-full" style="margin-top:8px" onclick="adminAddCalendarEvent()">+ Add to Yearly Calendar</button>
+    </div>
+
+    <div class="admin-section">
+      <h4>Published Milestones (${events.length})</h4>
+      <div class="admin-list-stack">
+        ${events.map(ev => `
+          <div class="admin-cal-item">
+            <div class="admin-cal-item-copy">
+              <strong>${esc(ev.title)}</strong>
+              <span>${esc(formatAcademicCalDateRange(ev.startDate, ev.endDate))} · <em>${esc(ev.category || 'semester')}</em></span>
+              ${ev.note ? `<small>${esc(ev.note)}</small>` : ''}
+            </div>
+            <button type="button" class="btn-danger-sm" onclick="adminDeleteCalendarEvent('${escJs(ev.id)}')">Delete</button>
+          </div>
+        `).join('') || '<p class="admin-help">No milestones yet.</p>'}
+      </div>
+    </div>
+  `;
+}
+
+async function persistAdminAcademicCalendar(calObj) {
+  const payload = {
+    year: Number(calObj.year || new Date().getFullYear()),
+    activeSemesterOverride: calObj.activeSemesterOverride || 'auto',
+    events: Array.isArray(calObj.events) ? calObj.events : [],
+    updatedBy: state.user?.email || 'admin',
+    updatedAt: FieldVal.serverTimestamp()
+  };
+  await db.collection('timetables').doc('academic_calendar').set(payload, { merge: true });
+  _adminAcademicCalendarCache = payload;
+  _adminPanelState.calendar = payload;
+  try { localStorage.setItem('unibo_academic_calendar_v1', JSON.stringify(payload)); } catch (_) { }
+}
+
+async function adminSaveCalendarSettings() {
+  if (!_isAdmin) return;
+  const cal = _adminPanelState.calendar || getDefaultAcademicCalendar();
+  cal.year = Number($('#admin-cal-year')?.value || new Date().getFullYear());
+  cal.activeSemesterOverride = $('#admin-cal-sem')?.value || 'auto';
+  try {
+    await persistAdminAcademicCalendar(cal);
+    toast(`Academic calendar saved (${cal.year} · ${getCampusSemesterName()})`);
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not save calendar settings'); }
+}
+window.adminSaveCalendarSettings = adminSaveCalendarSettings;
+
+async function adminAddCalendarEvent() {
+  if (!_isAdmin) return;
+  const title = ($('#admin-cal-ev-title')?.value || '').trim();
+  const category = $('#admin-cal-ev-cat')?.value || 'semester';
+  const startDate = $('#admin-cal-ev-start')?.value || '';
+  const endDate = $('#admin-cal-ev-end')?.value || startDate;
+  const note = ($('#admin-cal-ev-note')?.value || '').trim();
+  if (!title || !startDate) return toast('Enter a title and start date');
+  const cal = _adminPanelState.calendar || getDefaultAcademicCalendar();
+  const nextEvents = [...(cal.events || []), { id: `cal_${Date.now()}`, title, category, startDate, endDate: endDate || startDate, note }];
+  try {
+    await persistAdminAcademicCalendar({ ...cal, events: nextEvents });
+    toast(`Added "${title}" to yearly calendar`);
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not add milestone'); }
+}
+window.adminAddCalendarEvent = adminAddCalendarEvent;
+
+async function adminDeleteCalendarEvent(evId) {
+  if (!_isAdmin) return;
+  const cal = _adminPanelState.calendar || getDefaultAcademicCalendar();
+  const nextEvents = (cal.events || []).filter(e => e.id !== evId);
+  try {
+    await persistAdminAcademicCalendar({ ...cal, events: nextEvents });
+    toast('Milestone removed');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not delete milestone'); }
+}
+window.adminDeleteCalendarEvent = adminDeleteCalendarEvent;
+
+async function adminResetCalendarDefaults() {
+  if (!_isAdmin) return;
+  try {
+    await persistAdminAcademicCalendar(getDefaultAcademicCalendar());
+    toast('Loaded default NWU yearly calendar');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not reset calendar'); }
+}
+window.adminResetCalendarDefaults = adminResetCalendarDefaults;
+
+function renderAdminResidencesTab(stage) {
+  const s = _adminPanelState;
+  const q = (s.resQuery || '').trim().toLowerCase();
+  const overrides = s.resOverrides || {};
+  const list = (s.residences || []).filter(r => {
+    const hasOverride = !!(overrides[r.id] || (r.accreditationNumber && overrides[r.accreditationNumber]));
+    if (s.resFilter === 'updated' && !hasOverride) return false;
+    if (s.resFilter === 'campus' && r.type !== 'campus') return false;
+    if (s.resFilter === 'private' && r.type === 'campus') return false;
+    if (!q) return true;
+    return `${r.name || ''} ${r.address || ''} ${r.suburb || ''} ${r.accreditationNumber || ''}`.toLowerCase().includes(q);
+  });
+
+  stage.innerHTML = `
+    <div class="admin-toolbar-row">
+      <input type="text" id="admin-res-search" placeholder="Search 650 residences by name, street, or accreditation #…" value="${esc(s.resQuery || '')}">
+    </div>
+    <div class="admin-filter-pills">
+      ${[
+        ['all', `All (${s.residences.length})`],
+        ['updated', `Cloud Updated (${Object.keys(overrides).length})`],
+        ['campus', 'On-Campus'],
+        ['private', 'Accredited Private']
+      ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.resFilter === k ? 'active' : ''}" onclick="setAdminResFilter('${k}')">${lbl}</button>`).join('')}
+    </div>
+    <div class="admin-list-stack">
+      ${list.slice(0, 45).map(r => {
+        const hasOverride = !!(overrides[r.id] || (r.accreditationNumber && overrides[r.accreditationNumber]));
+        const dist = Number.isFinite(Number(r.distanceKm)) ? `${Number(r.distanceKm).toFixed(2)} km` : 'Distance TBA';
+        return `
+          <div class="admin-res-card">
+            <div class="admin-res-copy">
+              <div class="admin-user-name">
+                ${esc(r.name || 'Residence')}
+                ${hasOverride ? '<span class="admin-badge is-ver">Cloud Synced</span>' : ''}
+              </div>
+              <div class="admin-user-meta">${esc(r.address || r.suburb || 'Mahikeng')} · ${dist} · ${r.beds || 0} beds</div>
+            </div>
+            <button type="button" class="btn-xs btn-primary" onclick="openAdminResidenceEditor('${escJs(r.id)}')">Edit</button>
+          </div>`;
+      }).join('') || '<p class="admin-help" style="text-align:center;padding:20px">No matching residences.</p>'}
+    </div>
+  `;
+  const inp = $('#admin-res-search');
+  if (inp) {
+    inp.oninput = (e) => {
+      _adminPanelState.resQuery = e.target.value;
+      renderAdminResidencesTab(stage);
+      const nextInp = $('#admin-res-search');
+      if (nextInp) { nextInp.focus(); nextInp.setSelectionRange(nextInp.value.length, nextInp.value.length); }
+    };
+  }
+}
+
+function setAdminResFilter(f) {
+  _adminPanelState.resFilter = f;
+  renderActiveAdminTab();
+}
+window.setAdminResFilter = setAdminResFilter;
+
+function openAdminResidenceEditor(resId) {
+  if (!_isAdmin) return;
+  const res = (_adminPanelState.residences || []).find(r => r.id === resId);
+  if (!res) return toast('Residence not found');
+  const stage = $('#admin-tab-stage');
+  if (!stage) return;
+  stage.innerHTML = `
+    <div class="admin-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+        <h4 style="margin:0">🏢 Edit Residence</h4>
+        <button type="button" class="btn-xs btn-outline" onclick="renderActiveAdminTab()">← Back to List</button>
+      </div>
+      <div class="admin-form-grid">
+        <div style="grid-column:1/-1"><label class="admin-field-lbl">Residence Name</label><input type="text" id="ares-name" value="${esc(res.name || '')}"></div>
+        <div style="grid-column:1/-1"><label class="admin-field-lbl">Street Address</label><input type="text" id="ares-address" value="${esc(res.address || '')}"></div>
+        <div><label class="admin-field-lbl">Suburb / Area</label><input type="text" id="ares-suburb" value="${esc(res.suburb || '')}"></div>
+        <div><label class="admin-field-lbl">Distance from NWU (km)</label><input type="number" step="0.01" id="ares-dist" value="${Number.isFinite(Number(res.distanceKm)) ? Number(res.distanceKm).toFixed(2) : ''}"></div>
+        <div><label class="admin-field-lbl">Latitude</label><input type="number" step="0.000001" id="ares-lat" value="${Number.isFinite(Number(res.lat)) ? res.lat : ''}"></div>
+        <div><label class="admin-field-lbl">Longitude</label><input type="number" step="0.000001" id="ares-lng" value="${Number.isFinite(Number(res.lng)) ? res.lng : ''}"></div>
+        <div><label class="admin-field-lbl">Total Beds</label><input type="number" id="ares-beds" value="${res.beds ?? ''}"></div>
+        <div><label class="admin-field-lbl">Single Rooms</label><input type="number" id="ares-single" value="${res.singleRooms ?? ''}"></div>
+        <div><label class="admin-field-lbl">Sharing Rooms</label><input type="number" id="ares-share" value="${res.sharingRooms ?? ''}"></div>
+        <div>
+          <label class="admin-field-lbl">Gender Policy</label>
+          <select id="ares-gender">
+            <option value="Mixed / Open" ${(res.gender || '').includes('Mixed') ? 'selected' : ''}>Mixed / Open</option>
+            <option value="Female Only" ${(res.gender || '').includes('Female') ? 'selected' : ''}>Female Only</option>
+            <option value="Male Only" ${(res.gender || '').includes('Male') ? 'selected' : ''}>Male Only</option>
+          </select>
+        </div>
+        <div>
+          <label class="admin-field-lbl">Availability</label>
+          <select id="ares-avail">
+            <option value="Available" ${(res.availability || 'Available') === 'Available' ? 'selected' : ''}>Available</option>
+            <option value="Limited Space" ${res.availability === 'Limited Space' ? 'selected' : ''}>Limited Space</option>
+            <option value="Full" ${res.availability === 'Full' ? 'selected' : ''}>Full</option>
+          </select>
+        </div>
+        <div><label class="admin-field-lbl">Pricing / NSFAS Note</label><input type="text" id="ares-pricing" value="${esc(res.pricing || '')}" placeholder="e.g. NSFAS accredited"></div>
+        <div><label class="admin-field-lbl">Phone</label><input type="text" id="ares-phone" value="${esc(res.phone || '')}"></div>
+        <div><label class="admin-field-lbl">WhatsApp</label><input type="text" id="ares-whatsapp" value="${esc(res.whatsapp || '')}"></div>
+        <div style="grid-column:1/-1"><label class="admin-field-lbl">Manager / Landlord Name</label><input type="text" id="ares-manager" value="${esc(res.managerName || '')}"></div>
+        <div style="grid-column:1/-1"><label class="admin-field-lbl">Description</label><textarea id="ares-desc" style="width:100%;height:72px;resize:none">${esc(res.description || '')}</textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button type="button" class="btn-primary" style="flex:1" onclick="adminSaveResidenceUpdate('${escJs(res.id)}')">💾 Save Live Update</button>
+        <button type="button" class="btn-outline" onclick="renderActiveAdminTab()">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+window.openAdminResidenceEditor = openAdminResidenceEditor;
+
+async function adminSaveResidenceUpdate(resId) {
+  if (!_isAdmin) return;
+  const res = (_adminPanelState.residences || []).find(r => r.id === resId);
+  if (!res) return;
+  const distVal = parseFloat($('#ares-dist')?.value);
+  const latVal = parseFloat($('#ares-lat')?.value);
+  const lngVal = parseFloat($('#ares-lng')?.value);
+  const bedsVal = parseInt($('#ares-beds')?.value, 10);
+  const singleVal = parseInt($('#ares-single')?.value, 10);
+  const shareVal = parseInt($('#ares-share')?.value, 10);
+  const payload = {
+    resId: res.id,
+    accreditationNumber: res.accreditationNumber || '',
+    name: ($('#ares-name')?.value || '').trim() || res.name,
+    address: ($('#ares-address')?.value || '').trim(),
+    suburb: ($('#ares-suburb')?.value || '').trim(),
+    gender: $('#ares-gender')?.value || res.gender || 'Mixed / Open',
+    availability: $('#ares-avail')?.value || 'Available',
+    pricing: ($('#ares-pricing')?.value || '').trim(),
+    phone: ($('#ares-phone')?.value || '').trim(),
+    whatsapp: ($('#ares-whatsapp')?.value || '').trim(),
+    managerName: ($('#ares-manager')?.value || '').trim(),
+    description: ($('#ares-desc')?.value || '').trim(),
+    updatedByAdmin: true,
+    updatedAt: FieldVal.serverTimestamp()
+  };
+  if (Number.isFinite(distVal)) payload.distanceKm = Number(distVal.toFixed(2));
+  if (Number.isFinite(latVal) && Number.isFinite(lngVal)) {
+    payload.lat = latVal;
+    payload.lng = lngVal;
+  }
+  if (Number.isFinite(bedsVal) && bedsVal >= 0) payload.beds = bedsVal;
+  if (Number.isFinite(singleVal) && singleVal >= 0) payload.singleRooms = singleVal;
+  if (Number.isFinite(shareVal) && shareVal >= 0) payload.sharingRooms = shareVal;
+
+  try {
+    await db.collection('residence_media').doc(res.id).set(payload, { merge: true });
+    if (typeof window.applyCloudDataToResidence === 'function') {
+      window.applyCloudDataToResidence(res, payload);
+    }
+    try { localStorage.setItem('unibo_res_profile_' + res.id, JSON.stringify(payload)); } catch (_) { }
+    _adminPanelState.resOverrides[res.id] = payload;
+    toast(`Updated "${payload.name}" live for all students!`);
+    renderActiveAdminTab();
+  } catch (e) {
+    console.error(e);
+    toast('Could not save residence update');
+  }
+}
+window.adminSaveResidenceUpdate = adminSaveResidenceUpdate;
+
+function renderAdminModerationTab(stage) {
+  const s = _adminPanelState;
+  const sub = s.modSubTab || 'reports';
+  let bodyHtml = '';
+  if (sub === 'reports') {
+    bodyHtml = s.reports.length ? s.reports.map(rep => `
+      <div class="admin-res-card">
+        <div class="admin-res-copy">
+          <div class="admin-user-name">${esc(rep.reason || 'Reported content')} <span class="admin-badge is-prev">${esc(rep.type || 'post')}</span></div>
+          <div class="admin-user-meta">${esc(clampText(rep.details || rep.targetId || '', 80))} · ${timeAgo(rep.createdAt)}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${rep.targetId && (rep.type || 'post') === 'post' ? `<button type="button" class="btn-xs btn-outline" onclick="viewPost('${escJs(rep.targetId)}')">View</button>` : ''}
+          <button type="button" class="btn-danger-sm" onclick="adminResolveReport('${escJs(rep.id)}')">Resolve</button>
+        </div>
+      </div>
+    `).join('') : '<p class="admin-help" style="text-align:center;padding:18px">🎉 No open user reports.</p>';
+  } else if (sub === 'posts') {
+    bodyHtml = s.posts.length ? s.posts.slice(0, 40).map(p => `
+      <div class="admin-res-card">
+        <div class="admin-res-copy">
+          <div class="admin-user-name">${esc(clampText(p.content || '[media post]', 68))}</div>
+          <div class="admin-user-meta">By ${esc(p.authorName || 'Student')} · ${timeAgo(p.createdAt)}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn-xs btn-outline" onclick="viewPost('${escJs(p.id)}')">View</button>
+          <button type="button" class="btn-danger-sm" onclick="adminModerateDeletePost('${escJs(p.id)}')">Delete</button>
+        </div>
+      </div>
+    `).join('') : '<p class="admin-help" style="text-align:center;padding:18px">No posts found.</p>';
+  } else if (sub === 'listings') {
+    bodyHtml = s.listings.length ? s.listings.slice(0, 40).map(it => `
+      <div class="admin-res-card">
+        <div class="admin-res-copy">
+          <div class="admin-user-name">${esc(it.title || 'Item')} · R${esc(String(it.price || 0))} ${it.featured ? '<span class="admin-badge is-ver">Featured</span>' : ''}</div>
+          <div class="admin-user-meta">${esc(it.sellerName || 'Student')} · ${esc(it.category || 'Campus')}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn-xs btn-outline" onclick="adminToggleListingFeatured('${escJs(it.id)}', ${!it.featured})">${it.featured ? 'Unfeature' : 'Feature'}</button>
+          <button type="button" class="btn-danger-sm" onclick="adminDeleteListing('${escJs(it.id)}')">Delete</button>
+        </div>
+      </div>
+    `).join('') : '<p class="admin-help" style="text-align:center;padding:18px">No marketplace listings.</p>';
+  } else {
+    const allGrps = [...s.groups, ...s.asgGroups];
+    bodyHtml = allGrps.length ? allGrps.slice(0, 40).map(g => `
+      <div class="admin-res-card" onclick="closeModal();openGroupDetail('${escJs(g.id)}')" style="cursor:pointer">
+        <div class="admin-res-copy">
+          <div class="admin-user-name">${esc(g.groupTitle || g.name || g.assignmentTitle || 'Study Group')}</div>
+          <div class="admin-user-meta">${esc(g.moduleCode || 'General')} · ${(g.members || []).length} members</div>
+        </div>
+      </div>
+    `).join('') : '<p class="admin-help" style="text-align:center;padding:18px">No groups yet.</p>';
+  }
+
+  stage.innerHTML = `
+    <div class="admin-filter-pills">
+      <button type="button" class="edit-chip-sm ${sub === 'reports' ? 'active' : ''}" onclick="setAdminModSubTab('reports')">Reports (${s.reports.length})</button>
+      <button type="button" class="edit-chip-sm ${sub === 'posts' ? 'active' : ''}" onclick="setAdminModSubTab('posts')">Posts (${s.posts.length})</button>
+      <button type="button" class="edit-chip-sm ${sub === 'listings' ? 'active' : ''}" onclick="setAdminModSubTab('listings')">Hustle (${s.listings.length})</button>
+      <button type="button" class="edit-chip-sm ${sub === 'groups' ? 'active' : ''}" onclick="setAdminModSubTab('groups')">Groups (${s.groups.length + s.asgGroups.length})</button>
+    </div>
+    <div class="admin-list-stack">${bodyHtml}</div>
+  `;
+}
+
+function setAdminModSubTab(sub) {
+  _adminPanelState.modSubTab = sub;
+  renderActiveAdminTab();
+}
+window.setAdminModSubTab = setAdminModSubTab;
+
+async function adminResolveReport(repId) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('reports').doc(repId).delete();
+    _adminPanelState.reports = _adminPanelState.reports.filter(r => r.id !== repId);
+    toast('Report resolved');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Could not resolve report'); }
+}
+window.adminResolveReport = adminResolveReport;
+
+async function adminToggleListingFeatured(itemId, featured) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('listings').doc(itemId).update({ featured: !!featured });
+    const it = _adminPanelState.listings.find(x => x.id === itemId);
+    if (it) it.featured = !!featured;
+    toast(featured ? 'Listing marked Featured' : 'Removed Featured flag');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Failed to update listing'); }
+}
+window.adminToggleListingFeatured = adminToggleListingFeatured;
+
+async function adminDeleteListing(itemId) {
+  if (!_isAdmin) return;
+  try {
+    await db.collection('listings').doc(itemId).delete();
+    _adminPanelState.listings = _adminPanelState.listings.filter(x => x.id !== itemId);
+    toast('Listing removed');
+    renderActiveAdminTab();
+  } catch (e) { console.error(e); toast('Failed to remove listing'); }
+}
+window.adminDeleteListing = adminDeleteListing;
 
 async function adminViewAllGroups() {
   if (!_isAdmin) return;
@@ -22872,8 +24094,10 @@ async function adminModerateDeletePost(postId) {
   if (!_isAdmin) return;
   try {
     await db.collection('posts').doc(postId).delete();
+    _adminPanelState.posts = (_adminPanelState.posts || []).filter(p => p.id !== postId);
     toast('Post removed');
-    adminModeratePosts();
+    if (document.getElementById('admin-tab-stage')) renderActiveAdminTab();
+    else adminModeratePosts();
   } catch (e) { toast('Delete failed'); console.error(e); }
 }
 
@@ -23122,6 +24346,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return [];
     }
   }
+  window.loadResidencesData = loadResidencesData;
+  window.applyCloudDataToResidence = applyCloudDataToResidence;
 
   async function syncResidenceMediaFromCloud() {
     if (!_residencesData || !_residencesData.length) return;

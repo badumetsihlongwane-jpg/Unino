@@ -33,6 +33,7 @@ service cloud.firestore {
       allow update: if (
         isUser(userId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['manualVerified', 'isVerified', 'isAdmin'])
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['manualVerified', 'isVerified', 'isAdmin', 'suspended'])
       ) || isAdmin();
       allow delete: if isUser(userId) || isAdmin();
 
@@ -205,9 +206,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /stats/campus_announcement {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /stats/{doc} {
       allow read: if true;
       allow write: if isAuthenticated() && doc != 'campus360_config';
+      allow write: if isAuthenticated() && doc != 'campus360_config' && doc != 'campus_announcement';
     }
 
     // ─── LIVE STREAMS & SIGNALS ─────────────────────
