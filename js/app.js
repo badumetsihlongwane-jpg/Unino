@@ -4239,6 +4239,45 @@ async function compressImageToFile(file, maxDim = 320, quality = 0.78, filename 
   }
 }
 
+async function uploadAvatarViaAppwriteBridge(fileOrDataUrl, prevFileId = '') {
+  try {
+    if (!auth.currentUser) return null;
+    const dataUrl = typeof fileOrDataUrl === 'string' && fileOrDataUrl.startsWith('data:image/')
+      ? fileOrDataUrl
+      : await compress(fileOrDataUrl, 320, 0.78);
+    if (!dataUrl || !dataUrl.startsWith('data:image/')) return null;
+    const base = String(window.UNINO_APPWRITE_BRIDGE_BASE_URL || 'https://69dd474c000ed9db9d03.fra.appwrite.run').replace(/\/+$/, '');
+    const resp = await postToAppwriteBridge(`${base}/upload-avatar`, { dataUrl, prevFileId });
+    if (!resp.ok) return null;
+    const json = await resp.json().catch(() => null);
+    if (json?.ok && json?.result?.photoURL) return json.result;
+  } catch (e) {
+    console.warn('Appwrite avatar upload skipped:', e?.message || e);
+  }
+  return null;
+}
+
+async function migrateBase64AvatarToCloudIfNeeded() {
+  try {
+    if (!state.user?.uid || state.user?.isDemo) return;
+    const cur = String(state.profile?.photoURL || '');
+    if (!cur.startsWith('data:image/')) return;
+    const uploaded = await uploadAvatarViaAppwriteBridge(cur, state.profile?.avatarFileId || '');
+    if (!uploaded?.photoURL) return;
+    await db.collection('users').doc(state.user.uid).update({
+      photoURL: uploaded.photoURL,
+      avatarRef: uploaded.avatarRef || '',
+      avatarFileId: uploaded.fileId || ''
+    }).catch(() => { });
+    if (state.profile) {
+      state.profile.photoURL = uploaded.photoURL;
+      state.profile.avatarRef = uploaded.avatarRef || '';
+      state.profile.avatarFileId = uploaded.fileId || '';
+    }
+    setupHeader();
+  } catch (_) { }
+}
+
 // ─── R2 Cloud Media Storage ──────────────────────
 const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
 
@@ -6522,6 +6561,7 @@ function enterApp() {
     listenForUnreadDMs();
     listenForGroupAlerts();
     setupPresenceTracking();
+    migrateBase64AvatarToCloudIfNeeded();
     if (isCurrentUserVerified()) maybePromptForGpsLocation();
     checkForAppUpdate();
   } else {
@@ -22547,8 +22587,15 @@ function editProfile() {
         return;
       }
       if (newPhotoFile) {
-        const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
-        updates.photoURL = await uploadToR2(compactAvatar, 'profile');
+        const awAvatar = await uploadAvatarViaAppwriteBridge(newPhotoFile, state.profile?.avatarFileId || '');
+        if (awAvatar?.photoURL) {
+          updates.photoURL = awAvatar.photoURL;
+          updates.avatarRef = awAvatar.avatarRef || '';
+          updates.avatarFileId = awAvatar.fileId || '';
+        } else {
+          const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
+          updates.photoURL = await uploadToR2(compactAvatar, 'profile');
+        }
       }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);

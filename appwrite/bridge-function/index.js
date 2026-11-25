@@ -10,9 +10,9 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-11-25-fcm-v9';
+const FUNCTION_VERSION = '2026-11-25-fcm-v10';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
-const DEFAULT_AVATAR_BUCKET_ID = 'push_avatars';
+const DEFAULT_AVATAR_BUCKET_ID = '6b06c81b00165508f719';
 const _schemaCache = new Map();
 const _avatarRefCache = new Map();
 let _avatarBucketEnsured = false;
@@ -430,9 +430,63 @@ async function ensureAvatarStorageBucket(endpoint, project, key, bucketId) {
   return false;
 }
 
+function extractAppwriteImageRefFromUrl(raw = '') {
+  const m = String(raw || '').match(/\/storage\/buckets\/([a-zA-Z0-9_-]+)\/files\/([a-zA-Z0-9_-]+)(?:\/|$)/);
+  if (m && m[1] && m[2]) return `${m[1]}:${m[2]}`;
+  return '';
+}
+
+async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevFileId = '') {
+  const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!m) throw new Error('invalid-avatar-data-url');
+  const mime = m[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : m[1].toLowerCase();
+  const buf = Buffer.from(m[2].replace(/\s+/g, ''), 'base64');
+  if (!buf.length || buf.length > 512 * 1024) throw new Error('avatar-too-large');
+
+  const { endpoint, project, key } = getAppwriteConfig();
+  if (!endpoint || !project || !key) throw new Error('missing-appwrite-config');
+  const bucketId = String(process.env.APPWRITE_AVATAR_BUCKET_ID || DEFAULT_AVATAR_BUCKET_ID).trim();
+  const base = endpoint.replace(/\/$/, '');
+  const authHeaders = { 'X-Appwrite-Project': project, 'X-Appwrite-Key': key };
+
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+  const digest = crypto.createHash('sha1').update(`${uid}:${Date.now()}:${buf.length}`).digest('hex').slice(0, 26);
+  const fileId = `av_${digest}`;
+  const form = new FormData();
+  form.append('fileId', fileId);
+  form.append('file', new Blob([buf], { type: mime }), `${fileId}.${ext}`);
+
+  const uploadResp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: form
+  });
+  if (!uploadResp.ok) {
+    const detail = await uploadResp.text().catch(() => '');
+    throw new Error(`avatar-upload-${uploadResp.status}: ${detail.slice(0, 160)}`);
+  }
+
+  // Clean up previous avatar file for this user if provided
+  if (prevFileId && prevFileId !== fileId && /^[a-zA-Z0-9_-]{4,36}$/.test(prevFileId)) {
+    fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(prevFileId)}`, {
+      method: 'DELETE',
+      headers: authHeaders
+    }).catch(() => {});
+  }
+
+  const avatarRef = `${bucketId}:${fileId}`;
+  const photoURL = `${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(fileId)}/view?project=${encodeURIComponent(project)}`;
+  _avatarRefCache.set(fileId, avatarRef);
+  return { ok: true, bucketId, fileId, avatarRef, photoURL };
+}
+
 async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl = '') {
   const safeUrl = sanitizePushPhotoUrl(senderPhotoUrl);
   if (!safeUrl) return '';
+  // Fast-path: if already hosted in Appwrite Storage, return bucketId:fileId immediately (0ms)
+  const directRef = extractAppwriteImageRefFromUrl(safeUrl);
+  if (directRef) return directRef;
+
   const { endpoint, project, key } = getAppwriteConfig();
   if (!endpoint || !project || !key) return '';
 
@@ -520,6 +574,7 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
 
   let message = null;
   let imageUsed = false;
+  let imageError = '';
   if (imageRef) {
     try {
       message = await messaging.createPush(
@@ -541,7 +596,8 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
         undefined
       );
       imageUsed = true;
-    } catch (_) {
+    } catch (imgErr) {
+      imageError = String(imgErr?.message || imgErr || '').slice(0, 140);
       // Fallback cleanly without image so notification delivery never fails
       message = null;
     }
@@ -574,7 +630,8 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     providerType: message?.providerType || 'push',
     appwriteUserId,
     targetCount: targetIds.length,
-    imageAttached: imageUsed
+    imageAttached: imageUsed,
+    ...(imageError ? { imageError } : {})
   };
 }
 
@@ -792,7 +849,7 @@ export default async ({ req, res, log, error }) => {
       version: FUNCTION_VERSION,
       status: 'ready',
       path,
-      routes: ['/push-sync', '/event-sync']
+      routes: ['/push-sync', '/event-sync', '/upload-avatar']
     });
   }
 
@@ -819,6 +876,14 @@ export default async ({ req, res, log, error }) => {
 
   try {
     const auth = await verifyFirebaseToken(bearer, body.firebaseApiKey || '');
+
+    if (path === '/upload-avatar') {
+      const { dataUrl = '', prevFileId = '' } = body;
+      if (!dataUrl) return json(req, res, 400, { ok: false, error: 'missing-data-url' });
+      const uploaded = await uploadAvatarBase64ToAppwriteStorage(auth.uid, dataUrl, prevFileId);
+      log(`upload-avatar uid=${auth.uid} ref=${uploaded.avatarRef}`);
+      return json(req, res, 200, { ok: true, route: 'upload-avatar', result: uploaded });
+    }
 
     if (path === '/push-sync') {
       const { action = '', userId = '', token = '', platform = 'android' } = body;
