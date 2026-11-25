@@ -6496,6 +6496,7 @@ function enterApp() {
   if (content) content.innerHTML = `<div class="app-loading-shell"><div class="app-loading-card"><span class="inline-spinner"></span><h3>Loading your campus feed…</h3><p>If your network is slow, the app will stay visible instead of going blank.</p></div></div>`;
   setupHeader(); setupNav();
   renderUnverifiedPreviewBanner();
+  maybeRenderPwaInstallBanner();
   if (typeof loadAcademicCalendarConfig === 'function') loadAcademicCalendarConfig().catch(() => { });
   if (typeof loadCampusAnnouncementBanner === 'function') loadCampusAnnouncementBanner().catch(() => { });
   initNativeShell().catch(() => { });
@@ -24182,12 +24183,135 @@ async function adminSendBroadcast() {
 }
 
 // ══════════════════════════════════════════════════
+//  iOS & WEB PWA INSTALL EXPERIENCE
+// ══════════════════════════════════════════════════
+let _deferredPwaPrompt = null;
+
+function isIosWebBrowser() {
+  if (isNativeApp()) return false;
+  const ua = navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return isIos;
+}
+
+function isPwaStandaloneMode() {
+  return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator?.standalone === true;
+}
+
+function dismissPwaInstallBanner() {
+  try { localStorage.setItem('unibo_pwa_banner_dismissed_at', String(Date.now())); } catch (_) { }
+  document.getElementById('pwa-install-banner')?.remove();
+}
+window.dismissPwaInstallBanner = dismissPwaInstallBanner;
+
+function openIosInstallGuideModal() {
+  if (_deferredPwaPrompt) {
+    _deferredPwaPrompt.prompt();
+    _deferredPwaPrompt.userChoice.finally(() => {
+      _deferredPwaPrompt = null;
+      dismissPwaInstallBanner();
+    });
+    return;
+  }
+  const onIos = isIosWebBrowser();
+  openModal(`
+    <div class="modal-header">
+      <div>
+        <h2>Install Unibo on iPhone</h2>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Full-screen app experience · No App Store needed</div>
+      </div>
+      <button type="button" class="icon-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body pwa-guide-body">
+      ${!onIos ? `<div class="pwa-guide-note">Open <strong>unibo.social</strong> in <strong>Safari</strong> on your iPhone or iPad, then follow these 3 quick steps:</div>` : ''}
+      <div class="pwa-step-list">
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">1</div>
+          <div class="pwa-step-copy">
+            <strong>Tap the Share button in Safari</strong>
+            <span>Look for the square icon with an upward arrow at the bottom of Safari.</span>
+          </div>
+        </div>
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">2</div>
+          <div class="pwa-step-copy">
+            <strong>Tap "Add to Home Screen"</strong>
+            <span>Scroll down the share sheet and select <b>Add to Home Screen</b>.</span>
+          </div>
+        </div>
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">3</div>
+          <div class="pwa-step-copy">
+            <strong>Tap "Add" — you're done!</strong>
+            <span>Unibo appears on your Home Screen and launches full-screen like a native iOS app.</span>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn-primary btn-full" onclick="closeModal()">Got It</button>
+    </div>
+  `);
+}
+window.openIosInstallGuideModal = openIosInstallGuideModal;
+
+function maybeRenderPwaInstallBanner() {
+  if (isNativeApp() || isPwaStandaloneMode()) return;
+  if (document.getElementById('pwa-install-banner')) return;
+  try {
+    const dismissedAt = Number(localStorage.getItem('unibo_pwa_banner_dismissed_at') || 0);
+    if (dismissedAt && (Date.now() - dismissedAt) < 7 * 24 * 60 * 60 * 1000) return;
+  } catch (_) { }
+
+  const onIos = isIosWebBrowser();
+  if (!onIos && !_deferredPwaPrompt) return;
+
+  const hdr = document.getElementById('hdr');
+  const targetAnchor = document.getElementById('unverified-preview-banner') || hdr;
+  if (!targetAnchor) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'pwa-install-banner';
+  bar.className = 'pwa-install-banner';
+  bar.innerHTML = `
+    <div class="pwa-install-copy">
+      <img src="unino-icon.png" alt="Unibo" class="pwa-install-icon">
+      <div>
+        <strong>${onIos ? 'Install Unibo on iPhone' : 'Install Unibo App'}</strong>
+        <span>${onIos ? 'Full-screen campus app on your Home Screen' : 'Faster launch & full-screen campus access'}</span>
+      </div>
+    </div>
+    <div class="pwa-install-actions">
+      <button type="button" class="pwa-install-btn" onclick="openIosInstallGuideModal()">Install</button>
+      <button type="button" class="pwa-install-close" onclick="dismissPwaInstallBanner()" aria-label="Dismiss">&times;</button>
+    </div>
+  `;
+  targetAnchor.insertAdjacentElement('afterend', bar);
+}
+
+function initPwaExperience() {
+  if (isNativeApp()) return;
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => { });
+  }
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    _deferredPwaPrompt = e;
+    maybeRenderPwaInstallBanner();
+  });
+  window.addEventListener('appinstalled', () => {
+    _deferredPwaPrompt = null;
+    dismissPwaInstallBanner();
+    toast('Unibo installed! 🎉');
+  });
+}
+
+// ══════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
   const isWeb = !isNativeApp();
   document.documentElement.classList.toggle('is-web', isWeb);
   document.documentElement.classList.toggle('is-native', !isWeb);
+  initPwaExperience();
   initTheme();
   initAuth();
   initNativeShell().catch(() => { });

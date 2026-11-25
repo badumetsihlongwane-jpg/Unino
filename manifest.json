@@ -1,0 +1,26 @@
+{
+  "name": "Unibo — NWU Campus",
+  "short_name": "Unibo",
+  "description": "NWU campus social network, timetables, 650 accredited residences, 360° aerial tour & Hustle marketplace.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F7F9",
+  "theme_color": "#5B52E0",
+  "categories": ["education", "social"],
+  "icons": [
+    {
+      "src": "unino-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "unino-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

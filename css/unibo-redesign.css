@@ -5066,3 +5066,158 @@ body {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
+/* ── iOS & Web PWA Install Experience ──────────────────────── */
+.auth-install-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.auth-install-grid .apk-download-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 10px 10px;
+  font-size: 13px;
+}
+
+.pwa-install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 44;
+}
+
+.pwa-install-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pwa-install-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.pwa-install-copy strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 750;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.pwa-install-copy span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.pwa-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pwa-install-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  background: var(--brand-tint);
+  color: #FFFFFF;
+  font-size: 11.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.pwa-install-close {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.pwa-guide-body {
+  padding: 14px 16px 18px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pwa-guide-note {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  line-height: 1.45;
+}
+
+.pwa-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pwa-step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 12px;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.pwa-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pwa-step-copy strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.pwa-step-copy span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+@media (display-mode: standalone) {
+  #hdr {
+    padding-top: max(10px, env(safe-area-inset-top)) !important;
+  }
+  #nav {
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+}

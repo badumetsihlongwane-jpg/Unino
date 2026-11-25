@@ -10,9 +10,12 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-11-25-fcm-v8';
+const FUNCTION_VERSION = '2026-11-25-fcm-v9';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
+const DEFAULT_AVATAR_BUCKET_ID = 'push_avatars';
 const _schemaCache = new Map();
+const _avatarRefCache = new Map();
+let _avatarBucketEnsured = false;
 
 function corsHeaders(req) {
   const origin = (req?.headers?.origin || req?.headers?.Origin || '').trim();
@@ -387,7 +390,115 @@ async function listPushTargetsForFirebaseUid(firebaseUid) {
   }
 }
 
-async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {} }) {
+async function ensureAvatarStorageBucket(endpoint, project, key, bucketId) {
+  if (_avatarBucketEnsured) return true;
+  const base = endpoint.replace(/\/$/, '');
+  const headers = {
+    'X-Appwrite-Project': project,
+    'X-Appwrite-Key': key,
+    'content-type': 'application/json'
+  };
+  try {
+    const check = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}`, { method: 'GET', headers });
+    if (check.ok) {
+      _avatarBucketEnsured = true;
+      return true;
+    }
+    if (check.status === 404) {
+      const created = await fetch(`${base}/storage/buckets`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          bucketId,
+          name: 'Push Avatars',
+          permissions: ['read("any")'],
+          fileSecurity: false,
+          enabled: true,
+          maximumFileSize: 1048576,
+          allowedFileExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+          compression: 'none',
+          encryption: false,
+          antivirus: false
+        })
+      });
+      if (created.ok || created.status === 409) {
+        _avatarBucketEnsured = true;
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
+async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl = '') {
+  const safeUrl = sanitizePushPhotoUrl(senderPhotoUrl);
+  if (!safeUrl) return '';
+  const { endpoint, project, key } = getAppwriteConfig();
+  if (!endpoint || !project || !key) return '';
+
+  const bucketId = String(process.env.APPWRITE_AVATAR_BUCKET_ID || DEFAULT_AVATAR_BUCKET_ID).trim();
+  const digest = crypto.createHash('sha1').update(`${senderUid || 'u'}:${safeUrl}`).digest('hex').slice(0, 28);
+  const fileId = `av_${digest}`;
+  const ref = `${bucketId}:${fileId}`;
+
+  if (_avatarRefCache.has(fileId)) return _avatarRefCache.get(fileId);
+
+  const base = endpoint.replace(/\/$/, '');
+  const authHeaders = {
+    'X-Appwrite-Project': project,
+    'X-Appwrite-Key': key
+  };
+
+  const bucketOk = await ensureAvatarStorageBucket(endpoint, project, key, bucketId);
+  if (!bucketOk) return '';
+
+  // Reuse already-uploaded avatar file if present
+  try {
+    const existsResp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(fileId)}`, {
+      method: 'GET',
+      headers: authHeaders
+    });
+    if (existsResp.ok) {
+      _avatarRefCache.set(fileId, ref);
+      return ref;
+    }
+  } catch (_) {}
+
+  // Download sender's compact avatar from R2 and upload to Appwrite Storage
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const imgResp = await fetch(safeUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!imgResp.ok) return '';
+    const buf = Buffer.from(await imgResp.arrayBuffer());
+    if (!buf.length || buf.length > 900 * 1024) return '';
+
+    const ct = String(imgResp.headers.get('content-type') || 'image/jpeg').split(';')[0].trim().toLowerCase();
+    const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+    const form = new FormData();
+    form.append('fileId', fileId);
+    form.append('file', new Blob([buf], { type: ct || 'image/jpeg' }), `${fileId}.${ext}`);
+
+    const uploadResp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: form
+    });
+    if (uploadResp.ok || uploadResp.status === 409) {
+      _avatarRefCache.set(fileId, ref);
+      if (_avatarRefCache.size > 200) {
+        const firstKey = _avatarRefCache.keys().next().value;
+        if (firstKey) _avatarRefCache.delete(firstKey);
+      }
+      return ref;
+    }
+  } catch (_) {}
+
+  return '';
+}
+
+async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {}, senderUid = '', senderPhoto = '' }) {
   const messaging = new Messaging(makeClient());
   const appwriteUserId = toAppwriteUserId(targetFirebaseUid);
   const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
@@ -402,31 +513,68 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     };
   }
 
-  const message = await messaging.createPush(
-    ID.unique(),
-    String(title || 'Unino notification'),
-    String(body || ''),
-    [],
-    [appwriteUserId],
-    [],
-    data,
-    undefined,
-    undefined,
-    'ic_notification_small',
-    'default',
-    '#6D28D9',
-    undefined,
-    undefined,
-    false,
-    undefined
-  );
+  let imageRef = '';
+  if (senderPhoto) {
+    imageRef = await syncSenderAvatarToAppwriteStorage(senderUid, senderPhoto).catch(() => '');
+  }
+
+  let message = null;
+  let imageUsed = false;
+  if (imageRef) {
+    try {
+      message = await messaging.createPush(
+        ID.unique(),
+        String(title || 'Unino notification'),
+        String(body || ''),
+        [],
+        [appwriteUserId],
+        [],
+        data,
+        undefined,
+        imageRef,
+        'ic_notification_small',
+        'default',
+        '#6D28D9',
+        undefined,
+        undefined,
+        false,
+        undefined
+      );
+      imageUsed = true;
+    } catch (_) {
+      // Fallback cleanly without image so notification delivery never fails
+      message = null;
+    }
+  }
+
+  if (!message) {
+    message = await messaging.createPush(
+      ID.unique(),
+      String(title || 'Unino notification'),
+      String(body || ''),
+      [],
+      [appwriteUserId],
+      [],
+      data,
+      undefined,
+      undefined,
+      'ic_notification_small',
+      'default',
+      '#6D28D9',
+      undefined,
+      undefined,
+      false,
+      undefined
+    );
+  }
 
   return {
     sent: true,
     messageId: message?.$id || '',
     providerType: message?.providerType || 'push',
     appwriteUserId,
-    targetCount: targetIds.length
+    targetCount: targetIds.length,
+    imageAttached: imageUsed
   };
 }
 
@@ -718,11 +866,14 @@ export default async ({ req, res, log, error }) => {
       let push = { sent: false, reason: 'not-attempted' };
       if (eventType === 'notification_dispatch') {
         try {
+          const flatData = flattenNotificationData(payload);
           push = await dispatchPushViaMessaging({
             targetFirebaseUid: String(payload.targetId || '').trim(),
             title: String(payload.title || payload.type || 'Unino').slice(0, 80),
             body: String(payload.body || payload.text || 'You have a new notification').slice(0, 300),
-            data: flattenNotificationData(payload)
+            data: flatData,
+            senderUid: String(payload?.from?.uid || auth.uid || '').trim(),
+            senderPhoto: String(flatData.senderPhoto || payload?.from?.photo || '').trim()
           });
         } catch (e) {
           push = { sent: false, reason: 'push-dispatch-failed', detail: String(e?.message || e) };

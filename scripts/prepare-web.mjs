@@ -9,6 +9,8 @@ const includeDirs = ['css', 'js', 'data', 'worker', 'unibo.social', 'assets/tour
 const includeFiles = [
   'index.html',
   'verify.html',
+  'manifest.json',
+  'sw.js',
   'design1.html',
   'design2.html',
   'design3.html',
