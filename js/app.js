@@ -827,7 +827,7 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const from = data.from && typeof data.from === 'object' ? data.from : {};
   const rawFromPhoto = String(from.photo || '').trim();
   // Never include base64 data: URIs or long URLs in FCM push payloads (FCM strictly enforces a 4096-byte message limit)
-  const safePushPhoto = (/^https?:\/\//i.test(rawFromPhoto) && !/^data:/i.test(rawFromPhoto) && rawFromPhoto.length <= 240)
+  const safePushPhoto = (/^https?:\/\//i.test(rawFromPhoto) && !/^data:/i.test(rawFromPhoto) && rawFromPhoto.length <= 320)
     ? rawFromPhoto
     : '';
   const clampPushStr = (val, max = 80) => {
@@ -1611,7 +1611,7 @@ async function removePushTokenForUser(userId, token = _nativePushToken) {
   if (!userId || !token) return;
   try {
     await db.collection('users').doc(userId).collection('pushTokens').doc(tokenDocId(token)).delete().catch(() => { });
-    syncPushTokenWithAppwrite('delete', userId, token).catch(() => { });
+    await syncPushTokenWithAppwrite('delete', userId, token).catch(() => { });
     if ((localStorage.getItem('unino-push-owner') || '') === userId) localStorage.removeItem('unino-push-owner');
   } catch (e) {
     console.warn('Push token cleanup failed:', e);
@@ -4226,6 +4226,19 @@ function compress(file, max = 800, q = 0.7) {
   });
 }
 
+async function compressImageToFile(file, maxDim = 320, quality = 0.78, filename = 'avatar.jpg') {
+  if (!file || !file.type || !file.type.startsWith('image/')) return file;
+  try {
+    const dataUrl = await compress(file, maxDim, quality);
+    const resp = await fetch(dataUrl);
+    const blob = await resp.blob();
+    if (!blob || !blob.size) return file;
+    return new File([blob], filename, { type: 'image/jpeg' });
+  } catch (_) {
+    return file;
+  }
+}
+
 // ─── R2 Cloud Media Storage ──────────────────────
 const R2_BASE = 'https://app-media.badumetsihlongwane.workers.dev/Images/';
 
@@ -4985,10 +4998,10 @@ async function openAcademicCalendarModal() {
     </div>
     <div class="modal-body academic-cal-modal-body">
       ${events.length ? events.map(ev => {
-        const meta = catColors[ev.category] || catColors.semester;
-        const isCurrent = ev.startDate && (ev.endDate || ev.startDate) && todayIso >= ev.startDate && todayIso <= (ev.endDate || ev.startDate);
-        const isPast = (ev.endDate || ev.startDate) && (ev.endDate || ev.startDate) < todayIso;
-        return `
+    const meta = catColors[ev.category] || catColors.semester;
+    const isCurrent = ev.startDate && (ev.endDate || ev.startDate) && todayIso >= ev.startDate && todayIso <= (ev.endDate || ev.startDate);
+    const isPast = (ev.endDate || ev.startDate) && (ev.endDate || ev.startDate) < todayIso;
+    return `
           <div class="acad-cal-row ${isCurrent ? 'is-current' : ''} ${isPast ? 'is-past' : ''}">
             <div class="acad-cal-date-col">
               <span class="acad-cal-date">${esc(formatAcademicCalDateRange(ev.startDate, ev.endDate))}</span>
@@ -4999,7 +5012,7 @@ async function openAcademicCalendarModal() {
               ${ev.note ? `<div class="acad-cal-note">${esc(ev.note)}</div>` : ''}
             </div>
           </div>`;
-      }).join('') : '<p style="text-align:center;color:var(--text-secondary);padding:20px">No academic calendar dates published yet.</p>'}
+  }).join('') : '<p style="text-align:center;color:var(--text-secondary);padding:20px">No academic calendar dates published yet.</p>'}
     </div>
   `);
 }
@@ -5690,16 +5703,16 @@ function initAuth() {
             </div>
             <div class="signup-suggest-grid" id="sm-mod-grid">
               ${allShown.map(mod => {
-                const isChecked = selected.has(mod);
-                const isFromCourse = currentList.includes(mod);
-                return `
+          const isChecked = selected.has(mod);
+          const isFromCourse = currentList.includes(mod);
+          return `
                   <button type="button" class="signup-suggest-card ${isChecked ? 'is-selected' : ''}" data-smod="${esc(mod)}">
                     <span class="signup-suggest-check">${isChecked ? '✓' : '+'}</span>
                     <span class="signup-suggest-code">${esc(mod)}</span>
                     <span class="signup-suggest-tag">${isFromCourse ? 'Suggested' : 'Custom'}</span>
                   </button>
                 `;
-              }).join('')}
+        }).join('')}
             </div>
             <div class="signup-suggest-custom-row">
               <input type="text" id="sm-custom-input" placeholder="Add another module code (e.g. WVCS221)" autocomplete="off" autocapitalize="characters" maxlength="12">
@@ -7076,7 +7089,7 @@ function openHeaderProfileMenu() {
     if (isNwuDemoActive()) {
       exitNwuDemoMode();
     } else {
-      auth.signOut().then(() => window.location.reload());
+      doLogout();
     }
   });
   _headerProfileMenuClose = event => {
@@ -22533,7 +22546,8 @@ function editProfile() {
         return;
       }
       if (newPhotoFile) {
-        updates.photoURL = await uploadToR2(newPhotoFile, 'profile');
+        const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
+        updates.photoURL = await uploadToR2(compactAvatar, 'profile');
       }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
@@ -23515,18 +23529,18 @@ function renderAdminUsersTab(stage) {
     </div>
     <div class="admin-filter-pills">
       ${[
-        ['all', `All (${s.users.length})`],
-        ['unverified', `Preview (${s.users.filter(u => !(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
-        ['verified', `Verified (${s.users.filter(u => !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
-        ['online', `Online (${s.users.filter(u => u.status === 'online').length})`],
-        ['suspended', `Suspended (${s.users.filter(u => !!u.suspended).length})`]
-      ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.userFilter === k ? 'active' : ''}" onclick="setAdminUserFilter('${k}')">${lbl}</button>`).join('')}
+      ['all', `All (${s.users.length})`],
+      ['unverified', `Preview (${s.users.filter(u => !(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
+      ['verified', `Verified (${s.users.filter(u => !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id))).length})`],
+      ['online', `Online (${s.users.filter(u => u.status === 'online').length})`],
+      ['suspended', `Suspended (${s.users.filter(u => !!u.suspended).length})`]
+    ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.userFilter === k ? 'active' : ''}" onclick="setAdminUserFilter('${k}')">${lbl}</button>`).join('')}
     </div>
     <div class="admin-list-stack">
       ${filtered.length ? filtered.slice(0, 80).map(u => {
-        const isVer = !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id));
-        const isSusp = !!u.suspended;
-        return `
+      const isVer = !!(u.manualVerified || u.isVerified || VERIFIED_UIDS.has(u.id));
+      const isSusp = !!u.suspended;
+      return `
           <div class="admin-user-card ${isSusp ? 'is-suspended' : ''}">
             <div class="admin-user-main" onclick="closeModal();openProfile('${u.id}')" style="cursor:pointer">
               ${avatar(u.displayName || 'Student', u.photoURL, 'avatar-sm')}
@@ -23544,7 +23558,7 @@ function renderAdminUsersTab(stage) {
               <button type="button" class="btn-xs btn-outline" style="${isSusp ? 'color:var(--green)' : 'color:var(--red)'}" onclick="adminToggleSuspendUser('${u.id}', ${!isSusp})">${isSusp ? 'Restore' : 'Suspend'}</button>
             </div>
           </div>`;
-      }).join('') : '<p class="admin-help" style="text-align:center;padding:20px">No matching users found.</p>'}
+    }).join('') : '<p class="admin-help" style="text-align:center;padding:20px">No matching users found.</p>'}
     </div>
   `;
   const inp = $('#admin-u-search');
@@ -23742,17 +23756,17 @@ function renderAdminResidencesTab(stage) {
     </div>
     <div class="admin-filter-pills">
       ${[
-        ['all', `All (${s.residences.length})`],
-        ['updated', `Cloud Updated (${Object.keys(overrides).length})`],
-        ['campus', 'On-Campus'],
-        ['private', 'Accredited Private']
-      ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.resFilter === k ? 'active' : ''}" onclick="setAdminResFilter('${k}')">${lbl}</button>`).join('')}
+      ['all', `All (${s.residences.length})`],
+      ['updated', `Cloud Updated (${Object.keys(overrides).length})`],
+      ['campus', 'On-Campus'],
+      ['private', 'Accredited Private']
+    ].map(([k, lbl]) => `<button type="button" class="edit-chip-sm ${s.resFilter === k ? 'active' : ''}" onclick="setAdminResFilter('${k}')">${lbl}</button>`).join('')}
     </div>
     <div class="admin-list-stack">
       ${list.slice(0, 45).map(r => {
-        const hasOverride = !!(overrides[r.id] || (r.accreditationNumber && overrides[r.accreditationNumber]));
-        const dist = Number.isFinite(Number(r.distanceKm)) ? `${Number(r.distanceKm).toFixed(2)} km` : 'Distance TBA';
-        return `
+      const hasOverride = !!(overrides[r.id] || (r.accreditationNumber && overrides[r.accreditationNumber]));
+      const dist = Number.isFinite(Number(r.distanceKm)) ? `${Number(r.distanceKm).toFixed(2)} km` : 'Distance TBA';
+      return `
           <div class="admin-res-card">
             <div class="admin-res-copy">
               <div class="admin-user-name">
@@ -23763,7 +23777,7 @@ function renderAdminResidencesTab(stage) {
             </div>
             <button type="button" class="btn-xs btn-primary" onclick="openAdminResidenceEditor('${escJs(r.id)}')">Edit</button>
           </div>`;
-      }).join('') || '<p class="admin-help" style="text-align:center;padding:20px">No matching residences.</p>'}
+    }).join('') || '<p class="admin-help" style="text-align:center;padding:20px">No matching residences.</p>'}
     </div>
   `;
   const inp = $('#admin-res-search');

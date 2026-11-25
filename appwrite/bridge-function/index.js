@@ -10,7 +10,7 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-04-13-fcm-v7';
+const FUNCTION_VERSION = '2026-11-25-fcm-v8';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const _schemaCache = new Map();
 
@@ -230,8 +230,13 @@ function toAppwriteUserId(firebaseUid = '') {
   return `f_${String(firebaseUid || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 36);
 }
 
-function buildTargetId(token = '', platform = 'android') {
-  const digest = crypto.createHash('sha1').update(String(token || '')).digest('hex').slice(0, 24);
+function buildTargetId(appwriteUserId = '', token = '', platform = 'android', salt = '') {
+  // Scope targetId to BOTH user and device token so testing/switching accounts on the same phone never hits Appwrite's global 409 target ID conflict.
+  const digest = crypto
+    .createHash('sha1')
+    .update(`${appwriteUserId}:${platform}:${token}${salt ? ':' + salt : ''}`)
+    .digest('hex')
+    .slice(0, 24);
   return `pt_${String(platform || 'android').slice(0, 6)}_${digest}`.slice(0, 36);
 }
 
@@ -247,12 +252,31 @@ async function ensureMessagingUser(users, appwriteUserId, email = '') {
   const fallbackEmail = `${appwriteUserId}@push.unino.local`;
   const createEmail = normalizedEmail && normalizedEmail.includes('@') ? normalizedEmail : fallbackEmail;
 
-  await users.create(appwriteUserId, createEmail);
-  return {
-    ok: true,
-    mode: normalizedEmail && normalizedEmail.includes('@') ? 'created' : 'created-fallback-email',
-    userId: appwriteUserId
-  };
+  try {
+    await users.create(appwriteUserId, createEmail);
+    return {
+      ok: true,
+      mode: createEmail === fallbackEmail ? 'created-fallback-email' : 'created',
+      userId: appwriteUserId
+    };
+  } catch (e) {
+    // If an older/recreated test account already claimed this email in Appwrite, create with unique fallback email so FCM target registration still succeeds.
+    if (Number(e?.code || 0) === 409 && createEmail !== fallbackEmail) {
+      try {
+        await users.create(appwriteUserId, fallbackEmail);
+        return { ok: true, mode: 'created-fallback-email-after-409', userId: appwriteUserId };
+      } catch (e2) {
+        if (Number(e2?.code || 0) === 409) {
+          return { ok: true, mode: 'exists-after-race', userId: appwriteUserId };
+        }
+        throw e2;
+      }
+    }
+    if (Number(e?.code || 0) === 409) {
+      return { ok: true, mode: 'exists-after-race', userId: appwriteUserId };
+    }
+    throw e;
+  }
 }
 
 async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', email = '', providerId = '' }) {
@@ -262,44 +286,87 @@ async function ensureUserPushTarget({ firebaseUid, token, platform = 'android', 
   if (!userEnsure.ok) return { ok: false, skipped: true, reason: userEnsure.reason, appwriteUserId };
 
   const resolvedProviderId = String(providerId || process.env.APPWRITE_PUSH_PROVIDER_ID || DEFAULT_PUSH_PROVIDER_ID).trim();
-  const targetId = buildTargetId(token, platform);
-  let target = null;
-  let mode = 'create';
+
+  // Check if this user already has a push target for this exact FCM token
+  let existingTargets = [];
   try {
-    target = await users.createTarget(
-      appwriteUserId,
-      targetId,
-      MessagingProviderType.Push,
-      token,
-      resolvedProviderId,
-      `unino-${platform}`
-    );
-  } catch (e) {
-    if (Number(e?.code || 0) === 409) {
-      mode = 'update';
-      try {
-        target = await users.updateTarget(appwriteUserId, targetId, token, resolvedProviderId, `unino-${platform}`);
-      } catch (updateErr) {
-        mode = 'exists';
-        target = { $id: targetId };
+    const list = await users.listTargets(appwriteUserId, [Query.limit(25)]);
+    existingTargets = Array.isArray(list?.targets) ? list.targets : [];
+  } catch (_) {}
+
+  const alreadyMatching = existingTargets.find(t => String(t?.providerType || '') === 'push' && t.identifier === token);
+  let target = alreadyMatching || null;
+  let mode = alreadyMatching ? 'exists-verified' : 'create';
+  let targetId = alreadyMatching?.$id || buildTargetId(appwriteUserId, token, platform);
+
+  if (alreadyMatching) {
+    try {
+      target = await users.updateTarget(appwriteUserId, alreadyMatching.$id, token, resolvedProviderId, `unino-${platform}`);
+      mode = 'updated-existing';
+    } catch (_) {
+      target = alreadyMatching;
+    }
+  } else {
+    try {
+      target = await users.createTarget(
+        appwriteUserId,
+        targetId,
+        MessagingProviderType.Push,
+        token,
+        resolvedProviderId,
+        `unino-${platform}`
+      );
+    } catch (e) {
+      if (Number(e?.code || 0) === 409) {
+        // Retry once with a salted unique targetId instead of silently swallowing a cross-user 409 collision
+        targetId = buildTargetId(appwriteUserId, token, platform, String(Date.now()));
+        target = await users.createTarget(
+          appwriteUserId,
+          targetId,
+          MessagingProviderType.Push,
+          token,
+          resolvedProviderId,
+          `unino-${platform}`
+        );
+        mode = 'created-salted';
+      } else {
+        throw e;
       }
-    } else {
-      throw e;
     }
   }
 
   // Clean up any older/stale push targets for this user with different identifiers
   try {
-    const list = await users.listTargets(appwriteUserId, [Query.limit(20)]);
-    const allTargets = Array.isArray(list?.targets) ? list.targets : [];
-    for (const t of allTargets) {
-      if (String(t?.providerType || '') === 'push' && t.$id !== (target?.$id || targetId) && t.identifier !== token) {
+    const activeId = target?.$id || targetId;
+    for (const t of existingTargets) {
+      if (String(t?.providerType || '') === 'push' && t.$id !== activeId && t.identifier !== token) {
         await users.deleteTarget(appwriteUserId, t.$id).catch(() => {});
       }
     }
   } catch (_) {}
 
   return { ok: true, mode, appwriteUserId, targetId: target?.$id || targetId, providerId: resolvedProviderId };
+}
+
+async function removeUserPushTarget({ firebaseUid, token = '' }) {
+  const users = new Users(makeClient());
+  const appwriteUserId = toAppwriteUserId(firebaseUid);
+  let removed = 0;
+  try {
+    const list = await users.listTargets(appwriteUserId, [Query.limit(25)]);
+    const targets = Array.isArray(list?.targets) ? list.targets : [];
+    for (const t of targets) {
+      if (String(t?.providerType || '') !== 'push') continue;
+      if (!token || t.identifier === token) {
+        await users.deleteTarget(appwriteUserId, t.$id).catch(() => {});
+        removed += 1;
+      }
+    }
+    return { ok: true, mode: 'deleted', appwriteUserId, removed };
+  } catch (e) {
+    if (Number(e?.code || 0) === 404) return { ok: true, mode: 'user-not-found', appwriteUserId, removed: 0 };
+    return { ok: false, reason: 'delete-target-failed', detail: String(e?.message || e) };
+  }
 }
 
 async function listPushTargetsForFirebaseUid(firebaseUid) {
@@ -429,7 +496,7 @@ async function dbDelete(databases, dbId, tableOrCollectionId, docId) {
 
 function sanitizePushPhotoUrl(raw = '') {
   const val = String(raw || '').trim();
-  if (!val || /^data:/i.test(val) || val.length > 256) return '';
+  if (!val || /^data:/i.test(val) || val.length > 320) return '';
   return /^https?:\/\//i.test(val) ? val : '';
 }
 
@@ -616,7 +683,7 @@ export default async ({ req, res, log, error }) => {
         ? await upsertPushTarget({ userId, token, platform })
         : await deletePushTarget({ userId, token });
 
-      let messagingTarget = { skipped: true, reason: 'delete-or-not-attempted' };
+      let messagingTarget = { skipped: true, reason: 'not-attempted' };
       if (action === 'upsert') {
         try {
           messagingTarget = await ensureUserPushTarget({
@@ -629,6 +696,8 @@ export default async ({ req, res, log, error }) => {
         } catch (e) {
           messagingTarget = { ok: false, reason: 'messaging-target-failed', detail: String(e?.message || e) };
         }
+      } else if (action === 'delete') {
+        messagingTarget = await removeUserPushTarget({ firebaseUid: userId, token });
       }
 
       log(`push-sync ${action} uid=${userId} targetOk=${messagingTarget?.ok !== false}`);

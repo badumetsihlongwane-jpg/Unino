@@ -5,6 +5,13 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.os.Build;
 import android.text.TextUtils;
 
@@ -14,6 +21,10 @@ import androidx.core.app.NotificationManagerCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Map;
 
 public class UninoFirebaseMessagingService extends FirebaseMessagingService {
@@ -162,16 +173,90 @@ public class UninoFirebaseMessagingService extends FirebaseMessagingService {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE);
 
-        try {
-            android.graphics.Bitmap appLogo = android.graphics.BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
-            if (appLogo != null) {
-                builder.setLargeIcon(appLogo);
-            }
-        } catch (Exception ignored) {}
+        Bitmap largeIcon = null;
+        String senderPhoto = data != null ? valueOrDefault(data.get("senderPhoto"), "") : "";
+        if (senderPhoto.startsWith("https://")) {
+            largeIcon = fetchCircularAvatar(senderPhoto);
+        }
+        if (largeIcon == null) {
+            try {
+                largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            } catch (Exception ignored) {}
+        }
+        if (largeIcon != null) {
+            builder.setLargeIcon(largeIcon);
+        }
 
         try {
             NotificationManagerCompat.from(this).notify(notificationId, builder.build());
         } catch (Exception ignored) {}
+    }
+
+    private Bitmap fetchCircularAvatar(String urlStr) {
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        try {
+            URL url = new URL(urlStr);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(2500);
+            conn.setReadTimeout(2500);
+            conn.setInstanceFollowRedirects(true);
+            conn.setDoInput(true);
+            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+
+            in = conn.getInputStream();
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int total = 0;
+            int read;
+            final int MAX_BYTES = 512 * 1024;
+            while ((read = in.read(chunk)) != -1) {
+                total += read;
+                if (total > MAX_BYTES) return null;
+                buffer.write(chunk, 0, read);
+            }
+            byte[] bytes = buffer.toByteArray();
+            if (bytes.length == 0) return null;
+
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+            int sample = 1;
+            int minDim = Math.min(bounds.outWidth, bounds.outHeight);
+            while (minDim / (sample * 2) >= 128) sample *= 2;
+
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+            if (decoded == null) return null;
+
+            Bitmap circle = toCircularBitmap(decoded, 128);
+            if (circle != decoded) decoded.recycle();
+            return circle;
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private Bitmap toCircularBitmap(Bitmap src, int sizePx) {
+        int side = Math.min(src.getWidth(), src.getHeight());
+        int x = (src.getWidth() - side) / 2;
+        int y = (src.getHeight() - side) / 2;
+        Bitmap output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        float radius = sizePx / 2f;
+        canvas.drawCircle(radius, radius, radius, paint);
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        Rect srcRect = new Rect(x, y, x + side, y + side);
+        Rect dstRect = new Rect(0, 0, sizePx, sizePx);
+        canvas.drawBitmap(src, srcRect, dstRect, paint);
+        return output;
     }
 
     private String firstNonBlank(String... items) {
