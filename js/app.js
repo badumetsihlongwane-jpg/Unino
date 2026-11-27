@@ -825,9 +825,9 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
               : notifType === 'group' ? 'group'
                 : 'app');
   const from = data.from && typeof data.from === 'object' ? data.from : {};
-  const rawFromPhoto = String(from.photo || '').trim();
+  const rawFromPhoto = resolvePublicPhotoUrl(from.photo || '');
   // Never include base64 data: URIs or long URLs in FCM push payloads (FCM strictly enforces a 4096-byte message limit)
-  const safePushPhoto = (/^https?:\/\//i.test(rawFromPhoto) && !/^data:/i.test(rawFromPhoto) && rawFromPhoto.length <= 320)
+  const safePushPhoto = (/^https?:\/\//i.test(rawFromPhoto) && !/^data:/i.test(rawFromPhoto) && rawFromPhoto.length <= 360)
     ? rawFromPhoto
     : '';
   const clampPushStr = (val, max = 80) => {
@@ -837,10 +837,14 @@ async function dispatchNotificationGateway(targetId, data = {}, options = {}) {
   const pushTitle = clampPushStr(from.name || 'Unibo', 72) || 'Unibo';
   const pushBody = clampPushStr(data.text || 'You have a new notification', 200) || 'You have a new notification';
   const safeNotifPayload = {};
-  ['kind', 'convoId', 'groupId', 'collection', 'postId', 'streamId', 'profileId', 'notifDocId'].forEach(k => {
+  ['kind', 'convoId', 'groupId', 'groupName', 'collection', 'postId', 'streamId', 'profileId', 'notifDocId'].forEach(k => {
     const v = clampPushStr(notifPayload[k] || '', 80);
     if (v) safeNotifPayload[k] = v;
   });
+  const rawMediaUrl = String(notifPayload.mediaUrl || '').trim();
+  if (/^https?:\/\//i.test(rawMediaUrl) && !/^data:/i.test(rawMediaUrl) && rawMediaUrl.length <= 380) {
+    safeNotifPayload.mediaUrl = rawMediaUrl;
+  }
   const bridgePayload = {
     mode,
     targetId: clampPushStr(targetId, 80),
@@ -3609,9 +3613,22 @@ function initials(n) {
   return (p[0][0] + (p[1] ? p[1][0] : '')).toUpperCase();
 }
 
+function resolvePublicPhotoUrl(raw) {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  // Rewrite private Appwrite push_avatars storage URLs through the authenticated bridge /avatar proxy
+  const m = url.match(/\/storage\/buckets\/([a-zA-Z0-9_-]+)\/files\/([a-zA-Z0-9_-]+)\/(?:view|preview|download)/i);
+  if (m && m[1] === '6b06c81b00165508f719' && m[2]) {
+    const base = String(window.UNINO_APPWRITE_BRIDGE_BASE_URL || 'https://69dd474c000ed9db9d03.fra.appwrite.run').replace(/\/+$/, '');
+    return `${base}/avatar/${encodeURIComponent(m[2])}`;
+  }
+  return url;
+}
+
 function avatar(name, photo, cls = 'avatar-sm') {
   const bg = colorFor(name);
-  if (photo) return `<div class="${cls}" style="background:${bg}"><img src="${photo}" alt="" loading="lazy" decoding="async" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
+  const resolved = resolvePublicPhotoUrl(photo);
+  if (resolved) return `<div class="${cls}" style="background:${bg}"><img src="${resolved}" alt="" loading="lazy" decoding="async" onerror="this.remove();this.parentElement.textContent='${initials(name)}'"></div>`;
   return `<div class="${cls}" style="background:${bg}">${initials(name)}</div>`;
 }
 
@@ -4260,20 +4277,41 @@ async function uploadAvatarViaAppwriteBridge(fileOrDataUrl, prevFileId = '') {
 async function migrateBase64AvatarToCloudIfNeeded() {
   try {
     if (!state.user?.uid || state.user?.isDemo) return;
-    const cur = String(state.profile?.photoURL || '');
-    if (!cur.startsWith('data:image/')) return;
-    const uploaded = await uploadAvatarViaAppwriteBridge(cur, state.profile?.avatarFileId || '');
-    if (!uploaded?.photoURL) return;
+    const cur = String(state.profile?.photoURL || '').trim();
+    if (!cur) return;
+
+    const isBase64 = cur.startsWith('data:image/');
+    const isPrivateAppwriteAvatar = /\/storage\/buckets\/6b06c81b00165508f719\/files\/([a-zA-Z0-9_-]+)\//i.test(cur);
+    if (!isBase64 && !isPrivateAppwriteAvatar) return;
+
+    let blob = null;
+    if (isBase64) {
+      const resp = await fetch(cur);
+      blob = await resp.blob();
+    } else {
+      const proxyUrl = resolvePublicPhotoUrl(cur);
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) return;
+      blob = await resp.blob();
+    }
+    if (!blob || !blob.size) return;
+
+    const rawFile = new File([blob], 'avatar.jpg', { type: blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg' });
+    const compactAvatar = await compressImageToFile(rawFile, 320, 0.78, 'avatar.jpg');
+    const r2Url = await uploadToR2(compactAvatar, 'profile');
+    if (!r2Url || !/^https?:\/\//i.test(r2Url)) return;
+
     await db.collection('users').doc(state.user.uid).update({
-      photoURL: uploaded.photoURL,
-      avatarRef: uploaded.avatarRef || '',
-      avatarFileId: uploaded.fileId || ''
+      photoURL: r2Url,
+      avatarRef: '',
+      avatarFileId: ''
     }).catch(() => { });
     if (state.profile) {
-      state.profile.photoURL = uploaded.photoURL;
-      state.profile.avatarRef = uploaded.avatarRef || '';
-      state.profile.avatarFileId = uploaded.fileId || '';
+      state.profile.photoURL = r2Url;
+      state.profile.avatarRef = '';
+      state.profile.avatarFileId = '';
     }
+    updateCachedUserRecord(state.user.uid, { ...state.profile, photoURL: r2Url });
     setupHeader();
   } catch (_) { }
 }
@@ -7023,7 +7061,8 @@ function setupHeader() {
   const el = $('#hdr-avatar');
   if (!el || !state.profile) return;
   const p = state.profile;
-  if (p.photoURL) { el.innerHTML = `<img src="${p.photoURL}" alt=""><span class="header-presence-dot ${state.status === 'online' ? 'is-online' : ''}"></span>`; el.style.background = 'transparent'; }
+  const hdrPhoto = resolvePublicPhotoUrl(p.photoURL);
+  if (hdrPhoto) { el.innerHTML = `<img src="${hdrPhoto}" alt="" onerror="this.remove();this.parentElement.style.background='${colorFor(p.displayName)}';this.parentElement.insertAdjacentText('afterbegin','${initials(p.displayName)}')"><span class="header-presence-dot ${state.status === 'online' ? 'is-online' : ''}"></span>`; el.style.background = 'transparent'; }
   else { el.innerHTML = `${initials(p.displayName)}<span class="header-presence-dot ${state.status === 'online' ? 'is-online' : ''}"></span>`; el.style.background = colorFor(p.displayName); }
   el.classList.add('has-presence');
   el.onclick = event => {
@@ -7082,9 +7121,10 @@ function openHeaderProfileMenu() {
   const locEnabled = isLocationSharingEnabled(state.profile);
   const anonEnabled = allowAnonymousDMsFor(state.profile);
   const isDemo = isNwuDemoActive();
+  const menuPhoto = resolvePublicPhotoUrl(state.profile.photoURL);
   menu.innerHTML = `
     <div class="header-profile-summary">
-      <div class="header-profile-menu-avatar">${state.profile.photoURL ? `<img src="${state.profile.photoURL}" alt="">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
+      <div class="header-profile-menu-avatar">${menuPhoto ? `<img src="${menuPhoto}" alt="" onerror="this.remove();this.parentElement.insertAdjacentText('afterbegin','${initials(state.profile.displayName)}')">` : initials(state.profile.displayName)}<span class="header-presence-dot ${isOnline ? 'is-online' : ''}"></span></div>
       <div style="min-width:0;flex:1">
         <div class="header-profile-name-row">
           <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(state.profile.displayName || 'Student')}</strong>
@@ -14144,8 +14184,14 @@ function destroyRadarMapInstance() {
 }
 
 function createMapLibreMarkerHTML(kind = 'user', options = {}) {
-  if (kind === 'me') return `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
-  if (kind === 'user') return `<div class="map-user-pin ${options.cls || ''}">${options.photoURL ? `<img src="${options.photoURL}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
+  if (kind === 'me') {
+    const mePhoto = resolvePublicPhotoUrl(state.profile.photoURL);
+    return `<div class="map-user-pin map-me-pin">${mePhoto ? `<img src="${mePhoto}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`;
+  }
+  if (kind === 'user') {
+    const uPhoto = resolvePublicPhotoUrl(options.photoURL);
+    return `<div class="map-user-pin ${options.cls || ''}">${uPhoto ? `<img src="${uPhoto}">` : `<span>${initials(options.label || 'User')}</span>`}</div>`;
+  }
   if (kind === 'cluster') return `<div class="map-user-cluster">${Number(options.count || 0)}</div>`;
   return `<div class="map-pin-wrap ${options.hasEvents ? 'has-events' : ''} ${options.floating ? 'is-floating' : ''}"><span class="map-pin-emoji">${options.emoji || '📍'}</span>${options.count ? `<span class="map-pin-count">${options.count}</span>` : ''}${options.label ? `<span class="map-pin-label">${esc(options.label)}</span>` : ''}</div>`;
 }
@@ -14381,8 +14427,9 @@ function renderRadarDots(users, radius, type) {
     const x = Math.cos(angle) * radius;
     const y = Math.sin(angle) * radius;
     const bg = colorFor(u.displayName);
+    const dotPhoto = resolvePublicPhotoUrl(u.photoURL);
     return `<div class="radar-dot ${type}" style="transform:translate(${x}px,${y}px);background:${bg}" onclick="showUserPreview('${u.id}')" title="${esc(u.displayName)}">
-      ${u.photoURL ? `<img src="${u.photoURL}" alt="">` : initials(u.displayName)}
+      ${dotPhoto ? `<img src="${dotPhoto}" alt="">` : initials(u.displayName)}
     </div>`;
   }).join('');
 }
@@ -15865,9 +15912,10 @@ function initLeafletMap(eventsByLoc) {
     } catch (_) { }
   });
 
+  const myMapPhoto = resolvePublicPhotoUrl(state.profile.photoURL);
   const myIcon = L.divIcon({
     className: 'leaflet-user-pin',
-    html: `<div class="map-user-pin map-me-pin">${state.profile.photoURL ? `<img src="${state.profile.photoURL}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
+    html: `<div class="map-user-pin map-me-pin">${myMapPhoto ? `<img src="${myMapPhoto}">` : `<span>${initials(state.profile.displayName)}</span>`}</div>`,
     iconSize: [36, 36],
     iconAnchor: [18, 18]
   });
@@ -15894,9 +15942,10 @@ function initLeafletMap(eventsByLoc) {
   allExploreUsers.forEach(u => {
     const coords = getUserCoords(u);
     if (!coords) return;
+    const uMapPhoto = resolvePublicPhotoUrl(u.photoURL);
     const userIcon = L.divIcon({
       className: 'leaflet-user-pin',
-      html: `<div class="map-user-pin">${u.photoURL ? `<img src="${u.photoURL}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
+      html: `<div class="map-user-pin">${uMapPhoto ? `<img src="${uMapPhoto}">` : `<span>${initials(u.displayName)}</span>`}</div>`,
       iconSize: [28, 28],
       iconAnchor: [14, 14]
     });
@@ -17334,8 +17383,12 @@ async function openGroupChat(groupId, collection = 'groups') {
         const gMembers = (gData.members || []).filter(m => m && m !== uid);
         const gName = gData.groupTitle || gData.assignmentTitle || gData.name || 'Group';
         const msgSummary = audioURL ? 'sent a voice message' : imageURL ? 'sent a photo' : (safeText || 'sent a message');
+        const gNotifPayload = { groupId, collection, kind: 'group', groupName: gName };
+        if (imageURL && mediaType === 'image' && /^https?:\/\//i.test(imageURL)) {
+          gNotifPayload.mediaUrl = imageURL;
+        }
         gMembers.forEach(targetId => {
-          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, { groupId, collection, kind: 'group' }).catch(() => { });
+          addNotification(targetId, 'group', `${msgSummary} in ${gName}`, gNotifPayload).catch(() => { });
         });
       } catch (e) { console.error(e); }
     };
@@ -21050,7 +21103,11 @@ async function openChat(convoId) {
           : imageURL
             ? (mediaType === 'video' ? '📹 Video' : (safeText ? `📷 Photo: ${safeText}` : '📷 Photo'))
             : clampText(safeText || 'New message', 100);
-        addNotification(otherUid, 'message', notifPreview, { convoId }).catch(() => { });
+        const dmNotifPayload = { convoId };
+        if (imageURL && mediaType === 'image' && /^https?:\/\//i.test(imageURL)) {
+          dmNotifPayload.mediaUrl = imageURL;
+        }
+        addNotification(otherUid, 'message', notifPreview, dmNotifPayload, { anonymous: senderAnon }).catch(() => { });
       } catch (e) { console.error(e); }
     };
     $('#chat-send').onclick = sendMsg;
@@ -21409,13 +21466,14 @@ async function openProfile(uid) {
     const myModulesSet = new Set(normalizeModules(state.profile?.modules || []));
     const showFriendCount = user.showFriendsCount !== false && isMe; // only show to self unless they opted in
 
+    const resolvedProfilePhoto = resolvePublicPhotoUrl(user.photoURL);
     // KEY FIX: avatar-wrap is INSIDE profile-cover so position:absolute works relative to cover
     body.innerHTML = `
       <div class="profile-cover">
         <div class="profile-cover-grid"></div>
         <div class="profile-avatar-wrap">
-          <div class="profile-avatar-large${user.photoURL ? ' clickable' : ''}" ${user.photoURL ? `onclick="viewImage('${user.photoURL}')"` : ''}>
-            ${user.photoURL ? `<img src="${user.photoURL}" alt="">` : initials(profileDisplayName)}
+          <div class="profile-avatar-large${resolvedProfilePhoto ? ' clickable' : ''}" ${resolvedProfilePhoto ? `onclick="viewImage('${resolvedProfilePhoto}')"` : ''}>
+            ${resolvedProfilePhoto ? `<img src="${resolvedProfilePhoto}" alt="" onerror="this.remove();this.parentElement.textContent='${initials(profileDisplayName)}'">` : initials(profileDisplayName)}
           </div>
           ${user.status === 'online' ? '<div class="avatar-online-dot"></div>' : ''}
         </div>
@@ -22040,8 +22098,8 @@ function editProfile() {
       <!-- 1. Avatar Preview & Upload -->
       <div class="edit-avatar-section">
         <div class="edit-avatar-wrap" id="edit-avatar-preview" onclick="$('#edit-photo')?.click()" title="Click to change photo">
-          ${p.photoURL
-      ? `<img src="${p.photoURL}" class="edit-avatar-img" alt="Avatar">`
+          ${resolvePublicPhotoUrl(p.photoURL)
+      ? `<img src="${resolvePublicPhotoUrl(p.photoURL)}" class="edit-avatar-img" alt="Avatar" onerror="this.outerHTML='<div class=\\'edit-avatar-fallback\\'>${initials(p.displayName || 'User')}</div>'">`
       : `<div class="edit-avatar-fallback">${initials(p.displayName || 'User')}</div>`}
           <div class="edit-avatar-badge" aria-hidden="true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -22587,15 +22645,10 @@ function editProfile() {
         return;
       }
       if (newPhotoFile) {
-        const awAvatar = await uploadAvatarViaAppwriteBridge(newPhotoFile, state.profile?.avatarFileId || '');
-        if (awAvatar?.photoURL) {
-          updates.photoURL = awAvatar.photoURL;
-          updates.avatarRef = awAvatar.avatarRef || '';
-          updates.avatarFileId = awAvatar.fileId || '';
-        } else {
-          const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
-          updates.photoURL = await uploadToR2(compactAvatar, 'profile');
-        }
+        const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
+        updates.photoURL = await uploadToR2(compactAvatar, 'profile');
+        updates.avatarRef = '';
+        updates.avatarFileId = '';
       }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
