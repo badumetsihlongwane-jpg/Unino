@@ -10,9 +10,10 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-11-25-fcm-v10';
+const FUNCTION_VERSION = '2026-11-27-fcm-v11';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const DEFAULT_AVATAR_BUCKET_ID = '6b06c81b00165508f719';
+const DEFAULT_BRIDGE_PUBLIC_URL = 'https://69dd474c000ed9db9d03.fra.appwrite.run';
 const _schemaCache = new Map();
 const _avatarRefCache = new Map();
 let _avatarBucketEnsured = false;
@@ -401,6 +402,28 @@ async function ensureAvatarStorageBucket(endpoint, project, key, bucketId) {
   try {
     const check = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}`, { method: 'GET', headers });
     if (check.ok) {
+      // Best-effort: ensure public read("any") permission so direct Appwrite view URLs never 401 in-app
+      try {
+        const bucket = await check.json().catch(() => null);
+        const perms = Array.isArray(bucket?.$permissions) ? bucket.$permissions : [];
+        if (bucket && !perms.includes('read("any")')) {
+          await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+              name: bucket.name || 'Push Avatars',
+              permissions: [...perms, 'read("any")'],
+              fileSecurity: false,
+              enabled: bucket.enabled !== false,
+              maximumFileSize: bucket.maximumFileSize || 1048576,
+              allowedFileExtensions: Array.isArray(bucket.allowedFileExtensions) ? bucket.allowedFileExtensions : ['jpg', 'jpeg', 'png', 'webp'],
+              compression: bucket.compression || 'none',
+              encryption: !!bucket.encryption,
+              antivirus: !!bucket.antivirus
+            })
+          }).catch(() => {});
+        }
+      } catch (_) {}
       _avatarBucketEnsured = true;
       return true;
     }
@@ -430,13 +453,90 @@ async function ensureAvatarStorageBucket(endpoint, project, key, bucketId) {
   return false;
 }
 
+function getBridgePublicBaseUrl(req) {
+  const envUrl = String(process.env.APPWRITE_BRIDGE_PUBLIC_URL || '').trim();
+  if (envUrl && /^https?:\/\//i.test(envUrl)) return envUrl.replace(/\/+$/, '');
+  const host = String(req?.headers?.host || req?.headers?.Host || '').trim();
+  if (host && /\.appwrite\.run$/i.test(host)) return `https://${host}`;
+  return DEFAULT_BRIDGE_PUBLIC_URL;
+}
+
+function extractQueryParam(req, name) {
+  if (req?.query && typeof req.query === 'object' && req.query[name]) {
+    return String(req.query[name]).trim();
+  }
+  const rawUrl = String(req?.url || req?.path || '');
+  try {
+    const parsed = new URL(rawUrl, 'http://localhost');
+    const v = parsed.searchParams.get(name);
+    if (v) return v.trim();
+  } catch {}
+  if (req?.queryString) {
+    try {
+      const sp = new URLSearchParams(String(req.queryString));
+      const v = sp.get(name);
+      if (v) return v.trim();
+    } catch {}
+  }
+  return '';
+}
+
 function extractAppwriteImageRefFromUrl(raw = '') {
   const m = String(raw || '').match(/\/storage\/buckets\/([a-zA-Z0-9_-]+)\/files\/([a-zA-Z0-9_-]+)(?:\/|$)/);
   if (m && m[1] && m[2]) return `${m[1]}:${m[2]}`;
   return '';
 }
 
-async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevFileId = '') {
+function resolvePublicAvatarUrl(raw = '', bridgeBase = DEFAULT_BRIDGE_PUBLIC_URL) {
+  const safe = sanitizePushPhotoUrl(raw);
+  if (!safe) return '';
+  const avatarBucketId = String(process.env.APPWRITE_AVATAR_BUCKET_ID || DEFAULT_AVATAR_BUCKET_ID).trim();
+  const m = safe.match(/\/storage\/buckets\/([a-zA-Z0-9_-]+)\/files\/([a-zA-Z0-9_-]+)\/(?:view|preview|download)/i);
+  if (m && m[1] === avatarBucketId && m[2]) {
+    return `${String(bridgeBase || DEFAULT_BRIDGE_PUBLIC_URL).replace(/\/+$/, '')}/avatar/${encodeURIComponent(m[2])}`;
+  }
+  return safe;
+}
+
+async function serveAvatarFromAppwriteStorage(req, res, fileId = '') {
+  const cleanId = String(fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{4,36}$/.test(cleanId)) {
+    return json(req, res, 400, { ok: false, error: 'invalid-file-id' });
+  }
+  const { endpoint, project, key } = getAppwriteConfig();
+  if (!endpoint || !project || !key) {
+    return json(req, res, 500, { ok: false, error: 'missing-appwrite-config' });
+  }
+  const bucketId = String(process.env.APPWRITE_AVATAR_BUCKET_ID || DEFAULT_AVATAR_BUCKET_ID).trim();
+  const base = endpoint.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(cleanId)}/view`, {
+      method: 'GET',
+      headers: {
+        'X-Appwrite-Project': project,
+        'X-Appwrite-Key': key
+      }
+    });
+    if (!resp.ok) {
+      return json(req, res, resp.status === 404 ? 404 : 502, { ok: false, error: 'avatar-fetch-failed', status: resp.status });
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const ct = String(resp.headers.get('content-type') || 'image/jpeg').split(';')[0].trim() || 'image/jpeg';
+    const headers = {
+      'content-type': ct,
+      'cache-control': 'public, max-age=86400',
+      ...corsHeaders(req)
+    };
+    if (typeof res.binary === 'function') {
+      return res.binary(buf, 200, headers);
+    }
+    return res.send(buf, 200, headers);
+  } catch (e) {
+    return json(req, res, 502, { ok: false, error: 'avatar-proxy-error', detail: String(e?.message || e).slice(0, 120) });
+  }
+}
+
+async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevFileId = '', bridgeBase = DEFAULT_BRIDGE_PUBLIC_URL) {
   const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
   if (!m) throw new Error('invalid-avatar-data-url');
   const mime = m[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : m[1].toLowerCase();
@@ -449,12 +549,15 @@ async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevF
   const base = endpoint.replace(/\/$/, '');
   const authHeaders = { 'X-Appwrite-Project': project, 'X-Appwrite-Key': key };
 
+  await ensureAvatarStorageBucket(endpoint, project, key, bucketId).catch(() => {});
+
   const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
   const digest = crypto.createHash('sha1').update(`${uid}:${Date.now()}:${buf.length}`).digest('hex').slice(0, 26);
   const fileId = `av_${digest}`;
   const form = new FormData();
   form.append('fileId', fileId);
   form.append('file', new Blob([buf], { type: mime }), `${fileId}.${ext}`);
+  form.append('permissions[]', 'read("any")');
 
   const uploadResp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files`, {
     method: 'POST',
@@ -475,15 +578,15 @@ async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevF
   }
 
   const avatarRef = `${bucketId}:${fileId}`;
-  const photoURL = `${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(fileId)}/view?project=${encodeURIComponent(project)}`;
+  // Return the bridge /avatar/:fileId URL so it always renders publicly even if bucket permissions are private
+  const photoURL = `${String(bridgeBase || DEFAULT_BRIDGE_PUBLIC_URL).replace(/\/+$/, '')}/avatar/${encodeURIComponent(fileId)}`;
   _avatarRefCache.set(fileId, avatarRef);
   return { ok: true, bucketId, fileId, avatarRef, photoURL };
 }
 
-async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl = '') {
-  const safeUrl = sanitizePushPhotoUrl(senderPhotoUrl);
+async function syncMediaImageToAppwriteStorage(mediaUrl = '') {
+  const safeUrl = sanitizePushPhotoUrl(mediaUrl);
   if (!safeUrl) return '';
-  // Fast-path: if already hosted in Appwrite Storage, return bucketId:fileId immediately (0ms)
   const directRef = extractAppwriteImageRefFromUrl(safeUrl);
   if (directRef) return directRef;
 
@@ -491,8 +594,8 @@ async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl 
   if (!endpoint || !project || !key) return '';
 
   const bucketId = String(process.env.APPWRITE_AVATAR_BUCKET_ID || DEFAULT_AVATAR_BUCKET_ID).trim();
-  const digest = crypto.createHash('sha1').update(`${senderUid || 'u'}:${safeUrl}`).digest('hex').slice(0, 28);
-  const fileId = `av_${digest}`;
+  const digest = crypto.createHash('sha1').update(`media:${safeUrl}`).digest('hex').slice(0, 28);
+  const fileId = `md_${digest}`;
   const ref = `${bucketId}:${fileId}`;
 
   if (_avatarRefCache.has(fileId)) return _avatarRefCache.get(fileId);
@@ -506,7 +609,6 @@ async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl 
   const bucketOk = await ensureAvatarStorageBucket(endpoint, project, key, bucketId);
   if (!bucketOk) return '';
 
-  // Reuse already-uploaded avatar file if present
   try {
     const existsResp = await fetch(`${base}/storage/buckets/${encodeURIComponent(bucketId)}/files/${encodeURIComponent(fileId)}`, {
       method: 'GET',
@@ -518,7 +620,6 @@ async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl 
     }
   } catch (_) {}
 
-  // Download sender's compact avatar from R2 and upload to Appwrite Storage
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);
@@ -552,8 +653,7 @@ async function syncSenderAvatarToAppwriteStorage(senderUid = '', senderPhotoUrl 
   return '';
 }
 
-async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {}, senderUid = '', senderPhoto = '' }) {
-  const messaging = new Messaging(makeClient());
+async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data = {}, mediaUrl = '' }) {
   const appwriteUserId = toAppwriteUserId(targetFirebaseUid);
   const targetList = await listPushTargetsForFirebaseUid(targetFirebaseUid);
   const targetIds = (targetList.targets || []).map(target => target.id).filter(Boolean);
@@ -567,9 +667,55 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
     };
   }
 
+  // Primary path: Send HIGH-PRIORITY DATA-ONLY push (omit title/body/image at top level).
+  // This ensures Android ALWAYS invokes UninoFirebaseMessagingService.onMessageReceived() even
+  // when the app is backgrounded or swiped away, allowing native MessagingStyle circular sender
+  // avatars on the left and inline sent-image previews ONLY when mediaUrl is present.
+  let dataOnlyError = '';
+  try {
+    const { endpoint, project, key } = getAppwriteConfig();
+    const base = endpoint.replace(/\/$/, '');
+    const pushResp = await fetch(`${base}/messaging/messages/push`, {
+      method: 'POST',
+      headers: {
+        'X-Appwrite-Project': project,
+        'X-Appwrite-Key': key,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        messageId: ID.unique(),
+        users: [appwriteUserId],
+        data,
+        priority: 'high',
+        draft: false
+      })
+    });
+    if (pushResp.ok) {
+      const msg = await pushResp.json().catch(() => ({}));
+      return {
+        sent: true,
+        mode: 'data-only',
+        messageId: msg?.$id || '',
+        providerType: msg?.providerType || 'push',
+        appwriteUserId,
+        targetCount: targetIds.length,
+        hasSenderAvatar: !!data?.senderPhoto,
+        hasMediaPreview: !!data?.mediaUrl
+      };
+    }
+    const errText = await pushResp.text().catch(() => '');
+    dataOnlyError = `http-${pushResp.status}: ${errText.slice(0, 140)}`;
+  } catch (e) {
+    dataOnlyError = String(e?.message || e).slice(0, 140);
+  }
+
+  // Fallback path (only if Appwrite rejects data-only): send standard notification WITHOUT
+  // attaching senderPhoto as notification.image. Only attach `image` when an actual sent image
+  // (mediaUrl) was sent.
+  const messaging = new Messaging(makeClient());
   let imageRef = '';
-  if (senderPhoto) {
-    imageRef = await syncSenderAvatarToAppwriteStorage(senderUid, senderPhoto).catch(() => '');
+  if (mediaUrl) {
+    imageRef = await syncMediaImageToAppwriteStorage(mediaUrl).catch(() => '');
   }
 
   let message = null;
@@ -598,7 +744,6 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
       imageUsed = true;
     } catch (imgErr) {
       imageError = String(imgErr?.message || imgErr || '').slice(0, 140);
-      // Fallback cleanly without image so notification delivery never fails
       message = null;
     }
   }
@@ -626,11 +771,13 @@ async function dispatchPushViaMessaging({ targetFirebaseUid, title, body, data =
 
   return {
     sent: true,
+    mode: 'notification-fallback',
     messageId: message?.$id || '',
     providerType: message?.providerType || 'push',
     appwriteUserId,
     targetCount: targetIds.length,
     imageAttached: imageUsed,
+    ...(dataOnlyError ? { dataOnlyError } : {}),
     ...(imageError ? { imageError } : {})
   };
 }
@@ -701,7 +848,7 @@ async function dbDelete(databases, dbId, tableOrCollectionId, docId) {
 
 function sanitizePushPhotoUrl(raw = '') {
   const val = String(raw || '').trim();
-  if (!val || /^data:/i.test(val) || val.length > 320) return '';
+  if (!val || /^data:/i.test(val) || val.length > 380) return '';
   return /^https?:\/\//i.test(val) ? val : '';
 }
 
@@ -711,11 +858,13 @@ function clampPushText(raw = '', max = 200) {
   return `${str.slice(0, Math.max(0, max - 1))}…`;
 }
 
-function flattenNotificationData(payload = {}) {
+function flattenNotificationData(payload = {}, bridgeBase = DEFAULT_BRIDGE_PUBLIC_URL) {
   const out = {};
   const input = payload && typeof payload === 'object' ? payload : {};
   const nested = input.payload && typeof input.payload === 'object' ? input.payload : {};
   const from = input.from && typeof input.from === 'object' ? input.from : {};
+  const resolvedSenderPhoto = resolvePublicAvatarUrl(from.photo || '', bridgeBase);
+  const resolvedMediaUrl = sanitizePushPhotoUrl(nested.mediaUrl || nested.imageUrl || input.mediaUrl || '');
   const pairs = {
     kind: clampPushText(input.kind || input.type || 'app', 32),
     type: clampPushText(input.type || 'generic', 32),
@@ -727,13 +876,15 @@ function flattenNotificationData(payload = {}) {
     clickAction: 'OPEN_UNIBO',
     convoId: clampPushText(nested.convoId || '', 80),
     groupId: clampPushText(nested.groupId || '', 80),
+    groupName: clampPushText(nested.groupName || '', 64),
     collection: clampPushText(nested.collection || 'groups', 32),
     postId: clampPushText(nested.postId || '', 80),
     streamId: clampPushText(nested.streamId || '', 80),
     profileId: clampPushText(nested.profileId || from.uid || '', 80),
     notifDocId: clampPushText(nested.notifDocId || '', 80),
     senderName: clampPushText(from.name || '', 64),
-    senderPhoto: sanitizePushPhotoUrl(from.photo || ''),
+    senderPhoto: resolvedSenderPhoto,
+    mediaUrl: resolvedMediaUrl,
     at: clampPushText(input.at || new Date().toISOString(), 40)
   };
   for (const [key, value] of Object.entries(pairs)) {
@@ -741,11 +892,14 @@ function flattenNotificationData(payload = {}) {
   }
   // Enforce strict UTF-8 byte budget so FCM's 4096-byte total message limit can never be exceeded
   const byteSize = () => Buffer.byteLength(JSON.stringify(out), 'utf8');
-  if (byteSize() > 2200) {
-    delete out.senderPhoto;
-  }
   if (byteSize() > 2200 && out.body) {
     out.body = clampPushText(out.body, 100);
+  }
+  if (byteSize() > 2200) {
+    delete out.mediaUrl;
+  }
+  if (byteSize() > 2200) {
+    delete out.senderPhoto;
   }
   return out;
 }
@@ -843,13 +997,18 @@ export default async ({ req, res, log, error }) => {
   }
 
   if (method === 'GET') {
+    if (path === '/avatar' || path.startsWith('/avatar/')) {
+      const pathId = path.startsWith('/avatar/') ? decodeURIComponent(path.slice('/avatar/'.length).split('/')[0] || '') : '';
+      const fileId = pathId || extractQueryParam(req, 'file');
+      return await serveAvatarFromAppwriteStorage(req, res, fileId);
+    }
     return json(req, res, 200, {
       ok: true,
       service: 'unino-appwrite-bridge',
       version: FUNCTION_VERSION,
       status: 'ready',
       path,
-      routes: ['/push-sync', '/event-sync', '/upload-avatar']
+      routes: ['/push-sync', '/event-sync', '/upload-avatar', '/avatar/:fileId']
     });
   }
 
@@ -880,7 +1039,7 @@ export default async ({ req, res, log, error }) => {
     if (path === '/upload-avatar') {
       const { dataUrl = '', prevFileId = '' } = body;
       if (!dataUrl) return json(req, res, 400, { ok: false, error: 'missing-data-url' });
-      const uploaded = await uploadAvatarBase64ToAppwriteStorage(auth.uid, dataUrl, prevFileId);
+      const uploaded = await uploadAvatarBase64ToAppwriteStorage(auth.uid, dataUrl, prevFileId, getBridgePublicBaseUrl(req));
       log(`upload-avatar uid=${auth.uid} ref=${uploaded.avatarRef}`);
       return json(req, res, 200, { ok: true, route: 'upload-avatar', result: uploaded });
     }
@@ -931,14 +1090,13 @@ export default async ({ req, res, log, error }) => {
       let push = { sent: false, reason: 'not-attempted' };
       if (eventType === 'notification_dispatch') {
         try {
-          const flatData = flattenNotificationData(payload);
+          const flatData = flattenNotificationData(payload, getBridgePublicBaseUrl(req));
           push = await dispatchPushViaMessaging({
             targetFirebaseUid: String(payload.targetId || '').trim(),
             title: String(payload.title || payload.type || 'Unino').slice(0, 80),
             body: String(payload.body || payload.text || 'You have a new notification').slice(0, 300),
             data: flatData,
-            senderUid: String(payload?.from?.uid || auth.uid || '').trim(),
-            senderPhoto: String(flatData.senderPhoto || payload?.from?.photo || '').trim()
+            mediaUrl: String(flatData.mediaUrl || '').trim()
           });
         } catch (e) {
           push = { sent: false, reason: 'push-dispatch-failed', detail: String(e?.message || e) };
