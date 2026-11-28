@@ -2527,9 +2527,11 @@ function formatConversationLastMessage(raw = '', convo = {}, viewerUid = '', oth
 function getResolvedUserIdentity(userId = '', fallbackName = 'User', fallbackPhoto = null) {
   const cached = _userContextCache[userId] || {};
   const contactAlias = getContactNickname(userId);
+  const hasCachedPhoto = Object.prototype.hasOwnProperty.call(cached, 'photoURL');
+  const rawPhoto = hasCachedPhoto ? (cached.photoURL || null) : (fallbackPhoto || null);
   return {
     name: contactAlias || cached.displayName || cached.firstName || fallbackName || 'User',
-    photo: cached.photoURL || fallbackPhoto || null,
+    photo: rawPhoto ? resolvePublicPhotoUrl(rawPhoto) : null,
     data: cached,
     alias: contactAlias
   };
@@ -4225,14 +4227,21 @@ function toast(msg) {
 }
 
 function compress(file, max = 800, q = 0.7) {
-  return new Promise(ok => {
+  return new Promise((ok, fail) => {
     const r = new FileReader();
+    r.onerror = () => fail(new Error('Could not read selected image file'));
     r.onload = e => {
       const img = new Image();
+      img.onerror = () => fail(new Error('Unsupported or corrupted image file'));
       img.onload = () => {
         const c = document.createElement('canvas');
         let w = img.width, h = img.height;
-        if (w > max) { h = h * (max / w); w = max; }
+        const largest = Math.max(w, h);
+        if (largest > max) {
+          const scale = max / largest;
+          w = Math.max(1, Math.round(w * scale));
+          h = Math.max(1, Math.round(h * scale));
+        }
         c.width = w; c.height = h;
         c.getContext('2d').drawImage(img, 0, 0, w, h);
         ok(c.toDataURL('image/jpeg', q));
@@ -4256,22 +4265,158 @@ async function compressImageToFile(file, maxDim = 320, quality = 0.78, filename 
   }
 }
 
+// ─── Azure Blob Storage Profile Pictures (via Authenticated Bridge) ──────────
+const MAX_PROFILE_PHOTO_FILE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_PROFILE_PHOTO_TYPES = new Set([
+  'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'
+]);
+
+function validateProfilePhotoFile(file) {
+  if (!file) throw new Error('Please choose an image file.');
+  const type = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  const looksLikeImage = ALLOWED_PROFILE_PHOTO_TYPES.has(type)
+    || type.startsWith('image/')
+    || /\.(jpe?g|png|webp|gif|heic|heif)$/.test(name);
+  if (!looksLikeImage) {
+    throw new Error('Please choose a valid image (JPG, PNG, or WebP).');
+  }
+  if (file.size > MAX_PROFILE_PHOTO_FILE_BYTES) {
+    throw new Error('Image is too large (max 10 MB).');
+  }
+  return true;
+}
+
+function compressProfilePictureDataUrl(fileOrDataUrl, targetSize = 360, quality = 0.84) {
+  const renderSquareFromSrc = src => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('Could not decode this image. Please try a JPG or PNG photo.'));
+    img.onload = () => {
+      try {
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        if (!iw || !ih) return reject(new Error('Invalid image dimensions.'));
+        const side = Math.min(iw, ih);
+        const sx = Math.floor((iw - side) / 2);
+        const sy = Math.floor((ih - side) / 2);
+        const outDim = Math.min(targetSize, side);
+        const canvas = document.createElement('canvas');
+        canvas.width = outDim;
+        canvas.height = outDim;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, outDim, outDim);
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, outDim, outDim);
+        const out = canvas.toDataURL('image/jpeg', quality);
+        if (!out || !out.startsWith('data:image/')) {
+          return reject(new Error('Image compression failed.'));
+        }
+        resolve(out);
+      } catch (err) {
+        reject(new Error(err?.message || 'Image processing failed.'));
+      }
+    };
+    img.src = src;
+  });
+
+  if (typeof fileOrDataUrl === 'string' && fileOrDataUrl.startsWith('data:image/')) {
+    return renderSquareFromSrc(fileOrDataUrl);
+  }
+  validateProfilePhotoFile(fileOrDataUrl);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.onload = e => renderSquareFromSrc(e.target.result).then(resolve, reject);
+    reader.readAsDataURL(fileOrDataUrl);
+  });
+}
+
+function extractAzureProfileBlobName(photoUrl = '') {
+  const raw = String(photoUrl || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    if (!u.hostname.endsWith('.blob.core.windows.net')) return '';
+    const m = u.pathname.match(/^\/profile-pictures\/(.+)$/i);
+    return m && m[1] ? decodeURIComponent(m[1]) : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+async function uploadProfilePictureToAzure(fileOrDataUrl, prevBlobName = '', prevPhotoUrl = '') {
+  if (!auth.currentUser) throw new Error('You must be signed in to update your profile picture.');
+  const dataUrl = await compressProfilePictureDataUrl(fileOrDataUrl, 360, 0.84);
+  const base = String(window.UNINO_APPWRITE_BRIDGE_BASE_URL || 'https://69dd474c000ed9db9d03.fra.appwrite.run').replace(/\/+$/, '');
+  const resolvedPrevBlob = prevBlobName || extractAzureProfileBlobName(prevPhotoUrl);
+  const resp = await postToAppwriteBridge(`${base}/profile-picture`, {
+    dataUrl,
+    prevBlobName: resolvedPrevBlob,
+    prevPhotoUrl: prevPhotoUrl || ''
+  });
+  const payload = await resp.json().catch(() => null);
+  if (!resp.ok || !payload?.ok || !payload?.result?.photoURL) {
+    const serverErr = payload?.error || `Upload failed (HTTP ${resp.status})`;
+    throw new Error(serverErr);
+  }
+  return payload.result;
+}
+
+async function deleteProfilePictureFromAzure(blobName = '', photoUrl = '') {
+  if (!auth.currentUser) return { deleted: false, reason: 'not-signed-in' };
+  const resolvedBlob = blobName || extractAzureProfileBlobName(photoUrl);
+  if (!resolvedBlob) return { deleted: false, reason: 'not-azure-blob' };
+  try {
+    const base = String(window.UNINO_APPWRITE_BRIDGE_BASE_URL || 'https://69dd474c000ed9db9d03.fra.appwrite.run').replace(/\/+$/, '');
+    const resp = await postToAppwriteBridge(`${base}/delete-profile-picture`, {
+      blobName: resolvedBlob,
+      photoUrl: photoUrl || ''
+    });
+    const payload = await resp.json().catch(() => null);
+    return payload?.result || { deleted: resp.ok };
+  } catch (e) {
+    console.warn('Azure profile picture delete failed:', e?.message || e);
+    return { deleted: false, reason: 'network-error' };
+  }
+}
+
+async function syncProfilePhotoAcrossApp(uid, nextPhotoUrl = '') {
+  if (!uid) return;
+  const cleanPhoto = nextPhotoUrl ? resolvePublicPhotoUrl(nextPhotoUrl) : '';
+  // Update cached posts in memory so feed immediately displays the new avatar
+  if (Array.isArray(state.posts)) {
+    state.posts.forEach(post => {
+      if (post && post.authorId === uid && !post.isAnonymous) {
+        post.authorPhoto = cleanPhoto || null;
+      }
+    });
+  }
+  // Propagate updated avatar to existing DM conversation docs (best-effort, non-blocking)
+  try {
+    const snap = await db.collection('conversations').where('participants', 'array-contains', uid).get();
+    const updates = snap.docs.map(doc => {
+      const data = doc.data() || {};
+      const participants = Array.isArray(data.participants) ? data.participants : [];
+      const idx = participants.indexOf(uid);
+      if (idx < 0) return null;
+      const photos = Array.isArray(data.participantPhotos) ? [...data.participantPhotos] : participants.map(() => null);
+      if ((photos[idx] || '') === cleanPhoto) return null;
+      photos[idx] = cleanPhoto || null;
+      return doc.ref.set({ participantPhotos: photos }, { merge: true }).catch(() => { });
+    }).filter(Boolean);
+    if (updates.length) await Promise.all(updates);
+  } catch (e) {
+    console.warn('syncProfilePhotoAcrossApp conversation sync skipped:', e?.message || e);
+  }
+}
+
 async function uploadAvatarViaAppwriteBridge(fileOrDataUrl, prevFileId = '') {
   try {
-    if (!auth.currentUser) return null;
-    const dataUrl = typeof fileOrDataUrl === 'string' && fileOrDataUrl.startsWith('data:image/')
-      ? fileOrDataUrl
-      : await compress(fileOrDataUrl, 320, 0.78);
-    if (!dataUrl || !dataUrl.startsWith('data:image/')) return null;
-    const base = String(window.UNINO_APPWRITE_BRIDGE_BASE_URL || 'https://69dd474c000ed9db9d03.fra.appwrite.run').replace(/\/+$/, '');
-    const resp = await postToAppwriteBridge(`${base}/upload-avatar`, { dataUrl, prevFileId });
-    if (!resp.ok) return null;
-    const json = await resp.json().catch(() => null);
-    if (json?.ok && json?.result?.photoURL) return json.result;
+    return await uploadProfilePictureToAzure(fileOrDataUrl, state.profile?.avatarBlobName || '', state.profile?.photoURL || '');
   } catch (e) {
-    console.warn('Appwrite avatar upload skipped:', e?.message || e);
+    console.warn('Profile picture upload skipped:', e?.message || e);
+    return null;
   }
-  return null;
 }
 
 async function migrateBase64AvatarToCloudIfNeeded() {
@@ -4280,40 +4425,51 @@ async function migrateBase64AvatarToCloudIfNeeded() {
     const cur = String(state.profile?.photoURL || '').trim();
     if (!cur) return;
 
+    // Already hosted in Azure Blob Storage
+    if (/\.blob\.core\.windows\.net\/profile-pictures\//i.test(cur)) return;
+
     const isBase64 = cur.startsWith('data:image/');
     const isPrivateAppwriteAvatar = /\/storage\/buckets\/6b06c81b00165508f719\/files\/([a-zA-Z0-9_-]+)\//i.test(cur);
-    if (!isBase64 && !isPrivateAppwriteAvatar) return;
+    const isLegacyR2Profile = cur.startsWith(R2_BASE) && cur.includes(`/${state.user.uid}/profile/`);
+    if (!isBase64 && !isPrivateAppwriteAvatar && !isLegacyR2Profile) return;
 
-    let blob = null;
+    let sourceForUpload = null;
     if (isBase64) {
-      const resp = await fetch(cur);
-      blob = await resp.blob();
+      sourceForUpload = cur;
     } else {
-      const proxyUrl = resolvePublicPhotoUrl(cur);
-      const resp = await fetch(proxyUrl);
+      const fetchUrl = resolvePublicPhotoUrl(cur);
+      const resp = await fetch(fetchUrl);
       if (!resp.ok) return;
-      blob = await resp.blob();
+      const blob = await resp.blob();
+      if (!blob || !blob.size) return;
+      sourceForUpload = new File([blob], 'avatar.jpg', {
+        type: blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg'
+      });
     }
-    if (!blob || !blob.size) return;
 
-    const rawFile = new File([blob], 'avatar.jpg', { type: blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg' });
-    const compactAvatar = await compressImageToFile(rawFile, 320, 0.78, 'avatar.jpg');
-    const r2Url = await uploadToR2(compactAvatar, 'profile');
-    if (!r2Url || !/^https?:\/\//i.test(r2Url)) return;
+    const uploaded = await uploadProfilePictureToAzure(
+      sourceForUpload,
+      state.profile?.avatarBlobName || '',
+      cur
+    );
+    if (!uploaded?.photoURL || !/^https?:\/\//i.test(uploaded.photoURL)) return;
 
-    await db.collection('users').doc(state.user.uid).update({
-      photoURL: r2Url,
+    const migrationUpdates = {
+      photoURL: uploaded.photoURL,
+      avatarBlobName: uploaded.blobName || '',
+      avatarStorageProvider: 'azure-blob',
       avatarRef: '',
       avatarFileId: ''
-    }).catch(() => { });
-    if (state.profile) {
-      state.profile.photoURL = r2Url;
-      state.profile.avatarRef = '';
-      state.profile.avatarFileId = '';
-    }
-    updateCachedUserRecord(state.user.uid, { ...state.profile, photoURL: r2Url });
+    };
+    await db.collection('users').doc(state.user.uid).update(migrationUpdates).catch(() => { });
+    if (state.profile) Object.assign(state.profile, migrationUpdates);
+    updateCachedUserRecord(state.user.uid, { ...state.profile, ...migrationUpdates });
+    syncProfilePhotoAcrossApp(state.user.uid, uploaded.photoURL).catch(() => { });
+    if (isLegacyR2Profile) deleteFromR2(cur).catch(() => { });
     setupHeader();
-  } catch (_) { }
+  } catch (e) {
+    console.warn('Background avatar migration to Azure skipped:', e?.message || e);
+  }
 }
 
 // ─── R2 Cloud Media Storage ──────────────────────
@@ -22108,8 +22264,11 @@ function editProfile() {
             </svg>
           </div>
         </div>
-        <input type="file" accept="image/*" id="edit-photo" style="display:none">
-        <button type="button" class="btn-ghost edit-avatar-btn" id="edit-avatar-change-btn" onclick="$('#edit-photo')?.click()">Change Photo</button>
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" id="edit-photo" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn-ghost edit-avatar-btn" id="edit-avatar-change-btn" onclick="$('#edit-photo')?.click()">Change Photo</button>
+          <button type="button" class="btn-ghost edit-avatar-btn" id="edit-avatar-remove-btn" style="${resolvePublicPhotoUrl(p.photoURL) ? '' : 'display:none;'}color:var(--red,#ef4444)">Remove Photo</button>
+        </div>
       </div>
 
       <!-- 2. Academic & Degree Programme -->
@@ -22548,30 +22707,62 @@ function editProfile() {
     };
   }
 
-  // Photo live preview
-  let newPhoto = null; let newPhotoFile = null;
+  // Photo live preview + validation + removal
+  let newPhoto = null;
+  let newPhotoFile = null;
+  let removePhotoRequested = false;
+  let tempPreviewObjectUrl = null;
+  const cameraBadgeHtml = `
+    <div class="edit-avatar-badge" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+        <circle cx="12" cy="13" r="4"></circle>
+      </svg>
+    </div>`;
   const photoInput = $('#edit-photo');
+  const removePhotoBtn = $('#edit-avatar-remove-btn');
   if (photoInput) {
     photoInput.onchange = e => {
       const file = e.target.files?.[0];
-      if (file) {
-        newPhotoFile = file;
-        newPhoto = 'pending';
-        const previewUrl = URL.createObjectURL(file);
-        const previewWrap = $('#edit-avatar-preview');
-        if (previewWrap) {
-          previewWrap.innerHTML = `
-            <img src="${previewUrl}" class="edit-avatar-img" alt="Avatar">
-            <div class="edit-avatar-badge" aria-hidden="true">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                <circle cx="12" cy="13" r="4"></circle>
-              </svg>
-            </div>
-          `;
-        }
-        toast('Photo selected! Tap Save to apply.');
+      if (!file) return;
+      try {
+        validateProfilePhotoFile(file);
+      } catch (valErr) {
+        photoInput.value = '';
+        toast(valErr?.message || 'Invalid image file');
+        return;
       }
+      if (tempPreviewObjectUrl) {
+        try { URL.revokeObjectURL(tempPreviewObjectUrl); } catch (_) { }
+      }
+      newPhotoFile = file;
+      newPhoto = 'pending';
+      removePhotoRequested = false;
+      tempPreviewObjectUrl = URL.createObjectURL(file);
+      const previewWrap = $('#edit-avatar-preview');
+      if (previewWrap) {
+        previewWrap.innerHTML = `<img src="${tempPreviewObjectUrl}" class="edit-avatar-img" alt="Avatar">${cameraBadgeHtml}`;
+      }
+      if (removePhotoBtn) removePhotoBtn.style.display = '';
+      toast('Photo selected! Tap Save to upload.');
+    };
+  }
+  if (removePhotoBtn) {
+    removePhotoBtn.onclick = () => {
+      if (tempPreviewObjectUrl) {
+        try { URL.revokeObjectURL(tempPreviewObjectUrl); } catch (_) { }
+        tempPreviewObjectUrl = null;
+      }
+      newPhotoFile = null;
+      newPhoto = null;
+      removePhotoRequested = true;
+      if (photoInput) photoInput.value = '';
+      const previewWrap = $('#edit-avatar-preview');
+      if (previewWrap) {
+        previewWrap.innerHTML = `<div class="edit-avatar-fallback">${initials($('#edit-name')?.value?.trim() || p.displayName || 'User')}</div>${cameraBadgeHtml}`;
+      }
+      removePhotoBtn.style.display = 'none';
+      toast('Profile photo marked for removal. Tap Save to apply.');
     };
   }
 
@@ -22636,6 +22827,8 @@ function editProfile() {
       if (isNwuDemoActive()) {
         if (newPhotoFile) {
           try { updates.photoURL = URL.createObjectURL(newPhotoFile); } catch (_) { }
+        } else if (removePhotoRequested) {
+          updates.photoURL = '';
         }
         Object.assign(state.profile, updates);
         setupHeader();
@@ -22644,31 +22837,77 @@ function editProfile() {
         openProfile(state.user.uid);
         return;
       }
+      const prevPhotoUrl = String(state.profile?.photoURL || '').trim();
+      const prevBlobName = String(state.profile?.avatarBlobName || '').trim() || extractAzureProfileBlobName(prevPhotoUrl);
+      let photoChanged = false;
       if (newPhotoFile) {
-        const compactAvatar = await compressImageToFile(newPhotoFile, 320, 0.78, 'avatar.jpg');
-        updates.photoURL = await uploadToR2(compactAvatar, 'profile');
+        const uploaded = await uploadProfilePictureToAzure(newPhotoFile, prevBlobName, prevPhotoUrl);
+        updates.photoURL = uploaded.photoURL;
+        updates.avatarBlobName = uploaded.blobName || '';
+        updates.avatarStorageProvider = 'azure-blob';
         updates.avatarRef = '';
         updates.avatarFileId = '';
+        photoChanged = true;
+        // Clean up legacy R2 profile object if replacing an old R2 avatar
+        if (prevPhotoUrl && prevPhotoUrl.startsWith(R2_BASE) && prevPhotoUrl.includes(`/${state.user.uid}/profile/`)) {
+          deleteFromR2(prevPhotoUrl).catch(() => { });
+        }
+      } else if (removePhotoRequested) {
+        if (prevBlobName) {
+          await deleteProfilePictureFromAzure(prevBlobName, prevPhotoUrl).catch(() => { });
+        } else if (prevPhotoUrl && prevPhotoUrl.startsWith(R2_BASE) && prevPhotoUrl.includes(`/${state.user.uid}/profile/`)) {
+          await deleteFromR2(prevPhotoUrl).catch(() => { });
+        }
+        updates.photoURL = '';
+        updates.avatarBlobName = '';
+        updates.avatarStorageProvider = '';
+        updates.avatarRef = '';
+        updates.avatarFileId = '';
+        photoChanged = true;
       }
       await db.collection('users').doc(state.user.uid).update(updates);
       Object.assign(state.profile, updates);
       cacheAcademicProfile(state.profile);
       updateCachedUserRecord(state.user.uid, { ...state.profile, ...updates });
       shadowSyncUserProfile(state.user.uid, { ...state.profile, ...updates });
+      if (photoChanged) {
+        syncProfilePhotoAcrossApp(state.user.uid, updates.photoURL || '').catch(() => { });
+      }
       if (identityChanged) syncAnonIdentityInConversations(anonIdentity).catch(() => { });
-      if (name !== state.user.displayName) await state.user.updateProfile({ displayName: name });
+      if (name !== state.user.displayName || photoChanged) {
+        const authProfileUpdate = {};
+        if (name !== state.user.displayName) authProfileUpdate.displayName = name;
+        if (photoChanged) authProfileUpdate.photoURL = updates.photoURL || '';
+        await state.user.updateProfile(authProfileUpdate).catch(() => { });
+      }
+      if (tempPreviewObjectUrl) {
+        try { URL.revokeObjectURL(tempPreviewObjectUrl); } catch (_) { }
+        tempPreviewObjectUrl = null;
+      }
       setupHeader();
       if (state.page === 'chat') { loadDMList().catch(() => { }); }
+      else if (photoChanged && state.page === 'feed') {
+        if (typeof renderFeedPosts === 'function') {
+          try { renderFeedPosts(); } catch (_) { }
+        }
+      }
       closeModal();
-      toast('Profile updated!');
+      toast(removePhotoRequested && !newPhotoFile ? 'Profile photo removed!' : 'Profile updated!');
       openProfile(state.user.uid);
     } catch (e) {
       if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save Profile Changes';
       }
-      toast('Failed to save profile');
-      console.error(e);
+      const errMsg = String(e?.message || '');
+      if (errMsg.includes('missing-azure-storage-config')) {
+        toast('Profile photo storage is still initializing. Please try again shortly.');
+      } else if (errMsg.includes('invalid-image') || errMsg.includes('too-large') || errMsg.includes('valid image') || errMsg.includes('max 10 MB')) {
+        toast(errMsg.replace(/^[^:]+:\s*/, ''));
+      } else {
+        toast('Failed to save profile — please try again.');
+      }
+      console.error('editProfile save failed:', e);
     }
   };
 }
