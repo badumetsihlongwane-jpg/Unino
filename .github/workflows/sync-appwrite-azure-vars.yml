@@ -1,0 +1,107 @@
+name: Sync Appwrite Azure Storage Vars
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'appwrite/bridge-function/**'
+      - '.github/workflows/sync-appwrite-azure-vars.yml'
+
+jobs:
+  sync-vars:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      APPWRITE_ENDPOINT: ${{ secrets.APPWRITE_ENDPOINT }}
+      APPWRITE_PROJECT_ID: ${{ secrets.APPWRITE_PROJECT_ID }}
+      APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+      APPWRITE_FUNCTION_ID: '69dd474b002ce3934b75'
+      AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+      AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
+      AZURE_STORAGE_ACCOUNT_KEY: ${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }}
+      AZURE_STORAGE_CONTAINER: ${{ secrets.AZURE_STORAGE_CONTAINER }}
+
+    steps:
+      - name: Sync Azure Blob Storage environment variables to Appwrite Bridge Function
+        run: |
+          node - <<'EOF'
+          const rawEndpoint = (process.env.APPWRITE_ENDPOINT || 'https://fra.cloud.appwrite.io/v1').trim().replace(/\/+$/, '');
+          const rawProject = (process.env.APPWRITE_PROJECT_ID || '69dd43b6002414cdfb70').trim();
+          const apiKey = (process.env.APPWRITE_API_KEY || '').trim();
+          const functionId = (process.env.APPWRITE_FUNCTION_ID || '69dd474b002ce3934b75').trim();
+
+          // Normalize legacy paused Sydney project if secret wasn't rotated
+          const endpoint = rawEndpoint.includes('syd.cloud.appwrite.io') ? 'https://fra.cloud.appwrite.io/v1' : rawEndpoint;
+          const projectId = rawProject === '69b4202c00370d4748d6' ? '69dd43b6002414cdfb70' : rawProject;
+
+          if (!apiKey) {
+            console.error('Missing APPWRITE_API_KEY secret.');
+            process.exit(1);
+          }
+
+          const desired = {
+            AZURE_STORAGE_CONNECTION_STRING: (process.env.AZURE_STORAGE_CONNECTION_STRING || '').trim(),
+            AZURE_STORAGE_ACCOUNT_NAME: (process.env.AZURE_STORAGE_ACCOUNT_NAME || 'profilesunibo').trim(),
+            AZURE_STORAGE_ACCOUNT_KEY: (process.env.AZURE_STORAGE_ACCOUNT_KEY || '').trim(),
+            AZURE_STORAGE_CONTAINER: (process.env.AZURE_STORAGE_CONTAINER || 'profile-pictures').trim()
+          };
+
+          const missing = Object.entries(desired).filter(([, v]) => !v).map(([k]) => k);
+          if (missing.length) {
+            console.error('Missing required Azure GitHub Secrets:', missing.join(', '));
+            process.exit(1);
+          }
+
+          const headers = {
+            'X-Appwrite-Project': projectId,
+            'X-Appwrite-Key': apiKey,
+            'Content-Type': 'application/json'
+          };
+
+          const listResp = await fetch(`${endpoint}/functions/${encodeURIComponent(functionId)}/variables`, {
+            method: 'GET',
+            headers
+          });
+          if (!listResp.ok) {
+            const detail = await listResp.text().catch(() => '');
+            console.error(`Failed to list Appwrite function variables (HTTP ${listResp.status}): ${detail.slice(0, 200)}`);
+            process.exit(1);
+          }
+          const listData = await listResp.json();
+          const existingByKey = new Map((listData.variables || []).map(v => [v.key, v.$id]));
+
+          for (const [key, value] of Object.entries(desired)) {
+            const existingId = existingByKey.get(key);
+            const url = existingId
+              ? `${endpoint}/functions/${encodeURIComponent(functionId)}/variables/${encodeURIComponent(existingId)}`
+              : `${endpoint}/functions/${encodeURIComponent(functionId)}/variables`;
+            const method = existingId ? 'PUT' : 'POST';
+            let resp = await fetch(url, {
+              method,
+              headers,
+              body: JSON.stringify({ key, value, secret: key.includes('KEY') || key.includes('CONNECTION_STRING') })
+            });
+            if (resp.status === 400) {
+              resp = await fetch(url, {
+                method,
+                headers,
+                body: JSON.stringify({ key, value })
+              });
+            }
+            if (!resp.ok) {
+              const detail = await resp.text().catch(() => '');
+              console.error(`Failed to ${method} variable ${key} (HTTP ${resp.status}): ${detail.slice(0, 200)}`);
+              process.exit(1);
+            }
+            console.log(`Synced Appwrite function variable: ${key} (${existingId ? 'updated' : 'created'})`);
+          }
+
+          // Verify bridge health reports azureProfilePicturesReady: true
+          const healthResp = await fetch('https://69dd474c000ed9db9d03.fra.appwrite.run/');
+          const health = await healthResp.json().catch(() => ({}));
+          console.log('Bridge health:', JSON.stringify(health));
+          EOF
