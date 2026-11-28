@@ -1,37 +1,51 @@
 # Unino Appwrite Bridge Function
 
-This function enables a safe hybrid migration:
-- Firebase remains live for existing users.
-- New users flagged as `appwritePrimary` can mirror reactions/events to Appwrite.
-- Push token lifecycle can be mirrored to Appwrite.
+This serverless bridge handles Firebase-authenticated backend operations for Unibo:
+- **Profile Pictures on Azure Blob Storage** (`profilesunibo` / `profile-pictures`) with server-side validation, read-only Blob SAS URLs, and automatic orphan cleanup.
+- **Push Notifications via Appwrite FCM Messaging** (high-priority data-only FCM pushes for native Android `MessagingStyle` circular avatars & inline sent-image previews).
+- **Shadow Sync** for staged Firebase -> Appwrite migration.
 
 ## Routes
 
 - `GET /`
-  - Health check, returns `{ ok: true, status: "ready" }`
+  - Health check, returns `{ ok: true, version, status: "ready", azureProfilePicturesReady, routes }`
+
+- `POST /profile-picture`
+  - Header: `Authorization: Bearer <firebaseIdToken>`
+  - Body: `{ dataUrl, prevBlobName?, prevPhotoUrl? }`
+  - Validates JPEG/PNG/WebP magic bytes (max 2 MB), uploads a versioned immutable blob to Azure Blob Storage (`{uid}/{timestamp}_{rand}.{ext}`), deletes the user's previous owned blob to prevent orphans, and returns a read-only HTTPS Blob SAS URL.
+
+- `POST /delete-profile-picture` (or `DELETE /profile-picture`)
+  - Header: `Authorization: Bearer <firebaseIdToken>`
+  - Body: `{ blobName?, photoUrl? }`
+  - Verifies UID ownership and deletes the user's profile picture blob from Azure Blob Storage.
 
 - `POST /push-sync`
-  - Body:
-    - `action`: `upsert` or `delete`
-    - `userId`: Firebase UID
-    - `token`: FCM token
-    - `platform`: `android` / `ios` / `web`
-  - Header:
-    - `Authorization: Bearer <firebaseIdToken>`
+  - Header: `Authorization: Bearer <firebaseIdToken>`
+  - Body: `{ action: "upsert" | "delete", userId, token, platform }`
 
 - `POST /event-sync`
-  - Body:
-    - `eventType`: e.g. `post_reaction`, `comment_reaction`
-    - `payload`: object
-  - Header:
-    - `Authorization: Bearer <firebaseIdToken>`
+  - Header: `Authorization: Bearer <firebaseIdToken>`
+  - Body: `{ eventType, payload }`
 
-## Required Appwrite Function Env Vars
+- `GET /avatar/:fileId` & `GET /profile-picture/:uid/:file`
+  - Public read proxies for legacy Appwrite avatars and Azure profile blobs.
 
+## Required Environment Variables
+
+### Core Bridge
 - `APPWRITE_ENDPOINT` = `https://fra.cloud.appwrite.io/v1`
 - `APPWRITE_PROJECT_ID` = your Appwrite project ID
 - `APPWRITE_API_KEY` = server key (keep secret)
 - `FIREBASE_WEB_API_KEY` = Firebase web API key for token verification
+
+### Azure Blob Storage (Profile Pictures)
+- `AZURE_STORAGE_CONNECTION_STRING` = Azure Storage connection string (server-side secret only — never expose in client code or repository)
+- `AZURE_STORAGE_ACCOUNT_NAME` = `profilesunibo`
+- `AZURE_STORAGE_ACCOUNT_KEY` = Azure Storage account key (server-side secret only)
+- `AZURE_STORAGE_CONTAINER` = `profile-pictures`
+
+> All 4 `AZURE_STORAGE_*` variables are stored in GitHub Actions Repository Secrets and synced automatically to Appwrite Function `69dd474b002ce3934b75` via `.github/workflows/sync-appwrite-azure-vars.yml`.
 
 ## Optional Env Vars (for persistence)
 
@@ -41,64 +55,3 @@ This function enables a safe hybrid migration:
 - `APPWRITE_USERS_TABLE_ID` (default: `users`)
 - `APPWRITE_POSTS_TABLE_ID` (default: `posts`)
 - `APPWRITE_MESSAGES_TABLE_ID` (default: `messages`)
-
-If DB/table vars are not set, routes return success with `skipped` responses.
-
-## Shadow Sync Events
-
-`POST /event-sync` now mirrors selected events directly into core tables:
-
-- `user_upsert` -> `users`
-- `post_upsert` -> `posts`
-- `comment_upsert` -> `messages` (stored with `messageType: "comment"`)
-
-Response includes mirror status in `result.mirror` for diagnostics.
-
-## Appwrite Console Setup
-
-1. Function settings:
-   - Runtime: Node
-   - Entrypoint: `index.js`
-   - Execute permission: allow your app traffic (for testing: Any)
-2. Add env vars listed above.
-3. Deploy.
-4. Verify:
-   - `GET /` should return 200.
-
-## Android Platform (unibo)
-
-Add Android platform in Appwrite for package `com.unino.app`.
-
-- Name: `unibo`
-- Package name: `com.unino.app`
-
-If you automate this with API keys, the key needs `platforms.write` (and `platforms.read` for verification). Example request:
-
-```bash
-curl -X POST "https://fra.cloud.appwrite.io/v1/projects/<PROJECT_ID>/platforms" \
-  -H "X-Appwrite-Project: <PROJECT_ID>" \
-  -H "X-Appwrite-Key: <API_KEY_WITH_PLATFORMS_WRITE>" \
-  -H "Content-Type: application/json" \
-  --data '{"type":"android","name":"unibo","packageName":"com.unino.app"}'
-```
-
-## Client Config Already Wired
-
-In `js/firebase-config.js`:
-- `window.UNINO_APPWRITE_SYNC_URL` points to `/push-sync`
-- `window.UNINO_APPWRITE_EVENT_SYNC_URL` points to `/event-sync`
-
-These calls are non-blocking and do not break Firebase behavior.
-
-Client bridge URLs now derive from `window.UNINO_APPWRITE_BRIDGE_BASE_URL`, for example:
-
-```js
-window.UNINO_APPWRITE_BRIDGE_BASE_URL = 'https://<functionId>.fra.appwrite.run';
-```
-
-## In-App Ping Test
-
-After login, open your profile "About" section and use **Backend Diagnostics** -> **Send Ping**.
-
-- Success means the app can reach the bridge function root (`GET /`).
-- If it fails, verify your function domain and CORS settings.

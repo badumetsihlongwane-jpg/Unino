@@ -10,13 +10,17 @@ import {
 } from 'node-appwrite';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-const FUNCTION_VERSION = '2026-11-27-fcm-v11';
+const FUNCTION_VERSION = '2026-11-27-azure-v12';
 const DEFAULT_PUSH_PROVIDER_ID = '69dd5e4600355126b5b0';
 const DEFAULT_AVATAR_BUCKET_ID = '6b06c81b00165508f719';
 const DEFAULT_BRIDGE_PUBLIC_URL = 'https://69dd474c000ed9db9d03.fra.appwrite.run';
+const DEFAULT_AZURE_PROFILE_CONTAINER = 'profile-pictures';
+const AZURE_BLOB_API_VERSION = '2023-11-03';
+const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
 const _schemaCache = new Map();
 const _avatarRefCache = new Map();
 let _avatarBucketEnsured = false;
+let _azureContainerEnsured = false;
 
 function corsHeaders(req) {
   const origin = (req?.headers?.origin || req?.headers?.Origin || '').trim();
@@ -24,7 +28,7 @@ function corsHeaders(req) {
   const allowOrigin = origin || '*';
   return {
     'access-control-allow-origin': allowOrigin,
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
     'access-control-allow-headers': 'Content-Type, Authorization, X-Requested-With',
     'access-control-max-age': '86400',
     vary: 'Origin'
@@ -536,6 +540,260 @@ async function serveAvatarFromAppwriteStorage(req, res, fileId = '') {
   }
 }
 
+// ─── Azure Blob Storage — Profile Pictures ───────────────────────────────────
+
+function parseAzureConnectionString(connStr = '') {
+  const out = {};
+  for (const part of String(connStr || '').split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (k && v) out[k] = v;
+  }
+  return out;
+}
+
+function getAzureBlobConfig() {
+  const parsed = parseAzureConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING || '');
+  const accountName = String(parsed.AccountName || process.env.AZURE_STORAGE_ACCOUNT_NAME || '').trim();
+  const accountKey = String(parsed.AccountKey || process.env.AZURE_STORAGE_ACCOUNT_KEY || '').trim();
+  const endpointSuffix = String(parsed.EndpointSuffix || process.env.AZURE_STORAGE_ENDPOINT_SUFFIX || 'core.windows.net').trim();
+  const container = String(process.env.AZURE_STORAGE_CONTAINER || DEFAULT_AZURE_PROFILE_CONTAINER).trim().toLowerCase() || DEFAULT_AZURE_PROFILE_CONTAINER;
+  return {
+    ready: Boolean(accountName && accountKey),
+    accountName,
+    accountKey,
+    endpointSuffix,
+    container,
+    blobHost: accountName ? `https://${accountName}.blob.${endpointSuffix}` : ''
+  };
+}
+
+function signAzureSharedKey(cfg, method, pathAndQuery, headers = {}, contentLength = '') {
+  const keyBuf = Buffer.from(cfg.accountKey, 'base64');
+  const xmsDate = new Date().toUTCString();
+  const hdrs = {
+    'x-ms-date': xmsDate,
+    'x-ms-version': AZURE_BLOB_API_VERSION,
+    ...headers
+  };
+  const canonHeaders = Object.keys(hdrs)
+    .filter(k => k.toLowerCase().startsWith('x-ms-'))
+    .map(k => [k.toLowerCase(), String(hdrs[k]).trim()])
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, v]) => `${k}:${v}\n`)
+    .join('');
+
+  const parsedUrl = new URL(`${cfg.blobHost}${pathAndQuery}`);
+  const params = Array.from(parsedUrl.searchParams.entries())
+    .map(([k, v]) => [k.toLowerCase(), v])
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, v]) => `\n${k}:${v}`)
+    .join('');
+  const canonResource = `/${cfg.accountName}${parsedUrl.pathname}${params}`;
+  const ct = hdrs['Content-Type'] || hdrs['content-type'] || '';
+  const cl = (contentLength === 0 || contentLength === '0' || contentLength === '') ? '' : String(contentLength);
+  const stringToSign = `${method.toUpperCase()}\n\n\n${cl}\n\n${ct}\n\n\n\n\n\n\n${canonHeaders}${canonResource}`;
+  const sig = crypto.createHmac('sha256', keyBuf).update(stringToSign, 'utf8').digest('base64');
+  return { ...hdrs, Authorization: `SharedKey ${cfg.accountName}:${sig}` };
+}
+
+function generateAzureBlobReadSasUrl(cfg, blobName, years = 5) {
+  const keyBuf = Buffer.from(cfg.accountKey, 'base64');
+  const sv = AZURE_BLOB_API_VERSION;
+  const sp = 'r';
+  const st = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const se = new Date(Date.now() + years * 365 * 24 * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const spr = 'https';
+  const sr = 'b';
+  const canonicalizedResource = `/blob/${cfg.accountName}/${cfg.container}/${blobName}`;
+  const stringToSign = [
+    sp, st, se, canonicalizedResource,
+    '', '', spr, sv, sr, '', '', '', '', '', '', ''
+  ].join('\n');
+  const sig = crypto.createHmac('sha256', keyBuf).update(stringToSign, 'utf8').digest('base64');
+  const qs = new URLSearchParams({ sv, st, se, sr, sp, spr, sig }).toString();
+  return `${cfg.blobHost}/${cfg.container}/${blobName}?${qs}`;
+}
+
+function sanitizeAzureUid(uid = '') {
+  return String(uid || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+}
+
+function validateProfileImageDataUrl(dataUrl = '') {
+  const raw = String(dataUrl || '').trim();
+  const m = raw.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!m) throw new Error('invalid-image-format: only JPEG, PNG, and WebP images are supported');
+  const declaredMime = m[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : m[1].toLowerCase();
+  const buf = Buffer.from(m[2].replace(/\s+/g, ''), 'base64');
+  if (!buf.length) throw new Error('empty-image');
+  if (buf.length > MAX_PROFILE_IMAGE_BYTES) throw new Error('image-too-large: max 2MB after compression');
+
+  // Verify magic bytes so disguised/corrupt payloads are rejected server-side
+  const isJpeg = buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+  const isPng = buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+  const isWebp = buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP';
+
+  if (isJpeg) return { buf, mime: 'image/jpeg', ext: 'jpg' };
+  if (isPng) return { buf, mime: 'image/png', ext: 'png' };
+  if (isWebp) return { buf, mime: 'image/webp', ext: 'webp' };
+  throw new Error(`invalid-image-bytes: file signature does not match ${declaredMime}`);
+}
+
+function extractOwnedAzureBlobName(uid = '', prevBlobName = '', prevPhotoUrl = '', cfg = null) {
+  const safeUid = sanitizeAzureUid(uid);
+  if (!safeUid) return '';
+  const container = cfg?.container || DEFAULT_AZURE_PROFILE_CONTAINER;
+  const candidates = [];
+  if (prevBlobName) candidates.push(String(prevBlobName).trim().replace(/^\/+/, ''));
+  if (prevPhotoUrl) {
+    try {
+      const parsed = new URL(String(prevPhotoUrl).trim());
+      if (parsed.hostname.endsWith('.blob.core.windows.net')) {
+        const prefix = `/${container}/`;
+        if (parsed.pathname.startsWith(prefix)) {
+          candidates.push(decodeURIComponent(parsed.pathname.slice(prefix.length)));
+        }
+      }
+    } catch (_) {}
+  }
+  for (const cand of candidates) {
+    if (!cand || cand.includes('..') || cand.includes('\\')) continue;
+    if (cand.startsWith(`${safeUid}/`) && /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]{4,120}$/.test(cand)) {
+      return cand;
+    }
+  }
+  return '';
+}
+
+async function ensureAzureProfileContainer(cfg) {
+  if (_azureContainerEnsured) return true;
+  const pq = `/${cfg.container}?restype=container`;
+  const check = await fetch(`${cfg.blobHost}${pq}`, {
+    method: 'GET',
+    headers: signAzureSharedKey(cfg, 'GET', pq)
+  });
+  if (check.ok) {
+    _azureContainerEnsured = true;
+    return true;
+  }
+  if (check.status === 404) {
+    const created = await fetch(`${cfg.blobHost}${pq}`, {
+      method: 'PUT',
+      headers: signAzureSharedKey(cfg, 'PUT', pq)
+    });
+    if (created.ok || created.status === 409) {
+      _azureContainerEnsured = true;
+      return true;
+    }
+    const detail = await created.text().catch(() => '');
+    throw new Error(`azure-container-create-${created.status}: ${detail.slice(0, 140)}`);
+  }
+  const detail = await check.text().catch(() => '');
+  throw new Error(`azure-container-check-${check.status}: ${detail.slice(0, 140)}`);
+}
+
+async function deleteAzureProfileBlob(cfg, uid = '', blobNameOrUrl = '', prevPhotoUrl = '') {
+  const owned = extractOwnedAzureBlobName(uid, blobNameOrUrl, prevPhotoUrl, cfg);
+  if (!owned) return { deleted: false, reason: 'no-owned-blob' };
+  const blobPath = `/${cfg.container}/${owned}`;
+  const resp = await fetch(`${cfg.blobHost}${blobPath}`, {
+    method: 'DELETE',
+    headers: signAzureSharedKey(cfg, 'DELETE', blobPath)
+  });
+  if (resp.ok || resp.status === 202 || resp.status === 404) {
+    return { deleted: resp.status !== 404, existed: resp.status !== 404, blobName: owned };
+  }
+  const detail = await resp.text().catch(() => '');
+  throw new Error(`azure-delete-${resp.status}: ${detail.slice(0, 140)}`);
+}
+
+async function uploadProfilePictureToAzureBlob(uid = '', dataUrl = '', prevBlobName = '', prevPhotoUrl = '') {
+  const cfg = getAzureBlobConfig();
+  if (!cfg.ready) throw new Error('missing-azure-storage-config');
+
+  const safeUid = sanitizeAzureUid(uid);
+  if (!safeUid) throw new Error('invalid-uid');
+
+  const { buf, mime, ext } = validateProfileImageDataUrl(dataUrl);
+  await ensureAzureProfileContainer(cfg);
+
+  const rand = crypto.randomBytes(4).toString('hex');
+  const blobName = `${safeUid}/${Date.now()}_${rand}.${ext}`;
+  const blobPath = `/${cfg.container}/${blobName}`;
+
+  const putResp = await fetch(`${cfg.blobHost}${blobPath}`, {
+    method: 'PUT',
+    headers: signAzureSharedKey(cfg, 'PUT', blobPath, {
+      'x-ms-blob-type': 'BlockBlob',
+      'x-ms-blob-cache-control': 'public, max-age=31536000, immutable',
+      'Content-Type': mime,
+      'Content-Length': String(buf.length)
+    }, buf.length),
+    body: buf
+  });
+  if (!putResp.ok) {
+    const detail = await putResp.text().catch(() => '');
+    throw new Error(`azure-upload-${putResp.status}: ${detail.slice(0, 160)}`);
+  }
+
+  // Delete previous profile picture blob AFTER the new upload succeeds so users never lose their avatar on error
+  let previousDeleted = false;
+  const oldOwned = extractOwnedAzureBlobName(safeUid, prevBlobName, prevPhotoUrl, cfg);
+  if (oldOwned && oldOwned !== blobName) {
+    try {
+      const del = await deleteAzureProfileBlob(cfg, safeUid, oldOwned);
+      previousDeleted = !!del.deleted;
+    } catch (_) {
+      previousDeleted = false;
+    }
+  }
+
+  const photoURL = generateAzureBlobReadSasUrl(cfg, blobName, 5);
+  return {
+    ok: true,
+    provider: 'azure-blob',
+    accountName: cfg.accountName,
+    container: cfg.container,
+    blobName,
+    photoURL,
+    contentType: mime,
+    sizeBytes: buf.length,
+    previousDeleted
+  };
+}
+
+async function serveAzureProfileBlobProxy(req, res, blobName = '') {
+  const clean = String(blobName || '').trim().replace(/^\/+/, '');
+  if (!/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]{4,120}$/.test(clean) || clean.includes('..')) {
+    return json(req, res, 400, { ok: false, error: 'invalid-blob-path' });
+  }
+  const cfg = getAzureBlobConfig();
+  if (!cfg.ready) return json(req, res, 503, { ok: false, error: 'missing-azure-storage-config' });
+  try {
+    const blobPath = `/${cfg.container}/${clean}`;
+    const resp = await fetch(`${cfg.blobHost}${blobPath}`, {
+      method: 'GET',
+      headers: signAzureSharedKey(cfg, 'GET', blobPath)
+    });
+    if (!resp.ok) {
+      return json(req, res, resp.status === 404 ? 404 : 502, { ok: false, error: 'azure-blob-fetch-failed', status: resp.status });
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const ct = String(resp.headers.get('content-type') || 'image/jpeg').split(';')[0].trim() || 'image/jpeg';
+    const headers = {
+      'content-type': ct,
+      'cache-control': 'public, max-age=31536000, immutable',
+      ...corsHeaders(req)
+    };
+    if (typeof res.binary === 'function') return res.binary(buf, 200, headers);
+    return res.send(buf, 200, headers);
+  } catch (e) {
+    return json(req, res, 502, { ok: false, error: 'azure-blob-proxy-error', detail: String(e?.message || e).slice(0, 120) });
+  }
+}
+
 async function uploadAvatarBase64ToAppwriteStorage(uid = '', dataUrl = '', prevFileId = '', bridgeBase = DEFAULT_BRIDGE_PUBLIC_URL) {
   const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
   if (!m) throw new Error('invalid-avatar-data-url');
@@ -1002,17 +1260,24 @@ export default async ({ req, res, log, error }) => {
       const fileId = pathId || extractQueryParam(req, 'file');
       return await serveAvatarFromAppwriteStorage(req, res, fileId);
     }
+    if (path.startsWith('/profile-picture/')) {
+      const blobPath = decodeURIComponent(path.slice('/profile-picture/'.length));
+      return await serveAzureProfileBlobProxy(req, res, blobPath);
+    }
+    const azureCfg = getAzureBlobConfig();
     return json(req, res, 200, {
       ok: true,
       service: 'unino-appwrite-bridge',
       version: FUNCTION_VERSION,
       status: 'ready',
       path,
-      routes: ['/push-sync', '/event-sync', '/upload-avatar', '/avatar/:fileId']
+      azureProfilePicturesReady: azureCfg.ready,
+      azureContainer: azureCfg.ready ? azureCfg.container : '',
+      routes: ['/push-sync', '/event-sync', '/profile-picture', '/delete-profile-picture', '/upload-avatar', '/avatar/:fileId']
     });
   }
 
-  if (method !== 'POST') {
+  if (method !== 'POST' && method !== 'DELETE') {
     return json(req, res, 405, { ok: false, error: 'method-not-allowed' });
   }
 
@@ -1036,9 +1301,42 @@ export default async ({ req, res, log, error }) => {
   try {
     const auth = await verifyFirebaseToken(bearer, body.firebaseApiKey || '');
 
-    if (path === '/upload-avatar') {
-      const { dataUrl = '', prevFileId = '' } = body;
+    if (method === 'POST' && path === '/profile-picture') {
+      const { dataUrl = '', prevBlobName = '', prevPhotoUrl = '' } = body;
       if (!dataUrl) return json(req, res, 400, { ok: false, error: 'missing-data-url' });
+      try {
+        const uploaded = await uploadProfilePictureToAzureBlob(auth.uid, dataUrl, prevBlobName, prevPhotoUrl);
+        log(`profile-picture upload uid=${auth.uid} blob=${uploaded.blobName} bytes=${uploaded.sizeBytes} prevDeleted=${uploaded.previousDeleted}`);
+        return json(req, res, 200, { ok: true, route: 'profile-picture', result: uploaded });
+      } catch (upErr) {
+        const errMsg = String(upErr?.message || upErr);
+        const status = errMsg.startsWith('invalid-') || errMsg.startsWith('empty-') || errMsg.startsWith('image-too-large')
+          ? 400
+          : errMsg.includes('missing-azure-storage-config')
+            ? 503
+            : 502;
+        return json(req, res, status, { ok: false, route: 'profile-picture', error: errMsg });
+      }
+    }
+
+    if ((method === 'DELETE' && path === '/profile-picture') || (method === 'POST' && path === '/delete-profile-picture')) {
+      const cfg = getAzureBlobConfig();
+      if (!cfg.ready) return json(req, res, 503, { ok: false, error: 'missing-azure-storage-config' });
+      const { blobName = '', photoUrl = '' } = body;
+      const deleted = await deleteAzureProfileBlob(cfg, auth.uid, blobName, photoUrl);
+      log(`profile-picture delete uid=${auth.uid} deleted=${deleted.deleted} blob=${deleted.blobName || 'none'}`);
+      return json(req, res, 200, { ok: true, route: 'delete-profile-picture', result: deleted });
+    }
+
+    if (method === 'POST' && path === '/upload-avatar') {
+      const { dataUrl = '', prevFileId = '', prevBlobName = '', prevPhotoUrl = '' } = body;
+      if (!dataUrl) return json(req, res, 400, { ok: false, error: 'missing-data-url' });
+      const azureCfg = getAzureBlobConfig();
+      if (azureCfg.ready) {
+        const uploaded = await uploadProfilePictureToAzureBlob(auth.uid, dataUrl, prevBlobName, prevPhotoUrl);
+        log(`upload-avatar->azure uid=${auth.uid} blob=${uploaded.blobName}`);
+        return json(req, res, 200, { ok: true, route: 'upload-avatar', result: uploaded });
+      }
       const uploaded = await uploadAvatarBase64ToAppwriteStorage(auth.uid, dataUrl, prevFileId, getBridgePublicBaseUrl(req));
       log(`upload-avatar uid=${auth.uid} ref=${uploaded.avatarRef}`);
       return json(req, res, 200, { ok: true, route: 'upload-avatar', result: uploaded });
